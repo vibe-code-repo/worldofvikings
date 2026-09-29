@@ -2504,6 +2504,23 @@ const KERN = [
     server/test/forum-api.ts, kein Netz, ~0.2 s.
   */
   ['server', 'test/forum-token-nach-koerper.ts'],
+  /*
+    Karte G1 (2026-09-29): der reine Übernahme-Filter für die
+    Grundskala-Live-Meldung (BroadcastChannel, `grundskalaLive.ts`) —
+    Duplikat und Nachzügler verworfen, unabhängige Modellspuren — plus der
+    volle Kanal-Weg über Node's globales `BroadcastChannel` (senden,
+    hören, abmelden, Umgebung ohne Unterstützung). DOM-frei, < 1 s.
+  */
+  ['client', 'test/grundskala-live.ts'],
+  /*
+    Karte G1 (2026-09-29): `EntityManager.aktualisiereGrundskala` nach
+    einer PATCH-Grundskala-Änderung — nur Buckets DES GEMELDETEN Modells
+    werden dirty markiert, ein anderes schon gesetztes Modell bleibt
+    unberührt, ein nie gesetztes Modell liefert 0 Treffer ohne Fehler.
+    DOM-frei wie entity-index.ts (steinKitOverride leer, kein Szene-
+    Zugriff), < 1 s.
+  */
+  ['client', 'test/entity-grundskala.ts'],
 ];
 
 const QUELLE = fileURLToPath(import.meta.url);

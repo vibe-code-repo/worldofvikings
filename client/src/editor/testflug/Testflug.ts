@@ -40,6 +40,8 @@ import type { EntwurfDokument, EntwurfEintrag, TestflugPersistenz, VorgangAntwor
 import { TestflugAktionen, doppelteIds } from './TestflugAktionen';
 import { sockelRadiusFuer } from './sockel';
 import { DoppelklickSperre, Ziehgriff, entscheideKlick, griffPosition, modusNachSetzen } from './greifen';
+import { hoereGrundskalaGeaendert } from './grundskalaLive';
+import { uploadedModelRegistry } from '@wov/shared';
 
 /**
  * ?layout=editor lädt den Editor-Entwurf — der "Testflug" des 3D-Map-
@@ -138,6 +140,20 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     const entwurf = testflug as { placements?: EntwurfEintrag[] };
     (entwurf.placements ?? []).forEach(zeige);
     ent.flush();
+
+    // ── Grundskala live (G1) ─────────────────────────────────────────
+    // Der Katalog meldet per BroadcastChannel, wenn ein Upload eine neue
+    // Grundskala bekommen hat (`GegenstandsKatalog.
+    // grundskalaAendernAusfuehren`, anderer Tab). `aktualisiereGrundskala`
+    // holt sich die geänderte Grundskala über `AssetManager.getMasters`
+    // erneut und schreibt alle Buckets dieses Modells neu — `flush()`
+    // führt den markierten Bucket noch in diesem Tick aus.
+    const grundskalaAbmelden = hoereGrundskalaGeaendert((name) => {
+      void ent
+        .aktualisiereGrundskala(`${uploadedModelRegistry.UPLOAD_MODEL_PREFIX}${name}`)
+        .then(() => ent.flush());
+    });
+    scene.onDisposeObservable.add(grundskalaAbmelden);
 
     // ── Live-Planieren ──────────────────────────────────────────────
     // Sockel sofort in die laufende Geo einfügen/entfernen und die

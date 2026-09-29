@@ -2189,6 +2189,51 @@ export class EntityManager {
     return { an, buckets: n };
   }
 
+  /**
+   * G1 (Grundskala live im Testflug, Mikes Beschluss 27.09.): nach einem
+   * PATCH `/api/modell-hochladen` (`GegenstandsKatalog.
+   * grundskalaAendernAusfuehren`) erst `assets.getMasters(model)` erneut
+   * anstossen — der Cache-Treffer dort lässt `wendeGrundskalaAn()` erneut
+   * laufen und schreibt `master.localMatrix` IN PLACE auf den neuen Wert
+   * (Kopfkommentar `AssetManager.wendeGrundskalaAn`). `masterLocals` hält
+   * dieselben Matrix-Objekte (keine Kopien, s. `prepareMasters`), sieht die
+   * Änderung also automatisch mit — was fehlt, ist ein erneutes Schreiben
+   * der schon auf die GPU geladenen Thin-Instance-Puffer. Das übernimmt
+   * `bucket.dirty = true`; `rebuildBucketInstances()` liest `masterLocals`
+   * beim nächsten Tick neu.
+   *
+   * Nur Buckets DIESES Modells werden angefasst (`findPrefabByHash(...)
+   * .model`) — ein Testflug, der das geänderte Modell (noch) nicht gesetzt
+   * hat, bleibt unberührt und der `getMasters()`-Aufruf selbst ist dann ein
+   * reiner Cache-Vergleich ohne Neuverarbeitung.
+   *
+   * `this.colliders` (Kopfkommentar dort) baut die Kollisionsform je
+   * `masterKey` genau EINMAL und danach nie wieder — ein Verhalten, das
+   * bisher stimmte, weil sich die Form eines schon geladenen Prefabs nie
+   * änderte. Eine Grundskala-Änderung bricht diese Annahme; der veraltete
+   * Eintrag wird hier verworfen (samt Havok-Körpern und Träger-Mesh), damit
+   * `rebuildBucketColliders()` ihn beim nächsten `flush()` aus den jetzt
+   * aktuellen `masterLocals` neu ableitet.
+   */
+  async aktualisiereGrundskala(model: string): Promise<{ buckets: number }> {
+    await this.assets.getMasters(model);
+    let n = 0;
+    for (const bucket of this.buckets.values()) {
+      if (!bucket.mastersReady) continue;
+      if (findPrefabByHash(bucket.prefabHash)?.model !== model) continue;
+      const alterCollider = this.colliders.get(bucket.masterKey);
+      if (alterCollider) {
+        alterCollider.set.dispose();
+        alterCollider.carrier.dispose();
+        this.colliders.delete(bucket.masterKey);
+        this.colliderSpecs.delete(bucket.masterKey);
+      }
+      bucket.dirty = true;
+      n++;
+    }
+    return { buckets: n };
+  }
+
   /** Diagnose fuer A/B-Messungen ueber window.__dbg.entities. */
   vegetationsGrenzeInfo(): {
     grenzeM: number;

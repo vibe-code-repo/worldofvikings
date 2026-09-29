@@ -13,6 +13,10 @@ import { hiebSpitzeS } from '../src/player/hiebSpitze';
 import {
   KAMPF_GRUPPEN,
   KampfToene,
+  HOECHSTTEMPO,
+  ANDERE_SPITZE_MAX_S,
+  ORTSRAND_M,
+  schwungGruppe,
   SCHWUNG_VERZUG_S,
   TREFFER_ERNTE,
   TREFFER_FLEISCH,
@@ -64,7 +68,7 @@ class FalscheUhr implements Uhr {
 
 /** Ohne die Schwungtöne (combat/slash…): nur Treffer, Parade, Ernte. */
 function ohneSchwung(spuren: Spur[]): Spur[] {
-  return spuren.filter((x) => !/^combat\/slash/.test(x.gruppe));
+  return spuren.filter((x) => !/^combat\/(slash|fist-swing)/.test(x.gruppe));
 }
 
 interface Spur {
@@ -161,11 +165,11 @@ console.log('\n[2] Abgebrochene Schläge:');
 
 console.log('\n[3] Faust, Stab, Speer:');
 {
-  for (const satz of ['faust', 'stab', 'speer'] as Waffensatz[]) {
-    const a = aufbau();
-    a.klick(satz, 0);
+  {
+    const a = aufbau('');
+    a.klick('faust', 0);
     a.uhr.bis(2);
-    pruefe(`${satz}: kein Schwert-Schwung`, a.spuren.length === 0);
+    pruefe('faust: Schwungton fist-swing zur Hiebspitze (kein punch ohne Treffer)', a.spuren.length === 1 && a.spuren[0]!.gruppe === 'combat/fist-swing', JSON.stringify(a.spuren.map((x) => x.gruppe)));
   }
   const a = aufbau();
   let bogen = 0;
@@ -207,8 +211,8 @@ console.log('\n[4] Treffer nur mit Serverpaket:');
   const a = aufbau('');
   a.klick('faust', 0);
   a.uhr.bis(2);
+  pruefe('Faust ohne Treffer: nur der Schwung, kein punch', a.spuren.length === 1 && a.spuren[0]!.gruppe === 'combat/fist-swing');
   a.spuren.length = 0;
-  pruefe('Faust ohne Treffer: still', a.spuren.length === 0);
   a.klick('faust', 0);
   a.k.treffer({ x: 12.5, y: 1, z: 10 }, TREFFER_FLEISCH, true);
   pruefe('Faust + Treffer: punch', a.spuren.length === 1 && a.spuren[0]!.gruppe === 'combat/punch', String(a.spuren[0]?.gruppe));
@@ -445,6 +449,134 @@ console.log('\n[13] N1: Hiebzeit kommt aus dem Rig, nicht aus einer Tabelle (Bef
   pruefe('auch der Slash-Halbmond folgt der gemeldeten Zeit', Math.abs(bogenZeit - 0.2) < 1e-6, String(bogenZeit));
 }
 
+console.log('\n[14] Schwungton je Waffenart (Faust: fist-swing):');
+{
+  const soll: [Waffensatz, string, number, string][] = [
+    ['schwert', 'SwordNorth', 0, 'combat/slash'],
+    ['schwert', 'SwordNorth', 1, 'combat/slash'],
+    ['schwert', 'SwordNorth', 2, 'combat/slash-heavy'],
+    ['schwert', 'AxeFlint', 0, 'combat/slash'],
+    ['schwert', 'Club', 0, 'combat/slash-heavy'],
+    ['schwert', 'Club', 1, 'combat/slash-heavy'],
+    ['speer', 'Staff', 0, 'combat/slash-heavy'], // Katalog: Staff hat den Speer-Satz
+    ['speer', 'Staff', 2, 'combat/slash-heavy'],
+    ['stab', 'Staff', 0, 'combat/slash-heavy'],
+    ['stab', 'Staff', 2, 'combat/slash-heavy'],
+    ['speer', 'Spear', 0, 'combat/slash'],
+    ['speer', 'Spear', 2, 'combat/slash'],
+    ['faust', '', 0, 'combat/fist-swing'],
+    ['faust', '', 2, 'combat/fist-swing'],
+  ];
+  for (const [satz, waffe, hieb, gruppe] of soll) {
+    pruefe(`schwungGruppe(${satz}, ${waffe || 'leer'}, Hieb ${hieb + 1}) = ${gruppe}`, schwungGruppe(satz, hieb, waffe) === gruppe, String(schwungGruppe(satz, hieb, waffe)));
+    const a = aufbau(waffe);
+    a.klick(satz, hieb);
+    a.uhr.bis(2);
+    pruefe(`  ${satz}/${waffe} Hieb ${hieb + 1}: genau ein Ton dieser Gruppe`, a.spuren.length === 1 && a.spuren[0]!.gruppe === gruppe, JSON.stringify(a.spuren.map((x) => x.gruppe)));
+  }
+  // Stab/Speer: Ton kommt zur Hiebspitze des Rigs, nicht beim Klick.
+  for (const [satz, waffe] of [['stab', 'Staff'], ['speer', 'Spear']] as [Waffensatz, string][]) {
+    const a = aufbau(waffe);
+    a.figur.avatar.hiebSpitzeS = 0.5;
+    a.klick(satz, 1);
+    a.uhr.bis(0.49);
+    const davor = a.spuren.length;
+    a.uhr.bis(0.52);
+    pruefe(`${satz}: Ton zur gemeldeten Hiebspitze (0,5 s)`, davor === 0 && a.spuren.length === 1);
+  }
+}
+
+console.log('\n[14b] Stab/Speer/Faust Hieb 3: Ton vor dem Clip-Ende (Browser: Rest 0,972 s / 1,056 s, Rohspitze 1,133 s):');
+{
+  for (const [satz, waffe] of [['stab', 'Staff'], ['speer', 'Staff'], ['speer', 'Spear'], ['faust', '']] as [Waffensatz, string][]) {
+    const a = aufbau(waffe);
+    a.figur.avatar.hiebSpitzeS = 1.133;
+    a.klick(satz, 2);
+    a.uhr.setze(() => { a.figur.avatar.schlaegt = false; }, 972); // Clip zu Ende
+    a.uhr.bis(2);
+    pruefe(`${satz}/${waffe} Hieb 3: klingt, bevor der Schlag endet`, a.spuren.length === 1 && Math.abs(a.spuren[0]!.zeit - ANDERE_SPITZE_MAX_S) < 1e-6, JSON.stringify(a.spuren.map((x) => x.zeit)));
+  }
+  const b = aufbau('SwordNorth');
+  b.figur.avatar.hiebSpitzeS = 0.68;
+  b.klick('schwert', 2);
+  b.uhr.bis(2);
+  pruefe('Schwert Hieb 3 bleibt bei 0,68 s (Kappe gilt nicht für das Schwert)', b.spuren.length === 1 && Math.abs(b.spuren[0]!.zeit - 0.68) < 1e-6);
+}
+
+console.log('\n[15] Sprint verschluckt keinen Hieb, Teleport verwirft:');
+{
+  pruefe('Höchsttempo = Laufen (7,5 m/s)', HOECHSTTEMPO === 7.5 && ORTSRAND_M > 0);
+  // Sprint: die Figur läuft mit 7,5 m/s weiter, Kombo 1–3 im Takt der Hiebspitzen.
+  const a = aufbau();
+  const spitzen = [0.28, 0.4, 0.68];
+  let t = 0;
+  let x = 10;
+  const sprintBis = (bis: number) => {
+    // in 10-ms-Schritten laufen, damit Zeitgeber und Figur gemeinsam vorrücken
+    while (t < bis - 1e-9) {
+      t = Math.min(bis, t + 0.01);
+      x += 7.5 * 0.01;
+      a.figur.position.x = x;
+      a.uhr.bis(t);
+    }
+  };
+  // Drei Klicks im Abstand 0,2 s; jeder Hieb wartet auf seine Spitze.
+  const klickZeiten = [0, 0.2, 0.4];
+  for (let i = 0; i < 3; i++) {
+    sprintBis(klickZeiten[i]!);
+    a.klick('schwert', i);
+    a.figur.avatar.hiebSpitzeS = spitzen[i]!;
+  }
+  sprintBis(2);
+  pruefe('Sprint 7,5 m/s, Kombo 1-3 (Klick-Abstand 0,2 s): Ton nur für den zuletzt angestoßenen Hieb (frühere verfallen wie gehabt)', a.spuren.length === 1 && a.spuren[0]!.gruppe === 'combat/slash-heavy', JSON.stringify(a.spuren.map((s) => s.gruppe)));
+  // Jeder Hieb einzeln im Sprint: alle drei klingen, auch der dritte (5,1 m in 0,68 s).
+  for (let i = 0; i < 3; i++) {
+    const b = aufbau();
+    b.klick('schwert', i);
+    let bx = 10;
+    let bt = 0;
+    while (bt < 1.5) {
+      bt += 0.01;
+      bx += 7.5 * 0.01;
+      b.figur.position.x = bx;
+      b.uhr.bis(bt);
+    }
+    pruefe(`Sprint: Hieb ${i + 1} klingt (${(7.5 * spitzen[i]!).toFixed(2)} m bis zur Spitze)`, b.spuren.length === 1, String(b.spuren.length));
+  }
+  // Treffer im Sprint: der zurückgehaltene Treffer klingt ebenfalls.
+  const c = aufbau();
+  c.klick('schwert', 2);
+  c.k.treffer({ x: 13, y: 1, z: 10 }, TREFFER_FLEISCH, true);
+  let cx = 10;
+  let ct = 0;
+  while (ct < 1.5) {
+    ct += 0.01;
+    cx += 7.5 * 0.01;
+    c.figur.position.x = cx;
+    c.uhr.bis(ct);
+  }
+  pruefe('Sprint, Hieb 3: Schwung UND zurückgehaltener Treffer klingen', c.spuren.length === 2, JSON.stringify(c.spuren.map((s) => s.gruppe)));
+  // Teleport (Bett, Tor): mehr als Höchsttempo x Zeit + Rand.
+  for (const hieb of [0, 1, 2]) {
+    const d = aufbau();
+    d.klick('schwert', hieb);
+    d.uhr.bis(0.1);
+    d.figur.position.x += 7.5 * spitzen[hieb]! + ORTSRAND_M + 2; // 2 m mehr als möglich
+    d.uhr.bis(2);
+    pruefe(`Teleport (2 m über dem Möglichen), Hieb ${hieb + 1}: verworfen`, d.spuren.length === 0);
+  }
+  const e = aufbau('Staff');
+  e.klick('stab', 0);
+  e.figur.position.z += 50;
+  e.uhr.bis(2);
+  pruefe('Teleport 50 m, Stab: verworfen', e.spuren.length === 0);
+  const g = aufbau();
+  g.klick('schwert', 1);
+  g.figur.position.x += 7.5 * 0.4 - 0.2; // Sprint gerade noch möglich
+  g.uhr.bis(2);
+  pruefe('gerade noch Sprintstrecke: Ton klingt', g.spuren.length === 1);
+}
+
 console.log('\n[8] Gruppen im echten toene-Abschnitt (Bus world):');
 {
   const wurzel = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -452,10 +584,10 @@ console.log('\n[8] Gruppen im echten toene-Abschnitt (Bus world):');
   const gruppen = groupByBus(readAudioManifest(manifest)).world;
   const soll: Record<string, number> = {
     'combat/slash': 3, 'combat/slash-heavy': 3, 'combat/sword-flesh': 3, 'combat/sword-impact-flesh': 3,
-    'combat/sword-stab-flesh': 5, 'combat/punch': 3, 'combat/sword-wood': 4, 'combat/sword-metal': 4,
+    'combat/sword-stab-flesh': 5, 'combat/punch': 3, 'combat/fist-swing': 2, 'combat/sword-wood': 4, 'combat/sword-metal': 4,
     'combat/shield-metal': 6, 'combat/shield-wood': 4,
   };
-  pruefe('10 verwendete Gruppen', KAMPF_GRUPPEN.length === 10 && new Set(KAMPF_GRUPPEN).size === 10);
+  pruefe('11 verwendete Gruppen', KAMPF_GRUPPEN.length === 11 && new Set(KAMPF_GRUPPEN).size === 11);
   for (const g of KAMPF_GRUPPEN) {
     const n = (gruppen.get(g) ?? []).length;
     pruefe(`Gruppe ${g}`, n === soll[g], `${n} Klips`);

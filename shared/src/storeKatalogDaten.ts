@@ -4,16 +4,16 @@
  *   npx tsx tools/store-prefabs.mjs
  *
  * Der vollständige Katalog des Asset-Speichers: JEDE Datei, die unter
- * \`assets/store/\` wirklich liegt — 1304 Einträge, auch
+ * \`assets/store/\` wirklich liegt — 1306 Einträge, auch
  * Texturen, Töne und Kollisionsnetze, zu denen es kein Prefab gibt.
  *
  * ── Warum diese Datei NICHT im Barrel steht ──────────────────────────
  * \`shared/src/index.ts\` exportiert sie mit Absicht nicht, und das ist
  * dieselbe Entscheidung wie bei \`featurePieces.ts\` (Begründung dort im
- * Kopf): Ein \`export *\` von hier zöge diese 1304 Zeilen
+ * Kopf): Ein \`export *\` von hier zöge diese 1306 Zeilen
  * über jedes Client-Modul, das aus '@wov/shared' importiert, ins
  * SPIEL-Bundle. Genau das war der Zustand bis zum 08.09.2026 — der
- * ausgelieferte Prefab-Chunk trug 1304-mal \`lizenzstatus\`
+ * ausgelieferte Prefab-Chunk trug 1306-mal \`lizenzstatus\`
  * durch die Leitung jedes Spielers, für einen Katalog, den nur der
  * Editor aufschlägt (682 KB roh, 118 KB gzip).
  *
@@ -47,6 +47,8 @@ const STORE_KATALOG_TEIL_0: readonly StoreEintrag[] = [
   { id: 'audio/animals/crow-05', pfad: 'audio/animals/crow-05.ogg', art: 'ton', gruppe: 'Tiere', untergruppe: 'Krähe', bytes: 6144, hash: 'sha256-abc3531a989c1f1b12fbb3800947c175c042a2c10d324874279ccbf21db435e6', lizenzstatus: 'intern' },
   { id: 'audio/animals/rooster-01', pfad: 'audio/animals/rooster-01.ogg', art: 'ton', gruppe: 'Tiere', untergruppe: 'Hahn', bytes: 13447, hash: 'sha256-37b05f0252343c27747baa0665e7481613b51dc3d404c5951d7125b6c7c176d1', lizenzstatus: 'intern' },
   { id: 'audio/animals/rooster-02', pfad: 'audio/animals/rooster-02.ogg', art: 'ton', gruppe: 'Tiere', untergruppe: 'Hahn', bytes: 16738, hash: 'sha256-d668c22bb2db9560dc7cff9112abb419b629fec4acdbd2fe8f84b30a432983cd', lizenzstatus: 'intern' },
+  { id: 'audio/combat/fist-swing-01', pfad: 'audio/combat/fist-swing-01.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'fist', bytes: 2167, hash: 'sha256-b5b1cd7510908a2e6d618f61f0dd9dd531b9b704bf20d243b50cd86a2e5bb74d', lizenzstatus: 'intern' },
+  { id: 'audio/combat/fist-swing-02', pfad: 'audio/combat/fist-swing-02.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'fist', bytes: 2330, hash: 'sha256-40f3ad91c04ed6ab7d3b266f66853c7f33e659c72863dedfb53328920e59dbf6', lizenzstatus: 'intern' },
   { id: 'audio/combat/punch-01', pfad: 'audio/combat/punch-01.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'punch', bytes: 4715, hash: 'sha256-90bdcc21d5a93afa1011fb751ebd205ad6f232b4858ab0a94a57bd3d511551b2', lizenzstatus: 'intern' },
   { id: 'audio/combat/punch-02', pfad: 'audio/combat/punch-02.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'punch', bytes: 4524, hash: 'sha256-16afa9fb771c881c501fb52363d4feb9ee46afd01d5e2693a71f4883794dd39c', lizenzstatus: 'intern' },
   { id: 'audio/combat/punch-03', pfad: 'audio/combat/punch-03.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'punch', bytes: 4926, hash: 'sha256-9ba2841a51fda22d0470eb21a9ceadf42395b4843798659a3935c74c3d814200', lizenzstatus: 'intern' },
@@ -330,11 +332,11 @@ const STORE_KATALOG_TEIL_0: readonly StoreEintrag[] = [
   { id: 'audio/music/combat-02', pfad: 'audio/music/combat-02.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'combat', bytes: 468696, hash: 'sha256-635d2663c4d1339d0aecc25660954b297fd143f48cdf0f0976926d0aac1c3f6d', lizenzstatus: 'intern' },
   { id: 'audio/music/combat-03', pfad: 'audio/music/combat-03.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'combat', bytes: 427420, hash: 'sha256-e1535795e88711ddd4411e30a64a1e5deebb45abb75d4ae1aa9e7f4c9f94121f', lizenzstatus: 'intern' },
   { id: 'audio/music/dungeons-01', pfad: 'audio/music/dungeons-01.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'dungeons', bytes: 460429, hash: 'sha256-47e56312a2764e730af42535411557e3497fe64be0468c72d06a94ea7fbe60e6', lizenzstatus: 'intern' },
-  { id: 'audio/music/dungeons-02', pfad: 'audio/music/dungeons-02.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'dungeons', bytes: 402770, hash: 'sha256-e55bebff5fdf564981c6c088861351401db8cd6ecd885e94adf852133263bc2d', lizenzstatus: 'intern' },
-  { id: 'audio/music/dungeons-03', pfad: 'audio/music/dungeons-03.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'dungeons', bytes: 583857, hash: 'sha256-4924879c1daac92e39bb40aefd79a286b4f46b48735e46d1ca185af0bdbf29e0', lizenzstatus: 'intern' },
 ];
 
 const STORE_KATALOG_TEIL_1: readonly StoreEintrag[] = [
+  { id: 'audio/music/dungeons-02', pfad: 'audio/music/dungeons-02.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'dungeons', bytes: 402770, hash: 'sha256-e55bebff5fdf564981c6c088861351401db8cd6ecd885e94adf852133263bc2d', lizenzstatus: 'intern' },
+  { id: 'audio/music/dungeons-03', pfad: 'audio/music/dungeons-03.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'dungeons', bytes: 583857, hash: 'sha256-4924879c1daac92e39bb40aefd79a286b4f46b48735e46d1ca185af0bdbf29e0', lizenzstatus: 'intern' },
   { id: 'audio/music/epic-drums', pfad: 'audio/music/epic-drums.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'epic', bytes: 307578, hash: 'sha256-2876f762bbe08c6da1b8bf64565ae9e52e97c7fcf0d7f2a5f4093cee2be61a87', lizenzstatus: 'intern' },
   { id: 'audio/music/exploration-01', pfad: 'audio/music/exploration-01.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'exploration', bytes: 387673, hash: 'sha256-85b7a3651c179abe21e2532f56eee7f99a099d0e57d785d273c5484fa9f6b762', lizenzstatus: 'intern' },
   { id: 'audio/music/exploration-02', pfad: 'audio/music/exploration-02.ogg', art: 'ton', gruppe: 'Quellen', untergruppe: 'exploration', bytes: 567963, hash: 'sha256-33a8e04e701ed6b18ba2d35fe0a4ae5f90666210c502491473ae1f3440fe691f', lizenzstatus: 'intern' },
@@ -633,11 +635,11 @@ const STORE_KATALOG_TEIL_1: readonly StoreEintrag[] = [
   { id: 'environment/sm-prop-bricks-02', pfad: 'environment/sm-prop-bricks-02.glb', art: 'modell', gruppe: 'Requisiten', untergruppe: 'Ziegel', bytes: 33536, hash: 'sha256-d38acbb7e0c6d3478c24e3d8ee03e61a62549ec3cabcc7aca5c5779662873869', bounds: { min: [-0.5592, -0.5936, -0.1715], max: [1.2247, 1.3594, 0.1715] }, boundsRaum: 'datei', kollision: { art: 'box' }, lizenzstatus: 'intern', prefabName: 'environment-sm-prop-bricks-02' },
   { id: 'environment/sm-prop-bricks-03', pfad: 'environment/sm-prop-bricks-03.glb', art: 'modell', gruppe: 'Requisiten', untergruppe: 'Ziegel', bytes: 39692, hash: 'sha256-de6be437315ae514f7acf5859575237a3675fe808215185b89f764de2e47b09a', bounds: { min: [-1.7082, 0, -0.1728], max: [1.7082, 1.2152, 0.1728] }, boundsRaum: 'datei', kollision: { art: 'box' }, lizenzstatus: 'intern', prefabName: 'environment-sm-prop-bricks-03' },
   { id: 'environment/sm-prop-bricks-04', pfad: 'environment/sm-prop-bricks-04.glb', art: 'modell', gruppe: 'Requisiten', untergruppe: 'Ziegel', bytes: 13396, hash: 'sha256-71ea469b63b397eabf1907e1816d08be4f9c8173290d505c79e13ed8657c7e2a', bounds: { min: [-0.8488, 0, -0.717], max: [0.8488, 0.2497, 0.717] }, boundsRaum: 'datei', kollision: { art: 'box' }, lizenzstatus: 'intern', prefabName: 'environment-sm-prop-bricks-04' },
-  { id: 'environment/sm-prop-bucket-fish-01', pfad: 'environment/sm-prop-bucket-fish-01.glb', art: 'modell', gruppe: 'Requisiten', untergruppe: 'Eimer', bytes: 163044, hash: 'sha256-8ddd432f774ccbacd4561d46d7b4134f65e6b47d409cdde4cbc45ace1484cdc1', bounds: { min: [-0.3635, -0.0022, -0.3066], max: [0.3056, 0.588, 0.3726] }, boundsRaum: 'datei', kollision: { art: 'box' }, lizenzstatus: 'intern', prefabName: 'environment-sm-prop-bucket-fish-01' },
-  { id: 'environment/sm-prop-cabinet-02', pfad: 'environment/sm-prop-cabinet-02.glb', art: 'modell', gruppe: 'Requisiten', untergruppe: 'Kommoden', bytes: 47616, hash: 'sha256-3c4c764301d1b3a339595034617f41e715543ed986ccb188115d3895846b328d', bounds: { min: [-0.8031, 0, -0.4], max: [0.8032, 2.1933, 0.4256] }, boundsRaum: 'datei', kollision: { art: 'box' }, lizenzstatus: 'intern', prefabName: 'environment-sm-prop-cabinet-02' },
 ];
 
 const STORE_KATALOG_TEIL_2: readonly StoreEintrag[] = [
+  { id: 'environment/sm-prop-bucket-fish-01', pfad: 'environment/sm-prop-bucket-fish-01.glb', art: 'modell', gruppe: 'Requisiten', untergruppe: 'Eimer', bytes: 163044, hash: 'sha256-8ddd432f774ccbacd4561d46d7b4134f65e6b47d409cdde4cbc45ace1484cdc1', bounds: { min: [-0.3635, -0.0022, -0.3066], max: [0.3056, 0.588, 0.3726] }, boundsRaum: 'datei', kollision: { art: 'box' }, lizenzstatus: 'intern', prefabName: 'environment-sm-prop-bucket-fish-01' },
+  { id: 'environment/sm-prop-cabinet-02', pfad: 'environment/sm-prop-cabinet-02.glb', art: 'modell', gruppe: 'Requisiten', untergruppe: 'Kommoden', bytes: 47616, hash: 'sha256-3c4c764301d1b3a339595034617f41e715543ed986ccb188115d3895846b328d', bounds: { min: [-0.8031, 0, -0.4], max: [0.8032, 2.1933, 0.4256] }, boundsRaum: 'datei', kollision: { art: 'box' }, lizenzstatus: 'intern', prefabName: 'environment-sm-prop-cabinet-02' },
   { id: 'environment/sm-prop-camp-brazier-01', pfad: 'environment/sm-prop-camp-brazier-01.glb', art: 'modell', gruppe: 'Requisiten', untergruppe: 'Lager', bytes: 51404, hash: 'sha256-fc9e62f8db28885abea4939bef16bdbe254679fb899dbe1fc6eca43f06beaba6', bounds: { min: [-0.2771, 0, -0.277], max: [0.2771, 0.5934, 0.277] }, boundsRaum: 'datei', kollision: { art: 'box' }, lizenzstatus: 'intern', prefabName: 'environment-sm-prop-camp-brazier-01' },
   { id: 'environment/sm-prop-candle-chandelier-02-particle', pfad: 'environment/sm-prop-candle-chandelier-02-particle.glb', art: 'modell', gruppe: 'Requisiten', untergruppe: 'Kerzen', kennzeichen: ['ursprung-versetzt'], bytes: 3688, hash: 'sha256-1903f9f5249e6481c71917afc1aea43d69f95d3b984a24d6b2c8f20f569f2acd', bounds: { min: [-1.1045, -2.1894, -1.0994], max: [1.1005, -1.234, 1.0967] }, boundsRaum: 'datei', kollision: { art: 'box' }, lizenzstatus: 'intern', prefabName: 'environment-sm-prop-candle-chandelier-02-particle' },
   { id: 'environment/sm-prop-candle-flame-01', pfad: 'environment/sm-prop-candle-flame-01.glb', art: 'modell', gruppe: 'Requisiten', untergruppe: 'Kerzen', bytes: 3660, hash: 'sha256-b99ac374df35d5ce9d13a7b31493130ef3497d5762323a4b803cc3825b4f15f4', bounds: { min: [-0.0181, -0.0452, -0.0181], max: [0.0181, 0.0657, 0.0181] }, boundsRaum: 'datei', kollision: { art: 'box' }, lizenzstatus: 'intern', prefabName: 'environment-sm-prop-candle-flame-01' },
@@ -936,11 +938,11 @@ const STORE_KATALOG_TEIL_2: readonly StoreEintrag[] = [
   { id: 'ui/hud/frame2elite3', pfad: 'ui/hud/frame2elite3.png', art: 'symbol', gruppe: 'Symbole', untergruppe: 'Bedienelemente', bytes: 16745, hash: 'sha256-f229bb9c4260fa135333186185ff9083e364bf7c1cda10cb54ee2cef8ae05eed', lizenzstatus: 'intern' },
   { id: 'ui/hud/frame2elite4', pfad: 'ui/hud/frame2elite4.png', art: 'symbol', gruppe: 'Symbole', untergruppe: 'Bedienelemente', bytes: 17214, hash: 'sha256-d0cb69e9062f1e8aa463362c119b87bf849fe920524ad4366122be71647d7536', lizenzstatus: 'intern' },
   { id: 'ui/hud/frame2elite5', pfad: 'ui/hud/frame2elite5.png', art: 'symbol', gruppe: 'Symbole', untergruppe: 'Bedienelemente', bytes: 30547, hash: 'sha256-3319eb1eb633d3f44d6bfcab50942db4d3deda1067366903619312925051d431', lizenzstatus: 'intern' },
-  { id: 'ui/hud/health-bar-back-boss-mask', pfad: 'ui/hud/health-bar-back-boss-mask.png', art: 'symbol', gruppe: 'Symbole', untergruppe: 'Bedienelemente', bytes: 5498, hash: 'sha256-47b182af323599b50f4c77898cc49fa857c6fbe5d2968ca9787462ccec8f5cb7', lizenzstatus: 'intern' },
-  { id: 'ui/hud/hp-bar-mini-back', pfad: 'ui/hud/hp-bar-mini-back.png', art: 'symbol', gruppe: 'Symbole', untergruppe: 'Bedienelemente', bytes: 5165, hash: 'sha256-b4baf2890665f8a123108cfd88513ac21083c278b0923c3cec5b2b40b2af82f6', lizenzstatus: 'intern' },
 ];
 
 const STORE_KATALOG_TEIL_3: readonly StoreEintrag[] = [
+  { id: 'ui/hud/health-bar-back-boss-mask', pfad: 'ui/hud/health-bar-back-boss-mask.png', art: 'symbol', gruppe: 'Symbole', untergruppe: 'Bedienelemente', bytes: 5498, hash: 'sha256-47b182af323599b50f4c77898cc49fa857c6fbe5d2968ca9787462ccec8f5cb7', lizenzstatus: 'intern' },
+  { id: 'ui/hud/hp-bar-mini-back', pfad: 'ui/hud/hp-bar-mini-back.png', art: 'symbol', gruppe: 'Symbole', untergruppe: 'Bedienelemente', bytes: 5165, hash: 'sha256-b4baf2890665f8a123108cfd88513ac21083c278b0923c3cec5b2b40b2af82f6', lizenzstatus: 'intern' },
   { id: 'ui/hud/icon-arrow', pfad: 'ui/hud/icon-arrow.png', art: 'symbol', gruppe: 'Symbole', untergruppe: 'Bedienelemente', bytes: 594, hash: 'sha256-370625779b9d23abf01ff23cedfd9b204e877dea54280f71aaf4b420f0f6e581', lizenzstatus: 'intern' },
   { id: 'ui/hud/icon-arrow-2', pfad: 'ui/hud/icon-arrow-2.png', art: 'symbol', gruppe: 'Symbole', untergruppe: 'Bedienelemente', bytes: 113092, hash: 'sha256-a665ff7f530ec633b7fc977a4700e3cce4adf05e3c2799c86e7c285e76b6a625', lizenzstatus: 'intern' },
   { id: 'ui/hud/icon-arrow-h', pfad: 'ui/hud/icon-arrow-h.png', art: 'symbol', gruppe: 'Symbole', untergruppe: 'Bedienelemente', bytes: 122735, hash: 'sha256-a73ab85c73cc147cd67cebdb14cce3459277102da1265eddea1357fed6497635', lizenzstatus: 'intern' },
@@ -1239,11 +1241,11 @@ const STORE_KATALOG_TEIL_3: readonly StoreEintrag[] = [
   { id: 'ui/icons/wood-icon', pfad: 'ui/icons/wood-icon.png', art: 'symbol', gruppe: 'Symbole', untergruppe: 'Gegenstandssymbole', bytes: 32397, hash: 'sha256-00f1a05963f410879aaa6b7d6ffcbd530848ac7e108974ed65d89d58f9afe08a', lizenzstatus: 'intern' },
   { id: 'ui/icons/woodensword', pfad: 'ui/icons/woodensword.png', art: 'symbol', gruppe: 'Symbole', untergruppe: 'Gegenstandssymbole', bytes: 19687, hash: 'sha256-465d185d3b4fbd0e6f2e410ed3cd44bb1afca20b0eb8c3790c43b8aa9ab69898', lizenzstatus: 'intern' },
   { id: 'ui/icons/woodenswordshapesgrid', pfad: 'ui/icons/woodenswordshapesgrid.png', art: 'symbol', gruppe: 'Symbole', untergruppe: 'Gegenstandssymbole', bytes: 25138, hash: 'sha256-213f2aba1fb7d3643d468c7686012d50e66ce15326caeb5486d0787a93482e19', lizenzstatus: 'intern' },
-  { id: 'vegetation/branch-1a1', pfad: 'vegetation/branch-1a1.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Äste', bytes: 107220, hash: 'sha256-4a79040c117918255682a25f17db7f707511e6880ff9ba329e76e82203770d21', bounds: { min: [-1.3901, 0.0117, -1.6941], max: [3.1954, 4.0645, 2.8459] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-branch-1a1' },
-  { id: 'vegetation/branch-1a5', pfad: 'vegetation/branch-1a5.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Äste', bytes: 62900, hash: 'sha256-9cb56884a1045d74c1094202c74b8e8dd685962ea4e01a2671fc5be6bd7cf6ea', bounds: { min: [-3.9094, -0.0506, -0.3707], max: [0.0663, 2.7615, 2.707] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-branch-1a5' },
 ];
 
 const STORE_KATALOG_TEIL_4: readonly StoreEintrag[] = [
+  { id: 'vegetation/branch-1a1', pfad: 'vegetation/branch-1a1.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Äste', bytes: 107220, hash: 'sha256-4a79040c117918255682a25f17db7f707511e6880ff9ba329e76e82203770d21', bounds: { min: [-1.3901, 0.0117, -1.6941], max: [3.1954, 4.0645, 2.8459] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-branch-1a1' },
+  { id: 'vegetation/branch-1a5', pfad: 'vegetation/branch-1a5.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Äste', bytes: 62900, hash: 'sha256-9cb56884a1045d74c1094202c74b8e8dd685962ea4e01a2671fc5be6bd7cf6ea', bounds: { min: [-3.9094, -0.0506, -0.3707], max: [0.0663, 2.7615, 2.707] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-branch-1a5' },
   { id: 'vegetation/branch-1a7', pfad: 'vegetation/branch-1a7.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Äste', bytes: 96200, hash: 'sha256-1192b6ae0572d902eea3c83c12ef9cf2041e28bd7e09b4b9fa0a9ee5d99f1d67', bounds: { min: [-2.2099, -0.0248, -2.3823], max: [2.2319, 4.2884, 2.3482] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-branch-1a7' },
   { id: 'vegetation/branch-1a9', pfad: 'vegetation/branch-1a9.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Äste', bytes: 99884, hash: 'sha256-9eb184d991bcce3f960ee4a6f5ef365989f65799b55b948bc948fa66d105b652', bounds: { min: [-1.4135, -0.0248, -2.7326], max: [1.7128, 4.0681, 2.9764] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-branch-1a9' },
   { id: 'vegetation/branched-tree-2a1', pfad: 'vegetation/branched-tree-2a1.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Bäume', bytes: 450132, hash: 'sha256-34dba742d13454a23cf38c2ee32775fe870a2eefa33759fa3cee352f710d14f1', bounds: { min: [-5.172, -0.3886, -6.1375], max: [6.3843, 13.4974, 5.5144] }, boundsRaum: 'datei', kollision: { art: 'box', box: { min: [-0.424, -0.3886, -0.5832], max: [0.4061, 13.4974, 0.4468] } }, lizenzstatus: 'intern', prefabName: 'vegetation-branched-tree-2a1' },
@@ -1350,7 +1352,7 @@ const STORE_KATALOG_TEIL_4: readonly StoreEintrag[] = [
   { id: 'vegetation/tree-1e2-2', pfad: 'vegetation/tree-1e2-2.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Bäume', bytes: 25580, hash: 'sha256-623966a22421b30337bf52d94417509156b4d3372fd09a5e7a56264cde43c448', bounds: { min: [-4.3711, -0.4387, -4.1166], max: [2.2391, 11.1687, 4.5274] }, boundsRaum: 'datei', kollision: { art: 'box', box: { min: [-0.5094, -0.4387, -0.4974], max: [0.4137, 11.1687, 0.4135] } }, lizenzstatus: 'intern', prefabName: 'vegetation-tree-1e2-2' },
 ];
 
-/** Die 1304 Einträge, nach \`id\` sortiert (s. TEILE oben). */
+/** Die 1306 Einträge, nach \`id\` sortiert (s. TEILE oben). */
 export const STORE_KATALOG: readonly StoreEintrag[] = [
   ...STORE_KATALOG_TEIL_0,
   ...STORE_KATALOG_TEIL_1,

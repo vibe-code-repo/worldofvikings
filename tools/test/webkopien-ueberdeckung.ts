@@ -39,10 +39,10 @@ const WEB_ORDNER = join(WURZEL, 'wov-web/static/assets');
  * Ausnahme mit eigener Folgekarte, kein Freibrief fuer neue Dopplungen.
  */
 const ERLAUBTE_DOPPLUNGEN: Readonly<Record<string, string>> = {
-  'models/wikinger/WikingerKoerper.glb':
-    'maennlicher Koerper, Hash auf beiden Seiten gleich (gemessen 29.09.2026) -- ' +
-    'Folgekarte: previewModel/femaleWebArmorFile sind seit demselben Tag ungenutzt ' +
-    '(erstellen/+page.svelte laedt jetzt part.model), dann auch diese Kopie pruefen/entfernen.',
+  // Empty since 2026-09-29 ("Tod und Treffer sichtbar"): the tracked web copy of the male body
+  // (models/wikinger/WikingerKoerper.glb, 2.0 MB, 28 clips) was removed. The game body now has 48 clips
+  // (death, hit reactions ...); a web copy at the same path would have hidden it from the browser
+  // exactly like the old Wikingerin copies did. previewModel/femaleWebArmorFile were unused already.
 };
 
 function alleDateien(ordner: string): string[] {

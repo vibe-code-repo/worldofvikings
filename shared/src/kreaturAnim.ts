@@ -14,9 +14,16 @@
  */
 
 import type { KreaturAnim } from './constants.js';
+import { TOD_CLIPS, TREFFER_CLIPS, type TodClip, type TrefferClip } from './todTreffer.js';
 
 /** Clips that play once and are triggered by an event (never looped). */
 export type EinmalClip = 'attack' | 'hit' | 'die';
+
+/**
+ * Every value the one-shot member may carry: the creature clips above plus the death and
+ * hit clips of a PLAYER figure (todTreffer.ts) on the character ZDO — same member, same counter.
+ */
+export type AlleEinmalClip = EinmalClip | TodClip | TrefferClip;
 
 /** Everything a spawn entry may list in `clips`: the states plus the one-shots. */
 export type KreaturClip = KreaturAnim | EinmalClip;
@@ -24,26 +31,26 @@ export type KreaturClip = KreaturAnim | EinmalClip;
 /** Every clip name a spawn entry may list. */
 export const KREATUR_CLIPS: readonly KreaturClip[] = ['idle', 'walk', 'run', 'attack', 'hit', 'die'];
 
-const EINMAL_CLIPS: readonly string[] = ['attack', 'hit', 'die'];
+const EINMAL_CLIPS: readonly string[] = ['attack', 'hit', 'die', ...TOD_CLIPS, ...TREFFER_CLIPS];
 
 /** `<clip>#<n>` — the wire form of the one-shot member. */
-export function formatEinmal(clip: EinmalClip, n: number): string {
+export function formatEinmal(clip: AlleEinmalClip, n: number): string {
   return `${clip}#${n}`;
 }
 
 /** Parse the one-shot member; anything malformed is `null` (never a guess). */
-export function parseEinmal(wert: string | undefined): { clip: EinmalClip; n: number } | null {
+export function parseEinmal(wert: string | undefined): { clip: AlleEinmalClip; n: number } | null {
   if (!wert) return null;
   const i = wert.lastIndexOf('#');
   if (i <= 0) return null;
   const clip = wert.slice(0, i);
   const n = Number(wert.slice(i + 1));
   if (!EINMAL_CLIPS.includes(clip) || !Number.isInteger(n) || n < 0) return null;
-  return { clip: clip as EinmalClip, n };
+  return { clip: clip as AlleEinmalClip, n };
 }
 
 /** The member value that follows `aktuell` for a new event of `clip`. */
-export function naechstesEinmal(aktuell: string | undefined, clip: EinmalClip): string {
+export function naechstesEinmal(aktuell: string | undefined, clip: AlleEinmalClip): string {
   const alt = parseEinmal(aktuell);
   return formatEinmal(clip, (alt?.n ?? 0) + 1);
 }

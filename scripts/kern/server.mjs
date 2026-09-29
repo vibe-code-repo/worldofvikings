@@ -661,6 +661,17 @@ export default [
     curve. Pure arithmetic, ~0.3 s, no browser and no assets.
   */
   ['server', 'test/stufe2-licht.ts'],
+  /*
+    Tod und Treffer N1 (Nachbesserung zu #149): Der Tote bleibt in der Positionsliste (echte Woelfe bleiben, beissen im Tod 0x,
+    danach wieder; allein tickt die Welt weiter), jeder TOT_GESPERRT-Eintrag ueber den echten WebSocket, Admin-Teleport im
+    Tod abgelehnt, Bett-verloren-Meldung als Schluessel; Verfolger ohne Ziel gehen auf idle. Wartet ~30 s.
+  */
+  ['server', 'test/tod-treffer-n1.ts'],
+  /*
+    Tod und Treffer sichtbar (2026-09-29): der Weg durch den echten Server (zwei WebSocket-Spieler: Treffer-Schicht, Tod 5 s,
+    tot = kein Schaden/keine Eingabe, Beleben durch den Server, Kreaturen lassen ab). Wartet ~5 s Liegezeit ein paar Mal, ~40 s.
+  */
+  ['server', 'test/tod-treffer.ts'],
   // Truhe lesen: der Inhalt einer fremden Truhe reist nicht im ZDOSync mit
   // (Vollstand und Delta auf dem Draht mitgelesen, drei Runden), der Besitzer
   // mit offener Truhe sieht jede Aenderung, eigene/besitzerlose/Grab-Truhen

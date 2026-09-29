@@ -96,7 +96,8 @@ async function anwendenSofort(pfad: string, eingabe: unknown, optionen: OpsOptio
   const max = optionen.maxVersuche ?? OPS_VERSUCHE;
   for (let versuch = 1; versuch <= max; versuch++) {
     // A file that cannot be read throws LayoutUngueltig; that is not the Vorgang's fault and stays a throw.
-    const stand = layoutLesenMitHash(pfad);
+    const stand = layoutLesenMitHash(pfad, { preserveRawHeight: true });
+    const roheHoehe = stand.rawHeight;
     const r = wende(stand.layout, eingabe);
     if (!r.ok) {
       if (r.art === 'konflikt') {
@@ -114,8 +115,15 @@ async function anwendenSofort(pfad: string, eingabe: unknown, optionen: OpsOptio
       return { art: 'ungueltig', message: r.message, ...(r.fehlerhaft ? { fehlerhaft: r.fehlerhaft } : {}) };
     }
     await optionen.nachLesen?.(versuch);
+    // PATCH berührt heightDeltas nie (kein Vorgang zielt auf diese Sammlung): die rohe, nicht
+    // gekürzte Fassung tritt an die Stelle der sanitisierten aus `r.layout` (Angriffsbefund N1,
+    // „nicht aussperren“ — ein Platzierungs-Vorgang darf eine bereits vorhandene Korrektur
+    // weder kürzen noch an ihr scheitern, egal ob sie zu groß oder fehlerhaft ist: Sie war
+    // schon vorher so). `heightDeltasUnberuehrt` lässt den Schreibweg Größe UND Fehlerliste
+    // durchwinken; the raw JSON value is restored only at serialization.
+    const layoutMitRoherHoehe: WorldLayout = roheHoehe !== undefined ? { ...r.layout, heightDeltas: roheHoehe as WorldLayout['heightDeltas'] } : r.layout;
     try {
-      const geschrieben = await layoutSchreibenAsync(pfad, r.layout, undefined, { basis: stand.hash });
+      const geschrieben = await layoutSchreibenAsync(pfad, layoutMitRoherHoehe, undefined, { basis: stand.hash, heightDeltasUnberuehrt: true });
       return {
         art: 'ok',
         hash: geschrieben.hash,

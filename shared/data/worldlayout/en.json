@@ -1,0 +1,8 @@
+{
+  "height.invalid": "Invalid height correction: {errors} errors; {zones} zones, {points} effective points (limit {zoneLimit} zones / {pointLimit} points).",
+  "height.limit": "Height correction exceeds the limit: {zones} zones, {points} effective points (limit {zoneLimit} zones / {pointLimit} points).",
+  "height.inspection-limit": "Height correction could not be fully inspected: {rawZones} raw zones exceed the inspection budget {inspectionLimit}; inspected: {zones} effective zones, {points} points. The inspection budget is not a content zone/point limit.",
+  "height.errors": "Errors in the height correction (heightDeltas): {errors} — {list}",
+  "height.placements": "Placement errors: {errors} — {list}",
+  "height.repair": "Nothing applied. Repair the file manually or via Git; do not write back a truncated copy."
+}

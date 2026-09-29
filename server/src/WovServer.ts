@@ -3731,7 +3731,7 @@ export class WovServer {
     */
     if (!ziel) return this.handleHarvest(peer, von, waffe);
     const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
-    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 1, peer.worldId);
+    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 1, peer.worldId, peer);
     // Startwert aus shared/leben.ts statt aus einem Literal. Der
     // `||`-Zweig greift nur noch für Wesen aus Saves von VOR dieser
     // Änderung — seit `stelleLebenSicher` bringt jede Kreatur ihre Punkte
@@ -3829,7 +3829,7 @@ export class WovServer {
 
     const startHp = art === 'baum' ? 60 : art === 'fels' ? 90 : 15;
     const schaden = WAFFEN_SCHADEN[waffe] ?? 4;
-    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 0, peer.worldId);
+    this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 0, peer.worldId, peer);
     const hp = (ziel.getInt(HEALTH_MEMBER) || startHp) - schaden;
     if (hp > 0) {
       ziel.setInt(HEALTH_MEMBER, hp);
@@ -3856,12 +3856,17 @@ export class WovServer {
    * bloodSplash / MeleeSpark des Originals, hier als Ereignis, das der
    * Client in Partikel uebersetzt). `art`: 0 hart, 1 Fleisch, 2 Parade.
    *
+   * Hinten angehaengt: ein Bool je Empfaenger, ob DIESER Empfaenger der
+   * Angreifer ist (`angreifer`; Kreaturenangriffe und Paraden haben keinen).
+   * Ein aelterer Client liest nach `art` nicht weiter, ein neuer prueft
+   * BinaryReader.remaining und behandelt ein fehlendes Feld wie „fremd“.
+   *
    * Nur an Spieler DERSELBEN Welt (`weltId`). Alle Instanzen liegen am
    * Ursprung, die Koordinaten zweier Welten sagen also nichts darueber, wer
    * nebeneinander steht; ohne die Weltpruefung sah ein Spieler im Dungeon
    * den Treffer-Blitz eines Schlags aus der Oberwelt.
    */
-  private sendeTrefferEffekt(pos: Vector3, art: number, weltId: string, umkreis = 40): void {
+  private sendeTrefferEffekt(pos: Vector3, art: number, weltId: string, angreifer?: Peer, umkreis = 40): void {
     if (!this.weltIdGueltig('sendeTrefferEffekt', weltId)) return;
     const r2 = umkreis * umkreis;
     for (const p of this.net.getPeers()) {
@@ -3871,6 +3876,7 @@ export class WovServer {
       p.sendPacketWith(PacketType.HitEffect, (w) => {
         w.writeVector3(pos);
         w.writeInt32(art);
+        w.writeBool(p === angreifer);
       });
     }
   }

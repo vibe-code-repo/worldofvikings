@@ -68,6 +68,7 @@ import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { Scene } from '@babylonjs/core/scene';
 import { AUSSEHEN_ORDNER, FIGUR_VORGABE, modellDateiZu } from '@wov/shared';
 import { toeneFigurMeshes } from '../engine/FigurToenung.js';
+import { hiebSpitzeS } from './hiebSpitze';
 
 /** Körpermaße in Metern (die Figur ist ~1,8 m hoch). */
 const SPIELER_HOEHE = 1.8;
@@ -1664,6 +1665,14 @@ export class AvatarRig {
   /** Index des zuletzt gestarteten Hiebs in seiner Kette (0…n−1), −1 = keiner. */
   get letzterHieb(): number {
     return this.angriffIndex;
+  }
+
+  /**
+   * Sekunden vom Schlagstart bis zur Spitze des zuletzt gestarteten
+   * Schwerthiebs, aus dem echten Clip-Tempo (`hiebSpitzeS`); NaN ohne Hieb.
+   */
+  get hiebSpitzeS(): number {
+    return this.clipAngriff ? hiebSpitzeS(this.angriffIndex, this.clipAngriff.grp.speedRatio) : NaN;
   }
 
   /** Laeuft gerade ein Schlag? Fuer HUD und Messzellen. */

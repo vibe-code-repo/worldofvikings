@@ -2480,7 +2480,7 @@ async function main() {
       const pos = reader.readVector3();
       const art = reader.readInt32();
       kampfEffekte.treffer(new Vector3(pos.x, pos.y, pos.z), art);
-      kampfToene.treffer(pos, art);
+      kampfToene.treffer(pos, art, reader.remaining > 0 && reader.readBool());
     });
 
     socket.on(PacketType.InteractResult, (reader) => {
@@ -2613,6 +2613,7 @@ async function main() {
       // Punkte stehen alle am alten Ort, und ein Versatz daraus wäre die
       // Teleportstrecke selbst.
       abgleicher.zuruecksetzen();
+      kampfToene.abbrechen();
       imDungeon = drin;
       // Das dokumenteigene Steinmaterial anlegen, BEVOR die Kit-Teile
       // geladen werden — `prepareMasters` bemalt sie beim Laden, und beim
@@ -2848,6 +2849,7 @@ async function main() {
     };
     socket.onDisconnected = (reason) => {
       netStatus = `getrennt${reason ? `: ${reason}` : ''}`;
+      kampfToene.dispose();
       // Auto-Reconnect (Review-Punkt 9): drei Versuche mit wachsendem
       // Abstand, erst danach zur Anmeldung auf der Webseite. Ein Kick durch
       // den Server (reason gesetzt) wird NICHT automatisch wiederholt.

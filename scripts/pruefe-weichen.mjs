@@ -32,11 +32,12 @@
  * Guards the skip switches: they must skip for a reason, and never always.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
+import { leseKern } from './runner-buchfuehrung.mjs';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const EIGEN = process.argv.find((a) => a.startsWith('--weichen='));
@@ -254,40 +255,19 @@ console.log('\n[3c] brauchtBodenQuellen — Speicher UND Altbestand');
 }
 
 /*
-  Die Weiche, die `run-tests.mjs` an einen Eintrag der Liste KERN hängt, aus dem
-  SYNTAXBAUM gelesen und nicht per Textmuster: Ein Muster wie `\(([^)]*)\)` endet an
-  der ersten Klammer, auch an der in einem Kommentar (`// (Kuh/Wolf)`), und liest
-  dann nur den halben Aufruf. Kommentare, Anführungszeichen und Umbrüche sind im
-  Baum kein Thema. Gefolgt wird `...NAME` auf oberster Ebene, wie in
-  `leseKern` (scripts/runner-buchfuehrung.mjs).
+  Die Weiche, die ein Eintrag der Liste KERN trägt, aus dem SYNTAXBAUM gelesen und nicht per
+  Textmuster: Ein Muster wie `\(([^)]*)\)` endet an der ersten Klammer, auch an der in einem
+  Kommentar (`// (Kuh/Wolf)`), und liest dann nur den halben Aufruf. Kommentare,
+  Anführungszeichen und Umbrüche sind im Baum kein Thema. KERN steht in den Bereichsdateien
+  unter `scripts/kern/`; `leseKern` (scripts/runner-buchfuehrung.mjs) folgt den Importen und
+  liefert die dritte Stelle jedes Eintrags als Knoten.
 
   Reads the switch of a KERN entry from the syntax tree, not by text pattern.
 */
 function weicheDesEintrags(quelltext, testdatei) {
-  const baum = ts.createSourceFile('run-tests.mjs', quelltext, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-  const oberste = new Map();
-  for (const anweisung of baum.statements) {
-    if (!ts.isVariableStatement(anweisung)) continue;
-    for (const d of anweisung.declarationList.declarations) {
-      if (ts.isIdentifier(d.name) && d.initializer) oberste.set(d.name.text, d.initializer);
-    }
-  }
-  const dritte = [];
-  const durchsuche = (liste, besucht) => {
-    if (!liste || !ts.isArrayLiteralExpression(liste)) return;
-    for (const e of liste.elements) {
-      if (ts.isSpreadElement(e) && ts.isIdentifier(e.expression)) {
-        if (!besucht.has(e.expression.text)) {
-          durchsuche(oberste.get(e.expression.text), new Set(besucht).add(e.expression.text));
-        }
-        continue;
-      }
-      if (!ts.isArrayLiteralExpression(e)) continue;
-      const [, datei, weiche] = e.elements;
-      if (datei && ts.isStringLiteralLike(datei) && datei.text === testdatei) dritte.push(weiche);
-    }
-  };
-  durchsuche(oberste.get('KERN'), new Set(['KERN']));
+  const dritte = leseKern(ts, quelltext, { verzeichnis: join(WURZEL, 'scripts') })
+    .weichen.filter((e) => e.datei === testdatei)
+    .map((e) => e.weiche);
   const eintraege = dritte.length;
   const weiche = dritte[0];
   const ruft =
@@ -307,13 +287,22 @@ function weicheDesEintrags(quelltext, testdatei) {
 
 console.log('\n[4] Verdrahtung — hängen die Weichen am Sammellauf?');
 {
-  const lauf = readFileSync(join(WURZEL, 'scripts', 'run-tests.mjs'), 'utf8');
+  // The list lives in the area files under scripts/kern/; the text checks below read the runner and all of them together.
+  const runnerText = readFileSync(join(WURZEL, 'scripts', 'run-tests.mjs'), 'utf8');
+  const kernOrdner = join(WURZEL, 'scripts', 'kern');
+  const kernTexte = existsSync(kernOrdner)
+    ? readdirSync(kernOrdner)
+        .filter((n) => n.endsWith('.mjs'))
+        .sort()
+        .map((n) => readFileSync(join(kernOrdner, n), 'utf8'))
+    : [];
+  const lauf = [runnerText, ...kernTexte].join('\n');
   pruefe(
     /'test\/store-erzeugung\.ts',\s*brauchtStore\(/.test(lauf),
     'der Erzeugungstest der Asset-Brücke steht hinter brauchtStore(...)',
   );
   pruefe(
-    /from '\.\/testweichen\.mjs'/.test(lauf),
+    /from '\.\.?\/testweichen\.mjs'/.test(lauf),
     'run-tests.mjs bezieht die Weichen aus testweichen.mjs',
   );
   pruefe(
@@ -349,7 +338,7 @@ console.log('\n[4] Verdrahtung — hängen die Weichen am Sammellauf?');
     The files the switch names for the manifest test must be manifest entries
     themselves; a typo would silence that test everywhere.
   */
-  const eintrag = weicheDesEintrags(lauf, 'test/manifest-vollstaendig.ts');
+  const eintrag = weicheDesEintrags(runnerText, 'test/manifest-vollstaendig.ts');
   pruefe(
     eintrag.ruft,
     `der Vollständigkeitstest des Manifests steht genau einmal in KERN, hinter brauchtModelle(...) (Einträge: ${eintrag.eintraege})`,

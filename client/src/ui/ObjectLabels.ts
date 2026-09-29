@@ -24,6 +24,7 @@ import type { Scene } from '@babylonjs/core/scene';
 import type { Camera } from '@babylonjs/core/Cameras/camera';
 import type { EntityManager, StatischeInstanz } from '../entities/EntityManager';
 import { UI } from './theme';
+import { transformOhneJitter } from '../engine/PostProcessing';
 
 /** Umkreis um den Spieler, in dem Namen erscheinen. */
 const RANGE = 40;
@@ -118,7 +119,8 @@ export class ObjectLabels {
       else cluster.set(key, { prefab: it.prefab, x: it.x, y: it.y, z: it.z, n: 1 });
     }
 
-    const view = this.scene.getTransformMatrix();
+    // transformOhneJitter statt scene.getTransformMatrix() — s. Namensschild.ts.
+    const view = transformOhneJitter(this.scene, this.camera);
     // ACHTUNG: toGlobalToRef liefert `this` zurück, nicht das Ziel — der
     // gerechnete Wert steht ausschliesslich in `this.viewport`.
     this.camera.viewport.toGlobalToRef(

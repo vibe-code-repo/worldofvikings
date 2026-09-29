@@ -16,6 +16,10 @@
  *  [7] Two players at the same time with different weapons: each his own, the packets swapped on purpose.
  *  [8] The carried weapon is saved and comes back at the next login (and only if the item is still owned).
  *  [9] wirksameWaffe (pure): both branches of the transition rule.
+ *  [10] The world snapshot (periodic/shutdown save) carries the weapon.
+ *  [11] A rejected Equip also ends the old-client rule.
+ *  [12] Flood: the Equip throttle sits in front of the handler.
+ *  [13] The real client logic (WaffenAbgleich) against the real server: quick choices, lost answer, chest.
  *
  * Run: npx tsx server/test/kampf-waffe.ts
  */
@@ -31,7 +35,8 @@ import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import type { Peer } from '../src/net/Peer.js';
 import type { ZDO } from '../src/zdo/ZDO.js';
-import { Inventory, findItem } from '@wov/shared';
+import { Inventory, findItem, type ItemStack, type AusruestungsSlot } from '@wov/shared';
+import { WaffenAbgleich, type WaffenTraeger } from '../../client/src/player/WaffenAbgleich.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-kampf-waffe');
@@ -48,7 +53,7 @@ const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 interface Stand { slot: string; name: string; auf: boolean }
 interface Spieler { ws: WebSocket; peer: Peer; stands: Stand[] }
-type MitStand = WebSocket & { _stands?: Stand[] };
+type MitStand = WebSocket & { _stands?: Stand[]; _beiStand?: (s: Stand) => void };
 
 function verbinde(name: string): Promise<MitStand> {
   return new Promise((ok, fail) => {
@@ -71,7 +76,9 @@ function verbinde(name: string): Promise<MitStand> {
         w.writeString('');
         ws.send(Buffer.concat([Buffer.from([P.PasswordAuth]), w.toBuffer()]));
       } else if (type === PacketType.EquipStand) {
-        ws._stands!.push({ slot: r.readString(), name: r.readString(), auf: r.readBool() });
+        const st = { slot: r.readString(), name: r.readString(), auf: r.readBool() };
+        ws._stands!.push(st);
+        ws._beiStand?.(st);
       } else if (type === P.PeerInfo) {
         clearTimeout(timer);
         ok(ws);
@@ -322,6 +329,96 @@ async function main(): Promise<void> {
     const a5 = await loginMit('Anna5', { ...stand, waffe: undefined, inventar: stand.inventar.map((i) => ({ ...i, equipped: false })) });
     check('old save with nothing marked: fist', a5.peer.waffe === '');
     wsB.close(); await warte(600);
+    // ── [10] The periodic / shutdown save carries the weapon ────
+    console.log('\n[10] The world snapshot (periodic and shutdown save) carries the weapon');
+    {
+      const snap = (server as unknown as { momentaufnahme(): { kopf: { players: Array<{ name: string; waffe?: string }> } } }).momentaufnahme();
+      const eintrag = snap.kopf.players.find((p) => p.name === 'Anna2');
+      check('snapshot entry of the online player Anna2 has waffe = AxeFlint', eintrag?.waffe === 'AxeFlint', JSON.stringify(eintrag?.waffe));
+    }
+
+    // ── [11] Any Equip switches the transition rule off ─────────
+    console.log('\n[11] A REJECTED Equip also switches the old-client rule off');
+    const clara = await (async (): Promise<Spieler> => {
+      const ws = await verbinde('Clara'); sockets.push(ws); await warte(400);
+      const sp: Spieler = { ws, peer: hole('Clara'), stands: ws._stands! };
+      await platz(sp, 800, 200);
+      return sp;
+    })();
+    {
+      const vorher = await schlageWesen(clara, 'AxeFlint');
+      check('before any Equip: the packet name counts (15)', vorher === 15 && !clara.peer.equipGesehen, `${vorher}`);
+      sendEquip(clara.ws, 'waffe', 'Messer'); await warte(250);
+      check('a rejected Equip: peer.equipGesehen is set, nothing carried', clara.peer.equipGesehen && clara.peer.waffe === '');
+      const nachher = await schlageWesen(clara, 'AxeFlint');
+      check('now the packet name is ignored: fist 4', nachher === 4, `${nachher}`);
+    }
+
+    // ── [12] The throttle answers nothing beyond the bucket ─────
+    console.log('\n[12] Flood: the Equip throttle (bucket 6, 3/s) is really in front of the handler');
+    {
+      const n = clara.stands.length;
+      for (let i = 0; i < 30; i++) sendEquip(clara.ws, 'waffe', i % 2 === 0 ? 'AxeFlint' : 'SwordNorth');
+      await warte(500);
+      const antworten = clara.stands.length - n;
+      check('30 Equip in one go: at most 8 answers (the rest is dropped silently)', antworten >= 1 && antworten <= 8, `${antworten}`);
+      sendEquip(clara.ws, 'waffe', ''); await warte(1500);
+    }
+
+    // ── [13] The real client logic over the real socket ─────────
+    console.log('\n[13] Client logic (WaffenAbgleich) against the real server: flood, lost answer, chest');
+    {
+      const itemDef = new Map(['AxeFlint', 'SwordNorth'].map((n) => [n, { shared: { name: n } } as unknown as ItemStack]));
+      const ws = await verbinde('Dora'); sockets.push(ws); await warte(400);
+      const dora: Spieler = { ws, peer: hole('Dora'), stands: ws._stands! };
+      await platz(dora, 1000, 200);
+      class Hand implements WaffenTraeger {
+        hand: ItemStack | null = null;
+        private readonly h = new Set<() => void>();
+        get rightItem(): ItemStack | null { return this.hand; }
+        onChanged(fn: () => void): () => void { this.h.add(fn); return () => this.h.delete(fn); }
+        equip(item: ItemStack, _s?: AusruestungsSlot): void { this.hand = item; [...this.h].forEach((f) => f()); }
+        unequip(_s?: AusruestungsSlot): void { this.hand = null; [...this.h].forEach((f) => f()); }
+        name(): string { return this.hand?.shared.name ?? ''; }
+      }
+      const hand = new Hand();
+      const gesendet: string[] = [];
+      const abgleich = new WaffenAbgleich(hand, (n) => itemDef.get(n) ?? null, (sl, n) => { gesendet.push(n); sendEquip(ws, sl, n); }, { ruheMs: 20, fristMs: 500 });
+      let roh = false;
+      for (const st of ws._stands!) abgleich.stand(st.slot, st.name, st.auf);
+      ws._beiStand = (st) => { if (!roh) abgleich.stand(st.slot, st.name, st.auf); };
+      await warte(300);
+      // (a) 30 quick choices
+      const n0 = gesendet.length;
+      for (let i = 0; i < 30; i++) { hand.equip(itemDef.get(i % 2 === 0 ? 'AxeFlint' : 'SwordNorth')!); await warte(3); }
+      await warte(500);
+      const gesendetA = gesendet.length - n0;
+      check('30 quick choices: at most 2 Equip sent, the server carries the LAST choice, display = server',
+        gesendetA >= 1 && gesendetA <= 2 && dora.peer.waffe === 'SwordNorth' && hand.name() === 'SwordNorth', `${gesendetA} sent, server ${dora.peer.waffe}, display ${hand.name()}`);
+      // (b) the weapon goes into a chest: the display follows the server
+      const truhe = server.prefabs.getByName('piece_chest_wood')!;
+      const kiste = server.zdos.createZDO(truhe.hash, { ...dora.peer.position });
+      sendContainer(ws, kiste.zdoid, 1, 'SwordNorth', 1); await warte(400);
+      check('sword into the chest: server carries nothing, the display is emptied (= server)', dora.peer.waffe === '' && hand.name() === '', `server "${dora.peer.waffe}", display "${hand.name()}"`);
+      sendContainer(ws, kiste.zdoid, 0, 'SwordNorth', 1); await warte(400);
+      // (c) the answer to a choice is lost to the throttle: the client retries and ends equal to the server
+      roh = true;
+      for (let i = 0; i < 10; i++) sendEquip(ws, 'waffe', 'Nope');
+      await warte(150);
+      roh = false;
+      const n1 = gesendet.length;
+      hand.equip(itemDef.get('SwordNorth')!);
+      await warte(300);
+      check('the first Equip was swallowed by the throttle: the server still carries nothing', dora.peer.waffe === '' && gesendet.length === n1 + 1, `server "${dora.peer.waffe}", sent ${gesendet.length - n1}`);
+      await warte(1800);
+      check('after the expiry the choice was sent again and the display equals the server (SwordNorth)', dora.peer.waffe === 'SwordNorth' && hand.name() === 'SwordNorth' && gesendet.length >= n1 + 2, `server "${dora.peer.waffe}", display "${hand.name()}", sent ${gesendet.length - n1}`);
+      // (d) after all that an unasked state still gets through
+      sendContainer(ws, kiste.zdoid, 1, 'SwordNorth', 1); await warte(500);
+      check('and the chest still empties the display afterwards (= server)', dora.peer.waffe === '' && hand.name() === '', `server "${dora.peer.waffe}", display "${hand.name()}"`);
+      abgleich.dispose();
+      server.zdos.destroyZDO(kiste.zdoid);
+    }
+
     console.log('\n[9] wirksameWaffe (pure), both branches of the transition rule');
     const inv = new Inventory();
     inv.addItem(findItem('AxeFlint')!, 1); inv.addItem(findItem('SwordNorth')!, 1);

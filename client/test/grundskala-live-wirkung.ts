@@ -43,7 +43,6 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { readFileSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
-import { fileURLToPath } from 'node:url';
 import { sendeGrundskalaGeaendert } from '../src/editor/testflug/grundskalaLive';
 
 let fehler = 0;

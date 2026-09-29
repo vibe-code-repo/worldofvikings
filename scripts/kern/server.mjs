@@ -389,6 +389,13 @@ export default [
     Angreifer“ (echter Server, zwei WebSocket-Spieler, Layout bleibt 17 Byte).
   */
   ['server/test', 'kampf-toene-hiteffect.ts'],
+  /*
+    Kampfkern K2a (2026-09-29): getragene Waffe am Server. Echter WebSocket-Weg
+    (Equip/EquipStand/Attack/ContainerAction, zwei Spieler, Neuanmeldung mit
+    Spielstand) und der reine Client-Abgleich mit Rueckrollen. Keine Assets
+    noetig. ~35 s bzw. <1 s.
+  */
+  ['server', 'test/kampf-waffe.ts'],
   // Kartenmodus `radial` und sein Altname: eine Warnung, dieselbe Welt bitgleich.
   ['server', 'test/kartenmodus-alias.ts'],
   /*

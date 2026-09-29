@@ -363,6 +363,7 @@ export default [
     alle Gruppen im `toene`-Abschnitt der getrackten assets/manifest.json.
   */
   ['client', 'test/kampf-toene.ts'],
+  ['client', 'test/kampf-waffe-abgleich.ts'],
   // Editor map image in tiles (K3.0): stage choice (4 m per pixel -> 4 m texel),
   // tile addressing and placement, tile colours against the world sample and
   // the coast against the height field, the tile cache cap, and the dispatch

@@ -190,6 +190,17 @@ export class Peer {
   worldId = 'haupt';
   /** Server-autoritatives Inventar (Review-Punkt 8) — Quelle der Wahrheit. */
   readonly inventar = new Inventory();
+  /**
+   * Getragene Waffe (Kampfkern K2a): Name des Gegenstands im Server-Inventar,
+   * "" = Faust. Gesetzt nur ueber Paket Equip, Spielstand und Login; wer sie
+   * verliert (Inventar leer), verliert sie hier (WovServer.pruefeWaffe).
+   */
+  waffe = '';
+  /**
+   * Hat diese Verbindung je ein Equip geschickt? Ein Client ohne Equip
+   * (alter Tab) meldet die Waffe nur im Angriffspaket — siehe wirksameWaffe.
+   */
+  equipGesehen = false;
   /** Anzahl eigener Bauwerke (Piece-Budget); beim Login gezählt. */
   bautenAnzahl = 0;
 

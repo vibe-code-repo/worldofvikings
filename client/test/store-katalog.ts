@@ -146,16 +146,17 @@ check('Gegenstände ≥ 60', zahl('Modelle', 'Gegenstände') >= 60, `${zahl('Mod
 check('Umgebung ≥ 100', zahl('Modelle', 'Umgebung') >= 100, `${zahl('Modelle', 'Umgebung')}`);
 check('Fahrzeuge ≥ 3', zahl('Modelle', 'Fahrzeuge') >= 3, `${zahl('Modelle', 'Fahrzeuge')}`);
 check(
-  // 325 Aufnahmen auf der Platte: 44 schon vorher im Store-Manifest (45
+  // 327 Aufnahmen auf der Platte: 44 schon vorher im Store-Manifest (45
   // minus einem Platzhalter), 281 von Bauer B1 aus assets/manifest.json
-  // ergänzt (Messung 28.09.2026, s. Bericht).
-  'Ton zählt genau 325 Klänge im Speicher (alle Aufnahmen unter assets/store/audio, Bauer B1)',
-  katalog.filter((e) => e.art === 'Ton').length === 325,
+  // ergänzt (Messung 28.09.2026, s. Bericht), 2 Faustschwung-Klänge
+  // (combat/fist-swing-01/02, Karte kampf-toene-folge, 29.09.2026).
+  'Ton zählt genau 327 Klänge im Speicher (alle Aufnahmen unter assets/store/audio, Bauer B1)',
+  katalog.filter((e) => e.art === 'Ton').length === 327,
   `${katalog.filter((e) => e.art === 'Ton').length}`
 );
 check(
-  'Ton zählt 326 Einträge über das ganze Manifest (325 Klänge + 1 Platzhalter)',
-  (artZahl.get('Ton') ?? 0) === 326,
+  'Ton zählt 328 Einträge über das ganze Manifest (327 Klänge + 1 Platzhalter)',
+  (artZahl.get('Ton') ?? 0) === 328,
   `${artZahl.get('Ton') ?? 0}`
 );
 check('Boden-Texturen = 12', zahl('Texturen', 'Boden-Texturen') === 12, `${zahl('Texturen', 'Boden-Texturen')}`);
@@ -164,7 +165,7 @@ check('Kulisse = 6', zahl('Kulisse', 'Kulisse') === 6, `${zahl('Kulisse', 'Kulis
 check('Symbole zählt genau 353 UI-Bilder (Bauer B1)', zahl('Symbole', 'Symbole') === 353, `${zahl('Symbole', 'Symbole')}`);
 
 // Die vier Ton-Gruppen der Vorgabe müssen wirklich alle vorkommen — ohne
-// das wäre „Ton = 325" auch dann grün, wenn alles in einem Topf läge.
+// das wäre „Ton = 327" auch dann grün, wenn alles in einem Topf läge.
 for (const g of ['Schritte', 'Tiere', 'Umgebungston', 'Quellen']) {
   check(`Ton-Gruppe „${g}" ist besetzt`, zahl('Ton', g) > 0, `${zahl('Ton', g)}`);
 }

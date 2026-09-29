@@ -422,6 +422,14 @@ export class GameSocket {
     this.sendPacket(PacketType.Attack, w.toUint8Array());
   }
 
+  /** Getragene Waffe anlegen (item) oder ablegen (''); der Server antwortet mit EquipStand. */
+  sendEquip(slot: string, item: string): void {
+    const w = new BinaryWriter();
+    w.writeString(slot);
+    w.writeString(item);
+    this.sendPacket(PacketType.Equip, w.toUint8Array());
+  }
+
   /** Parade (Rechtsklick mit Waffe): kein Payload, der Server oeffnet das Fenster. */
   sendParry(): void {
     this.sendPacket(PacketType.Parry, new Uint8Array(0));

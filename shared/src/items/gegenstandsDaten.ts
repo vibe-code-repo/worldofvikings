@@ -18,7 +18,7 @@
  */
 
 import { ItemType, type ItemShared } from './ItemData.js';
-import { istCodeItem, replaceDataItems } from './itemDefs.js';
+import { istCodeItem, istCodeItemOhneSchreibung, replaceDataItems } from './itemDefs.js';
 import { STAT_IDS, type ItemStats } from './stats.js';
 import type { Rezept } from './recipes.js';
 import { NAME_MUSTER, UPLOAD_MODEL_PREFIX } from '../uploadedModelRegistry.js';
@@ -38,7 +38,13 @@ export const ID_MUSTER = /^[A-Z][A-Za-z0-9]{1,31}$/;
 const SCHLUESSEL_MUSTER = /^inhalt\.[A-Za-z0-9._-]{1,80}$/;
 const SYMBOL_MUSTER = /^[A-Za-z0-9_-]{1,64}$/;
 const ZUTAT_MUSTER = /^[A-Za-z0-9_]{1,64}$/;
-const STEUERZEICHEN = /[\u0000-\u001f\u007f-\u009f]/;
+/**
+ * Characters that are refused in texts: control characters, line/paragraph separators, zero-width and
+ * bidi controls and the BOM. The text is DISCARDED (entry refused) instead of stripped: silently editing
+ * a name would show something the author did not write. HTML in texts is allowed on purpose: the client
+ * only ever shows texts through `textContent` (G3), never as markup, so `<b>` is just characters there.
+ */
+const STEUERZEICHEN = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/;
 
 export const GEGENSTANDS_TYPEN = ['einhaendigWaffe', 'zweihaendigWaffe', 'werkzeug', 'material'] as const;
 export type GegenstandsTyp = typeof GEGENSTANDS_TYPEN[number];
@@ -62,6 +68,8 @@ export type VerwerfGrund =
   | 'id-ungueltig'
   | 'id-doppelt'
   | 'id-code-kollision'
+  | 'id-schreibung-code'
+  | 'id-schreibung-doppelt'
   | 'schluessel-ungueltig'
   | 'typ-unbekannt'
   | 'slot-unbekannt'
@@ -196,6 +204,8 @@ function pruefeEintrag(roh: unknown, z: { n: number }): GegenstandsEintrag {
   const id = nimm(roh, 'id');
   if (typeof id !== 'string' || !ID_MUSTER.test(id)) throw new Verwerfen('id-ungueltig');
   if (istCodeItem(id)) throw new Verwerfen('id-code-kollision');
+  // Same name apart from case (`MESSER` next to `Messer`): confusable, so it is refused as well.
+  if (istCodeItemOhneSchreibung(id)) throw new Verwerfen('id-schreibung-code');
 
   const praefix = `inhalt.gegenstand.${id}.`;
   const nameSchluessel = nimm(roh, 'nameSchluessel');
@@ -389,12 +399,15 @@ export function leseGegenstandsDatei(text: string): GegenstandsLesung {
   zaehleUnbekannte(wurzel, ['version', 'gegenstaende'], z);
   const verworfen: VerworfenerEintrag[] = [];
   const karte = new Map<string, GegenstandsEintrag>();
+  const kleinIds = new Set<string>();
   liste.forEach((roh, index) => {
     const idRoh = istObjekt(roh) ? nimm(roh, 'id') : undefined;
     const idOk = typeof idRoh === 'string' && ID_MUSTER.test(idRoh) ? idRoh : null;
     try {
       const e = pruefeEintrag(roh, z);
       if (karte.has(e.id)) throw new Verwerfen('id-doppelt');
+      if (kleinIds.has(e.id.toLowerCase())) throw new Verwerfen('id-schreibung-doppelt');
+      kleinIds.add(e.id.toLowerCase());
       karte.set(e.id, e);
     } catch (fehler) {
       if (!(fehler instanceof Verwerfen)) throw fehler;

@@ -573,9 +573,16 @@ export function findItem(name: string): ItemShared | undefined {
   return ITEMS_BY_NAME.get(name);
 }
 
+const CODE_NAMEN_KLEIN: ReadonlySet<string> = new Set([...CODE_ITEMS_BY_NAME.keys()].map((n) => n.toLowerCase()));
+
 /** True if `name` is a code item (incl. clothing and set parts). Code items always win over data items. */
 export function istCodeItem(name: string): boolean {
   return CODE_ITEMS_BY_NAME.has(name);
+}
+
+/** True if a code item has this name apart from upper/lower case (`MESSER` next to `Messer`); such names are confusable. */
+export function istCodeItemOhneSchreibung(name: string): boolean {
+  return CODE_NAMEN_KLEIN.has(name.toLowerCase());
 }
 
 /**
@@ -589,9 +596,9 @@ export function replaceDataItems(liste: readonly ItemShared[]): void {
   const daten = new Set<string>();
   for (const item of liste) {
     const name = item.name;
-    if (CODE_ITEMS_BY_NAME.has(name)) throw new Error(`[items] data item "${name}" collides with a code item`);
-    if (daten.has(name)) throw new Error(`[items] data item "${name}" appears twice`);
-    daten.add(name);
+    if (CODE_NAMEN_KLEIN.has(name.toLowerCase())) throw new Error(`[items] data item "${name}" collides with a code item (ignoring case)`);
+    if (daten.has(name.toLowerCase())) throw new Error(`[items] data item "${name}" appears twice (ignoring case)`);
+    daten.add(name.toLowerCase());
     neu.set(name, item);
   }
   ITEMS_BY_NAME = neu;

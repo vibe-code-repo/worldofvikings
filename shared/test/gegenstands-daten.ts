@@ -273,6 +273,60 @@ try {
 }
 pruefe(geworfen && findItem('AxeFlint') === axtVorher, 'replaceDataItems lehnt ein Datenitem mit Code-Namen ab');
 
+// ── 8b. Case-insensitive collisions (N1) ─────────────────────────────
+console.log('Gegenstandsdaten — Kollision ohne Beachtung der Schreibung');
+for (const n of ['MESSER', 'HOE', 'PICKAXEANTLER', 'axeflint'.replace(/^a/, 'A').toUpperCase(), 'WOOD']) {
+  const r = lese(schlicht(n));
+  pruefe(r.eintraege.length === 0 && grundVon(r) === 'id-schreibung-code', `${n} neben einem Code-Item -> id-schreibung-code (war: ${grundVon(r)})`);
+}
+const da = lese(schlicht('Da'), schlicht('DA'), schlicht('dA'.replace(/^d/, 'D')));
+pruefe(da.eintraege.map((e) => e.id).join() === 'Da' && da.verworfen.length === 2 && da.verworfen.every((v) => v.grund === 'id-schreibung-doppelt'), 'Da / DA: der erste bleibt, die anderen id-schreibung-doppelt');
+let schreibWurf = false;
+try {
+  replaceDataItems([{ ...(axt as ItemShared), name: 'AXEFLINT', datenItem: true }]);
+} catch {
+  schreibWurf = true;
+}
+pruefe(schreibWurf, 'replaceDataItems lehnt auch AXEFLINT ab (letzte Verteidigungslinie)');
+let schreibWurf2 = false;
+try {
+  replaceDataItems([{ ...(axt as ItemShared), name: 'Zz', datenItem: true }, { ...(axt as ItemShared), name: 'ZZ', datenItem: true }]);
+} catch {
+  schreibWurf2 = true;
+}
+pruefe(schreibWurf2 && findItem('Zz') === undefined, 'replaceDataItems lehnt Zz/ZZ ab, nichts uebernommen');
+
+// ── 8c. Non-finite numbers in every number field (N1) ────────────────
+console.log('Gegenstandsdaten — Infinity in allen Zahlenfeldern');
+const unendlich = ['1e999', '-1e999'];
+const zahlenFelder: Array<[string, (w: string) => string]> = [
+  ['stapel', (w) => `"stapel":${w}`],
+  ['gewicht', (w) => `"gewicht":${w}`],
+  ['itemLevel', (w) => `"itemLevel":${w}`],
+  ['werte.damage', (w) => `"werte":{"damage":${w}}`],
+  ['werte.armor', (w) => `"werte":{"armor":${w}}`],
+  ['ernte.baum', (w) => `"ernte":{"baum":${w}}`],
+  ['ernte.fels', (w) => `"ernte":{"fels":${w}}`],
+  ['modell.skala', (w) => `"modell":{"skala":${w}}`],
+  ['modell.hiebVersatz', (w) => `"modell":{"hiebVersatz":${w}}`],
+  ['modell.haltePosition', (w) => `"modell":{"haltePosition":[0,${w},0]}`],
+  ['modell.halteRotation', (w) => `"modell":{"halteRotation":[0,0,${w}]}`],
+  ['haltbarkeit.max', (w) => `"haltbarkeit":{"max":${w}}`],
+  ['haltbarkeit.verbrauch', (w) => `"haltbarkeit":{"verbrauch":${w}}`],
+  ['haltbarkeit.ausdauer', (w) => `"haltbarkeit":{"ausdauer":${w}}`],
+  ['rezept.menge', (w) => `"rezept":{"menge":${w},"zutaten":[{"item":"Wood","menge":1}]}`],
+  ['rezept.zutat.menge', (w) => `"rezept":{"menge":1,"zutaten":[{"item":"Wood","menge":${w}}]}`],
+];
+const kopfText = '"id":"Inf1","nameSchluessel":"inhalt.gegenstand.Inf1.name","typ":"material","texte":{"inhalt.gegenstand.Inf1.name":{"de":"a","en":"b"}}';
+for (const [feld, bau] of zahlenFelder) {
+  for (const w of unendlich) {
+    const r = leseGegenstandsDatei(`{"version":1,"gegenstaende":[{${kopfText},${bau(w)}}]}`);
+    const erwartet = feld.startsWith('rezept') ? 'rezept-ungueltig' : 'zahl-ungueltig';
+    const grund = feld.startsWith('modell.halte') ? 'modell-ungueltig' : erwartet;
+    pruefe(r.eintraege.length === 0 && (grundVon(r) === grund || grundVon(r) === 'zahl-ungueltig'), `${feld} = ${w} verwirft den Eintrag (war: ${grundVon(r)})`);
+  }
+}
+
 // ── 9. Text layer ────────────────────────────────────────────────────
 console.log('Gegenstandsdaten — Texte-Schicht');
 wendeGegenstandsDatenAn([]);
@@ -297,6 +351,12 @@ const textFaelle: Array<[string, Roh, string]> = [
   ['texte fehlt ganz', holzaxt({ texte: undefined }), 'texte-name-fehlt'],
   ['Text 201 Zeichen', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'x'.repeat(201), en: 'y' } } }), 'texte-ungueltig'],
   ['Steuerzeichen', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'a\u0007b', en: 'y' } } }), 'texte-ungueltig'],
+  ['RTL-Override U+202E', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'a\u202Eb', en: 'y' } } }), 'texte-ungueltig'],
+  ['Bidi-Isolat U+2066', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'a\u2066b', en: 'y' } } }), 'texte-ungueltig'],
+  ['Nullbreit U+200B', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'a\u200Bb', en: 'y' } } }), 'texte-ungueltig'],
+  ['Nullbreit U+200F', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'a\u200Fb', en: 'y' } } }), 'texte-ungueltig'],
+  ['BOM U+FEFF', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: '\uFEFFa', en: 'y' } } }), 'texte-ungueltig'],
+  ['Zeilentrenner U+2028', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'a\u2028b', en: 'y' } } }), 'texte-ungueltig'],
   ['Zeilenumbruch', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'a\nb', en: 'y' } } }), 'texte-ungueltig'],
   ['Text keine Zeichenkette', holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 5, en: 'y' } } }), 'texte-ungueltig'],
 ];
@@ -305,6 +365,7 @@ for (const [name, roh, grund] of textFaelle) {
   pruefe(r.eintraege.length === 0 && grundVon(r) === grund, `${name} -> ${grund} (war: ${grundVon(r)})`);
 }
 pruefe(lese(holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'x'.repeat(200), en: 'y' } } })).eintraege.length === 1, '200 Zeichen sind erlaubt');
+pruefe(lese(holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: '<b>Axt</b> & Co', en: 'Ümlaut ß 斧' } } })).eintraege.length === 1, 'HTML und normale Unicode-Zeichen bleiben erlaubt (Anzeige nur per textContent)');
 const fremdSprache = lese(holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'a', en: 'b', fr: 'c' } } }));
 pruefe(fremdSprache.eintraege.length === 1 && fremdSprache.unbekannteFelder === 1 && !('fr' in fremdSprache.eintraege[0].texte['inhalt.gegenstand.Holzaxt.name']), 'weitere Sprache wird verworfen und gezaehlt');
 pruefe(lese(holzaxt({ texte: { 'inhalt.gegenstand.Holzaxt.name': { de: 'a', en: 'b' } } })).eintraege.length === 1, 'Beschreibung ohne Text ist erlaubt');

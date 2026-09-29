@@ -23,7 +23,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { herkunftErmitteln } from '../src/net/Herkunft.js';
-import { KontoApi } from '../src/konto/KontoApi.js';
+import { KontoApi, herkunftSchluessel } from '../src/konto/KontoApi.js';
 import { Kontendatenbank } from '../src/konto/Kontendatenbank.js';
 import { geheimnisErzeugen } from '../src/net/Identitaet.js';
 
@@ -73,6 +73,27 @@ assert.equal(herkunftErmitteln(attrappe('198.51.100.42')), '198.51.100.42', 'kei
 assert.equal(herkunftErmitteln(attrappe(undefined)), 'unknown', 'keine Peer-Adresse: unknown');
 
 console.log('Konto-Herkunft: Herkunft.ts direkt geprueft');
+
+// ── 1b. herkunftSchluessel: IPv6 wird vor dem /64-Praefix normalisiert ────
+
+// Kanonische Formen behalten ihre Schluessel (Format der laufenden Zaehler).
+assert.equal(herkunftSchluessel('203.0.113.9'), '203.0.113.9', 'IPv4 unveraendert');
+assert.equal(herkunftSchluessel('2001:db8:1:2:3:4:5:6'), 'v6:2001:db8:1:2', 'voll ausgeschrieben');
+assert.equal(herkunftSchluessel('2001:db8::1'), 'v6:2001:db8:0:0', 'verkuerzt');
+assert.equal(herkunftSchluessel('::1'), 'v6:0:0:0:0', 'Loopback');
+assert.equal(herkunftSchluessel('fe80::1'), 'v6:fe80:0:0:0', 'Link-Local');
+// Schreibvarianten derselben Adresse ergeben denselben Schluessel.
+const kanonisch = herkunftSchluessel('2001:db8:0:1::5');
+assert.equal(herkunftSchluessel('2001:0db8:0000:0001:0:0:0:5'), kanonisch, 'fuehrende Nullen');
+assert.equal(herkunftSchluessel('2001:DB8:0:1::5'), kanonisch, 'Grossbuchstaben');
+assert.equal(herkunftSchluessel('2001:db8:0:1:0:0:0:5'), kanonisch, 'ausgeschrieben');
+assert.equal(herkunftSchluessel('2001:0db8::0001:0:5'), 'v6:2001:db8:0:0', 'Luecke an anderer Stelle: anderer Praefix');
+// IPv4-gemappt: wie die IPv4-Adresse selbst.
+assert.equal(herkunftSchluessel('::ffff:203.0.113.9'), '203.0.113.9', 'gemappt, gepunktet');
+assert.equal(herkunftSchluessel('::FFFF:CB00:7109'), '203.0.113.9', 'gemappt, hex, gross');
+assert.equal(herkunftSchluessel('0:0:0:0:0:ffff:cb00:7109'), '203.0.113.9', 'gemappt, ausgeschrieben');
+
+console.log('Konto-Herkunft: IPv6-Schluessel normalisiert');
 
 // ── 2. Ueber KontoApi: zwei Herkuenfte sperren sich nicht gegenseitig ────
 

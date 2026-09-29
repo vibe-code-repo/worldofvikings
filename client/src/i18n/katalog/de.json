@@ -133,6 +133,7 @@
   "login.character.play": "Spielen",
   "login.character.title": "Charakter wählen",
   "login.email": "E-Mail",
+  "login.error.conflict": "Anmeldung gerade an anderer Stelle geändert — bitte erneut versuchen.",
   "login.error.email-invalid": "E-Mail-Adresse ungültig.",
   "login.error.login-failed": "Benutzername oder Passwort falsch.",
   "login.error.malformed-body": "Fehlerhafte Anfrage.",

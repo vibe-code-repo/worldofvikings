@@ -25,6 +25,9 @@ export default [
   // NullEngine: `play()` nimmt das pausierte Bild wieder auf statt bei 0
   // neu zu beginnen. NullEngine, keine GPU, <1 s.
   ['client', 'test/animations-lod.ts'],
+  // Der Anmeldedialog kennt die Antwort 409 `conflict` (gleichzeitiger
+  // Passwortwechsel) und zeigt dafuer einen eigenen, uebersetzten Satz.
+  ['client', 'test/anmeldung-konflikt.ts'],
   ['client/test', 'appearance-visibility.ts'],
   // AudibleRadius -- Rueckwaertsprobe der Umkehrformel des 'inverse'-
   // Abstandsmodells (Radius bei 2 % Lautstaerke), nicht gemessen. Pure.

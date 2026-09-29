@@ -307,6 +307,18 @@ export class LayoutWache {
     }
     const neuKanonisch = JSON.stringify(neuBericht.layout);
 
+    // Karte Z3 N1: Der Sanitizer macht aus einem falsch GETYPTEN `placements` (Text, `null`, ein Array
+    // ohne einen einzigen gültigen Eintrag) ein leeres Array — genau wie aus einem ABSICHTLICH leeren
+    // Dokument. `d.anwenden()` unterscheidet das unten selbst und lehnt den erstgenannten Fall VOLLSTÄNDIG
+    // ab (`abgelehnt`, nichts geschieht, s. `WovServer.spawnLayoutPlacements`); die Löschregel darf diesen
+    // Unterschied nicht verwischen, sonst sperrt ein Tippfehler in der Datei (der ohnehin nichts löscht)
+    // trotzdem jedes zu diesem Zeitpunkt stehende Objekt dauerhaft. `rohPlacements === undefined` bleibt
+    // die einzige Art, „bewusst leer" zu meinen.
+    const rohPlacements = (roh as { placements?: unknown } | null)?.placements;
+    const rohWohlgeformt = rohPlacements === undefined || Array.isArray(rohPlacements);
+    const rohAnzahl = Array.isArray(rohPlacements) ? rohPlacements.length : 0;
+    const dokumentWohlgeformt = rohWohlgeformt && !(rohAnzahl > 0 && (neuBericht.layout.placements?.length ?? 0) === 0);
+
     // Karte Z3 N1: Schnappschuss der AKTUELL (vor diesem Takt) aktiv gesperrten ids — EINMAL gelesen und
     // unverändert an `anwenden()` weitergegeben (`vorgabe.geschuetzteIds`). Würde `anwenden()` stattdessen
     // die Sperrdatei selbst neu einlesen, sähe es die ids, die `pruefeLoeschregel` gleich im selben Takt
@@ -323,7 +335,7 @@ export class LayoutWache {
     // liefe dieser Aufruf nur innerhalb des `neuKanonisch !== this.kanonisch`-Zweigs.
     const geschuetzteIdsJetzt = this.d.geschuetzteIdsJetzt?.(neuBericht.layout);
     let sperrDetail: { anzahl: number; hash: string } | undefined;
-    if (geschuetzteIdsJetzt !== undefined && neuKanonisch !== this.kanonisch && this.angewendet && this.d.pruefeLoeschregel && this.d.loeschsperrePfad) {
+    if (dokumentWohlgeformt && geschuetzteIdsJetzt !== undefined && neuKanonisch !== this.kanonisch && this.angewendet && this.d.pruefeLoeschregel && this.d.loeschsperrePfad) {
       const bereitsGesperrt = geschuetzteIdsJetzt === 'kaputt' ? new Set<string>() : geschuetzteIdsJetzt;
       const pruefung = this.d.pruefeLoeschregel(this.angewendet, neuBericht.layout, this.grabsteine, bereitsGesperrt);
       if (pruefung && pruefung.ids.length > 0) {

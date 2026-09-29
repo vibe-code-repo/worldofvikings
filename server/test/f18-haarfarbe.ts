@@ -26,6 +26,7 @@
  */
 
 import { existsSync, readFileSync } from 'fs';
+import { execFileSync } from 'child_process';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import {
@@ -116,30 +117,27 @@ console.log('\n[4] Die Vorgabe aendert nichts am Aussehen');
 const vorgabe = haarfarbeZu(HAARFARBE_VORGABE);
 const linear = (n: number): number => Math.pow(n / 255, 2.2);
 const kanal = (i: number): number => linear(parseInt(vorgabe.hex.slice(1 + i * 2, 3 + i * 2), 16));
-// Der Platzhalter steht in JEDER Frisurendatei als baseColorFactor. Er
-// wird hier aus H_01.glb GELESEN statt getippt: Eine Zahl im Test, die
-// niemand mit der Datei vergleicht, verrottet still.
 const glb = readFileSync(resolve(WURZEL, 'assets/models/wikingerin/H_01.glb'));
 let json: Record<string, unknown> | null = null;
 for (let o = 12; o < glb.length; ) {
   const laenge = glb.readUInt32LE(o);
-  if (glb.readUInt32LE(o + 4) === 0x4e4f534a) {
-    json = JSON.parse(glb.subarray(o + 8, o + 8 + laenge).toString('utf8'));
-    break;
-  }
+  if (glb.readUInt32LE(o + 4) === 0x4e4f534a) { json = JSON.parse(glb.subarray(o + 8, o + 8 + laenge).toString('utf8')); break; }
   o += 8 + laenge + ((4 - (laenge % 4)) % 4);
 }
-const werk = (json?.materials as Array<{ pbrMetallicRoughness?: { baseColorFactor?: number[] } }>)
-  ?.[0]?.pbrMetallicRoughness?.baseColorFactor;
-pruefe('Platzhalterfarbe in H_01.glb gefunden', Array.isArray(werk), JSON.stringify(werk));
+const material = (json?.materials as Array<{ pbrMetallicRoughness?: { baseColorFactor?: number[]; baseColorTexture?: unknown }, extras?: { wovHairNeutralReference?: number } }>)?.[0];
+const werk = material?.pbrMetallicRoughness?.baseColorFactor;
 if (Array.isArray(werk)) {
   for (let i = 0; i < 3; i++) {
     const ab = Math.abs(kanal(i) - werk[i]!);
-    pruefe(
-      `Kanal ${'RGB'[i]} trifft den Platzhalter`,
-      ab < 0.01,
-      `Vorgabe ${kanal(i).toFixed(3)} vs. Modell ${werk[i]!.toFixed(3)}`
-    );
+    pruefe(`Kanal ${'RGB'[i]} trifft den Platzhalter`, ab < 0.01, `Vorgabe ${kanal(i).toFixed(3)} vs. Modell ${werk[i]!.toFixed(3)}`);
+  }
+} else {
+  pruefe('texturierte Haare tragen eine Neutralreferenz', typeof material?.extras?.wovHairNeutralReference === 'number', JSON.stringify(material?.extras));
+  try {
+    execFileSync(process.execPath, [resolve(WURZEL, 'tools/armor/dev/verify-hair-textures.mjs'), '--root', WURZEL, '--check-tool'], { stdio: 'inherit' });
+    pruefe('texturierte H/B/AF/AM-Assets reproduzieren die Palette effektiv', true);
+  } catch {
+    pruefe('texturierte H/B/AF/AM-Assets reproduzieren die Palette effektiv', false);
   }
 }
 

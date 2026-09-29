@@ -3,6 +3,12 @@
  * The body is the shipped monolithic 51-bone female GLB. --family is any family with a female set in the registry;
  * its items, their regions and the regions no item replaces (the free regions: Plainhide keeps head and hands) come from the
  * registry, the exact lining triangle counts from the fit report. Writes runtime-validation.json next to the models.
+ *
+ * Retired since 27.09.2026 ("Wikingerin 71 Rüstung"): the game's female figure moved from this 51-bone body to a
+ * 71-bone one (bodyProfile wov-female-v1, same rig as the male body), and every female set was re-exported onto
+ * it. No registered family carries bodyProfile legacy-female-v1 any more, so the assert at line ~31 below now
+ * refuses every --family this tool is given. Kept, not deleted, for a future body that might need this fit again;
+ * skin-gate-selftest.mjs skips its coverage of this tool for the same reason and names it.
  */
 import assert from 'node:assert/strict';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';

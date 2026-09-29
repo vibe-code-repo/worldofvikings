@@ -22,6 +22,7 @@
  * gespeichert“. Eine Quittung zählt nur mit dem Hash der eigenen Bytes.
  */
 import { quittungLesen, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
+import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 
 export type AnwendungsStand =
   | { angewendet: true; quittung: Quittung }
@@ -105,7 +106,8 @@ export async function anwendungAnhaengen(antwort: Antwort, o: Omit<QuittungOptio
       angewendet: false,
       grund: stand.grund,
       ...(stand.detail ? { detail: stand.detail } : {}),
-      message:
+      ...(stand.quittung?.heightProblem ? { heightProblem: stand.quittung.heightProblem } : {}),
+      message: heightResponseMessage({ heightProblem: stand.quittung?.heightProblem }, process.env.WOV_LANGUAGE) ??
         `Geschrieben, aber nicht angewendet (${stand.grund}): ` +
         (stand.grund === 'server-aus'
           ? 'der Spielserver läuft nicht; die Änderung gilt nach dem Start.'

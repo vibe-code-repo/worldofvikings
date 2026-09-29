@@ -74,7 +74,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { einsortieren } from '../client/src/editor/StoreKatalogDaten.ts';
+import { einsortieren, mitTonUndSymbolenErgaenzen } from '../client/src/editor/StoreKatalogDaten.ts';
 import { PrefabFlag } from '../shared/src/types.ts';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
@@ -122,6 +122,8 @@ const DATEI_KATALOG = 'storeKatalogDaten.ts';
 const DATEI_KOLLISION = 'storeKollisionDaten.ts';
 const ZIEL_VERHALTEN = join(WURZEL, 'shared/src/storeVerhalten.ts');
 const DATEI_VERHALTEN = 'storeVerhalten.ts';
+const ZIEL_HUELLE = join(WURZEL, 'shared/src/storeHuelleDaten.ts');
+const DATEI_HUELLE = 'storeHuelleDaten.ts';
 
 // ── Hilfen ────────────────────────────────────────────────────────────
 
@@ -201,8 +203,19 @@ if (!existsSync(STORE)) {
   process.exit(2);
 }
 
-const manifest = lies(join(STORE, 'manifest.json'));
+const manifestRoh = lies(join(STORE, 'manifest.json'));
 const prefabQuelle = lies(join(STORE, 'prefabs.json'));
+
+/*
+  Ton und Symbole: das Store-Manifest selbst führt nur 45 der 325 Töne
+  und kein UI-Bild (Bauer B1, 28.09.2026) — der vollständig gemessene
+  Bestand liegt in `assets/manifest.json` (`tools/asset-manifest.mjs`).
+  Ohne die Datei (älterer Checkout, `assets/manifest.json` noch nicht
+  erzeugt) bleibt das Store-Manifest unverändert.
+*/
+const ASSET_MANIFEST_PFAD = join(WURZEL, 'assets/manifest.json');
+const assetManifest = existsSync(ASSET_MANIFEST_PFAD) ? lies(ASSET_MANIFEST_PFAD) : null;
+const manifest = mitTonUndSymbolenErgaenzen(manifestRoh, assetManifest);
 
 /*
   NUR was wirklich auf der Platte liegt.
@@ -402,6 +415,7 @@ for (const a of vorhanden) {
     Ton: 'ton',
     Höhenfelder: 'terrain',
     Kulisse: 'kulisse',
+    Symbole: 'symbol',
   };
   const art = kennzeichen.includes('kollision') ? 'kollision' : ART_KENNUNG[ordnung.art];
   if (art === undefined) throw new Error(`${a.path}: unbekannte Art ${ordnung.art}`);
@@ -635,12 +649,36 @@ const katalogTeile = [
  */
 import type { StoreEintrag, StorePrefabName } from './storeKatalog.js';
 
-/** Die ${katalog.length} Einträge, nach \\\`id\\\` sortiert. */
-export const STORE_KATALOG: readonly StoreEintrag[] = [
 `,
 ];
-katalogTeile.push(katalog.map(katalogZeile).join('\n'));
+/*
+  In TEILE zerlegt (Bauer B1, 28.09.2026): Seit Ton und Symbole dazukommen
+  (670 → ${katalog.length} Einträge) meldet \`tsc\` auf EINEM Array-Literal
+  dieser Länge "TS2590 Expression produces a union type that is too
+  complex to represent" — ein bekanntes Verhalten des Typprüfers bei sehr
+  langen Objekt-Array-Literalen gegen ein Interface mit mehreren optionalen
+  Feldern, kein Fehler in den Daten. Kleinere, einzeln typisierte Teile
+  umgehen es: \`tsc\` prüft dann ${'`STORE_KATALOG_TEIL_N`'} für sich, nie
+  die volle Länge auf einmal. Der Katalog bleibt inhaltlich unverändert —
+  \`STORE_KATALOG\` ist weiterhin EIN flaches, sortiertes Array.
+*/
+const KATALOG_TEILGROESSE = 300;
+const katalogTeileArrays = [];
+for (let i = 0; i < katalog.length; i += KATALOG_TEILGROESSE) {
+  katalogTeileArrays.push(katalog.slice(i, i + KATALOG_TEILGROESSE));
+}
+katalogTeile.push(
+  katalogTeileArrays
+    .map(
+      (teil, i) =>
+        `const STORE_KATALOG_TEIL_${i}: readonly StoreEintrag[] = [\n${teil.map(katalogZeile).join('\n')}\n];\n`
+    )
+    .join('\n')
+);
 katalogTeile.push(`
+/** Die ${katalog.length} Einträge, nach \\\`id\\\` sortiert (s. TEILE oben). */
+export const STORE_KATALOG: readonly StoreEintrag[] = [
+  ${katalogTeileArrays.map((_, i) => `...STORE_KATALOG_TEIL_${i}`).join(',\n  ')},
 ];
 
 /** \\\`id\\\` → Katalogeintrag. */
@@ -853,10 +891,75 @@ export function storeKollision(prefabName: StorePrefabName): StoreKollision | nu
 }
 `;
 
-/*
-  BEIDE Erzeugnisse werden geprüft, nicht nur eines.
+// ── Fünftes Erzeugnis: die Hüllbox-Tabelle, schmal, für das SPIEL-Bundle ──
 
-  Vor dem Schnitt gab es eine Datei und damit auch nur eine Frage. Zwei
+/*
+  Bauer B1 N1 (Prüfbefund 2, 29.09.2026): `shared/src/weltbau/huelle.ts`
+  braucht von JEDEM setzbaren Store-Prefab nur zwei Felder — `bounds` und
+  `gruppe` (s. `ausStore()` dort) —, holte sie aber bisher aus
+  `STORE_KATALOG_NACH_PREFAB` in `storeKatalogDaten.ts`. Diese Datei ist
+  ABSICHTLICH nicht im Barrel (s. deren Kopf), aber `huelle.ts` HÄNGT am
+  Barrel (`worldlayout/freiflaechen.ts` exportiert sie mit) — jeder
+  Import von `STORE_KATALOG_NACH_PREFAB` zwingt den Bündler, die GANZE
+  Datei auszuwerten, um die daraus abgeleitete Map zu bekommen, auch wenn
+  nur die Map selbst gebraucht wird. Seit Ton und Symbole den Katalog auf
+  1304 Einträge gebracht haben (670 vorher), wog das +37 KB gzip im
+  Spiel-Bundle, für zwei Felder von 569 Einträgen.
+
+  Diese Datei hier trägt NUR diese zwei Felder, für NUR die setzbaren
+  Prefabs (`prefabName !== undefined`) — kein Ton, kein Symbol, keine
+  Lizenz, kein Hash. `huelle.ts` importiert ab jetzt SIE statt des
+  Katalogs; `storeKatalogDaten.ts` bleibt unverändert der volle
+  Editor-Katalog (der Editor liest ihn ohnehin nicht über diesen Import,
+  sondern per `fetch()`, s. `ladeStoreKatalog()`).
+
+  Split out for the GAME bundle: only `bounds`/`gruppe` for prefab-backed
+  entries, so weltbau/huelle.ts no longer forces the whole (now 1304-line)
+  editor catalogue into the client/server build.
+*/
+const huelleEintraege = katalog
+  .filter((e) => e.prefabName !== undefined)
+  .sort((x, y) => (x.prefabName < y.prefabName ? -1 : x.prefabName > y.prefabName ? 1 : 0));
+
+function huelleZeile(e) {
+  const teile = [`gruppe: ${tsText(e.gruppe)}`];
+  if (e.bounds) teile.push(`bounds: ${boundsText(e.bounds)}`);
+  return `  [${tsText(e.prefabName)}, { ${teile.join(', ')} }],`;
+}
+
+const textHuelle = `/**
+ * storeHuelleDaten.ts — ERZEUGT, NICHT VON HAND ÄNDERN.
+ *
+ *   npx tsx tools/store-prefabs.mjs
+ *
+ * Nur \`bounds\` und \`gruppe\` der ${huelleEintraege.length} setzbaren
+ * Store-Prefabs — der schmale Auszug aus \`STORE_KATALOG\`, den
+ * \`shared/src/weltbau/huelle.ts\` fürs SPIEL braucht (Kollisionshülle).
+ * Der volle Katalog (Lizenz, Hash, Ton, Symbole, … — \`storeKatalogDaten.ts\`)
+ * bleibt ausserhalb des Barrels; diese Datei hier ist es NICHT — sie
+ * darf klein bleiben, weil sie nur die zwei Felder trägt, die ein
+ * Kollisionscheck tatsächlich liest.
+ *
+ * Generated, narrow hull lookup for the game bundle — bounds/group only,
+ * kept separate from the (much larger) editor catalogue.
+ */
+import type { StoreBounds, StorePrefabName } from './storeKatalog.js';
+
+export interface StoreHuelleEintrag {
+  gruppe: string;
+  bounds?: StoreBounds;
+}
+
+/** \`prefabName\` → Hülleneintrag, nach Name sortiert. */
+export const STORE_HUELLE: ReadonlyMap<StorePrefabName, StoreHuelleEintrag> = new Map([
+${huelleEintraege.map(huelleZeile).join('\n')}
+]);
+`;
+
+/*
+  ALLE Erzeugnisse werden geprüft, nicht nur eines.
+
+  Vor dem Schnitt gab es eine Datei und damit auch nur eine Frage. Mehrere
   Dateien, von denen der Wächter eine ansieht, wären schlechter als eine:
   Der Katalog könnte veralten, ohne dass irgendwo etwas rot würde — und
   er ist genau der Teil, den kein Testlauf sonst anfasst.
@@ -866,6 +969,7 @@ const ERZEUGNISSE = [
   { name: DATEI_KATALOG, ziel: ZIEL_KATALOG, text: textKatalog },
   { name: DATEI_KOLLISION, ziel: ZIEL_KOLLISION, text: textKollision },
   { name: DATEI_VERHALTEN, ziel: ZIEL_VERHALTEN, text: textVerhalten },
+  { name: DATEI_HUELLE, ziel: ZIEL_HUELLE, text: textHuelle },
 ];
 
 if (process.argv.includes('--pruefen')) {

@@ -32,6 +32,7 @@ import {
   type RiverDef,
   type LakeDef,
   type RouteDef,
+  type ZoneHeightDelta,
   type WorldLayout,
 } from './types.js';
 import { gleicherInhalt, ID_RE, merkeZusammengefasst, platzierungenNormalisieren } from './platzierungsId.js';
@@ -211,6 +212,8 @@ function sanitizeRegion(input: unknown, bekannteIds: Set<string>): RegionDef | n
 
 /** Das geprüfte Dokument samt dem, was der Sanitizer dabei zusammengelegt hat. */
 export interface SanitizeBericht {
+  /** A correction was rejected; callers must not persist the sanitized remainder. */
+  heightProblem?: HeightProblem;
   layout: WorldLayout;
   /**
    * Eine Zeile je exaktem Duplikat, das er zu einem Eintrag zusammengefasst hat
@@ -420,11 +423,326 @@ export function platzierungenFehlerText(liste: readonly PlatzierungsFehler[], ma
   return teile.join(', ') + (liste.length > max ? ` … (+${liste.length - max})` : '');
 }
 
-export function sanitizeWorldLayout(input: unknown): WorldLayout | null {
-  return sanitizeWorldLayoutMitBericht(input)?.layout ?? null;
+// ── Handkorrektur der Geländehöhe (heightDeltas, Editor-Pinsel T2+) ─────
+//
+// N1 (Angriffsbefund B2): Eine Zone hat EIGENE 64×64 Rasterpunkte (0…4095),
+// nicht 65×65 — die geteilte Randzeile/-spalte (`rx`/`ry` = 64) gehört immer
+// der Nachbarzone (`rx`/`ry` = 0 dort), s. `types.ts` und
+// `RegionGeo.zoneUndIndex`.
+//
+// N2 (Orchestrator-Formatentscheidung, Angriffsbefund N6): Punkte werden je
+// Zone nach Rasterzeile `ry` (0…63) gruppiert (`ZoneHeightDelta.r`, je
+// Zeile EIN String `"ry|i|d"` — s. `types.ts`, warum ein String statt des
+// Tripels `[ry,"i","d"]`: 533 B statt 400 B bei einem 3-m-Strich). Ein
+// geänderter Punkt ändert nur den String EINER Zeile, nicht die ganze
+// Zone — kleiner Diff bei einer vollen Zone.
+
+/** Größter Zeilen-/Spaltenindex einer Zone: 64×64 − 1, je Achse also 0…63. */
+export const HOEHENKORREKTUR_ZEILE_MAX = 63;
+/** Höchstens so viele Zeilen (verschiedene `ry`) je Zone — mehr gibt es bei 64 Zeilen nicht. */
+const HOEHENKORREKTUR_ZEILEN_JE_ZONE_MAX = 64;
+/** Größtes erlaubtes Delta in Zentimetern (±100 m). */
+export const HOEHENKORREKTUR_DELTA_MAX_CM = 10_000;
+/** Zonen-Koordinate: klein genug für `LAYOUT_MAX_EXTENT` (40 km / 64 m ≈ 625), reichlich Marge. */
+const HOEHENZONE_MAX = 2048;
+/** Content limits shared by writers, strict readers and the live watcher. */
+export const HEIGHT_ZONE_LIMIT = 4096;
+export const HEIGHT_POINT_LIMIT = 100_000;
+/**
+ * Wie viele ROHE Zonen `hoehenkorrekturFehler` höchstens einzeln prüft — viel
+ * mehr als `MAX_HOEHENZONEN_LESEN`, weil diese Funktion Fehler auch dann noch
+ * melden muss, wenn der Schreibweg die Zonengrenze bewusst ignoriert
+ * (`deckel=false`, s. o.); die Zahl bleibt trotzdem endlich (Angriffsbefund
+ * N1: „hoehenkorrekturFehler prüft nur die ersten 4096 Einträge“ war der Fund).
+ */
+const MAX_HOEHENZONEN_PRUEFEN = 65_536;
+/**
+ * Zeichenlänge, ab der eine `i`/`d`-Liste EINER ZEILE ohne weitere Prüfung
+ * verworfen wird — ein billiger Schutz vor dem teuren `split(',')`. Eine
+ * Zeile hat höchstens 64 Werte zu höchstens 6 Zeichen (`-10000`); 2000 Zeichen
+ * lassen reichlich Luft.
+ */
+const HOEHENKORREKTUR_ZEICHEN_MAX = 2000;
+/** Mehr rohe Zahlen je ZEILE prüft der Parser nicht (der gültige Höchstwert ist 64; Marge gegen Duplikate/Müll). */
+const HOEHENKORREKTUR_ROHZAHLEN_JE_ZEILE_MAX = 128;
+/** Kanonische Ganzzahl-Textform: optionales `-`, keine führende Null außer der `0` selbst, keine Leerzeichen/Exponent. */
+const GANZZAHL_TEXT_RE = /^-?(0|[1-9]\d*)$/;
+
+/** Ganzzahl in [min, max], sonst `null` — Unsinn (Text, NaN, Bruch, außerhalb) wird verworfen, nicht geklemmt. */
+function ganzzahlInBereich(v: unknown, min: number, max: number): number | null {
+  if (typeof v !== 'number' || !Number.isFinite(v) || !Number.isInteger(v)) return null;
+  return v < min || v > max ? null : v;
 }
 
-export function sanitizeWorldLayoutMitBericht(input: unknown): SanitizeBericht | null {
+/**
+ * `i`/`d` (je Zeile) in eine Zahlenliste zerlegen — `null` heißt STRUKTURELL
+ * ungültig (kein String, zu lang, zu viele Teile, oder mindestens ein Teil
+ * ist keine kanonische Ganzzahl-Textform). Ein leerer String ergibt eine
+ * leere Liste (eine Zeile ohne Punkte ist unten ohnehin ausgeschlossen).
+ */
+function parseZahlenListe(v: unknown): number[] | null {
+  if (typeof v !== 'string') return null;
+  if (v.length === 0) return [];
+  if (v.length > HOEHENKORREKTUR_ZEICHEN_MAX) return null;
+  const teile = v.split(',');
+  if (teile.length > HOEHENKORREKTUR_ROHZAHLEN_JE_ZEILE_MAX) return null;
+  const out: number[] = [];
+  for (const t of teile) {
+    if (!GANZZAHL_TEXT_RE.test(t)) return null;
+    out.push(Number(t));
+  }
+  return out;
+}
+
+/**
+ * Eine Zeile `"ry|i|d"` in ihre drei Teile zerlegen — `null` heißt
+ * STRUKTURELL ungültig (kein String, oder nicht GENAU zwei `|`-Trenner:
+ * `i`/`d` selbst enthalten nie `|`, nur Kommas, also ist ein dritter
+ * Trenner immer Müll, kein Wert mit `|` darin).
+ */
+function zeileTeilen(v: unknown): [string, string, string] | null {
+  if (typeof v !== 'string') return null;
+  const teile = v.split('|');
+  if (teile.length !== 3) return null;
+  return [teile[0]!, teile[1]!, teile[2]!];
+}
+
+/**
+ * `WorldLayout.heightDeltas` aus dem rohen Dokument: pro Zone ein gültiger
+ * Zonenschlüssel (`zx`/`zz` ganzzahlig, nicht doppelt), `r` als Liste von
+ * Zeilen-Strings `"ry|i|d"` (`ry` 0…63, nicht doppelt; `i`/`d` gleich lange
+ * komma-getrennte Ganzzahllisten, Werte `rx` 0…63). Ungültige EINZELNE
+ * Punkte (Spalte außerhalb, doppelt, Delta außerhalb ±10 000) verwirft er,
+ * ohne die ganze Zeile zu verlieren; **Delta 0 fällt IMMER weg** (N2-
+ * Formatentscheidung: ein Punkt ohne Höhenwirkung ist keine Korrektur — er
+ * zählt sonst in die Grenzen, erzeugt eine Zeile im Editor-Vergleich und
+ * einen Fehlalarm dort). Bleibt eine Zeile ohne gültigen Punkt, entfällt sie;
+ * bleibt eine Zone ohne gültige Zeile, entfällt sie ganz. Ist `r`/eine Zeile
+ * STRUKTURELL kaputt (kein Array, kein String, nicht genau drei `|`-Teile,
+ * `i`/`d` unterschiedliche Länge), entfällt die betroffene Zeile bzw. Zone
+ * (kein teilweises Lesen einer korrupten Liste). Ergebnis stabil sortiert
+ * (Zone nach `zx`,`zz`, Zeile nach `ry`, Punkte nach `rx`), damit kleine
+ * Änderungen kleine Diffs ergeben (git-freundlich, wie bei Platzierungen).
+ *
+ * The low-level parser remains lenient for individual entries. With `deckel`,
+ * a size/budget rejection returns no correction, NEVER a truncated prefix.
+ * Document consumers use sanitizeWorldLayoutMitBericht for the diagnostic.
+ */
+export function sanitizeHeightDeltas(input: unknown, deckel = true): ZoneHeightDelta[] {
+  if (!Array.isArray(input)) return [];
+  const gesehen = new Set<string>();
+  const zonen: ZoneHeightDelta[] = [];
+  // Never expose a prefix of a correction. The report carries the rejection.
+  if (deckel) {
+    const problem = heightProblem(input);
+    if (problem && problem.reason !== 'invalid') return [];
+  }
+  for (const roh of input) {
+    if (typeof roh !== 'object' || roh === null) continue;
+    const o = roh as Record<string, unknown>;
+    const zx = ganzzahlInBereich(o.zx, -HOEHENZONE_MAX, HOEHENZONE_MAX);
+    const zz = ganzzahlInBereich(o.zz, -HOEHENZONE_MAX, HOEHENZONE_MAX);
+    if (zx === null || zz === null) continue;
+    const schluessel = `${zx},${zz}`;
+    if (gesehen.has(schluessel)) continue; // doppelter Zonenschlüssel: der zweite Eintrag entfällt
+    if (!Array.isArray(o.r)) continue;
+    const ryGesehen = new Set<number>();
+    const zeilen: [number, string][] = [];
+    for (const zeile of o.r.slice(0, HOEHENKORREKTUR_ZEILEN_JE_ZONE_MAX)) {
+      const teile = zeileTeilen(zeile);
+      if (teile === null || !GANZZAHL_TEXT_RE.test(teile[0])) continue;
+      const ry = ganzzahlInBereich(Number(teile[0]), 0, HOEHENKORREKTUR_ZEILE_MAX);
+      if (ry === null || ryGesehen.has(ry)) continue; // ry ungültig/doppelt: die Zeile entfällt
+      const roheRx = parseZahlenListe(teile[1]);
+      const roheDeltas = parseZahlenListe(teile[2]);
+      if (roheRx === null || roheDeltas === null || roheRx.length !== roheDeltas.length) continue;
+      const rxGesehen = new Set<number>();
+      const punkte: [number, number][] = [];
+      for (let k = 0; k < roheRx.length; k++) {
+        const rx = roheRx[k]!;
+        const delta = roheDeltas[k]!;
+        if (rx < 0 || rx > HOEHENKORREKTUR_ZEILE_MAX) continue;
+        if (delta === 0) continue; // N2: delta 0 hat keine Wirkung und faellt weg
+        if (delta < -HOEHENKORREKTUR_DELTA_MAX_CM || delta > HOEHENKORREKTUR_DELTA_MAX_CM) continue;
+        if (rxGesehen.has(rx)) continue; // doppeltes rx: der zweite Punkt entfällt
+        rxGesehen.add(rx);
+        punkte.push([rx, delta]);
+      }
+      if (punkte.length === 0) continue; // keine gültigen Punkte übrig: die Zeile entfällt
+      punkte.sort((a, b) => a[0] - b[0]);
+      ryGesehen.add(ry);
+      const i = punkte.map((p) => p[0]).join(',');
+      const d = punkte.map((p) => p[1]).join(',');
+      zeilen.push([ry, `${ry}|${i}|${d}`]);
+    }
+    if (zeilen.length === 0) continue; // keine gültige Zeile übrig: die Zone entfällt ganz
+    zeilen.sort((a, b) => a[0] - b[0]);
+    gesehen.add(schluessel);
+    zonen.push({ zx, zz, r: zeilen.map((z) => z[1]) });
+  }
+  zonen.sort((a, b) => a.zx - b.zx || a.zz - b.zz);
+  return zonen;
+}
+
+/** Ein Befund am ROHEN `heightDeltas`-Eintrag: welche Zone (`zx,zz`, sonst `#<Stelle>`), welches Feld, welcher Wert. */
+export interface HoehenkorrekturFehler {
+  zone: string;
+  feld: string;
+  wert: unknown;
+}
+
+/**
+ * Was am ROHEN `heightDeltas`-Wert (vor dem Sanitizer) verworfen würde: das
+ * Feld ist GESETZT, aber kein Array (kaputt, nicht leer — Angriffsbefund N1,
+ * dritter Punkt: `heightDeltas: "kaputt"` muss ungültig sein, nicht als
+ * „leer“ durchgehen); sonst je Zone ein falscher/doppelter Zonenschlüssel,
+ * `r` kein Array, eine Zeile, die kein String mit GENAU drei `|`-Teilen
+ * `"ry|i|d"` ist, `ry` kein kanonischer Ganzzahltext oder außerhalb 0…63
+ * oder doppelt, `i`/`d` unterschiedlich lang, ein Wert `rx` außerhalb 0…63
+ * oder doppelt, ein Delta außerhalb
+ * ±10 000 cm. Analog zu `platzierungenFehler`: Der Schreibweg hält mit
+ * einem gemeldeten Fund die ganze Datei zurück (422 mit dieser Liste),
+ * statt gemischte gültige/ungültige Punkte teilweise zu speichern
+ * (Angriffsbefunde B1/B4/N1). `delta 0` ist KEIN Fund (gültig, fällt beim
+ * Sanitizer nur lautlos weg, N2).
+ */
+export function hoehenkorrekturFehler(roh: unknown): HoehenkorrekturFehler[] {
+  const fehler: HoehenkorrekturFehler[] = [];
+  if (roh === undefined || roh === null) return fehler; // Feld fehlt: das ist gültig leer, kein Fund.
+  if (!Array.isArray(roh)) {
+    fehler.push({ zone: '—', feld: 'heightDeltas', wert: wertKurz(roh) });
+    return fehler;
+  }
+  const gesehenZonen = new Set<string>();
+  roh.slice(0, MAX_HOEHENZONEN_PRUEFEN).forEach((z, i) => {
+    if (typeof z !== 'object' || z === null || Array.isArray(z)) {
+      fehler.push({ zone: `#${i}`, feld: 'eintrag', wert: wertKurz(z) });
+      return;
+    }
+    const o = z as Record<string, unknown>;
+    const zx = ganzzahlInBereich(o.zx, -HOEHENZONE_MAX, HOEHENZONE_MAX);
+    const zz = ganzzahlInBereich(o.zz, -HOEHENZONE_MAX, HOEHENZONE_MAX);
+    const zone = zx !== null && zz !== null ? `${zx},${zz}` : `#${i}`;
+    if (zx === null) fehler.push({ zone, feld: 'zx', wert: wertKurz(o.zx) });
+    if (zz === null) fehler.push({ zone, feld: 'zz', wert: wertKurz(o.zz) });
+    if (zx !== null && zz !== null) {
+      if (gesehenZonen.has(zone)) fehler.push({ zone, feld: 'zone', wert: 'doppelt' });
+      else gesehenZonen.add(zone);
+    }
+    if (!Array.isArray(o.r)) {
+      fehler.push({ zone, feld: 'r', wert: wertKurz(o.r) });
+      return;
+    }
+    if (o.r.length > HOEHENKORREKTUR_ZEILEN_JE_ZONE_MAX) {
+      fehler.push({ zone, feld: 'r', wert: `${o.r.length} Zeilen` });
+    }
+    const ryGesehen = new Set<number>();
+    (o.r as unknown[]).slice(0, HOEHENKORREKTUR_ZEILEN_JE_ZONE_MAX + 1).forEach((zeile, j) => {
+      const teile = zeileTeilen(zeile);
+      if (teile === null) {
+        fehler.push({ zone, feld: `r[${j}]`, wert: wertKurz(zeile) });
+        return;
+      }
+      const ry = GANZZAHL_TEXT_RE.test(teile[0]) ? ganzzahlInBereich(Number(teile[0]), 0, HOEHENKORREKTUR_ZEILE_MAX) : null;
+      if (ry === null) fehler.push({ zone, feld: `r[${j}].ry`, wert: wertKurz(teile[0]) });
+      else if (ryGesehen.has(ry)) fehler.push({ zone, feld: `r[${j}].ry`, wert: 'doppelt' });
+      else ryGesehen.add(ry);
+      const roheRx = parseZahlenListe(teile[1]);
+      const roheDeltas = parseZahlenListe(teile[2]);
+      if (roheRx === null) {
+        fehler.push({ zone, feld: `r[${j}].i`, wert: wertKurz(teile[1]) });
+        return;
+      }
+      if (roheDeltas === null) {
+        fehler.push({ zone, feld: `r[${j}].d`, wert: wertKurz(teile[2]) });
+        return;
+      }
+      if (roheRx.length !== roheDeltas.length) {
+        fehler.push({ zone, feld: `r[${j}].laenge`, wert: `i=${roheRx.length} d=${roheDeltas.length}` });
+        return;
+      }
+      const rxGesehen = new Set<number>();
+      for (let k = 0; k < roheRx.length; k++) {
+        const rx = roheRx[k]!;
+        const delta = roheDeltas[k]!;
+        if (rx < 0 || rx > HOEHENKORREKTUR_ZEILE_MAX) fehler.push({ zone, feld: `r[${j}].rx`, wert: rx });
+        else if (rxGesehen.has(rx)) fehler.push({ zone, feld: `r[${j}].rx`, wert: 'doppelt' });
+        else rxGesehen.add(rx);
+        if (delta < -HOEHENKORREKTUR_DELTA_MAX_CM || delta > HOEHENKORREKTUR_DELTA_MAX_CM) fehler.push({ zone, feld: `r[${j}].delta`, wert: delta });
+      }
+    });
+  });
+  return fehler;
+}
+
+/** Die Liste als Satz für Editor, KI und Log — analog `platzierungenFehlerText`. */
+export function hoehenkorrekturFehlerText(liste: readonly HoehenkorrekturFehler[], max = 20): string {
+  const teile = liste.slice(0, max).map((f) => `${f.zone} ${f.feld}=${JSON.stringify(f.wert)}`);
+  return teile.join(', ') + (liste.length > max ? ` … (+${liste.length - max})` : '');
+}
+
+/** Count only non-zero, syntactically valid points; empty zones have no effect. */
+export function hoehenkorrekturZaehlen(roh: unknown): { zonen: number; punkte: number } {
+  if (!Array.isArray(roh)) return { zonen: 0, punkte: 0 };
+  let zonen = 0;
+  let punkte = 0;
+  for (const z of roh.slice(0, MAX_HOEHENZONEN_PRUEFEN)) {
+    if (typeof z !== 'object' || z === null || !Array.isArray(z.r)) continue;
+    let count = 0;
+    for (const row of z.r.slice(0, HOEHENKORREKTUR_ZEILEN_JE_ZONE_MAX)) {
+      const parts = zeileTeilen(row);
+      if (!parts) continue;
+      const indices = parseZahlenListe(parts[1]);
+      const deltas = parseZahlenListe(parts[2]);
+      if (!indices || !deltas || indices.length !== deltas.length) continue;
+      for (let i = 0; i < indices.length; i++) {
+        const delta = deltas[i]!;
+        if (indices[i]! >= 0 && indices[i]! <= HOEHENKORREKTUR_ZEILE_MAX &&
+            delta !== 0 && Math.abs(delta) <= HOEHENKORREKTUR_DELTA_MAX_CM) count++;
+      }
+    }
+    if (count > 0) zonen++;
+    punkte += count;
+  }
+  return { zonen, punkte };
+}
+
+export interface HeightProblem {
+  reason: 'invalid' | 'limit' | 'inspection-limit';
+  zonen: number;
+  punkte: number;
+  zoneLimit: number;
+  pointLimit: number;
+  fehlerhaftHoehe: HoehenkorrekturFehler[];
+  rawZones?: number;
+  inspectionLimit?: number;
+}
+
+/** Shared disk/write/live policy. The inspection budget is NOT a content limit. */
+export function heightProblem(raw: unknown): HeightProblem | null {
+  const counts = hoehenkorrekturZaehlen(raw);
+  const errors = hoehenkorrekturFehler(raw);
+  const budget = Array.isArray(raw) && raw.length > MAX_HOEHENZONEN_PRUEFEN;
+  const reason = budget ? 'inspection-limit' : errors.length ? 'invalid' :
+    counts.zonen > HEIGHT_ZONE_LIMIT || counts.punkte > HEIGHT_POINT_LIMIT ? 'limit' : null;
+  return reason ? {
+    reason, ...counts, zoneLimit: HEIGHT_ZONE_LIMIT, pointLimit: HEIGHT_POINT_LIMIT,
+    fehlerhaftHoehe: errors,
+    ...(budget ? { rawZones: raw.length, inspectionLimit: MAX_HOEHENZONEN_PRUEFEN } : {}),
+  } : null;
+}
+
+/** Legacy option retained for source compatibility; it no longer bypasses validation. */
+export interface SanitizeOptionen {
+  /** @deprecated PATCH preserves the raw JSON value outside the sanitizer. */
+  heightDeltasOhneDeckel?: boolean;
+}
+
+export function sanitizeWorldLayout(input: unknown, optionen?: SanitizeOptionen): WorldLayout | null {
+  return sanitizeWorldLayoutMitBericht(input, optionen)?.layout ?? null;
+}
+
+export function sanitizeWorldLayoutMitBericht(input: unknown, _optionen: SanitizeOptionen = {}): SanitizeBericht | null {
   if (typeof input !== 'object' || input === null) return null;
   const d = input as Record<string, unknown>;
   if (d.version !== WORLD_LAYOUT_VERSION) return null;
@@ -562,6 +880,9 @@ export function sanitizeWorldLayoutMitBericht(input: unknown): SanitizeBericht |
     if (sx !== null && sz !== null) defaultSpawn = [sx, sz];
   }
 
+  const heightIssue = heightProblem(d.heightDeltas);
+  const heightDeltas = heightIssue ? [] : sanitizeHeightDeltas(d.heightDeltas, false);
+
   const layout: WorldLayout = {
     version: WORLD_LAYOUT_VERSION,
     name: d.name,
@@ -573,7 +894,8 @@ export function sanitizeWorldLayoutMitBericht(input: unknown): SanitizeBericht |
     ...(rivers.length > 0 ? { rivers } : {}),
     ...(lakes.length > 0 ? { lakes } : {}),
     ...(routes.length > 0 ? { routes } : {}),
+    ...(heightDeltas.length > 0 ? { heightDeltas } : {}),
   };
   merkeZusammengefasst(layout, zusammengefasst);
-  return { layout, zusammengefasst };
+  return { layout, zusammengefasst, ...(heightIssue ? { heightProblem: heightIssue } : {}) };
 }

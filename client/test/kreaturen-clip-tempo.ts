@@ -45,9 +45,9 @@ for (const e of SPAWN_TABLE) {
   // residual slide from a capped one.
   const walk = clipRate(e.walkSpeed, tabelle.walk);
   check(`${e.prefab}: walk rate at server speed ${e.walkSpeed} m/s`, walk > 0 && walk <= CLIP_RATE_MAX, walk.toFixed(2));
-  if (tabelle.run !== undefined && e.aggro !== false) {
+  if (tabelle.run !== undefined && (e.flees || e.aggro !== false)) {
     const run = clipRate(e.runSpeed, tabelle.run);
-    check(`${e.prefab}: run rate at server speed ${e.runSpeed} m/s`, run > 0 && run <= CLIP_RATE_MAX, run.toFixed(2));
+    check(`${e.prefab}: run rate at server speed ${e.runSpeed} m/s`, run > 0 && run < CLIP_RATE_MAX, run.toFixed(2));
   }
 }
 

@@ -676,6 +676,35 @@ if (modul) {
   const alles = (b: ReturnType<typeof bauen>): string => [dateiSummen(b.welten), dateiSummen(b.saves), dateiSummen(b.konten)].join('##');
   const gut = { bestaetigung: 'dev', seed: 'behalten' as const };
 
+  // B1 (T1 N4): a broken or over-limit height correction must not cost the seed or the name ("behalten").
+  // The reset rebuilds the document, so the correction is dropped, not carried into the fresh world.
+  {
+    const zonen = (k: number) => Array.from({ length: k }, (_, i) => ({ zx: i % 64, zz: Math.floor(i / 64), r: ['0|0|1'] }));
+    const faelle: [string, unknown][] = [
+      ['String', 'kaputt'],
+      ['kaputte Zeile', [{ zx: 0, zz: 0, r: ['0|1,2|30,4O'] }]],
+      ['4097 Zonen', zonen(4097)],
+      ['100001 Punkte', [{ zx: 0, zz: 0, r: [`0|0|${Array.from({ length: 100001 }, () => '1').join(',')}`] }]],
+    ];
+    for (const [name, hoehe] of faelle) {
+      const b = bauen();
+      writeFileSync(b.umg.layoutDatei, JSON.stringify({ ...WELT_ROH, heightDeltas: hoehe }));
+      const zahlen = modul.zahlenErheben(b.umg);
+      check(`B1-N4[${name}]: Vorschau kennt das Dokument (Seed pruefseed)`, zahlen.weltdokument?.detailSeed === 'pruefseed', JSON.stringify(zahlen.weltdokument));
+      const a = (await weltZuruecksetzenBehandeln(gut, b.umg)) as { code: number; daten: Record<string, any> };
+      const neu = JSON.parse(readFileSync(b.umg.layoutDatei, 'utf-8'));
+      check(`B1-N4[${name}]: 200, Seed und Name bleiben`, a.code === 200 && neu.detailSeed === 'pruefseed' && neu.name === 'Pruefwelt', `= ${a.code} seed ${neu.detailSeed} name ${neu.name}`);
+      check(`B1-N4[${name}]: die kaputte Hoehe steht nicht in der neuen Welt, das Dokument ist gueltig und leer`, !('heightDeltas' in neu) && sanitizeWorldLayout(neu) !== null && neu.regions.length === 0, Object.keys(neu).join(','));
+      check(`B1-N4[${name}]: Sicherung des alten Dokuments (mit der Hoehe) liegt daneben`, readdirSync(b.saves).some((f) => f.startsWith('dev.json.') && readFileSync(resolve(b.saves, f), 'utf-8').includes('heightDeltas')));
+    }
+    // a valid correction is dropped as well (the reset builds an empty world) and the seed stays
+    const b = bauen();
+    writeFileSync(b.umg.layoutDatei, JSON.stringify({ ...WELT_ROH, heightDeltas: [{ zx: 0, zz: 0, r: ['1|2|300'] }] }));
+    const a = (await weltZuruecksetzenBehandeln(gut, b.umg)) as { code: number };
+    const neu = JSON.parse(readFileSync(b.umg.layoutDatei, 'utf-8'));
+    check('B1-N4[gueltig]: Seed bleibt, keine Hoehe in der neuen Welt', a.code === 200 && neu.detailSeed === 'pruefseed' && !('heightDeltas' in neu));
+  }
+
   {
     const b = bauen();
     const a = (await weltZuruecksetzenBehandeln({ ...gut, konten: true }, b.umg)) as { code: number; daten: Record<string, any> };

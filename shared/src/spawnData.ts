@@ -219,14 +219,27 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
   {
     // Wolf (B9): plays the greydwarf's part (the roadmap says so) in the same
     // biome, the Black Forest, and takes its combat numbers: 30 HP (leben.ts),
-    // chase 5.5 m/s (player walks 4.5, runs 7.5), 8 damage every 2 s within
-    // 2.4 m (SpawnSystem). Fewer than the greydwarf (3 instead of 5 within
-    // 130 m, 30 instead of 50 server-wide, one roll per 6 s at 30 %): it is
-    // the same damage from a faster body, and every wolf is a skinned mesh of
-    // 1000 triangles that costs a draw call plus a shadow pass.
+    // chase 4.9 m/s (player walks 4.5, runs 7.5), 8 damage every 2 s within
+    // 2.4 m (SpawnSystem, capped to at most two creatures striking the same
+    // player at once — see MAX_GLEICHZEITIGE_ANGREIFER). Fewer than the
+    // greydwarf (3 instead of 5 within 130 m, 30 instead of 50 server-wide,
+    // one roll per 6 s at 30 %): it is the same damage from a faster body,
+    // and every wolf is a skinned mesh of 1000 triangles that costs a draw
+    // call plus a shadow pass.
     //
-    // Walk 1.0 m/s (clip: 0.62), chase 5.5 m/s (clip: 1.42): the client
-    // couples the clip's playback rate to the real ground speed.
+    // Chase speed (Wolfsbalance, 27.09.2026): the B9.2 in-game measurement
+    // found 5.5 m/s pushed the run clip's playback rate against its cap
+    // (CLIP_RATE_MAX 4 x clip tempo 1.42 = 5.68 m/s) often enough to slide
+    // the feet p90 11-14% of the time (`reihe-wolf-jagd.json`, 20 real
+    // GPU-rendered samples). That real jitter trace scales linearly with
+    // the nominal chase speed (same network/render timing, just a shorter
+    // distance per tick), so re-deriving the same 20 samples at lower
+    // candidate speeds gives an honest sliding curve without a fresh GPU
+    // session: 5.0 m/s -> p90 ~2.7 %, 4.9 m/s -> p90 ~0.7 %, 4.8 m/s and
+    // below -> 0 %. Chosen: 4.9 m/s — under the 3 % target with margin for
+    // the linear-rescaling assumption, and still clearly above the 4.5 m/s
+    // walking player (a walker cannot outrun it; a sprinting one at 7.5
+    // still can). Walk 1.0 m/s (clip: 0.62) is unaffected.
     prefab: 'Wolf',
     biomes: Biome.BlackForest,
     maxPerPlayer: 3,
@@ -241,7 +254,7 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
     ringMax: 85,
     minAltitude: 30.5,
     walkSpeed: 1.0,
-    runSpeed: 5.5,
+    runSpeed: 4.9,
     wanderRadius: 25,
     idleMinSec: 2,
     idleMaxSec: 5,
@@ -249,6 +262,62 @@ const SPAWN_TABLE_ROH: readonly SpawnEntry[] = [
     fleeDistance: 0,
     calmDistance: 0,
     clips: ['idle', 'walk', 'run', 'attack'],
+  },
+  {
+    // Hen (B9.6): the meadow's smallest animal (0.26 x 0.17 x 0.33 m, 660
+    // triangles — under half the cow's mesh cost), so a higher cap than the
+    // cow is affordable. It uses the deer-style flee gate (`flees: true`,
+    // 10 m trigger / 40 m calm distance) but keeps `aggro: false`: it bolts
+    // from players and never attacks.
+    //
+    // Ring is tightened from the cow's 35-80 m to 15-40 m: a cow is 2.9 m
+    // long and reads at 80 m, a 0.26 m hen at that range is a few pixels —
+    // it needs to pop in closer to be noticed at all.
+    //
+    // Hens flock: groupSize 2-4 (vs. the cow's 1-2) in a tight 3 m radius,
+    // and a short wander radius (8 m, vs. the cow's 15 m) — real chickens
+    // stay close to where they started, they do not roam a meadow.
+    //
+    // Walk 0.15 m/s (N3, Pruefung 2026-09-28): a slow peck-and-shuffle, far
+    // slower than the cow's amble (1.0) and than the 0.5 m/s this carried
+    // before N3. 0.5 m/s left only 12% headroom to the client's 4x clip-rate
+    // cap over the hen's own slow walk clip (0.14 m/s) -- fine for the
+    // steady-state number the table shows, but the position the client
+    // renders does not move at a constant rate: it chases the ZDO position
+    // sent every SPAWN_SYNC_INTERVAL_SEC (0.25 s) with a much faster lerp
+    // (client/src/entities/EntityManager.ts:3409, time constant 0.09 s), so
+    // right after every sync the rendered root briefly moves at up to
+    // walkSpeed * 0.25/0.09 (~2.8x the nominal speed) before decaying back
+    // down. At 0.5 m/s that peak alone reached the cap, and real network/
+    // render jitter pushed measured ground speed over it on 772 of 2173
+    // Walk samples in the GPU probe (Bericht Huhn N2 -- Pruefung). 0.15 m/s
+    // keeps even that peak (~0.42 m/s) clearly under the cap threshold
+    // (CLIP_RATE_MAX 4 x 0.14 m/s = 0.56 m/s). Flee still uses the
+    // already-shipped `run` clip at 2.5 m/s (run clip: 0.97 m/s, ratio 2.58),
+    // which has enough headroom and was not touched.
+    prefab: 'Huhn',
+    biomes: Biome.Meadows,
+    maxPerPlayer: 5,
+    countRadius: 60,
+    globalMax: 40,
+    spawnIntervalSec: 5,
+    spawnChance: 0.4,
+    groupSizeMin: 2,
+    groupSizeMax: 4,
+    groupRadius: 3,
+    ringMin: 15,
+    ringMax: 40,
+    minAltitude: 30.5,
+    walkSpeed: 0.15,
+    runSpeed: 2.5,
+    wanderRadius: 8,
+    idleMinSec: 2,
+    idleMaxSec: 5,
+    flees: true,
+    fleeDistance: 10,
+    calmDistance: 40,
+    aggro: false,
+    clips: ['idle', 'walk', 'run'],
   },
 ];
 

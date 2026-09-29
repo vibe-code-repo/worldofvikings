@@ -39,6 +39,7 @@ import {
 } from '@wov/shared';
 import type { DynamischeInstanz, EntityManager } from '../entities/EntityManager';
 import { UI } from './theme';
+import { transformOhneJitter } from '../engine/PostProcessing';
 
 /**
  * Ab dieser Entfernung (m) erscheint gar kein Schild mehr.
@@ -347,7 +348,10 @@ export class Namensschilder {
     const engine = this.scene.getEngine();
     const breite = engine.getRenderWidth();
     const hoehe = engine.getRenderHeight();
-    const view = this.scene.getTransformMatrix();
+    // transformOhneJitter statt scene.getTransformMatrix(): Sonst springt das
+    // Schild bei stehender Kamera jedes Bild um den TAA-Halton-Versatz
+    // (s. PostProcessing.ts, entsperreTaaJitter). Bei TAA aus bitgleich.
+    const view = transformOhneJitter(this.scene, this.camera);
     // ACHTUNG: toGlobalToRef liefert `this` zurück, nicht das Ziel — der
     // gerechnete Wert steht ausschliesslich in VIEWPORT.
     this.camera.viewport.toGlobalToRef(breite, hoehe, VIEWPORT);
@@ -372,7 +376,13 @@ export class Namensschilder {
         continue;
       }
       const slot = this.slot(gezeichnet++);
-      // Ganzzahlige Pixel: halbe Pixel machen die Schrift unscharf.
+      // Ganzzahlige Pixel: halbe Pixel machen die Schrift unscharf. Bleibt
+      // auch mit transformOhneJitter sinnvoll: Anders als vorher liefert
+      // dieselbe Kamera-/Weltlage jetzt jedes Bild dasselbe p.x/p.y, das
+      // Runden springt also nicht mehr zwischen zwei Nachbarpixeln hin und
+      // her — es rundet nur noch die tatsächliche Kamerafahrt, ohne
+      // künstlich zu ruckeln (kein Sub-Pixel-Mitlaufen bei Bewegung nötig,
+      // dafür ist das Schild ohnehin kein Feinzeichen-Element).
       const sx = Math.round(p.x);
       // Nach OBEN wird nicht abgeschnitten, sondern an den Bildrand
       // GEKLEMMT (wie in WoW). Grund ist Surtr: Steht man vor dem 9 m hohen

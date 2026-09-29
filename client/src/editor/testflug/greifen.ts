@@ -9,6 +9,10 @@
  *     grabs the nearest placement within GRIFFRADIUS as before.
  *   - A grab becomes a drag only after more than 4 px of mouse travel (8 px touch/pen);
  *     the object keeps the grab offset, its centre does not jump to the mouse point.
+ *   - With series off (the default) place mode ends right after a placement, so a
+ *     double click's second event would otherwise land as a plain click and grab the
+ *     object just placed under the pointer. `geradeGesperrt` (the caller's own
+ *     `DoppelklickSperre.blockiert` on the same screen point) also blocks that grab.
  */
 
 /** Grab radius around a placement's pivot (m). */
@@ -39,11 +43,19 @@ export interface KlickEingabe {
   punkt: Punkt;
   /** The placements at their VISIBLE place (a walking route NPC is not where its entry says). */
   platzierungen: readonly Punkt[];
+  /**
+   * The double-click screen-pixel sperre (`DoppelklickSperre.blockiert`, checked by the
+   * caller against the point of the last placement) already blocks this click. It never
+   * changes a "setzen" decision (the caller blocks that placement itself, the same way as
+   * before); it only stops this click from grabbing what was just placed.
+   */
+  geradeGesperrt?: boolean;
 }
 
 /** What a left click does: place, grab placement `index`, or nothing. */
 export function entscheideKlick(e: KlickEingabe): KlickEntscheidung {
   if (e.setzenModus && !e.alt) return { art: 'setzen' };
+  if (e.geradeGesperrt) return { art: 'nichts' };
   let best = -1;
   let bestD = GRIFFRADIUS;
   e.platzierungen.forEach((q, i) => {
@@ -106,12 +118,12 @@ function standardSpeicher(): Speicher | undefined {
   }
 }
 
-/** The stored "series" switch, default ON; a blocked or empty store gives the default. */
+/** The stored "series" switch, default OFF; a blocked or empty store gives the default. */
 export function ladeSerie(speicher: Speicher | undefined = standardSpeicher()): boolean {
   try {
-    return speicher?.getItem(SERIE_SCHLUESSEL) !== '0';
+    return speicher?.getItem(SERIE_SCHLUESSEL) === '1';
   } catch {
-    return true;
+    return false;
   }
 }
 

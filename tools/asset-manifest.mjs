@@ -52,6 +52,7 @@
  * tools/modell-abgleich.ts).
  */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { EIGENE_FLORA, PREFAB_DEFS } from '@wov/shared';
@@ -75,6 +76,17 @@ const WURZEL = join(HIER, '..');
  * halls) stays out — the manifest is tracked, those files are not.
  */
 const MODELLE_DIR = join(WURZEL, 'assets/models');
+/**
+ * Bauer B1 (28.09.2026): Tonaufnahmen und UI-Bilder aus dem Asset-Speicher
+ * (`assets/store/`), gemessen wie die Modelle — der Speicher-Katalog
+ * (`shared/src/storeKatalogDaten.ts`) kennt sonst nur 45 der 325 Töne und
+ * kein einziges der 353 UI-Bilder (der Store bringt sein eigenes, seltener
+ * gepflegtes `manifest.json` mit, das seither nicht nachgezogen wurde).
+ * `assets/store` fehlt auf manchen Maschinen ganz (derselbe Grund wie bei
+ * `assets/models`) — dann bleiben `toene`/`symbole` leer, ohne Fehler.
+ */
+const STORE_AUDIO_DIR = join(WURZEL, 'assets/store/audio');
+const STORE_UI_DIR = join(WURZEL, 'assets/store/ui');
 /**
  * Ziel des Manifests. `--ziel <pfad>` schreibt woandershin — der einzige
  * Weg, dieses Werkzeug zu PRÜFEN, ohne dabei die getrackte Datei
@@ -244,6 +256,103 @@ function vermiss(pfad) {
   };
 }
 
+// ── Ton (OggOpus) und Symbole (PNG) lesen ───────────────────────────────
+
+function sha256(buf) {
+  return `sha256-${createHash('sha256').update(buf).digest('hex')}`;
+}
+
+/**
+ * Dauer, Kanaele und Abtastrate einer Opus-in-Ogg-Datei — ohne ffmpeg,
+ * nur aus dem Containerformat selbst (RFC 3533 Ogg, RFC 7845 OpusHead).
+ *
+ * Alle 325 Aufnahmen im Speicher sind so codiert (geprueft per Messprobe:
+ * die ersten vier Bytes jeder Datei sind `OggS`, das erste Paket beginnt
+ * mit `OpusHead`). Eine Datei in einem anderen Format lehnt diese
+ * Funktion ab, statt eine falsche Zahl zu raten.
+ *
+ * Kanaele und Abtastrate stehen im `OpusHead`-Paket der ERSTEN Ogg-Seite
+ * (Byte 9 = Kanalzahl, Byte 10-11 = Pre-Skip, Byte 12-15 = urspruengliche
+ * Abtastrate, alles little-endian). Die Dauer ergibt sich aus der
+ * Granule-Position der LETZTEN Seite: Opus zaehlt sie immer in 48-kHz-
+ * Samples, unabhaengig von der im Kopf genannten "urspruenglichen"
+ * Abtastrate — deshalb wird hier fest durch 48000 geteilt, nicht durch
+ * den gelesenen Wert.
+ */
+function vermissOggOpus(pfad) {
+  const buf = readFileSync(pfad);
+  let off = 0;
+  let kanaele = null;
+  let preSkip = 0;
+  let abtastrate = null;
+  let letzteGranule = 0n;
+  let seiten = 0;
+  while (off < buf.length) {
+    if (buf.toString('ascii', off, off + 4) !== 'OggS') {
+      throw new Error(`${pfad}: kein Ogg-Seitenkopf bei Byte ${off}`);
+    }
+    const granule = buf.readBigInt64LE(off + 6);
+    const anzahlSegmente = buf.readUInt8(off + 26);
+    const segmentTabelle = buf.subarray(off + 27, off + 27 + anzahlSegmente);
+    let nutzlastLaenge = 0;
+    for (const b of segmentTabelle) nutzlastLaenge += b;
+    const nutzlastStart = off + 27 + anzahlSegmente;
+    if (seiten === 0) {
+      const nutzlast = buf.subarray(nutzlastStart, nutzlastStart + Math.min(19, nutzlastLaenge));
+      if (nutzlast.toString('ascii', 0, 8) !== 'OpusHead') {
+        throw new Error(`${pfad}: erste Ogg-Seite ist kein OpusHead — nicht Opus-codiert`);
+      }
+      kanaele = nutzlast.readUInt8(9);
+      preSkip = nutzlast.readUInt16LE(10);
+      abtastrate = nutzlast.readUInt32LE(12);
+    }
+    letzteGranule = granule;
+    seiten++;
+    off = nutzlastStart + nutzlastLaenge;
+  }
+  if (kanaele === null || abtastrate === null) throw new Error(`${pfad}: kein OpusHead gefunden`);
+  const dauer = Number(letzteGranule - BigInt(preSkip)) / 48000;
+  return {
+    bytes: buf.length,
+    hash: sha256(buf),
+    dauer: +dauer.toFixed(3),
+    kanaele: kanaele === 1 ? 'mono' : kanaele === 2 ? 'stereo' : `${kanaele}-kanalig`,
+    abtastrate,
+  };
+}
+
+/**
+ * Breite und Hoehe einer PNG-Datei aus dem IHDR-Chunk — der PNG-
+ * Signatur (8 Byte) folgt sofort die Laenge (4 Byte) und der Name
+ * "IHDR" (4 Byte) des ersten Chunks; danach stehen Breite und Hoehe als
+ * vorzeichenlose 32-Bit-Werte, big-endian (PNG-Spezifikation §11.2.2).
+ * Kein Bildmaterial wird decodiert, nur der Kopf gelesen.
+ */
+function vermissPng(pfad) {
+  const buf = readFileSync(pfad);
+  if (buf.readUInt32BE(0) !== 0x89504e47 || buf.toString('ascii', 12, 16) !== 'IHDR') {
+    throw new Error(`${pfad}: keine PNG-Signatur bzw. IHDR fehlt`);
+  }
+  return {
+    bytes: buf.length,
+    hash: sha256(buf),
+    breite: buf.readUInt32BE(16),
+    hoehe: buf.readUInt32BE(20),
+  };
+}
+
+/** Alle Dateien unter `basis` mit einer der `endungen`, rekursiv, relativ zu `basis`. */
+function alleDateienMitEndung(basis, endungen, praefix = '') {
+  if (!existsSync(join(basis, praefix))) return [];
+  const aus = [];
+  for (const eintrag of readdirSync(join(basis, praefix), { withFileTypes: true })) {
+    const rel = praefix ? `${praefix}/${eintrag.name}` : eintrag.name;
+    if (eintrag.isDirectory()) aus.push(...alleDateienMitEndung(basis, endungen, rel));
+    else if (endungen.some((e) => eintrag.name.toLowerCase().endsWith(e))) aus.push(rel);
+  }
+  return aus;
+}
+
 // ── Hauptlauf ─────────────────────────────────────────────────────────
 /**
  * Alle GLB unter assets/models/ — AUCH in Unterordnern.
@@ -309,6 +418,42 @@ for (const [stamm] of Object.entries(modelle).sort((a, b) => (a[1].datei < b[1].
   sortiert[stamm] = modelle[stamm];
 }
 
+/*
+  Ton (assets/store/audio, *.ogg) und Symbole (assets/store/ui, *.png) —
+  dieselbe ERGÄNZEN-statt-ERSETZEN-Regel wie bei `modelle` oben, nur je
+  Sorte für sich: Ein Arbeitsbaum kann `assets/models` vollständig und
+  `assets/store` gar nicht haben (oder umgekehrt), und die beiden
+  Vollständigkeits-Aussagen dürfen sich nicht gegenseitig verschlucken.
+*/
+function ergaenzeSektion(gemessenNach, altesFeld) {
+  const bisherige = !NEUBAU && existsSync(ZIEL) ? (JSON.parse(readFileSync(ZIEL, 'utf8'))[altesFeld] ?? {}) : {};
+  const uebernommenHier = Object.keys(bisherige)
+    .filter((stamm) => !(stamm in gemessenNach))
+    .sort();
+  for (const stamm of uebernommenHier) gemessenNach[stamm] = bisherige[stamm];
+  const sortiertHier = {};
+  for (const [stamm] of Object.entries(gemessenNach).sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    sortiertHier[stamm] = gemessenNach[stamm];
+  }
+  return { daten: sortiertHier, uebernommen: uebernommenHier };
+}
+
+const audioDateien = alleDateienMitEndung(STORE_AUDIO_DIR, ['.ogg']).sort();
+const toeneRoh = {};
+for (const datei of audioDateien) {
+  const stamm = datei.slice(0, -4);
+  toeneRoh[stamm] = { datei, ...vermissOggOpus(join(STORE_AUDIO_DIR, datei)) };
+}
+const toeneErgebnis = ergaenzeSektion(toeneRoh, 'toene');
+
+const uiDateien = alleDateienMitEndung(STORE_UI_DIR, ['.png']).sort();
+const symboleRoh = {};
+for (const datei of uiDateien) {
+  const stamm = datei.slice(0, -4);
+  symboleRoh[stamm] = { datei, ...vermissPng(join(STORE_UI_DIR, datei)) };
+}
+const symboleErgebnis = ergaenzeSektion(symboleRoh, 'symbole');
+
 const manifest = {
   erzeugt: new Date().toISOString(),
   quelle: 'tools/asset-manifest.mjs',
@@ -319,6 +464,16 @@ const manifest = {
   // eine Leiche (s. tools/test/manifest-vollstaendig.ts).
   uebernommen,
   modelle: sortiert,
+  // Ton und Symbole: dieselbe Zusicherung, aber getrennt gezählt — s.
+  // `ergaenzeSektion` oben und tools/test/manifest-ton-symbole.ts.
+  toeneAnzahl: Object.keys(toeneErgebnis.daten).length,
+  toeneGemessen: audioDateien.length,
+  toeneUebernommen: toeneErgebnis.uebernommen,
+  toene: toeneErgebnis.daten,
+  symboleAnzahl: Object.keys(symboleErgebnis.daten).length,
+  symboleGemessen: uiDateien.length,
+  symboleUebernommen: symboleErgebnis.uebernommen,
+  symbole: symboleErgebnis.daten,
 };
 writeFileSync(ZIEL, JSON.stringify(manifest, null, 1) + '\n');
 console.log(
@@ -332,6 +487,12 @@ if (uebernommen.length > 0) {
   );
   console.log('  Ein voller Neubau (auch zum Entfernen von Leichen) braucht --neu auf der Maschine mit allen Modellen.');
 }
+console.log(
+  `  Ton: ${manifest.toeneAnzahl} Einträge (${audioDateien.length} hier gemessen, ${toeneErgebnis.uebernommen.length} übernommen)`
+);
+console.log(
+  `  Symbole: ${manifest.symboleAnzahl} Einträge (${uiDateien.length} hier gemessen, ${symboleErgebnis.uebernommen.length} übernommen)`
+);
 
 const meshlose = Object.entries(modelle).filter(([, m]) => m.meshlos);
 if (meshlose.length > 0) {

@@ -1,0 +1,8 @@
+{
+  "height.invalid": "Höhenkorrektur fehlerhaft: {errors} Fehler; {zones} Zonen, {points} wirkende Punkte (Grenze {zoneLimit} Zonen / {pointLimit} Punkte).",
+  "height.limit": "Höhenkorrektur über der Grenze: {zones} Zonen, {points} wirkende Punkte (Grenze {zoneLimit} Zonen / {pointLimit} Punkte).",
+  "height.inspection-limit": "Höhenkorrektur nicht vollständig prüfbar: {rawZones} rohe Zonen überschreiten das Prüfbudget {inspectionLimit}; geprüft: {zones} wirkende Zonen, {points} Punkte. Das Prüfbudget ist keine fachliche Zonen-/Punktgrenze.",
+  "height.errors": "Fehler in der Handkorrektur (heightDeltas): {errors} — {list}",
+  "height.placements": "Fehler in Platzierungen: {errors} — {list}",
+  "height.repair": "Nichts angewendet. Die Datei von Hand oder per Git reparieren; keine gekürzte Fassung zurückschreiben."
+}

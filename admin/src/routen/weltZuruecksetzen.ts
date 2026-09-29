@@ -163,7 +163,8 @@ function kontenZaehlen(kontenDb: string): ResetZahlen['konten'] {
 export function zahlenErheben(umg: ResetUmgebung): ResetZahlen {
   let weltdokument: ResetZahlen['weltdokument'] = null;
   try {
-    const { layout, hash } = layoutLesenMitHash(umg.layoutDatei);
+    // The reset only needs name, seed and counts; a broken height correction must not hide them (it is dropped with the old world).
+    const { layout, hash } = layoutLesenMitHash(umg.layoutDatei, { preserveRawHeight: true });
     weltdokument = {
       name: layout.name,
       detailSeed: layout.detailSeed,
@@ -331,7 +332,7 @@ export interface UnfertigerReset {
 /** The world document as it stands now, in words (recovery only; never throws). */
 function dokumentZustand(umg: ResetUmgebung): string {
   try {
-    const n = layoutLesenMitHash(umg.layoutDatei).layout.regions.length;
+    const n = layoutLesenMitHash(umg.layoutDatei, { preserveRawHeight: true }).layout.regions.length;
     return n === 0 ? 'leer (die Welt ist zurückgesetzt)' : `noch das alte (${n} Regionen)`;
   } catch {
     return 'nicht lesbar oder fehlt';
@@ -430,7 +431,7 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
   try {
     zahlen = zahlenErheben(umg);
     try {
-      altesDokument = layoutLesenMitHash(umg.layoutDatei).layout;
+      altesDokument = layoutLesenMitHash(umg.layoutDatei, { preserveRawHeight: true }).layout;
     } catch {
       // unreadable: the seed cannot be kept, see leeresWeltdokument
     }

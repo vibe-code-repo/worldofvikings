@@ -56,6 +56,20 @@ import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 /** Vorlage-Material + Farbe → fertiges Material. */
 const kopien = new Map<string, PBRMaterial>();
 
+function haarNeutralReference(material: PBRMaterial): number {
+  if (!material.albedoTexture) return 1;
+  const metadata = material.metadata as { gltf?: { extras?: { wovHairNeutralReference?: unknown } }, wovHairNeutralReference?: unknown } | null;
+  const extra = metadata?.gltf?.extras?.wovHairNeutralReference ?? metadata?.wovHairNeutralReference;
+  if (typeof extra === 'number' && extra > 0) return extra;
+  const match = /__wovHairNeutralReference_([0-9.]+)/.exec(material.name);
+  return match ? Number(match[1]) : 1;
+}
+
+function effectiveHairColor(material: PBRMaterial, farbe: Color3): Color3 {
+  const reference = haarNeutralReference(material);
+  return reference === 1 ? farbe : new Color3(farbe.r / reference, farbe.g / reference, farbe.b / reference);
+}
+
 function eigenesMaterial(vorlage: PBRMaterial, hex: string, farbe: Color3): PBRMaterial {
   const schluessel = `${vorlage.uniqueId}|${hex}`;
   const bekannt = kopien.get(schluessel);
@@ -65,10 +79,10 @@ function eigenesMaterial(vorlage: PBRMaterial, hex: string, farbe: Color3): PBRM
   if (bekannt && bekannt.getScene()) return bekannt;
 
   const neu = new PBRMaterial(`${vorlage.name}_${hex.slice(1)}`, vorlage.getScene());
-  // Von Hand uebertragen statt serialisiert: Was hier NICHT steht, gibt
-  // es an einem Haarmaterial auch nicht — Frisuren und Bärte tragen keine
-  // einzige Textur (nachgemessen: 0 Bilder je Datei). Kommt spaeter eine
-  // dazu, gehoert sie in diese Liste.
+  // Von Hand uebertragen statt serialisiert. Neue Haar-Assets tragen eine
+  // neutrale Detailtextur; sie bleibt erhalten, die Palette kommt ueber
+  // albedoColor. Die Zusatzmodule haengen sich an dieses frische Material
+  // selbst an, deshalb klonen wir die Vorlage weiterhin nicht.
   neu.albedoTexture = vorlage.albedoTexture;
   neu.bumpTexture = vorlage.bumpTexture;
   neu.opacityTexture = vorlage.opacityTexture;
@@ -104,8 +118,9 @@ export function faerbeHaar(
     const mat = m.material;
     if (!mat) continue;
     if (mat instanceof PBRMaterial) {
-      if (eigen) m.material = eigenesMaterial(mat, hex, farbe);
-      else mat.albedoColor = farbe;
+      const wirksameFarbe = effectiveHairColor(mat, farbe);
+      if (eigen) m.material = eigenesMaterial(mat, hex, wirksameFarbe);
+      else mat.albedoColor = wirksameFarbe;
       continue;
     }
     // Die Klotzfigur traegt ein Standardmaterial und gehoert immer nur

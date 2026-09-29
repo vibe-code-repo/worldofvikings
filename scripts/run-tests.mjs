@@ -177,6 +177,18 @@ const KERN = [
   */
   ['tools/armor/test', 'skin-gate-selftest.mjs'],
   /*
+    All 33 female armor items (five sets) against the real, shipped
+    WikingerinKoerper.glb (71 bones, since 27.09.2026): every item's skin
+    joints match the body's joints by name and order, and canWearArmor
+    accepts the shipped wov-female-v1 policy and rejects the retired
+    legacy-female-v1 profile. Needs the real body and item GLBs.
+  */
+  [
+    'tools/armor/test',
+    'female-71-skin.mjs',
+    brauchtModelle('assets/models/wikingerin/WikingerinKoerper.glb'),
+  ],
+  /*
     The four thin armor build entry points (Seidraven/Emberrage, male/female)
     check their command line before any build starts: run under python3 with a
     stand-in for the call that would start build_common.py, good command lines
@@ -2317,6 +2329,17 @@ const KERN = [
   // identity — real WS clients, strict wire reader (checks the packet is fully
   // consumed after the known fields).
   ['server', 'test/spielerliste-privat.ts'],
+  // Handkorrektur der Gelaendehoehe (heightDeltas, T1): Schema, Sanitizer, Einrechnung nach den
+  // Regionen (Sockel gewinnt), Cache je Zone, Server = Client, 422-Weg.
+  ['shared', 'test/hoehenkorrektur.ts'],
+  // ... K5.0: heightDeltas ist eine geo-Aenderung wie Regionen/Wasser/Sockel (202, Neustart), reiner Klassifizierungstest.
+  ['server', 'test/layout-live-hoehenkorrektur.ts'],
+  // ... N1/B1/B3: die echte 422-mit-Liste (doppelte Zone, gemischte Punkte, __proto__, Index 64) und die
+  // Obergrenzen (Zonen/Punkte) ueber den echten Betriebsdienst.
+  ['admin', 'test/weltops-hoehenkorrektur.ts'],
+  // ... N2: vergleiche() (Editor) prueft heightDeltas INHALTLICH (entfernt/geaendert = schwer, nicht nur die
+  // Punktzahl); DOM-frei.
+  ['client', 'test/welt-abgleich-hoehenkorrektur.ts'],
   // B9.6: das Huhn im Spiel — Tabellen (Spawn-Tabelle, Registry, Leben,
   // Manifest-Clips, renderScale gegen die IDLE-Pose aus B9.6/Blender statt
   // der Bindepose des Manifests), das Spawnsystem mit den ausgelieferten
@@ -2334,6 +2357,9 @@ const KERN = [
   // UND shared/data/texte) -- gleiche Schluessel de/en, gleiche Platzhalter, keine
   // leeren/doppelten Eintraege, kanonische Formatierung, keine Namensraum-Ueberschneidung.
   ['shared', 'test/i18n-katalog.ts'],
+  // Height correction: real boot terrain and structured MCP reader diagnostics.
+  ['server', 'test/height-correction-boot.ts'],
+  ['tools/worldlayout-mcp', 'height-correction-readers.ts'],
   // G3 Stufe 1: Namensschilder, Objektnamen und das Fadenkreuz-Ziel projizierten
   // mit der TAA-verzitterten Projektionsmatrix und sprangen deshalb bei
   // stehender Kamera jedes Bild um den Halton-Versatz. transformOhneJitter()

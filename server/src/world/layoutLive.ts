@@ -1,3 +1,4 @@
+import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 /**
  * Live-Abgleich des Weltdokuments (Editor E2, Karte K5.0): Der laufende
  * Spielserver übernimmt eine geschriebene Weltdatei binnen einer Sekunde,
@@ -42,7 +43,11 @@
  */
 import { statSync, readFileSync } from 'node:fs';
 import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
-import { sanitizeWorldLayoutMitBericht, type SanitizeBericht } from '@wov/shared/src/worldlayout/sanitize.js';
+import {
+  type HeightProblem,
+  sanitizeWorldLayoutMitBericht,
+  type SanitizeBericht,
+} from '@wov/shared/src/worldlayout/sanitize.js';
 import { quittungLoeschenSicher, quittungSchreiben, type Quittung } from '@wov/shared/src/worldlayout/quittung.js';
 import type { WorldLayout } from '@wov/shared/src/worldlayout/types.js';
 import { AENDERUNGEN_MAX, type Grabsteine } from './layoutLiveAbgleich.js';
@@ -57,6 +62,14 @@ export function geoAenderung(alt: WorldLayout, neu: WorldLayout): string[] {
   if (!gleich(alt.rivers, neu.rivers) || !gleich(alt.lakes, neu.lakes)) teile.push('wasser');
   if (!gleich(alt.defaultSpawn, neu.defaultSpawn)) teile.push('spawn');
   if (!gleich(alt.routes, neu.routes)) teile.push('routen');
+  // Handkorrektur (Editor-Pinsel, T2+): Teil der kompilierten Geo wie
+  // Regionen und Sockel — jede Änderung braucht deshalb denselben Neustart.
+  // N2: `delta 0` wird jetzt vom SANITIZER selbst verworfen (s.
+  // `sanitizeHeightDeltas`), `alt`/`neu` sind hier bereits sanitisiert —
+  // ein eigener Normalisierungs-Schritt vor dem Vergleich ist deshalb nicht
+  // mehr nötig (anders als in T1 N1, wo das Feld die wirkungslosen Punkte
+  // noch enthielt).
+  if (!gleich(alt.heightDeltas, neu.heightDeltas)) teile.push('gelaende');
   // Einebnen: die Platte ist Teil der kompilierten Geo. Verglichen wird je `id`,
   // was den Boden formt (Ort und Radius); ohne Einebnen gibt es keinen Eintrag.
   const ebnen = (l: WorldLayout): Map<string, string> => {
@@ -190,6 +203,15 @@ export class LayoutWache {
       this.quittiere(hash, 'nicht-angewendet', 'abgelehnt', null, 'Dokument vom Sanitizer abgelehnt');
       return;
     }
+    // Reject before geo comparison or any placement mutation. Z3 must record pending
+    // deletions before this early return when its separate change lands.
+    if (neuBericht.heightProblem) {
+      const problem = neuBericht.heightProblem;
+      const detail = heightResponseMessage({ heightProblem: problem }, process.env.WOV_LANGUAGE)!;
+      console.warn(`[Welt] ${detail}`);
+      this.quittiere(hash, 'nicht-angewendet', 'verworfen', null, detail, problem);
+      return;
+    }
     const neuKanonisch = JSON.stringify(neuBericht.layout);
     if (neuKanonisch === this.kanonisch) {
       // Derselbe Inhalt (etwa neu formatiert oder der Stand des Boots): nichts anwenden.
@@ -237,9 +259,10 @@ export class LayoutWache {
     ergebnis: Quittung['ergebnis'],
     grund: Quittung['grund'],
     zaehler: Record<string, number> | null,
-    detail?: string
+    detail?: string,
+    heightProblem?: HeightProblem
   ): void {
-    const q: Quittung = { hash, ergebnis, grund, ...(detail ? { detail } : {}), zaehler, zeit: new Date().toISOString() };
+    const q: Quittung = { hash, ergebnis, grund, ...(detail ? { detail } : {}), ...(heightProblem ? { heightProblem } : {}), zaehler, zeit: new Date().toISOString() };
     try {
       quittungSchreiben(this.d.quittungsPfad, q);
     } catch (fehler) {

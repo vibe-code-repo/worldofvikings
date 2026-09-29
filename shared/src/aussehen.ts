@@ -186,7 +186,7 @@ import { EMBERRAGE_PARTS } from './emberrage.js';
 import { PLAINHIDE_PARTS } from './plainhide.js';
 import { GRAVETHORN_PARTS } from './gravethorn.js';
 import { CROWSHADE_PARTS } from './crowshade.js';
-import { canWearArmor, type ArmorBodyPolicy, type ArmorVfxProfile } from './armorCompatibility.js';
+import { canWearArmor, FEMALE_ARMOR_BODY, type ArmorBodyPolicy, type ArmorVfxProfile } from './armorCompatibility.js';
 import { hiddenAppearance, type AppearancePolicy } from './appearanceVisibility.js';
 export type Slot = 'oberkoerper' | 'beine' | 'kopf' | 'schultern' | 'unterarme' | 'haende' | 'fuesse';
 export const ARMOR_SLOTS: readonly Slot[] = ['oberkoerper', 'beine', 'kopf', 'schultern', 'unterarme', 'haende', 'fuesse'];
@@ -202,8 +202,8 @@ export interface Ruestungsteil extends AppearancePolicy, ArmorBodyPolicy {
 }
 
 export const RUESTUNG: readonly Ruestungsteil[] = [
-  { id: 'leder_bh', datei: 'R_LederBH', name: 'Leder-Oberteil', slot: 'oberkoerper', bodyVariant: 'female', bodyProfile: 'legacy-female-v1', figure: 'wikingerin' },
-  { id: 'leder_shorts', datei: 'R_LederShorts', name: 'Lederhose, kurz', slot: 'beine', bodyVariant: 'female', bodyProfile: 'legacy-female-v1', figure: 'wikingerin' },
+  { id: 'leder_bh', datei: 'R_LederBH', name: 'Leder-Oberteil', slot: 'oberkoerper', ...FEMALE_ARMOR_BODY },
+  { id: 'leder_shorts', datei: 'R_LederShorts', name: 'Lederhose, kurz', slot: 'beine', ...FEMALE_ARMOR_BODY },
   ...SEIDRAVEN_PARTS.map(p => ({ ...p, datei: `seidraven/${p.item}` })),
   ...EMBERRAGE_PARTS.map(p => ({ ...p, datei: `emberrage/${p.item}` })),
   ...PLAINHIDE_PARTS.map(p => ({ ...p, datei: `plainhide/${p.item}` })),

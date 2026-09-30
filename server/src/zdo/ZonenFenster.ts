@@ -63,6 +63,17 @@ export class ZonenFenster {
    * die `hole` zuletzt geliefert hat.
    */
   nahEnde = 0;
+  /** F6: Zähler der `ferneDran`-Aufrufe; seine Parität ist die (deterministische) Phase. */
+  private takt = 0;
+  /** F6: nach Zonen-/Weltwechsel kommt der ferne Teil sofort (Erstübertragung). */
+  private ferneSofort = true;
+  /**
+   * F6: Der letzte ferne Durchlauf ist am Budget abgebrochen (`syncZDOs`
+   * setzt es). Solange das so ist, läuft der ferne Teil jeden Tick weiter: Bei
+   * vollem Budget wäre jeder ausgesetzte Tick verschenktes Budget, und ferne
+   * ZDOs kämen langsamer an als ohne F6.
+   */
+  ferneAktiv = false;
   private zoneX = NaN;
   private zoneY = NaN;
   private radius = -1;
@@ -93,7 +104,10 @@ export class ZonenFenster {
     }
     if (gueltig) return this.liste;
 
-    if (zoneX !== this.zoneX || zoneY !== this.zoneY) this.cursor = 0;
+    if (zoneX !== this.zoneX || zoneY !== this.zoneY) {
+      this.cursor = 0;
+      this.ferneSofort = true;
+    }
     this.zoneX = zoneX;
     this.zoneY = zoneY;
     this.liste.length = 0;
@@ -128,6 +142,26 @@ export class ZonenFenster {
     this.liste.length = 0;
     this.cursor = 0;
     this.nahEnde = 0;
+    this.ferneSofort = true;
+  }
+
+  /**
+   * F6: Ist der FERNE Teil (hinter `nahEnde`) in diesem Tick dran? Einmal je
+   * Tick und Peer aufrufen. Er wird nur in jedem 2. Tick geprüft: 100 m und
+   * mehr vom Spieler entfernt sieht man eine Änderung 50 ms später nicht. Gegenüber dem Stand vor F6 kommt eine ferne Änderung damit höchstens 1 Tick später an (bei Fenstern unter dem Deckel 2 statt 1 Tick); Ring 0–1 nie später. Immer
+   * dran ist er, solange ein Rundgang läuft (`cursor` ≠ 0: Fenster über dem
+   * Deckel oder Budgetabbruch; dort wäre Aussetzen nur langsamer, nicht
+   * billiger), solange der letzte ferne Durchlauf am Budget abbrach (`ferneAktiv`)
+   * und im ersten Tick nach Zonen-/Weltwechsel. Die Phase ist die
+   * Parität des Tickzählers dieses Fensters, also deterministisch.
+   */
+  ferneDran(): boolean {
+    this.takt++;
+    if (this.ferneSofort || this.cursor !== 0 || this.ferneAktiv) {
+      this.ferneSofort = false;
+      return true;
+    }
+    return (this.takt & 1) === 0;
   }
 
   /**

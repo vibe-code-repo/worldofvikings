@@ -5,6 +5,7 @@
  * Lauf: npx tsx shared/test/bausatz-aufloesen.ts   (aus shared/)
  */
 import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { loeseBausaetzeAuf } from '../src/bausatz/aufloesen.js';
 import { sanitizeWorldLayout } from '../src/worldlayout/sanitize.js';
@@ -235,6 +236,15 @@ const katalog = (...k: Bausatz[]): Map<string, Bausatz> => new Map(k.map((b) => 
   for (const roh of [new String('ab'), new Number(5), new Boolean(true)] as unknown[]) {
     const ids = loeseBausaetzeAuf({ bausaetze: [{ id: 's', bausatz: 'r', x: 0, z: 0, kennungen: roh } as never] }, katalog(k)).teile.map((t) => t.id).join();
     pruefe(`D3 kennungen ${Object.prototype.toString.call(roh)}: keine Adresse (s#0,s#weg)`, ids === 's#0,s#weg', ids);
+  }
+}
+// N7: a boxed String/Number/Boolean/Array from ANOTHER realm is no kennungen either (no `instanceof` dependence)
+{
+  const k = kit('r', [teil('0'), teil('weg')]);
+  for (const code of ["new String('ab')", 'new Number(5)', 'new Boolean(true)', "['q']"]) {
+    const roh = runInNewContext(code) as unknown;
+    const ids = loeseBausaetzeAuf({ bausaetze: [{ id: 's', bausatz: 'r', x: 0, z: 0, kennungen: roh } as never] }, katalog(k)).teile.map((t) => t.id).join();
+    pruefe(`N7 kennungen ${code} aus fremdem Realm: keine Adresse (s#0,s#weg)`, ids === 's#0,s#weg', ids);
   }
 }
 // M3: jede Platzierung des echten dev.json als Teil, Anker mm-Koordinate mit yaw 0 — byte-gleich zum Vergleichsschlüssel

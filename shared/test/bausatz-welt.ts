@@ -5,6 +5,7 @@
  * Lauf: npx tsx shared/test/bausatz-welt.ts   (aus shared/)
  */
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -336,6 +337,21 @@ try {
       const w = { ...weltMit([]), bausaetze: [{ id: 'r', bausatz: 'kit', x: 0, z: 0, kennungen: roh }] } as never;
       const b = pruefeLayout(w, new Map([['kit', kitVon([teilMit('p1', eigen)])]]));
       pruefe(`D3 geboxte kennungen ${Object.prototype.toString.call(roh)}: keine Zeilen daraus`, !b.some((x) => x.text.startsWith('verwaiste Kennung')), JSON.stringify(b.map((x) => x.text)));
+    }
+    // N7: boxed primitives and arrays from another realm are no kennungen either
+    for (const code of ["new String('ab')", 'new Number(5)', 'new Boolean(true)', "['q']"]) {
+      const w = { ...weltMit([]), bausaetze: [{ id: 'r', bausatz: 'kit', x: 0, z: 0, kennungen: runInNewContext(code) }] } as never;
+      const b = pruefeLayout(w, new Map([['kit', kitVon([teilMit('p1', eigen)])]]));
+      pruefe(`N7 kennungen ${code} aus fremdem Realm: keine Zeilen daraus`, !b.some((x) => x.text.startsWith('verwaiste Kennung')), JSON.stringify(b.map((x) => x.text)));
+    }
+    // N7: pruefeLayout reads kennungen exactly once (getter: first an object, then "ab"; a second read would change the answer)
+    {
+      let n = 0;
+      const i = { id: 'r', bausatz: 'kit', x: 0, z: 0 };
+      Object.defineProperty(i, 'kennungen', { enumerable: true, get: () => (n++ === 0 ? { fremd: 'nf' } : 'ab') });
+      const w = { ...weltMit([]), bausaetze: [i] } as never;
+      const b = pruefeLayout(w, new Map([['kit', kitVon([teilMit('p1', eigen)])]])).filter((x) => x.text.startsWith('verwaiste Kennung'));
+      pruefe('N7 pruefeLayout liest kennungen genau einmal (fremd gemeldet)', n === 1 && b.length === 1 && b[0]!.text.includes('fremd (Adresse nf'), `${n} Lesezugriffe, ${JSON.stringify(b.map((x) => x.text))}`);
     }
     // N6 D2: null prototype and frozen kennungen count; an orphan address is reported
     const nullProto = Object.assign(Object.create(null) as Record<string, string>, { fremd: 'nf' });

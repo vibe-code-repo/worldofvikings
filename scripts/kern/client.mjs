@@ -370,6 +370,15 @@ export default [
   */
   ['client', 'test/instanz-toenung.ts'],
   ['client/test', 'ironward.ts'],
+  // Item tooltip DOM path with a fake DOM, no innerHTML by syntax tree, comparison rule (N1 of the attack).
+  // Item tooltip with data items (#152): data text in de/en, level and rarity from the entry, fallback without values.
+  ['client', 'test/item-tooltip-daten.ts'],
+  ['client', 'test/item-tooltip-dom.ts'],
+  // Item tooltip: the five windows hide an open tooltip when they rebuild their cells (real panels, fake DOM).
+  ['client', 'test/item-tooltip-panels.ts'],
+  // Item-Tooltip (2026-09-29): Tooltip-Inhalt de/en mit den echten Katalogen und
+  // Vergleich mit dem Getragenen (rein). Keine Assets noetig.
+  ['client', 'test/item-tooltip.ts'],
   /*
     Kampftoene (client/src/engine/Audio/KampfToene.ts): Schwung zum
     Hiebzeitpunkt, Treffer/Parade nur mit HitEffect, Faust ohne Schwung,

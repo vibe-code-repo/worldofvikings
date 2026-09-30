@@ -166,6 +166,7 @@ import {
   AUSDAUER_REGEL,
 } from '@wov/shared/src/bewegung/ausdauer.js';
 import { pickableItem, ZWEIT_DROPS, wuerfleDrop, wuerfleTruhe } from './spiel/Beute.js';
+import { BeuteAmBoden, SERVER_MELDUNG_BEUTE_FREMD } from './spiel/BeuteAmBoden.js';
 import { waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
 import { EIKTHYR_HASH, BOSS_ENTRY, NPC_ENTRY } from './spiel/Sondereintraege.js';
 import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
@@ -608,6 +609,8 @@ export class WovServer {
   private spielerSicherung: SpielerSicherung | null = null;
   /** F8 N2: Behaelter-/Bau-ZDOs im selben Schreibvorgang wie der Spielerzustand. */
   private weltZdoSicherung: WeltZdoSicherung | null = null;
+  /** D5: loot on the ground (owner, 2 min exclusive, life), see spiel/BeuteAmBoden.ts. */
+  readonly beuteAmBoden = new BeuteAmBoden();
   /** Prefab-Hash -> ist Behaelter/Bauteil (persistent)? Nur fuer die ZDO-Sicherung. */
   private readonly weltZdoRelevantCache = new Map<number, boolean>();
   /** Kennung DIESER Welt (steht in der Weltdatei; die Zustandszeilen tragen sie als `welt_id`), s. bestimmeWeltKennung(). */
@@ -1794,6 +1797,7 @@ export class WovServer {
   private update(): void {
     this.tickWeltenMs = 0;
     this.tickSyncMs = 0;
+    this.beuteAmBoden.tick();
     const timeoutJetzt = Date.now();
     if (timeoutJetzt - this.letzteTimeoutPruefung > 5000) {
       this.letzteTimeoutPruefung = timeoutJetzt;
@@ -3765,7 +3769,9 @@ export class WovServer {
     // `||`-Zweig greift nur noch für Wesen aus Saves von VOR dieser
     // Änderung — seit `stelleLebenSicher` bringt jede Kreatur ihre Punkte
     // vom Spawn mit, und `adoptPersisted` trägt sie den alten nach.
-    const hp = (ziel.getInt(HEALTH_MEMBER) || maxLeben(name)) - schaden;
+    const hpVorher = ziel.getInt(HEALTH_MEMBER) || maxLeben(name);
+    const hp = hpVorher - schaden;
+    this.beuteAmBoden.schaden(ziel, peer.spielerId, Math.min(schaden, hpVorher)); // D5: the owner of the loot
     if (hp <= 0) {
       // Mit Todesclip bleibt der Koerper, bis der Clip gespielt ist — das
       // Spawnsystem raeumt ihn dann selbst weg. Ohne Clip wie bisher sofort.
@@ -3777,24 +3783,16 @@ export class WovServer {
       if (name === 'Eikthyr') {
         this.weltMarken.setzen(GlobalKey.defeated_eikthyr);
       }
+      // D5: the loot lies on the ground at the corpse (owner = most damage), it does not go into the inventory.
       const beute = wuerfleDrop(name);
-      if (beute) this.gebeItem(peer, beute.name, beute.amount);
+      const zweit = ZWEIT_DROPS[name];
+      this.beuteAmBoden.legeAb(this.zdosVon(peer), ziel, [beute, zweit ? { name: zweit[0], amount: zweit[1] } : null]);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(true);
-        w.writeString(beute ? `${name} besiegt — ${beute.amount}× ${beute.name}` : `${name} besiegt`);
-        w.writeString(beute?.name ?? '');
-        w.writeInt32(beute?.amount ?? 0);
+        w.writeString(`${name} besiegt`);
+        w.writeString('');
+        w.writeInt32(0);
       });
-      const zweit = ZWEIT_DROPS[name];
-      if (zweit) {
-        this.gebeItem(peer, zweit[0], zweit[1]);
-        peer.sendPacketWith(PacketType.InteractResult, (w) => {
-          w.writeBool(true);
-          w.writeString(`Trophäe erbeutet: ${zweit[0]}`);
-          w.writeString(zweit[0]);
-          w.writeInt32(zweit[1]);
-        });
-      }
     } else {
       ziel.setInt(HEALTH_MEMBER, hp);
       ziel.revision.reviseData();
@@ -4174,8 +4172,10 @@ export class WovServer {
     const F = PrefabFlag;
 
     if ((flags & (F.PICKABLE | F.PICKABLE_ITEM | F.ITEM_DROP)) !== 0n) {
+      const boden = this.beuteAmBoden.aufheben(ziel, peer.spielerId); // D5: loot of a dead creature has an owner
+      if (boden === 'fremd') return antwort(false, SERVER_MELDUNG_BEUTE_FREMD);
       this.zdosVon(peer).destroyZDO(ziel.zdoid);
-      const item = pickableItem(def?.name ?? '');
+      const item = boden ?? pickableItem(def?.name ?? '');
       return antwort(true, `Aufgesammelt: ${item?.name ?? def?.name ?? '?'}`, item?.name ?? '', item?.amount ?? 0);
     }
 
@@ -6627,6 +6627,7 @@ export class WovServer {
       .filter(
         (z) =>
           z.prefabHash !== playerHash &&
+          !this.beuteAmBoden.istBeute(z) && // D5: loot on the ground is never saved (no doubling after a restart)
           // Gespeichert wird die HAUPTWELT. Instanz-ZDOs tauchen hier gar
           // nicht mehr auf: Die Quelle dieser Liste ist `this.zdos`, und
           // das ist der ZDO-Raum der Hauptwelt. Vorher stand hier ein

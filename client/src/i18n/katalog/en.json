@@ -1,4 +1,5 @@
 {
+  "beute.fremd": "This loot belongs to another player",
   "build.active": "Mode: {mode} · Radius {radius} m (mouse wheel)",
   "build.hint": "Keys 1–5 select · Mouse wheel cycles · Left click/Tab/Esc closes",
   "character.hint": "Drag an item from the inventory onto a slot · Click an occupied slot to unequip<br>K closes · I opens the inventory beside it",

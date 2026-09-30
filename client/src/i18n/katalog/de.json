@@ -1,4 +1,5 @@
 {
+  "beute.fremd": "Diese Beute gehört einem anderen Spieler",
   "build.active": "Modus: {mode} · Radius {radius} m (Mausrad)",
   "build.hint": "Tasten 1–5 wählen · Mausrad blättert · Linksklick/Tab/Esc schließt",
   "character.hint": "Gegenstand aus dem Inventar auf einen Slot ziehen · Klick auf einen belegten Slot legt ab<br>K schließt · I öffnet das Inventar daneben",

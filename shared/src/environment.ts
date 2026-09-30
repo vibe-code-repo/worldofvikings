@@ -944,7 +944,7 @@ function blendKeyFloat(env: EnvSetup, prefix: 'fogDensity', b: KeyBlend): number
  * -1 at midnight — derived from the verified anchors rather than a plain
  * sine, so dawn and dusk hit 0.1333 / 0.85 exactly.
  */
-function elevationFactor(dayFraction: number): number {
+export function elevationFactor(dayFraction: number): number {
   const f = ((dayFraction % 1) + 1) % 1;
   if (f >= FRACTION_SUNRISE && f <= FRACTION_SUNSET) {
     // daylight arc: 0 → 1 → 0

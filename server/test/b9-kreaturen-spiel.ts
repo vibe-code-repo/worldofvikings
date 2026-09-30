@@ -421,6 +421,10 @@ async function main(): Promise<void> {
     worldVegetation: false,
   });
   server.start();
+  // D4: the wolf now retreats after three strikes with a 40 % chance (random, time-seeded
+  // on the real server), which would turn the fixed hit counts below into coin flips.
+  // The retreat is tested in ki-zustaende.ts; here it is switched off for this server.
+  (server.spawns as unknown as { kiUeberschreibung: Record<string, number> }).kiUeberschreibung = { rueckzugNach: 0 };
   const PORT = portVon(server);
 
   try {

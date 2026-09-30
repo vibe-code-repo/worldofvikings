@@ -220,7 +220,13 @@ export function kiDarfRufen(s: KiSteckbrief, x: number, z: number, homeX: number
  * Hause; Figuren ohne Leine (NPC) haben keinen Heimatpunkt und wandern sofort.
  */
 function verliere(z: KiZustand, s: KiSteckbrief): void {
-  wechsle(z, Number.isFinite(s.leine) ? 'heimkehren' : 'wandern');
+  if (Number.isFinite(s.leine)) {
+    wechsle(z, 'heimkehren');
+  } else {
+    // Wer aufgibt, vergisst das Ziel; sonst finge er im nächsten Schritt von vorn an.
+    z.tabelle.clear();
+    wechsle(z, 'wandern');
+  }
 }
 
 function wechsle(z: KiZustand, phase: KiPhase): void {

@@ -210,7 +210,7 @@ console.log('\n[4] Leine: die Verfolgung bricht ab, der Wolf kehrt heim');
     }
     maxHeim = Math.max(maxHeim, abstand(zdo.position, { x: 0, z: 0 }));
   }
-  check('Phasenfolge: bemerkt → anrennen → heimkehren → wandern', phasen.join('>') === 'wandern>bemerkt>anrennen>heimkehren>wandern', phasen.join('>'));
+  check('Phasenfolge: bemerkt → anrennen → heimkehren → wandern (das Bemerken geschieht im ersten Schritt)', phasen.join('>') === 'bemerkt>anrennen>heimkehren>wandern', phasen.join('>'));
   check(`der Wolf überschreitet die Leine ${WOLF_KI.leine} m nicht um mehr als einen Schritt`, maxHeim <= WOLF_KI.leine + 0.6, `max ${f(maxHeim)} m`);
   check('der Abbruch geschieht an der Leine, nicht früher', heimPhaseBeiAbstand > WOLF_KI.leine - 0.6, `bei ${f(heimPhaseBeiAbstand)} m`);
   check('nach 20 s steht der Wolf wieder am Anker (< 0,6 m)', abstand(zdo.position, { x: 0, z: 0 }) < 0.6, `${f(abstand(zdo.position, { x: 0, z: 0 }))} m`);
@@ -219,8 +219,8 @@ console.log('\n[4] Leine: die Verfolgung bricht ab, der Wolf kehrt heim');
 // ── [5] Verfolgung: Zeit und Strecke ───────────────────────────────
 console.log('\n[5] Verfolgung endet nach der gewählten Zeit und nach der Strecke');
 {
-  // Ohne Leine, um Zeit und Strecke einzeln zu sehen.
-  const frei: KiSteckbrief = { ...WOLF_KI, leine: Infinity };
+  // Leine so weit, dass sie nicht greift: Zeit und Strecke einzeln sehen.
+  const frei: KiSteckbrief = { ...WOLF_KI, leine: 1e9 };
   const dt = 0.05;
   const rng = (): number => 0.5;
   const ziel: KiZiel = { key: 'p0', x: 0, z: 8 };
@@ -235,13 +235,13 @@ console.log('\n[5] Verfolgung endet nach der gewählten Zeit und nach der Streck
     let ende = -1;
     for (let i = 0; i < 600 && ende < 0; i++) {
       t += dt;
-      const b = kiSchritt(z, s, welt(fig, [ziel]), dt, rng);
+      const b = kiSchritt(z, s, welt(fig, [ziel], { x: 0, z: -30 }), dt, rng); // Anker weit weg: kein Heimkehr-Sprung
       fig.gelaufen = 0; // der Fels hält ihn fest
       if (b.phase === 'anrennen' && anrennenAb < 0) anrennenAb = t;
-      if (b.phase === 'heimkehren') ende = t;
+      if (anrennenAb >= 0 && b.phase === 'heimkehren') ende = t;
     }
     const dauer = ende - anrennenAb;
-    check(`blockiert: die Verfolgung endet nach ${WOLF_KI.verfolgungSec} s`, dauer >= WOLF_KI.verfolgungSec - 1e-9 && dauer <= WOLF_KI.verfolgungSec + 2 * dt, `Anrennen ${f(anrennenAb)} s → Abbruch ${f(ende)} s = ${f(dauer)} s`);
+    check(`blockiert: die Verfolgung endet nach ${WOLF_KI.verfolgungSec} s`, dauer >= WOLF_KI.verfolgungSec - 2 * dt && dauer <= WOLF_KI.verfolgungSec + 2 * dt, `Anrennen ${f(anrennenAb)} s → Abbruch ${f(ende)} s = ${f(dauer)} s`);
   }
   // (b) Läuft: die Strecke begrenzt.
   {

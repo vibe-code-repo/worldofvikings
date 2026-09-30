@@ -213,13 +213,6 @@ interface Einheit extends Bereich {
 
 const neueEinheit = (): Einheit => ({ ...neuerBereich(), liest: new Set() });
 
-function vereinige(ziel: Einheit, von: Einheit): void {
-  for (const n of von.bezuege) ziel.bezuege.add(n);
-  for (const n of von.glieder) ziel.glieder.add(n);
-  for (const n of von.liest) ziel.liest.add(n);
-  if (von.alleGlieder) ziel.alleGlieder = true;
-}
-
 /** The whole subtree, nested functions and classes included: what a call of the unit may do. */
 function ganz(n: ts.Node, b: Einheit): void {
   const geh = (x: ts.Node): void => {
@@ -353,6 +346,8 @@ export function pruefeLesenVorDerStelle(name: string, stueck: Stueck, alt: Datei
       const e = warte[i]!;
       for (const n of e.bezuege) erreiche(index.benannt.get(n), n, e);
       for (const g of e.glieder) erreiche(index.glieder.get(g), `.${g}`, e);
+      // A member with a computed name may carry any name: every member access may reach it.
+      if (e.glieder.size > 0) erreiche(index.glieder.get('*'), '.[computed]', e);
       if (e.alleGlieder) for (const [g, u] of index.glieder) erreiche(u, `.${g}`, e);
     }
     if (leser.length === 0) continue;
@@ -412,7 +407,7 @@ export function sammleZuweisungenAusDemRest(name: string, stueck: Stueck, alt: D
         else if (ts.isShorthandPropertyAssignment(x)) gefunden.push(x.name);
         else if (ts.isSpreadAssignment(x)) ziele(x.expression, gefunden);
       }
-    } else if (ts.isBinaryExpression(k) && k.operatorToken.kind === K.EqualsToken) ziele(k.left, gefunden);
+    }
   };
   const geh = (n: ts.Node): void => {
     const gefunden: ts.Identifier[] = [];

@@ -59,6 +59,7 @@ for (const [id, p, was] of [
 lauf.fall({ id: 'V31', name: 'the getter of V7 is not run twice by a cut that passes: the forwarder of V7 stays red even with a release for a call (there is none for a member access)', soll: ['B12'], teile: ['B12/vorgabe-this-undefined'], eingabe: () => vg('x = LAGER.puffer') });
 lauf.fall({ id: 'V32', name: 'a call in a default value stays releasable under its own key, and the release covers it', soll: [], freigegeben: ['vorgabe:m.x'], eingabe: () => schnitt(mitVorgabe('x = Math.abs(1)'), auftrag(['m']), { dateien: LAGER, freigaben: [{ schluessel: 'vorgabe:m.x', begruendung: GRUND }] }) });
 lauf.fall({ id: 'V33', name: 'a call that reads `this` is still a finding the release cannot cover (the `this` part)', soll: ['B12'], teile: ['B12/vorgabe-this-undefined'], eingabe: () => schnitt(mitVorgabe('x = Math.abs(this.zahl)'), auftrag(['m']), { dateien: LAGER, freigaben: [{ schluessel: 'vorgabe:m.x', begruendung: GRUND }] }), freigegeben: ['vorgabe:m.x'] });
+lauf.fall({ id: 'V34', name: 'a `this` inside a function value in a call is not read when the default is evaluated: only the call (released) is a finding', soll: [], freigegeben: ['vorgabe:m.x'], eingabe: () => schnitt(mitVorgabe('x = Math.abs(((): number => this.zahl) as unknown as number)'), auftrag(['m']), { dateien: LAGER, freigaben: [{ schluessel: 'vorgabe:m.x', begruendung: GRUND }] }) });
 for (const [id, p] of [
   ['V40', 'x = -5'],
   ['V41', "x = 's'"],
@@ -112,6 +113,10 @@ for (const [id, was, text] of [
   ['L37', 'a read in an `extends` expression of an anonymous class', 'export const Kind = class extends (GRENZE as unknown as new () => object) {};'],
   ['L38', 'a chain of three functions', 'function c(): number {\n  return GRENZE;\n}\nfunction b(): number {\n  return c();\n}\nfunction a(): number {\n  return b();\n}\nexport const S = a();'],
   ['L39', 'a function value in a variable called through a member of another object', 'const f = (): number => GRENZE;\nconst o = { f };\n\nexport const S = o.f();'],
+  ['L46', 'a class expression in a variable, instantiated: `new K()`', 'const K = class {\n  wert = GRENZE;\n};\n\nexport const OBJ = new K();'],
+  ['L47', 'a static field with an arrow function: `Hilfe.lies()`', 'class Hilfe {\n  static lies = (): number => GRENZE;\n}\n\nexport const S = Hilfe.lies();'],
+  ['L48', 'a method with a computed name, reached by a computed access', 'const nm = "lies" as string;\nconst api: Record<string, () => number> = {\n  [nm]() {\n    return GRENZE;\n  },\n};\n\nexport const S = api[nm]!();'],
+  ['L49', 'a method with a computed name may carry any name: a touched member `api.lies` reaches it', 'const nm = "other" as string;\nconst api: Record<string, () => number> = {\n  [nm]() {\n    return GRENZE;\n  },\n};\n\nexport const S = api.lies!();'],
   ['L40', 'an `await`ed call in front of the constant', 'async function lies(): Promise<number> {\n  return GRENZE;\n}\n\nexport const S = await lies();'],
 ] as const) {
   lauf.fall({ id, name: `${was}: the rest reads the moved name while loading`, soll: ['B9'], teile: teileB9, eingabe: () => grenze(`${text}${SPAET}`) });
@@ -135,6 +140,9 @@ for (const [id, was, text] of [
   ['G32', 'a function that is called in front of the constant but does not read it', 'function lies(): number {\n  return 7;\n}\n\nexport const START = lies();\n\nexport const GRENZE = 5;\n'],
   ['G33', 'the moved name read after its old place', 'const GRENZE = 5;\n\nexport const START = GRENZE + 1;\n'],
   ['G34', 'an object with a method that reads it and is never touched in front', 'const api = {\n  lies(): number {\n    return GRENZE;\n  },\n};\nexport const VOR = 1;\nvoid api;'],
+  ['G38', 'a function value in a variable that is never mentioned in front', 'const lies = (): number => GRENZE;\nexport const VOR = 1;'],
+  ['G39', 'an arrow function as the property of an object that is never touched in front', 'const api = { a: (): number => GRENZE };\nexport const VOR = 1;\nvoid api;'],
+  ['G40', 'a static field with an arrow function that is never called in front (an arrow function of a class field is a unit, not run at the definition)', 'class K {\n  static f = (): number => GRENZE;\n}\nexport const VOR = 1;\nvoid K;'],
   ['G35', 'a class with a method that reads it, instantiated but the method not named in front', 'class K {\n  lies(): number {\n    return GRENZE;\n  }\n}\n\nexport const OBJ = new K();'],
 ] as const) {
   lauf.fall({ id, name: `green: ${was}`, soll: [], eingabe: () => grenze(text.includes('const GRENZE') ? text : `${text}${SPAET}`) });
@@ -186,6 +194,12 @@ for (const [id, was, z, vorn] of [
   ['Z35', 'a destructured local', '{ const o = { a: 1 }; let zaehler: number; ({ a: zaehler } = o); void zaehler; }', ''],
 ] as const) {
   lauf.fall({ id, name: `green: ${was} is assigned, the moved variable is only read`, soll: [], eingabe: () => zl(z, vorn) });
+}
+lauf.fall({ id: 'Z37', name: 'a moved `const` that the rest assigns to is not this rule (the type checker refuses the old state already, TS2588): green here', soll: [], eingabe: () => schnitt(LET.replace('export let', 'export const').replace('ZUW', 'zaehler = 5;'), ZIEL_ZAEHLER) });
+lauf.fall({ id: 'Z38', name: 'two assignments in the rest to the moved variable give ONE finding for the name', soll: ['B12'], teile: teileZ, eingabe: () => zl('zaehler = 5;\n  zaehler++;') });
+{
+  const n = laufe(zl('zaehler = 5;\n  zaehler++;')).befunde.filter((b) => b.regel === 'B12' && b.teil === 'veraenderliche-variable').length;
+  lauf.pruefe('Z39', 'exactly one finding for two assignments to one name', n === 1, String(n));
 }
 lauf.fall({ id: 'Z36', name: 'a local of the same name next to an assignment to the moved variable: only the real one is a finding', soll: ['B12'], teile: teileZ, eingabe: () => zl('{ let zaehler = 1; zaehler++; void zaehler; }\n  zaehler = 3;') });
 

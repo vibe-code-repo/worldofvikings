@@ -12,7 +12,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -217,6 +217,151 @@ async function main(): Promise<void> {
   pruefe('start village: the input is not changed', () => {
     assert.equal(welt.placements.length, 6);
     assert.equal(welt.bausaetze, undefined);
+  });
+
+  // ── N1: input checks, angle wrap, edge cases, instance clash ────────────────
+
+  const klon = <T,>(o: T): T => JSON.parse(JSON.stringify(o)) as T;
+  const mitEntitaeten = (extra: unknown[]) => {
+    const d = klon(village);
+    d.zones[0].entities.push(...extra);
+    return d;
+  };
+  const gut = { prefab: 'environment-floor', position: [1, 5, 2], rotation: [0, 0, 0], scale: [1, 1, 1] };
+
+  pruefe('input: a broken entity stops with a named message (its id), never a raw TypeError', () => {
+    const faelle: [string, Record<string, unknown> | null, RegExp][] = [
+      ['position missing', { id: 'e_pos', ...gut, position: undefined }, /Entität "e_pos": position/],
+      ['rotation null', { id: 'e_rot', ...gut, rotation: null }, /Entität "e_rot": rotation/],
+      ['scale a number', { id: 'e_scl', ...gut, scale: 2 }, /Entität "e_scl": scale/],
+      ['NaN coordinate', { id: 'e_nan', ...gut, position: [Number.NaN, 5, 2] }, /Entität "e_nan": position/],
+      ['null coordinate', { id: 'e_nul', ...gut, rotation: [null, 0, 0] }, /Entität "e_nul": rotation/],
+      ['string coordinate', { id: 'e_str', ...gut, position: ['5', 5, 2] }, /Entität "e_str": position/],
+      ['null entry', null, /keine Entität/],
+    ];
+    for (const [name, e, muster] of faelle) {
+      assert.throws(() => k.konvertiereVillage(mitEntitaeten([e]), { id: 'mini' }), (f: Error) => !(f instanceof TypeError) && muster.test(f.message), name);
+    }
+    // NaN survives JSON as null: the same message when the file comes from disk
+    assert.throws(() => k.konvertiereVillage(JSON.parse(JSON.stringify(mitEntitaeten([{ id: 'e_nan', ...gut, position: [Number.NaN, 5, 2] }]))), { id: 'mini' }), /Entität "e_nan": position/);
+  });
+  pruefe('input: the command line exits 1 on such an entity and writes nothing', () => {
+    const ein = join(temp, 'kaputt.json');
+    writeFileSync(ein, JSON.stringify(mitEntitaeten([{ id: 'e_pos', ...gut, position: undefined }])));
+    const r = spawnSync(TSX, [KONVERTER, 'village', '--ein', ein, '--aus', join(temp, 'kaputt-aus.json'), '--id', 'mini'], { encoding: 'utf-8', cwd: WURZEL });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /Entität "e_pos"/);
+    assert.ok(!existsSync(join(temp, 'kaputt-aus.json')));
+  });
+
+  pruefe('angles: yaw 7 is wrapped to 7 − 2π and gives the same quaternion; −7 and π edge cases', () => {
+    const d = mitEntitaeten([
+      { id: 'w_7', ...gut, rotation: [0, 7, 0] },
+      { id: 'w_m7', ...gut, rotation: [0, -7, 0] },
+      { id: 'w_pi', ...gut, rotation: [0, Math.PI, 0] },
+      { id: 'w_mpi', ...gut, rotation: [0, -Math.PI, 0] },
+      { id: 'w_p2pi', ...gut, rotation: [2 * Math.PI, 0, 0] },
+    ]);
+    const r = k.konvertiereVillage(d, { id: 'mini' });
+    const t = (id: string) => JSON.parse(r.bausatzText).teile.find((x: { id: string }) => x.id === id);
+    assert.equal(t('w_7').yaw, Math.round((7 - 2 * Math.PI) * 1e6) / 1e6);
+    assert.equal(t('w_m7').yaw, Math.round((-7 + 2 * Math.PI) * 1e6) / 1e6);
+    assert.ok(k.quaternionAbstand(k.quaternionAusEuler([0, 7, 0]), k.quaternionAusWinkeln({ yaw: t('w_7').yaw })) < 1e-9);
+    assert.equal(t('w_pi').yaw, 3.141593);
+    assert.equal(t('w_mpi').yaw, 3.141593);
+    assert.equal(t('w_p2pi').pitch, undefined);
+    assert.equal(r.bericht.zaehlregel.gekippt, vb.zaehlregel.gekippt, 'pitch 2π is not tilted');
+    assert.equal(k.normiereWinkel(0.5), 0.5);
+    assert.equal(k.normiereWinkel(-0.5), -0.5);
+  });
+
+  pruefe('counting rule: exactly 1e-6 does not count, just above does (tilt); scale spread below / above the tolerance', () => {
+    const ohne = k.konvertiereVillage(mitEntitaeten([
+      { id: 'g_p', ...gut, rotation: [1e-6, 0, 0] },
+      { id: 'g_r', ...gut, rotation: [0, 0, -1e-6] },
+      { id: 'g_s', ...gut, scale: [1, 1 + 2 ** -20, 1] },
+    ]), { id: 'mini' });
+    assert.deepEqual(ohne.bericht.zaehlregel, vb.zaehlregel);
+    const mit = k.konvertiereVillage(mitEntitaeten([
+      { id: 'g_p', ...gut, rotation: [1e-6 + 1e-9, 0, 0] },
+      { id: 'g_r', ...gut, rotation: [0, 0, -(1e-6 + 1e-9)] },
+      { id: 'g_s', ...gut, scale: [1, 1 + 2 ** -19, 1] },
+    ]), { id: 'mini' });
+    assert.deepEqual(mit.bericht.zaehlregel, { gekippt: vb.zaehlregel.gekippt + 2, ungleichmaessig: vb.zaehlregel.ungleichmaessig + 1, gespiegelt: vb.zaehlregel.gespiegelt });
+  });
+
+  pruefe('ids: a repeated entity id gets a derived one (…-2) and the report says so', () => {
+    const r = k.konvertiereVillage(mitEntitaeten([{ id: 'dup', ...gut }, { id: 'dup', ...gut, position: [2, 5, 3] }]), { id: 'mini' });
+    assert.deepEqual(r.bericht.idAbgeleitet, [...vb.idAbgeleitet, { von: 'dup', zu: 'dup-2' }]);
+    const ids = JSON.parse(r.bausatzText).teile.map((x: { id: string }) => x.id);
+    assert.ok(ids.includes('dup') && ids.includes('dup-2'));
+  });
+
+  pruefe('thinning: a rock-like prefab that is not a cliff stays', () => {
+    const r = k.konvertiereVillage(mitEntitaeten([{ id: 'stein', ...gut, prefab: 'environment-sm-env-rock-small-01' }, { id: 'kliff2', ...gut, prefab: 'rock-cliff-decor' }]), { id: 'mini' });
+    assert.equal(r.bericht.ausgeduennt.felsen, vb.ausgeduennt.felsen);
+    assert.equal(r.bericht.ausgang, vb.ausgang + 2);
+  });
+
+  // start village: figures by npc / route field, circle region, instance clash
+  const zusatz = (p: unknown[]) => {
+    const w = klon(welt);
+    w.placements.push(...p);
+    return w;
+  };
+  pruefe('start village: a non-NPC prefab carrying `npc` stays a figure; so does one carrying only `route`', () => {
+    const w = zusatz([
+      { id: 'haus-mit-npc_2_2', prefab: 'U_Haus', x: 2, z: 2, yaw: 0, npc: { name: 'Hausgeist' } },
+      { id: 'haus-mit-route_3_3', prefab: 'U_Haus', x: 3, z: 3, yaw: 0, route: 'nordweg' },
+    ]);
+    const r = k.konvertiereStartdorf(w, { region: 'dorf', id: 'startdorf' });
+    assert.equal(r.bericht.figuren, sb.figuren + 2);
+    assert.equal(r.bericht.teile, sb.teile);
+    const nachher = JSON.parse(r.weltText).placements.map((p: { id: string }) => p.id);
+    assert.ok(nachher.includes('haus-mit-npc_2_2') && nachher.includes('haus-mit-route_3_3'));
+    assert.ok(!JSON.parse(r.bausatzText).teile.some((t: { id: string }) => t.id.startsWith('haus-mit')));
+  });
+  pruefe('start village: circle region takes the placements inside (border included), not the ones just outside', () => {
+    const w = zusatz([
+      { id: 'baum-rand_105_100', prefab: 'BirkeHoch1', x: 105, z: 100, yaw: 0 },
+      { id: 'baum-aus_105_100', prefab: 'BirkeHoch1', x: 105.001, z: 100, yaw: 0 },
+    ]);
+    const r = k.konvertiereStartdorf(w, { region: 'kreis', id: 'kreisdorf' });
+    assert.deepEqual(JSON.parse(r.bausatzText).teile.map((t: { id: string }) => t.id), ['baum-rand_105_100', 'baum_100']);
+    assert.equal(r.bericht.draussen, w.placements.length - 2);
+  });
+  pruefe('start village: an existing instance with the same id stops the run (second run on its own output)', () => {
+    const erst = k.konvertiereStartdorf(welt, { region: 'dorf', id: 'startdorf' });
+    const zweiteWelt = JSON.parse(erst.weltText);
+    assert.throws(() => k.konvertiereStartdorf(zweiteWelt, { region: 'kreis', id: 'startdorf' }), /schon eine Instanz "startdorf"/);
+    // another id works, and the two instances co-exist
+    const r = k.konvertiereStartdorf(zweiteWelt, { region: 'kreis', id: 'kreisdorf' });
+    assert.equal(JSON.parse(r.weltText).bausaetze.length, 2);
+  });
+  pruefe('start village: `kennungen` that clash with an existing instance stop the run', () => {
+    const w = klon(welt);
+    w.bausaetze = [{ id: 'alt', bausatz: 'alt', x: 0, z: 0, kennungen: { irgendwas: 'baum_100' } }];
+    assert.throws(() => k.konvertiereStartdorf(w, { region: 'kreis', id: 'neu' }), /Instanz ungültig.*doppelt/);
+  });
+  pruefe('command line: the second run with the same --id exits 1 and neither creates nor changes an output file', () => {
+    const lauf = (args: string[]) => spawnSync(TSX, [KONVERTER, ...args], { encoding: 'utf-8', cwd: WURZEL });
+    const eingang = join(temp, 'welt-ein.json');
+    writeFileSync(eingang, JSON.stringify(welt));
+    const kit = join(temp, 'sd-kit.json');
+    const weltAus = join(temp, 'sd-welt.json');
+    const erst = lauf(['startdorf', '--welt', eingang, '--region', 'dorf', '--id', 'startdorf', '--aus', kit, '--welt-aus', weltAus]);
+    assert.equal(erst.status, 0, erst.stderr);
+    const kitVorher = readFileSync(kit);
+    const weltVorher = readFileSync(weltAus);
+    // outputs at existing paths
+    const a = lauf(['startdorf', '--welt', weltAus, '--region', 'kreis', '--id', 'startdorf', '--aus', kit, '--welt-aus', weltAus, '--bericht', join(temp, 'sd-b.json')]);
+    assert.equal(a.status, 1);
+    assert.match(a.stderr, /schon eine Instanz "startdorf"/);
+    assert.ok(readFileSync(kit).equals(kitVorher) && readFileSync(weltAus).equals(weltVorher));
+    // outputs at new paths
+    const b = lauf(['startdorf', '--welt', weltAus, '--region', 'kreis', '--id', 'startdorf', '--aus', join(temp, 'neu-kit.json'), '--welt-aus', join(temp, 'neu-welt.json'), '--bericht', join(temp, 'neu-b.json')]);
+    assert.equal(b.status, 1);
+    for (const n of ['neu-kit.json', 'neu-welt.json', 'neu-b.json', 'sd-b.json']) assert.ok(!existsSync(join(temp, n)), n);
   });
 
   rmSync(temp, { recursive: true, force: true });

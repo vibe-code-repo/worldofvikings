@@ -65,7 +65,14 @@ function leiteIdAb(roh, vergeben) {
 
 /** Old Euler triple `[x, y, z]` (rad) → kit angles. The one mapping of the converter. */
 export function eulerZuWinkeln(rotation) {
-  return { yaw: rotation[1], pitch: rotation[0], roll: rotation[2] };
+  return { yaw: normiereWinkel(rotation[1]), pitch: normiereWinkel(rotation[0]), roll: normiereWinkel(rotation[2]) };
+}
+
+/** Angle (rad) wrapped into (−π, π]; a value already inside is returned untouched (bytes stay as they were). */
+export function normiereWinkel(a) {
+  if (a > -Math.PI && a <= Math.PI) return a;
+  const r = a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
+  return r <= -Math.PI ? Math.PI : r;
 }
 
 /** Quaternion `[x, y, z, w]` of an Euler triple as Babylon builds it: `RotationYawPitchRoll(y, x, z)`. */
@@ -155,6 +162,19 @@ function rundlauf(bausatz) {
   };
 }
 
+/** A triple of finite numbers. */
+const istTripel = (v) => Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n));
+
+/** Named error for an entity that cannot be converted (never a raw TypeError, never a silent 0). */
+function pruefeEntity(e, zone, index) {
+  if (e === null || typeof e !== 'object') throw new Error(`Zone "${zone.id}", Eintrag ${index}: keine Entität`);
+  const name = `Entität "${typeof e.id === 'string' ? e.id : `#${index} in Zone ${zone.id}`}"`;
+  if (typeof e.prefab !== 'string') throw new Error(`${name}: prefab fehlt`);
+  for (const feld of ['position', 'rotation', 'scale']) {
+    if (!istTripel(e[feld])) throw new Error(`${name}: ${feld} fehlt oder ist kein Tripel aus endlichen Zahlen`);
+  }
+}
+
 // ── Mode village ────────────────────────────────────────────────────────────
 
 /**
@@ -180,7 +200,8 @@ export function konvertiereVillage(roh, optionen) {
   const quellen = []; // raw entity per kept part, same index
   const gruppenIds = [];
   for (const zone of roh.zones) {
-    for (const e of zone.entities ?? []) {
+    for (const [index, e] of (zone.entities ?? []).entries()) {
+      pruefeEntity(e, zone, index);
       bericht.eingang += 1;
       const p = e.position;
       const prefab = e.prefab;
@@ -367,13 +388,15 @@ export function konvertiereStartdorf(welt, optionen) {
   for (const p of uebernommen) kennungen[p.id] = p.id;
   const instanz = { id: optionen.id, bausatz: optionen.id, x: anker.x, z: anker.z, kennungen };
   const uebrig = new Set(platzierungen.filter((p) => !uebernommen.includes(p)).map((p) => p.id));
-  const fehler = bausatzInstanzenFehler([instanz], uebrig);
+  const alt = welt.bausaetze ?? [];
+  if (alt.some((i) => i && i.id === instanz.id)) throw new Error(`Die Eingabewelt hat schon eine Instanz "${instanz.id}"`);
+  const fehler = bausatzInstanzenFehler([...alt, instanz], uebrig);
   if (fehler.length > 0) throw new Error(`Instanz ungültig: ${JSON.stringify(fehler)}`);
   const [instanzKanonisch] = sanitizeBausatzInstanzen([instanz]);
   const neueWelt = {
     ...welt,
     placements: platzierungen.filter((p) => !uebernommen.includes(p)),
-    bausaetze: [...(welt.bausaetze ?? []), instanzKanonisch],
+    bausaetze: [...alt, instanzKanonisch],
   };
   const rl = rundlauf(bausatz);
   // Proof: resolved entries equal the entries of the placements before.

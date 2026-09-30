@@ -121,7 +121,7 @@ import { sendeGrundskalaGeaendert } from './testflug/grundskalaLive';
 // zieht `kollision/glb.ts` sonst in jedes Spiel-Bundle, s. Kopfkommentar
 // `uploadedModelRohmasse.ts`. Nur der Editor braucht diese Messung.
 import { rohMasseAusGlb } from '@wov/shared/src/uploadedModelRohmasse.js';
-import { AssetManager, modelUrl } from '../engine/AssetManager';
+import { AssetManager } from '../engine/AssetManager';
 import { toeneStoreMeshes } from '../engine/StoreToenung';
 import { laubSpitzenMeshes } from '../engine/LaubSpitzen';
 import {
@@ -161,7 +161,6 @@ import { fmt, fmtBytes, kollisionsartText, vorschlagText, zahlLocale } from './k
 import { ITEMS_NACH_NAME, ITEM_TYP_TEXT, KATEGORIEN } from './katalog/kategorien';
 import {
   LADE_TIMEOUT,
-  PRUEF_PARALLEL,
   REFERENZ_FIGUR_BREITE,
   REFERENZ_FIGUR_HOEHE,
   REFERENZ_FIGUR_TIEFE,
@@ -172,6 +171,7 @@ import {
   type Kennzahlen,
   type StatusArt,
 } from './katalog/konstanten';
+import { pruefeSeite, pruefeSpeicherSeite } from './katalog/pruefen';
 
 /**
  * Einträge je Kategorie — einmal gezählt, dann gemerkt.
@@ -217,7 +217,7 @@ export class GegenstandsKatalog {
   /** Dritte Ebene: die Untergruppen der gewählten Gruppe als Filtermarken. */
   private readonly untergruppenZeile: HTMLDivElement;
   private readonly infoBlock: HTMLDivElement;
-  private readonly pruefKnopf: HTMLButtonElement;
+  readonly pruefKnopf: HTMLButtonElement;
   /** Upload-Zeile (U1): Dateiwahl, Name, Kollisionswunsch, Ergebnis/Fehler. */
   private readonly hochladenDateiEingabe: HTMLInputElement;
   private readonly hochladenNameFeld: HTMLInputElement;
@@ -296,7 +296,7 @@ export class GegenstandsKatalog {
   private speicherLaedt = false;
   private speicherFehler: string | null = null;
   /** Nachschlagewerk Id → Eintrag; die Liste führt nur Ids. */
-  private storeIndex = new Map<string, StoreEintrag>();
+  storeIndex = new Map<string, StoreEintrag>();
   /** Gewählte Gruppe der zweiten Ebene (null = alle). */
   private gruppe: string | null = null;
   /** Gewählte Untergruppe der dritten Ebene (null = alle). */
@@ -351,7 +351,7 @@ export class GegenstandsKatalog {
    * Gefüllt aus zwei Quellen: jedem tatsächlichen Ladeversuch und der
    * HEAD-Prüfung der sichtbaren Seite.
    */
-  private readonly vorhanden = new Map<string, boolean>();
+  readonly vorhanden = new Map<string, boolean>();
 
   /** Selbstdreher (Drehteller). Jeder Zieh-Vorgang schaltet ihn ab. */
   private drehen = true;
@@ -1982,7 +1982,7 @@ export class GegenstandsKatalog {
   }
 
   /** Ist die aktuelle Kategorie ein Speicher-Bereich? Dann die Art, sonst null. */
-  private get speicherArt(): StoreArt | null {
+  get speicherArt(): StoreArt | null {
     return KATEGORIEN[this.kategorie]?.speicher ?? null;
   }
 
@@ -2046,13 +2046,13 @@ export class GegenstandsKatalog {
   }
 
   /** Namen der aktuell SICHTBAREN Seite. */
-  private seitenNamen(): string[] {
+  seitenNamen(): string[] {
     const t = this.treffer();
     const start = this.seite * SEITE_GROESSE;
     return t.slice(start, start + SEITE_GROESSE);
   }
 
-  private listeFuellen(): void {
+  listeFuellen(): void {
     const kat = KATEGORIEN[this.kategorie]!;
     const alle = this.treffer();
 
@@ -2605,7 +2605,7 @@ export class GegenstandsKatalog {
    * Platz? Leerer Text blendet sie aus; es gibt keinen „nichts"-Zustand,
    * den man anschreiben müsste.
    */
-  private statusSetzen(text: string, art: StatusArt): void {
+  statusSetzen(text: string, art: StatusArt): void {
     this.statusZeile.textContent = text;
     this.statusPlakette.style.display = text ? 'flex' : 'none';
     this.statusPunkt.style.background =
@@ -3407,116 +3407,11 @@ export class GegenstandsKatalog {
 
   // ── Verfügbarkeit ──────────────────────────────────────────────────
 
-  /**
-   * Für die sichtbare Seite abfragen, ob die GLB überhaupt ausgeliefert
-   * wird — per HEAD, also ohne die Datei zu übertragen.
-   *
-   * Das beantwortet die Frage, die sich beim Durchblättern der vollen
-   * Registry sofort stellt: Welche dieser 3.748 Einträge kann ich hier
-   * überhaupt ansehen? Ein Klick auf jeden Einzelnen wäre die
-   * Alternative — mit 17-MB-Downloads für die, die es gibt.
-   *
-   * `PRUEF_PARALLEL` deckelt die Gleichzeitigkeit: Der Dev-Server liest
-   * jede Datei mit einem eigenen Stream, 60 auf einmal bringen ihn ins
-   * Stocken. Ein Netzfehler lässt den Eintrag UNBEKANNT (kein Zeichen) —
-   * „fehlt" behaupten wir nur bei einer echten Absage des Servers.
-   */
-  private async pruefeSeite(): Promise<void> {
-    const namen = this.seitenNamen();
-    /*
-      Im Speicher-Bereich ist der Schlüssel der PFAD und nicht der
-      Modellname — dieselbe Frage, andere Adresse. Beides über einen
-      Kamm zu scheren (`PREFABS_BY_NAME`) meldete für jeden
-      Speicher-Eintrag „fehlt", denn die Registry kennt keinen davon.
-    */
-    if (this.speicherArt) {
-      await this.pruefeSpeicherSeite(namen);
-      return;
-    }
-    const offen = namen
-      .map((n) => PREFABS_BY_NAME.get(n)?.model)
-      .filter((m): m is string => !!m && !this.vorhanden.has(m));
-    if (offen.length === 0) {
-      this.statusSetzen('Seite bereits geprüft.', 'neutral');
-      window.setTimeout(() => this.statusSetzen('', 'neutral'), 2000);
-      return;
-    }
-    this.pruefKnopf.disabled = true;
-    this.pruefKnopf.textContent = `prüfe ${offen.length} Modelle …`;
-    let naechster = 0;
-    const arbeiter = async (): Promise<void> => {
-      while (naechster < offen.length) {
-        const datei = offen[naechster++]!;
-        try {
-          /*
-            Die URL kommt aus `modelUrl()` und nicht als feste
-            Zeichenkette: Seit E4 kann in `PREFABS_BY_NAME` auch ein zur
-            Laufzeit registrierter Saal stehen, und dessen GLB liegt unter
-            `assets/generiert/`. Fest verdrahtet meldete diese Prüfung ihn
-            als „fehlt" — eine falsche Auskunft, die niemandem auffiele:
-            Das Modell IST da, nur an einem anderen Pfad, und der Katalog
-            sagte trotzdem, es gebe es nicht.
-          */
-          const antwort = await fetch(modelUrl(datei), { method: 'HEAD' });
-          // Ein 200 mit HTML ist die typische Antwort eines Servers, der
-          // Unbekanntes auf die Startseite umbiegt — das ist kein Modell.
-          const typ = antwort.headers.get('content-type') ?? '';
-          this.vorhanden.set(datei, antwort.ok && !typ.includes('text/html'));
-        } catch {
-          /* Netzfehler: unbekannt lassen (s. Kopf) */
-        }
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(PRUEF_PARALLEL, offen.length) }, arbeiter));
-    this.pruefKnopf.textContent = 'Verfügbarkeit dieser Seite prüfen';
-    this.pruefKnopf.disabled = false;
-    this.listeFuellen();
-    const da = namen.filter((n) => {
-      const m = PREFABS_BY_NAME.get(n)?.model;
-      return m ? this.vorhanden.get(m) === true : false;
-    }).length;
-    this.statusSetzen(`${da} von ${namen.length} Modellen dieser Seite liegen vor.`, da > 0 ? 'da' : 'fehlt');
+  private pruefeSeite(): Promise<void> {
+    return pruefeSeite(this);
   }
 
-  /**
-   * Dasselbe für den Speicher — HEAD auf `/assets/store/<pfad>`.
-   *
-   * Auch hier nur die SICHTBARE Seite: 672 Anfragen auf einen Schlag
-   * wären dieselbe kleine Denial-of-Service-Attacke wie bei der
-   * Registry, nur mit einem Bestand, von dem fast alles daliegt.
-   */
-  private async pruefeSpeicherSeite(ids: readonly string[]): Promise<void> {
-    const offen = ids
-      .map((id) => this.storeIndex.get(id)?.pfad)
-      .filter((p): p is string => !!p && !this.vorhanden.has(p));
-    if (offen.length === 0) {
-      this.statusSetzen('Seite bereits geprüft.', 'neutral');
-      window.setTimeout(() => this.statusSetzen('', 'neutral'), 2000);
-      return;
-    }
-    this.pruefKnopf.disabled = true;
-    this.pruefKnopf.textContent = `prüfe ${offen.length} Dateien …`;
-    let naechster = 0;
-    const arbeiter = async (): Promise<void> => {
-      while (naechster < offen.length) {
-        const pfad = offen[naechster++]!;
-        try {
-          const antwort = await fetch(`${SPEICHER_WURZEL}${pfad}`, { method: 'HEAD' });
-          const typ = antwort.headers.get('content-type') ?? '';
-          this.vorhanden.set(pfad, antwort.ok && !typ.includes('text/html'));
-        } catch {
-          /* Netzfehler: unbekannt lassen (s. Kopf der Registry-Prüfung) */
-        }
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(PRUEF_PARALLEL, offen.length) }, arbeiter));
-    this.pruefKnopf.textContent = 'Verfügbarkeit dieser Seite prüfen';
-    this.pruefKnopf.disabled = false;
-    this.listeFuellen();
-    const da = ids.filter((id) => {
-      const p = this.storeIndex.get(id)?.pfad;
-      return p ? this.vorhanden.get(p) === true : false;
-    }).length;
-    this.statusSetzen(`${da} von ${ids.length} Dateien dieser Seite liegen vor.`, da > 0 ? 'da' : 'fehlt');
+  pruefeSpeicherSeite(ids: readonly string[]): Promise<void> {
+    return pruefeSpeicherSeite(this, ids);
   }
 }

@@ -54,6 +54,16 @@ import { clientBase, gameUrl, normaliseBase } from '../src/editor/spielAdresse';
 
 let fehler = 0;
 let geprueft = 0;
+// Expected number of checks. A cut-short run (`process.exit(0)`, an exception, a loop that reads fewer files than the list
+// names) prints no FAIL line -- counted as "0 failed" it would pass. So the exit hook prints a FAIL line and sets the exit
+// code, and the end compares the number of checks with this number.
+const SOLL = 726;
+let fertig = false;
+process.on('exit', () => {
+  if (fertig) return;
+  console.error(`  FAIL: cut short after ${geprueft} of ${SOLL} checks`);
+  process.exitCode = 1; // also after process.exit(0) in the middle of the run
+});
 const pruefe = (bedingung: boolean, text: string): void => {
   geprueft++;
   if (!bedingung) {
@@ -64,6 +74,13 @@ const pruefe = (bedingung: boolean, text: string): void => {
 const naheBei = (a: number, b: number, tol: number, text: string): void =>
   pruefe(Math.abs(a - b) <= tol, `${text} (${a} vs ${b}, tolerance ${tol})`);
 const lies = (rel: string): string => readFileSync(new URL(rel, import.meta.url), 'utf-8');
+/**
+ * The modules cut out of `editorMain.ts`, relative to client/src/editor. Their code lay under the boundaries of
+ * `editorMain.ts` before it moved, so a boundary check on `editorMain.ts` as a whole runs on each of them as well, one
+ * file at a time. test/editor-module-grenze.ts holds the list of modules and fails when one is missing here.
+ * Each module adds one check to SOLL.
+ */
+const CUT_OUT_MODULES = ['biome.ts', 'formen.ts', 'seite/helfer.ts'];
 
 console.log('Island pick and jump target');
 
@@ -530,8 +547,15 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
   pruefe(/oeffneTab\(\)/.test(panel) && panel.indexOf('oeffneTab()') < panel.indexOf('islandSearchAsync('), 'the tab is opened before the search starts (inside the click)');
   const editor = lies('../src/editor/editorMain.ts');
   pruefe(/if \(!tab\)/.test(editor) && /Pop-ups/.test(editor), 'the editor reports a blocked pop-up');
-  const roh = (editor.match(/window\.open\(url, /g) ?? []).length;
+  // The pattern stands here once: the count on editorMain.ts and the counts on the cut-out modules use this one constant.
+  const FLIGHT_TAB_OPENER = /window\.open\(url, /g;
+  const roh = (editor.match(FLIGHT_TAB_OPENER) ?? []).length;
   pruefe(roh === 1, `the flight tabs are opened in one place (oeffneFlugTab): ${roh}`);
+  // The same boundary for the modules cut out of editorMain.ts, each file on its own: none of them is a second place.
+  for (const file of CUT_OUT_MODULES) {
+    const n = (lies(`../src/editor/${file}`).match(FLIGHT_TAB_OPENER) ?? []).length;
+    pruefe(n === 0, `${file}: no second place that opens a flight tab (window.open(url, …)): ${n}`);
+  }
 }
 
 // ── 7. The address carries the base prefix of the client ────────────────────
@@ -761,6 +785,11 @@ const baumZaehlung = (l: WorldLayout): Map<string, number> => {
   pruefe(normaliseBase('//fremder.host/') === '/fremder.host/', 'a protocol-relative prefix becomes a path on the own origin');
 }
 
+fertig = true;
+if (geprueft !== SOLL) {
+  console.error(`  FAIL: expected ${SOLL} checks, ran ${geprueft}`);
+  fehler++;
+}
 console.log(`\n${geprueft - fehler}/${geprueft} checks passed`);
 if (fehler > 0) {
   console.error(`${fehler} FAILED`);

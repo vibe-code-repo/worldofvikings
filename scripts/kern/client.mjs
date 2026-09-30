@@ -182,6 +182,11 @@ export default [
   // main.ts fuer dieselben Eingaben, dazu editorI18nInstance() in zwei Kindprozessen
   // (memoisiert). DOM-frei, ein paar Sekunden wegen der zwei tsx-Kindprozesse.
   ['client', 'test/editor-i18n-sprache.ts'],
+  // Boundary of the modules cut out of editorMain.ts (editor/biome.ts, formen.ts, seite/helfer.ts). They are
+  // evaluated BEFORE the two registry awaits of editorMain.ts: values are imported from design.ts only,
+  // nothing is read from a registry or from the page while they load, and editorMain.ts declares none of
+  // the moved names itself. Syntax tree plus the behaviour that loads without a browser. ~2 s.
+  ['client', 'test/editor-module-grenze.ts'],
   // Serversteuerung im Editor (29.09., Mikes Befund): die DOM-freie
   // Entscheidungslogik (welche der drei Knoepfe wann sichtbar/benutzbar
   // sind, was "Karte live testen" bei aktiver Testwelt jetzt tut, welche

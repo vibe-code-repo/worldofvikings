@@ -140,6 +140,7 @@ export const METHODEN = [
   'registerSpawnCommand',
   'sendPlayerState',
   'sendeTrefferEffekt',
+  'sichereSpielerSofort', // F8 (#146): f8n3-kennung-kill ruft die Ereignis-Sicherung im Kindprozess
   'syncZDOs',
   'teleportPeer',
   'update',
@@ -160,9 +161,12 @@ export const FELDER = [
   'saveTimer',
   'savedPlayers',
   'speichertGerade',
+  'spielerSicherung', // F8 (#146): spielerzustand-writebehind liest die Zaehler der Spielersicherung
+  'stempel', // F8 (#146): f8n3-kennung-kill liest den naechsten Stempel des Servers
   'timeSyncAccumulator',
   'updateTimer',
   'worldTime',
+  'zustandWeltId', // F8 (#146): f8n3-kennung-kill liest die Weltkennung des Servers
 ] as const;
 
 /**
@@ -231,6 +235,7 @@ export const TEXT_TESTS: readonly { datei: string; muster: readonly string[]; sc
 export const TEXT_AUSNAHMEN: readonly { datei: string; grund: string }[] = [
   { datei: 'tools/dungeon2-e2e.mjs', grund: 'nennt den Pfad nur in einem erzeugten Import (Pfad als Daten), liest die Datei nicht' },
   { datei: 'scripts/pruefe-groessen.mjs', grund: 'nennt den Pfad als Eintrag der Liste FREI_ERLAUBT (Daten), liest die Datei nur zum Zeilenzählen' },
+  { datei: 'server/test/i1t-beute-waffe.ts', grund: 'nennt den Pfad server/src/WovServer.ts als Konstante seines Scanners (CLASS_FILE); liest Deklarationen und Importe aller Dateien unter server/src am Syntaxbaum, kein Muster an einen Block gebunden' },
 ];
 
 /**

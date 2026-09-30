@@ -12,6 +12,7 @@ import {
   serverMeldungAufgesammelt,
   serverMeldungBesiegt,
   serverMeldungVollRest,
+  ersetzeDatenTexte,
   zerlegeServerMeldung,
 } from '@wov/shared';
 import de from '../src/i18n/katalog/de.json';
@@ -61,6 +62,21 @@ check('damaged parameters: the text shows with its placeholders, no crash', engl
 check('an unknown creature name is shown as sent', englisch.serverMeldung(serverMeldungBesiegt('Brandmarder')) === 'Brandmarder defeated');
 check('a prototype name as parameter is no name (nothing leaks)', englisch.serverMeldung('@beute.besiegt|{"__proto__":{"kreatur":"x"},"kreatur":"Kuh"}') === 'Cow defeated');
 check('an unknown key passes through', englisch.serverMeldung('@gibt.es.nicht|{"a":1}') === '@gibt.es.nicht|{"a":1}');
+
+// 4. N2-a: the middle of the name chain `beute.name.*` -> `inhalt.item.*` -> as sent (the way of data items)
+check('the item of the content texts is in neither beute.name.* nor is it a creature', !('beute.name.beispiel' in katalogDe) && !('beute.name.beispiel' in katalogEn));
+check('a name only in inhalt.item.* (repo texts) is shown translated, de', deutsch.serverMeldung(serverMeldungAufgesammelt('beispiel', 2, 0)) === 'Aufgesammelt: 2 × Beispieltext', deutsch.serverMeldung(serverMeldungAufgesammelt('beispiel', 2, 0)));
+check('a name only in inhalt.item.* (repo texts) is shown translated, en (not the German text, not the raw name)', /^Picked up: 2 × (?!beispiel$)(?!Beispieltext$)\S.*$/.test(englisch.serverMeldung(serverMeldungAufgesammelt('beispiel', 2, 0))), englisch.serverMeldung(serverMeldungAufgesammelt('beispiel', 2, 0)));
+ersetzeDatenTexte({ de: new Map([['inhalt.item.datending', 'Datendings']]), en: new Map([['inhalt.item.datending', 'Data thing']]) });
+check('a data item (data-text layer) is shown translated, de', deutsch.serverMeldung(serverMeldungBesiegt('datending')) === 'Datendings besiegt', deutsch.serverMeldung(serverMeldungBesiegt('datending')));
+check('a data item (data-text layer) is shown translated, en', englisch.serverMeldung(serverMeldungVollRest('datending', 4)) === 'Inventory full, 4 × Data thing left behind', englisch.serverMeldung(serverMeldungVollRest('datending', 4)));
+check('a name in no catalogue stays as sent', englisch.serverMeldung(serverMeldungAufgesammelt('Nirgendwo', 1, 0)) === 'Picked up: 1 × Nirgendwo');
+
+// 5. N2-b: a number that is not finite is no parameter (1e999 reads as Infinity), the placeholder stays visible
+const unendlich = zerlegeServerMeldung('@beute.aufgesammelt|{"item":"Stone","menge":1e999}');
+check('Infinity is dropped from the parameters, the rest stays', !!unendlich && !('menge' in unendlich.parameter) && unendlich.parameter.item === 'Stone', JSON.stringify(unendlich));
+check('a message with Infinity shows the placeholder, not "Infinity"', englisch.serverMeldung('@beute.aufgesammelt|{"item":"Stone","menge":1e999}') === 'Picked up: {menge} × Stone', englisch.serverMeldung('@beute.aufgesammelt|{"item":"Stone","menge":1e999}'));
+check('-Infinity likewise', !('rest' in (zerlegeServerMeldung('@beute.aufgesammelt_teil|{"rest":-1e999}')?.parameter ?? { rest: 0 })));
 
 console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

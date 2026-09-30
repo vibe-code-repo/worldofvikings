@@ -87,6 +87,7 @@
  * build ops and to predict what the service will do. The file side lives in
  * admin/src/routen/weltOps.ts.
  */
+import { bausatzInstanzenFehler, bausatzInstanzenFehlerText } from '../bausatz/sanitize.js';
 import { platzierungenFehler, platzierungenFehlerText, sanitizeWorldLayout, type PlatzierungsFehler } from './sanitize.js';
 import { WORLD_LAYOUT_VERSION, type WorldLayout } from './types.js';
 
@@ -338,6 +339,21 @@ export function wende(layout: WorldLayout, eingabe: unknown, san: LayoutSanitize
       fehlerhaft,
     };
   }
+  // Kit instances get the same strictness (C2 N1): a typed-wrong instance (`yaw: "abc"`, a `kennungen` key `Gross`,
+  // two parts on one address) is refused with the list, never canonicalised into a silent loss of an address.
+  const bausatzFehlerhaft: PlatzierungsFehler[] = [];
+  for (const op of ops) {
+    if (op.sammlung !== 'bausaetze' || !op.nachher) continue;
+    for (const f of bausatzInstanzenFehler([op.nachher])) bausatzFehlerhaft.push({ ...f, id: op.id });
+  }
+  if (bausatzFehlerhaft.length > 0) {
+    return {
+      ok: false,
+      art: 'ungueltig',
+      message: `${bausatzFehlerhaft.length} Fehler in Bausatz-Instanzen (${bausatzInstanzenFehlerText(bausatzFehlerhaft)}) — nichts geschrieben`,
+      fehlerhaft: bausatzFehlerhaft,
+    };
+  }
   const nachherKanon = new Map<Op, OpEntry>();
   const vorherText = new Map<Op, string | null>();
   for (const [i, op] of ops.entries()) {
@@ -462,9 +478,29 @@ export function wende(layout: WorldLayout, eingabe: unknown, san: LayoutSanitize
   for (const [sammlung, l] of arbeit) kandidat[sammlung] = l;
   const neu = san(kandidat);
   if (!neu) return { ok: false, art: 'ungueltig', message: 'Ergebnis ist kein gültiges Weltdokument' };
+  // Kit instances against the placements of the RESULT document: a `kennungen` address that a placement (new in this
+  // Vorgang, or an old instance's address taken by a new placement) or another instance holds would be struck by the
+  // sanitizer without a word. Refuse it instead (C2 M2).
+  const instanzen = arbeit.get('bausaetze') ?? basis.bausaetze ?? [];
+  if (instanzen.length > 0) {
+    const belegt = new Set<string>();
+    for (const p of neu.placements ?? []) if (p.id !== undefined) belegt.add(p.id);
+    const kollision = bausatzInstanzenFehler(instanzen, belegt);
+    if (kollision.length > 0) {
+      return {
+        ok: false,
+        art: 'ungueltig',
+        message: `${kollision.length} Fehler in Bausatz-Instanzen (${bausatzInstanzenFehlerText(kollision)}) — nichts geschrieben`,
+        fehlerhaft: kollision,
+      };
+    }
+  }
   // The sanitizer cuts and drops without a word; a Vorgang must not lose an entry that way.
   for (const [sammlung, l] of arbeit) {
     const behalten = eintraegeVon(neu, sammlung).length;
+    if (sammlung === 'bausaetze' && behalten === l.length && JSON.stringify(eintraegeVon(neu, sammlung)) !== JSON.stringify([...l].sort((p, q) => (p.id < q.id ? -1 : p.id > q.id ? 1 : 0)))) {
+      return { ok: false, art: 'ungueltig', message: 'bausaetze: der Sanitizer würde Inhalt einer Instanz ändern; nichts geändert' };
+    }
     if (behalten !== l.length) {
       return {
         ok: false,

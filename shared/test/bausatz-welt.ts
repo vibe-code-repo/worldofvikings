@@ -1,5 +1,5 @@
 /**
- * Bausatz-Instanzen im Weltdokument (C2): Sanitizer, 422-Liste (8 Regeln = 8 Fälle), Grenze 257,
+ * Bausatz-Instanzen im Weltdokument (C2): Sanitizer, 422-Liste (9 Regeln = 9 Fälle, dazu Zusatzfälle N1/N2), Grenze 257,
  * Rundlauf, Altbestand mit dem echten dev.json (nur gelesen), pruefeLayout-Befunde, Vorgang `bausaetze`.
  *
  * Lauf: npx tsx shared/test/bausatz-welt.ts   (aus shared/)
@@ -53,8 +53,8 @@ const inst = (extra: Record<string, unknown> = {}): Record<string, unknown> => (
   pruefe('Rundlauf Instanzen byte-gleich', JSON.stringify(sanitizeBausatzInstanzen(JSON.parse(t))) === t);
 }
 
-// ── 422-Liste: acht Regeln, acht Fälle ──────────────────────────────────
-const REGELN = 8;
+// ── 422-Liste: neun Regeln, neun Fälle ──────────────────────────────────
+const REGELN = 9;
 const faelle: Array<{ regel: string; roh: unknown[]; erwartetFeld: string }> = [
   { regel: '1 Instanz ist kein Objekt', roh: ['x'], erwartetFeld: 'eintrag' },
   { regel: '2 id/bausatz fehlt oder kein ID_RE', roh: [inst({ bausatz: 'GROSS Nein' })], erwartetFeld: 'bausatz' },
@@ -64,6 +64,15 @@ const faelle: Array<{ regel: string; roh: unknown[]; erwartetFeld: string }> = [
   { regel: '6 kennungen kein Objekt / Wert kein ID_RE', roh: [inst({ kennungen: { a: 'Nicht Gut' } })], erwartetFeld: 'kennungen' },
   { regel: '7 kennungen-Wert = Platzierungs-id', roh: [inst({ kennungen: { a: eineId } })], erwartetFeld: 'kennungen' },
   { regel: '8 kennungen-Wert zweimal vergeben', roh: [inst({ kennungen: { a: 'gleich', b: 'gleich' } })], erwartetFeld: 'kennungen' },
+  { regel: '9 yaw ist keine endliche Zahl', roh: [inst({ yaw: 'abc' })], erwartetFeld: 'yaw' },
+];
+// Zusatzfälle derselben Fehlerliste (Unterfälle von Regel 6 und 9)
+const zusatz: Array<{ titel: string; roh: unknown[]; erwartetFeld: string }> = [
+  ...[true, 'abc', null, [], '1.5', {}].map((yaw) => ({ titel: `Regel 9 yaw=${JSON.stringify(yaw)}`, roh: [inst({ yaw })], erwartetFeld: 'yaw' })),
+  { titel: 'N1 kennungen-Schlüssel Gross', roh: [inst({ kennungen: { Gross: 'q1' } })], erwartetFeld: 'kennungen' },
+  { titel: 'N1 kennungen-Schlüssel ö', roh: [inst({ kennungen: JSON.parse('{"ö":"alt-3","gut":"alt-4"}') })], erwartetFeld: 'kennungen' },
+  { titel: 'N1 kennungen-Schlüssel __proto__', roh: [inst({ kennungen: JSON.parse('{"__proto__":"alt-1","gut":"alt-4"}') })], erwartetFeld: 'kennungen' },
+  { titel: 'N2 4001 kennungen', roh: [inst({ kennungen: Object.fromEntries(Array.from({ length: 4001 }, (_, i) => [`t${i}`, `v${i}`])) })], erwartetFeld: 'kennungen' },
 ];
 pruefe(`Zahl der Regeln (${REGELN}) = Zahl der Fälle (${faelle.length})`, faelle.length === REGELN);
 const dir = mkdtempSync(join(tmpdir(), 'bausatz-c2-welt-'));
@@ -81,6 +90,29 @@ try {
     pruefe(`Regel ${f.regel}: Schreibweg lehnt ab`, klasse.startsWith('LayoutBausaetzeUngueltig') || klasse === 'LayoutFeldUngueltig', klasse);
   }
 
+  for (const f of zusatz) {
+    const liste = bausatzInstanzenFehler(f.roh, platzierungsIds);
+    let klasse = '';
+    try {
+      layoutSchreiben(join(dir, 'zusatz.json'), { ...dev, bausaetze: f.roh });
+    } catch (e) {
+      klasse = e instanceof LayoutBausaetzeUngueltig || e instanceof LayoutFeldUngueltig ? 'abgelehnt' : String(e);
+    }
+    pruefe(`Zusatzfall ${f.titel}: Fehlerliste und Ablehnung`, liste.some((x) => x.feld === f.erwartetFeld) && klasse === 'abgelehnt', `${JSON.stringify(liste[0])} ${klasse}`);
+  }
+  pruefe('Grenzfälle ok: 4000 kennungen, yaw ±2π, yaw 7 (geklemmt, keine Regel)', bausatzInstanzenFehler([inst({ kennungen: Object.fromEntries(Array.from({ length: 4000 }, (_, i) => [`t${i}`, `v${i}`])) }), inst({ id: 'b', yaw: 7 }), inst({ id: 'c', yaw: -100 })]).length === 0);
+  pruefe('N2 Sanitizer wirft überlange kennungen nicht still zur Hälfte weg: ganz ohne Feld', sanitizeBausatzInstanzen([inst({ kennungen: Object.fromEntries(Array.from({ length: 4001 }, (_, i) => [`t${i}`, `v${i}`])) })])[0]!.kennungen === undefined);
+  {
+    // Zeit: 256 Instanzen × 4 000 kennungen (Körpergrenze des Betriebsdienstes ist der einzige andere Deckel)
+    const gross = Array.from({ length: 256 }, (_, i) => inst({ id: `g-${i}`, kennungen: Object.fromEntries(Array.from({ length: 4000 }, (_, j) => [`t${j}`, `v${i}-${j}`])) }));
+    const t0 = performance.now();
+    const l = bausatzInstanzenFehler(gross, platzierungsIds);
+    const t1 = performance.now();
+    const sau = sanitizeBausatzInstanzen(gross, platzierungsIds);
+    const t2 = performance.now();
+    console.log(`N2 Zeit 256 × 4000 kennungen: Fehlerliste ${Math.round(t1 - t0)} ms, Sanitizer ${Math.round(t2 - t1)} ms (${l.length} Fehler, ${sau.length} Instanzen)`);
+    pruefe('N2 256 × 4000 kennungen: beide Wege unter 10 s, keine Fehler', l.length === 0 && sau.length === 256 && t2 - t0 < 10000);
+  }
   pruefe('Text der Meldung nennt Anzahl und Instanz', (() => {
     try {
       layoutSchreiben(join(dir, 'm.json'), { ...dev, bausaetze: [inst({ x: 1e7 }), inst({ id: 'ok-2' })] });
@@ -179,6 +211,45 @@ try {
   pruefe('setze Instanz', r2.ok && r2.layout.bausaetze!.length === 2);
   const r3 = wende(basis, { vorgangId: 'v3', ops: [{ art: 'entferne', sammlung: 'bausaetze', id: 'dorf-1', vorher: basis.bausaetze![0] }] });
   pruefe('entferne Instanz', r3.ok && (r3.layout.bausaetze?.length ?? 0) === 0);
+}
+
+// ── M2: Vorgangsweg prüft Instanzen wie den Schreibweg (422-Art, nie stilles Streichen) ──
+{
+  const basis2 = sanitizeWorldLayout({ ...dev, bausaetze: [inst({ kennungen: { t: 'x1' } })] })!;
+  const setze = (id: string, nachher: unknown): unknown => ({ vorgangId: `m2-${id}`, ops: [{ art: 'setze', sammlung: 'bausaetze', id, nachher }] });
+  const abgelehnt = (titel: string, r: ReturnType<typeof wende>, feld: string): void => {
+    pruefe(`M2 ${titel}: abgelehnt (art ungueltig = 422), nichts gestrichen`, !r.ok && r.art === 'ungueltig' && (r.fehlerhaft ?? []).some((f) => f.feld === feld), JSON.stringify(r.ok ? 'ok' : (r.fehlerhaft ?? r.message)).slice(0, 160));
+  };
+  abgelehnt('kennungen = Platzierungs-id', wende(basis2, setze('n-1', inst({ id: 'n-1', kennungen: { a: eineId, b: 'frei-b' } }))), 'kennungen');
+  abgelehnt('kennungen-Wert doppelt in einer Instanz', wende(basis2, setze('n-2', inst({ id: 'n-2', kennungen: { a: 'gleich', b: 'gleich' } }))), 'kennungen');
+  abgelehnt('Schlüssel Yaw', wende(basis2, setze('n-3', inst({ id: 'n-3', Yaw: 1.5 }))), 'schluessel');
+  abgelehnt('yaw "abc"', wende(basis2, setze('n-4', inst({ id: 'n-4', yaw: 'abc' }))), 'yaw');
+  abgelehnt('kennungen-Schlüssel Gross', wende(basis2, setze('n-5', inst({ id: 'n-5', kennungen: { Gross: 'q1' } }))), 'kennungen');
+  abgelehnt('kennungen-Wert schon bei einer anderen Instanz', wende(basis2, setze('n-6', inst({ id: 'n-6', kennungen: { t: 'x1', u: 'x2' } }))), 'kennungen');
+  for (const yaw of [true, null, [], '1.5', {}]) abgelehnt(`M4 yaw=${JSON.stringify(yaw)}`, wende(basis2, setze('n-7', inst({ id: 'n-7', yaw }))), 'yaw');
+  const aend = wende(basis2, { vorgangId: 'm2-aend', ops: [{ art: 'aendere', sammlung: 'bausaetze', id: 'dorf-1', vorher: basis2.bausaetze![0], nachher: inst({ kennungen: { t: 'x1' }, yaw: 'abc' }) }] });
+  abgelehnt('aendere mit yaw "abc"', aend, 'yaw');
+  // Platzierung nimmt den kennungen-Wert einer Instanz
+  const pl = wende(basis2, { vorgangId: 'm2-pl', ops: [{ art: 'setze', sammlung: 'placements', id: 'x1', nachher: { id: 'x1', prefab: 'Beech1', x: 5, z: 6 } }] });
+  pruefe('M2 neue Platzierung mit id = kennungen-Wert einer Instanz: abgelehnt, Wert bleibt', !pl.ok && pl.art === 'ungueltig' && (pl.fehlerhaft ?? []).some((f) => f.id === 'dorf-1' && f.feld === 'kennungen') && basis2.bausaetze![0]!.kennungen!.t === 'x1', JSON.stringify(pl.ok ? 'ok' : pl.message).slice(0, 200));
+  const gut = wende(basis2, setze('n-8', inst({ id: 'n-8', yaw: 7, kennungen: { t: 'frei-neu' } })));
+  pruefe('M2 gültige Instanz (yaw 7 nur geklemmt) wird angenommen', gut.ok && gut.layout.bausaetze!.find((i) => i.id === 'n-8')!.yaw === 2 * Math.PI && gut.layout.bausaetze!.find((i) => i.id === 'dorf-1')!.kennungen!.t === 'x1');
+}
+
+// ── M16: der Welt-Sanitizer übergibt die Platzierungs-ids (Schutz im Boot und in wende) ──
+{
+  const k = sanitizeWorldLayout({ ...dev, bausaetze: [inst({ kennungen: { a: eineId, b: 'frei-b' } })] })!.bausaetze![0]!.kennungen!;
+  pruefe('M16 sanitizeWorldLayout streicht kennungen-Wert = Platzierungs-id des Dokuments, lässt den freien', k.a === undefined && k.b === 'frei-b', JSON.stringify(k));
+}
+
+// ── M17: OP_LIMITS.bausaetze gilt in wende (257 Instanzen in einem Vorgang) ──
+{
+  const leer = sanitizeWorldLayout({ ...dev })!;
+  const ops = (n: number): unknown[] => Array.from({ length: n }, (_, i) => ({ art: 'setze', sammlung: 'bausaetze', id: `z-${i}`, nachher: { id: `z-${i}`, bausatz: 'k', x: i, z: 0 } }));
+  const r = wende(leer, { vorgangId: 'm17', ops: ops(257) });
+  pruefe('M17 257 Instanzen per Vorgang: art grenze mit 257/256', !r.ok && r.art === 'grenze' && r.sammlung === 'bausaetze' && r.anzahl === 257 && r.grenze === 256, JSON.stringify(r.ok ? 'ok' : r).slice(0, 160));
+  const r2 = wende(leer, { vorgangId: 'm17b', ops: ops(256) });
+  pruefe('M17 256 Instanzen per Vorgang: angenommen', r2.ok && r2.layout.bausaetze!.length === 256);
 }
 
 console.log(fehler === 0 ? 'ALLES OK' : `${fehler} FEHLER`);

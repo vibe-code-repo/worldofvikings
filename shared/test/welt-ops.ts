@@ -105,11 +105,7 @@ function rng(seed: number): () => number {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-/**
- * The collections this generic walk covers. `bausaetze` (kit instances) is unordered like `placements`, but has no
- * generic fixtures here; its Vorgänge are tested in bausatz-welt.ts.
- */
-const SAMMLUNGEN = OP_COLLECTIONS.filter((s) => s !== 'bausaetze');
+const SAMMLUNGEN = OP_COLLECTIONS;
 
 const zufall = rng(20260919);
 const ganz = (n: number): number => Math.floor(zufall() * n);

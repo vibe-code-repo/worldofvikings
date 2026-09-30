@@ -4,7 +4,10 @@
  *
  * Lauf: npx tsx shared/test/bausatz-aufloesen.ts   (aus shared/)
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { loeseBausaetzeAuf } from '../src/bausatz/aufloesen.js';
+import { sanitizeWorldLayout } from '../src/worldlayout/sanitize.js';
 import { sanitizeBausatz } from '../src/bausatz/sanitize.js';
 import { BAUSATZ_AUFGELOEST_MAX, BAUSATZ_TEILE_MAX, type Bausatz } from '../src/bausatz/types.js';
 
@@ -98,6 +101,65 @@ const katalog = (...k: Bausatz[]): Map<string, Bausatz> => new Map(k.map((b) => 
   pruefe('genau 10 000: erlaubt', exakt.teile.length === 10000 && exakt.fehler.length === 0);
   const elf = loeseBausaetzeAuf({ bausaetze: [0, 1, 2, 3].map((n) => ({ id: `i${n}`, bausatz: 'z', x: n, z: 0 })).concat([{ id: 'i4', bausatz: 'k-fehlt', x: 0, z: 0 }, { id: 'i5', bausatz: 'z', x: 9, z: 0 }]) }, katalog(zehn));
   pruefe('10 002+ Teile: Fehler; unbekannter Bausatz wird trotzdem gemeldet', elf.teile.length === 0 && elf.fehler.length === 1 && elf.unbekannt.length === 1);
+}
+
+// M1: kennungen nur über eigene Eigenschaften (Teil-id constructor & Co. ist eine String-id, nie eine Funktion)
+{
+  const namen = ['constructor', 'tostring', 'hasownproperty', 'valueof'];
+  const k = kit('p', namen.map((n) => teil(n)));
+  pruefe('Teil-id constructor besteht den Sanitizer', k.teile.some((t) => t.id === 'constructor'));
+  for (const [titel, kennungen] of [['ohne kennungen', undefined], ['mit kennungen', { a: 'alt-a' }], ['mit leerem kennungen', {}]] as const) {
+    const r = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'p', x: 0, z: 0, ...(kennungen ? { kennungen } : {}) }] }, katalog(k));
+    pruefe(`M1 ${titel}: alle ids sind Strings i#<teil>`, r.fehler.length === 0 && r.teile.length === 4 && r.teile.every((t) => typeof t.id === 'string' && t.id === `i#${t.teilId}`), r.teile.map((t) => typeof t.id).join());
+  }
+  // am Sanitizer vorbei: Namen mit Großbuchstaben und __proto__
+  const roh: Bausatz = { ...k, teile: ['toString', '__proto__', 'constructor'].map((n) => ({ id: n, prefab: 'kiste', dx: 0, dz: 0, yaw: 0, scale: 1 })) };
+  const r2 = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'p', x: 0, z: 0, kennungen: { a: 'alt-a' } }] }, katalog(roh));
+  pruefe('M1 toString/__proto__/constructor am Sanitizer vorbei: String-ids', r2.teile.length === 3 && r2.teile.every((t) => typeof t.id === 'string' && t.id === `i#${t.teilId}`), r2.teile.map((t) => String(t.id)).join('|'));
+  // zwei Instanzen: keine falsche Doppelvergabe
+  const r3 = loeseBausaetzeAuf({ bausaetze: [{ id: 'i1', bausatz: 'p', x: 0, z: 0, kennungen: { a: 'x1' } }, { id: 'i2', bausatz: 'p', x: 9, z: 0, kennungen: { a: 'x2' } }] }, katalog(k));
+  pruefe('M1 zwei Instanzen mit kennungen: 8 Teile, kein Fehler', r3.teile.length === 8 && r3.fehler.length === 0);
+}
+// N3: nicht endliche Eingaben am Sanitizer vorbei
+{
+  const basis = kit('n', [teil('a'), teil('b')]);
+  const schlecht = (extra: Record<string, unknown>): Bausatz => ({ ...basis, teile: [{ ...basis.teile[0]!, ...extra } as never, basis.teile[1]!] });
+  for (const [titel, extra] of [['dx NaN', { dx: NaN }], ['dz Infinity', { dz: Infinity }], ['yaw 1e999', { yaw: 1e999 }], ['scale NaN', { scale: NaN }], ['scale-Tripel mit Infinity', { scale: [1, Infinity, 1] }]] as const) {
+    const r = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'n', x: 0, z: 0 }] }, katalog(schlecht(extra)));
+    const sauber = JSON.stringify(r.teile).includes('null') || r.teile.some((t) => [t.x, t.z, t.yaw].some((v) => !Number.isFinite(v)));
+    pruefe(`N3 ${titel}: fehler, Teil ausgelassen, nie NaN/null`, r.fehler.length === 1 && /keine endliche Zahl/.test(r.fehler[0]!) && r.teile.length === 1 && r.teile[0]!.teilId === 'b' && !sauber, r.fehler.join());
+  }
+  const ri = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'n', x: NaN, z: 0 }, { id: 'j', bausatz: 'n', x: 0, z: 0, yaw: Infinity }, { id: 'k', bausatz: 'n', x: 1, z: 1 }] }, katalog(basis));
+  pruefe('N3 Instanz mit NaN-x / Infinity-yaw: ausgelassen mit Fehler, Rest bleibt', ri.fehler.length === 2 && ri.teile.length === 2 && ri.teile.every((t) => t.instanz === 'k'), ri.fehler.join());
+}
+// M3: jede Platzierung des echten dev.json als Teil, Anker mm-Koordinate mit yaw 0 — byte-gleich zum Vergleichsschlüssel
+{
+  const dev = sanitizeWorldLayout(JSON.parse(readFileSync(fileURLToPath(new URL('../../server/data/welten/dev.json', import.meta.url)), 'utf8')))!;
+  const pl = dev.placements ?? [];
+  // Vergleichsschlüssel wie `eintrag()` in server/src/world/layoutLiveAbgleich.ts (dort gelesen, nicht importiert)
+  const eintrag = (p: { id?: string; prefab: string; x: number; z: number; yaw?: number; scale?: unknown; route?: string; einebnen?: number; npc?: unknown }): string =>
+    JSON.stringify([p.id ?? null, p.prefab, p.x, p.z, p.yaw ?? 0, p.scale ?? 1, p.route ?? null, p.einebnen ?? 0, p.npc ?? null]);
+  const kits = pl.map((p, n) => kit(`k${n}`, [teil('t', { prefab: p.prefab, dx: Math.round((p.x - (Math.round(p.x / 100) * 100 + 0.5)) * 1000) / 1000, dz: Math.round((p.z - (Math.round(p.z / 100) * 100 + 0.25)) * 1000) / 1000, yaw: p.yaw ?? 0, scale: p.scale ?? 1, ...(p.einebnen !== undefined ? { einebnen: p.einebnen } : {}) })]));
+  const inst = pl.map((p, n) => ({ id: `i${n}`, bausatz: `k${n}`, x: Math.round(p.x / 100) * 100 + 0.5, z: Math.round(p.z / 100) * 100 + 0.25, kennungen: { t: p.id! } }));
+  const r = loeseBausaetzeAuf({ bausaetze: inst }, katalog(...kits));
+  const nachId = new Map(r.teile.map((t) => [t.id, t]));
+  let pos = 0, winkel = 0, skala = 0, voll = 0, vollMoeglich = 0;
+  for (const p of pl) {
+    const t = nachId.get(p.id!);
+    if (!t) continue;
+    if (t.x === p.x && t.z === p.z) pos++;
+    if (t.yaw === (p.yaw ?? 0)) winkel++;
+    if (t.scale === (p.scale ?? 1)) skala++;
+    if (p.route === undefined && p.npc === undefined) {
+      vollMoeglich++;
+      const gleich = eintrag({ id: t.id, prefab: t.prefab, x: t.x, z: t.z, yaw: t.yaw, scale: t.scale, einebnen: t.einebnen }) === eintrag(p);
+      if (gleich) voll++;
+    }
+  }
+  console.log(`M3 Zahlen: ${pl.length} Platzierungen; Position ${pos}/${pl.length}, yaw ${winkel}/${pl.length}, scale ${skala}/${pl.length}; Vergleichsschlüssel byte-gleich ${voll}/${vollMoeglich} (ohne route/npc)`);
+  pruefe('M3 echtes dev.json: Position, yaw und scale aller Platzierungen byte-gleich', pl.length > 200 && pos === pl.length && winkel === pl.length && skala === pl.length && r.fehler.length === 0, r.fehler.slice(0, 2).join());
+  pruefe('M3 Vergleichsschlüssel eintrag() byte-gleich (Platzierungen ohne route/npc)', vollMoeglich > 0 && voll === vollMoeglich, `${voll}/${vollMoeglich}`);
+  pruefe('M3 mindestens ein yaw abseits des 1e-6-Rasters (der Test ist nicht leer)', pl.some((p) => p.yaw !== undefined && Math.round(p.yaw * 1e6) / 1e6 !== p.yaw));
 }
 
 console.log(fehler === 0 ? 'ALLES OK' : `${fehler} FEHLER`);

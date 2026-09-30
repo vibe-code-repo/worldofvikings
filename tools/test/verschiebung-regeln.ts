@@ -12,6 +12,7 @@
  * Run: npx tsx tools/test/verschiebung-regeln.ts   (from the repository root)
  */
 import { Lauf, mit, muss, schnitt, type Eingabe } from '../verschiebung/pruefstand/probe';
+import { statischeImporte } from '../verschiebung/reihenfolge';
 import { AUFTRAG_BEIDE, AUFTRAG_FORM0, AUFTRAG_FORMK, AUFTRAG_KLEIN, BEUTE, KAMPF, QUELLE, SERVER, UMFELD, ZIEL_KLEIN, kleineKlasse } from '../verschiebung/pruefstand/vorlagen';
 
 const lauf = new Lauf('verschiebung-regeln');
@@ -121,6 +122,11 @@ const mitLaden = (): Eingabe => schnitt(SERVER.replace('const TRUHEN = [1, 2, 3]
 lauf.fall({ id: 'B9a', name: 'a moved constant calls `new` while its module loads', soll: ['B9'], teile: ['B9/laden'], eingabe: mitLaden });
 lauf.fall({ id: 'B9b', name: 'the same, released for this one name', soll: [], freigegeben: ['laden:TRUHEN'], eingabe: () => mit(mitLaden(), { freigaben: [{ schluessel: 'laden:TRUHEN', begruendung: GRUND }] }) });
 
+const PFEIL = SERVER.replace('const TRUHEN = [1, 2, 3];', 'const TRUHEN = [1, 2, 3];\nconst zufall = (r = Math.random()): number => messe() * r;').replace('* FAKTOR;', '* FAKTOR * zufall();');
+lauf.fall({ id: 'B9c', name: 'an arrow function with a call in its body and in a default value is a value, not an effect', soll: [], eingabe: () => schnitt(PFEIL, { quelle: QUELLE, ziele: [{ datei: BEUTE, woertlich: ['KREATUR_DROPS', 'TRUHEN', 'zufall', 'wuerfleTruhe', 'Eintrag'] }] }, { dateien: UMFELD }) });
+lauf.fall({ id: 'B9d', name: 'a moved constant reads a member of an imported name while its module loads', soll: ['B9'], teile: ['B9/laden'], eingabe: () => schnitt(SERVER.replace('const TRUHEN = [1, 2, 3];', 'const TRUHEN = [1, 2, Math.PI];'), AUFTRAG_FORM0, { dateien: UMFELD }) });
+lauf.fall({ id: 'B9e', name: 'a moved constant refers to a name that stays in the rest', soll: ['B7', 'B9'], teile: ['B9/laden'], eingabe: () => schnitt(SERVER.replace('const TRUHEN = [1, 2, 3];', 'const TRUHEN = [1, 2, PARADE_AUSDAUER];'), AUFTRAG_FORM0, { dateien: UMFELD }) });
+
 lauf.abschnitt('B10 order of evaluation');
 lauf.fall({ id: 'B10a', name: 'two import lines of the old state are swapped in the rest', soll: ['B10'], teile: ['B10/importzeile-umgestellt', 'B10/umgestellt'], eingabe: () => mit(form0(), { rest: (t) => muss(t, t.replace("import { StarterSet } from './konto/StarterSet';\nimport { Inventory } from './items/Inventory';\nimport { messe } from './werte';", "import { messe } from './werte';\nimport { Inventory } from './items/Inventory';\nimport { StarterSet } from './konto/StarterSet';")) }) });
 const WEITER = "export { KREATUR_DROPS, wuerfleTruhe } from './spiel/Beute';\n";
@@ -128,6 +134,22 @@ lauf.fall({ id: 'B10b', name: 'the re-export of the target file stands in front 
 lauf.fall({ id: 'B10c', name: 'a target file loads a module for its effect that was not loaded before', soll: ['B5', 'B10'], teile: ['B10/neu-geladen', 'B5/import-wirkung'], eingabe: () => mit(form0(), { ziel: { [BEUTE]: ersetze("import { FAKTOR } from '../werte';", "import { FAKTOR } from '../werte';\nimport '../wirkung';") } }) });
 lauf.fall({ id: 'B10d', name: 'an entry file of the manifest does not exist', soll: ['B10'], teile: ['B10/einstieg-fehlt'], eingabe: () => mit(form0(), { manifest: (m) => ({ ...m, einstiege: ['src/gibtEsNicht.ts'] }) }) });
 lauf.fall({ id: 'B10e', name: 'seen from a second entry file that loads the source the order is the same', soll: [], eingabe: () => mit(schnitt(SERVER, AUFTRAG_BEIDE, { dateien: { ...UMFELD, 'src/main.ts': "import { messe } from './werte';\nimport { createServer } from './Server';\n\nvoid messe();\nvoid createServer();\n" }, einstiege: [QUELLE, 'src/main.ts'] }), {}) });
+
+lauf.fall({
+  id: 'B10f',
+  name: 'a dynamic import is no part of the order: the module behind it is not evaluated while loading',
+  soll: [],
+  eingabe: () => {
+    const e = schnitt(SERVER.replace('  void inv;\n', "  void inv;\n  void import('./wirkung');\n"), AUFTRAG_BEIDE, { dateien: UMFELD });
+    return e;
+  },
+});
+
+{
+  const js = "import a from './a.js';\nimport './b.js';\nexport { c } from \"./c.js\";\nexport * from './d.js';\nconst x = import('./dyn.js');\nconst y = require('./req.js');\nvoid import(\n  './dyn2.js'\n);\nimport {\n  z }  from\n './e.js';\n";
+  const ist = statischeImporte(js).join(' ');
+  lauf.pruefe('B10g', 'static imports and re-exports count, dynamic imports and require do not', ist === './a.js ./b.js ./c.js ./d.js ./e.js', ist);
+}
 
 lauf.abschnitt('B13 section lines');
 const ABSCHNITT = '// \u2500\u2500 Chests \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500';

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "alt": "git:cb85ef60",
+  "neu": "git:96290a88",
+  "quelle": "client/src/editor/editorMain.ts",
+  "ziele": [
+    {
+      "datei": "client/src/editor/biome.ts",
+      "woertlich": [
+        "BIOME_NAMEN",
+        "biomTon",
+        "BIOME_FARBE"
+      ]
+    },
+    {
+      "datei": "client/src/editor/formen.ts",
+      "woertlich": [
+        "FormDef",
+        "rundPoly",
+        "zufall",
+        "FORMEN"
+      ]
+    },
+    {
+      "datei": "client/src/editor/seite/helfer.ts",
+      "woertlich": [
+        "breiterKnopf",
+        "hinweisZeile",
+        "seitenHost",
+        "beschriftet"
+      ]
+    }
+  ],
+  "einstiege": [
+    "client/src/editor/editorMain.ts"
+  ],
+  "freigaben": [
+    {
+      "schluessel": "laden:BIOME_FARBE",
+      "begruendung": "Built while loading from BIOME_NAMEN (a literal list that moves along) and BIOM_TON (a literal table of ./design, a module without imports). In the old state it was evaluated after the two top-level awaits that load the registries, now before them. It reads no registry, so the two awaits cannot change its value."
+    },
+    {
+      "schluessel": "reihenfolge:client/src/editor/editorMain.ts:shared/src/todTreffer.ts",
+      "begruendung": "The module came with a merge of main that lies between the two states (the head contains main 88ceb5e1); it is not part of this step. With the merged main commit as the old state the finding does not exist (manifest e1.json)."
+    }
+  ]
+}

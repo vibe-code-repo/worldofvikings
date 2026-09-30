@@ -105,12 +105,15 @@ const WIRKUNG_ZUWEISUNG = new Set<ts.SyntaxKind>([
   K.CaretEqualsToken, K.BarBarEqualsToken, K.AmpersandAmpersandEqualsToken, K.QuestionQuestionEqualsToken,
 ]);
 
-/** First thing in an expression that acts when the expression is evaluated, or `null`. Function bodies are not entered. */
+/**
+ * First thing in an expression that acts when the expression is evaluated, or `null`. A function
+ * is a value: neither its body nor the default values of its parameters run when it is written down.
+ */
 export function ersteWirkung(ausdruck: ts.Node): { knoten: ts.Node; was: string } | null {
   let fund: { knoten: ts.Node; was: string } | null = null;
   const geh = (n: ts.Node): void => {
     if (fund) return;
-    if (ts.isFunctionLike(n) && n !== ausdruck) return;
+    if (ts.isFunctionLike(n)) return;
     if (ts.isClassLike(n)) {
       fund = { knoten: n, was: 'a class' };
       return;

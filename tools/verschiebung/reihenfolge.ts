@@ -33,9 +33,9 @@ export function statischeImporte(js: string): string[] {
   const aus: string[] = [];
   const info = ts.preProcessFile(js, true, true);
   for (const f of info.importedFiles) {
-    // `pos` is the start of the text inside the quotes. A static import has `from` or `import`
-    // before the quote, a dynamic import or a `require` has an opening parenthesis there.
-    let i = f.pos - 2;
+    // `pos` is the place of the opening quote. A static import has `from` or `import` before the
+    // quote, a dynamic import or a `require` has an opening parenthesis there.
+    let i = f.pos - 1;
     while (i >= 0 && /\s/.test(js[i]!)) i--;
     if (i >= 0 && js[i] === '(') continue;
     aus.push(f.fileName);

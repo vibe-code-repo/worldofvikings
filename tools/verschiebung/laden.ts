@@ -132,7 +132,8 @@ export function pruefeLaden(name: string, stueck: Stueck, alt: Datei, restAlt: r
   p.zaehle('B9');
   const funde = wirkungenBeimLaden(stueck.knoten, u);
   if (funde.length === 0) return;
-  const davor = restAlt.filter((s) => s.knoten.end <= stueck.knoten.getStart(alt.sf) && laeuftBeimLaden(s.knoten));
+  // Only statements that act themselves can notice the new order: a constant built from literals cannot.
+  const davor = restAlt.filter((s) => s.knoten.end <= stueck.knoten.getStart(alt.sf) && laeuftBeimLaden(s.knoten) && wirkungenBeimLaden(s.knoten, u).length > 0);
   const liste = davor.map((s) => `${ortVonKnoten(alt, s.knoten).zeile}: ${kurz(s.knoten.getText(alt.sf), 60)}`);
   const gruende = [...new Set(funde.map((f) => f.was))];
   p.melde({
@@ -142,8 +143,8 @@ export function pruefeLaden(name: string, stueck: Stueck, alt: Datei, restAlt: r
     text:
       `"${name}" acts while its module loads: ${gruende.slice(0, 4).join('; ')}${gruende.length > 4 ? `; and ${gruende.length - 4} more` : ''}. ` +
       (liste.length === 0
-        ? 'No statement of the rest ran before it in the old state.'
-        : `${liste.length} statement(s) of the rest ran BEFORE it in the old state and run AFTER it now (old line: text): ${liste.join(' | ')}`),
+        ? 'No statement of the rest that acts while loading ran before it in the old state.'
+        : `${liste.length} statement(s) of the rest that act while loading ran BEFORE it in the old state and run AFTER it now (old line: text): ${liste.join(' | ')}`),
     freigabe: ladeSchluessel(name),
   });
 }

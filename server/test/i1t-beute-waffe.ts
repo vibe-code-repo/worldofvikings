@@ -42,7 +42,16 @@
  *         file that uses the module system (the imports and names of 2a): a
  *         helper outside `spiel/` that holds `createRequire(import.meta.url)`
  *         and that a module of `spiel/` imports by value hands that module a
- *         `require()` for `WovServer.ts` (N2, finding B3).
+ *         `require()` for `WovServer.ts` (N2, finding B3). Nor may the chain
+ *         reach a file that is not a `.ts` file (a `.cts` with `export = (p) => require(p)`,
+ *         a `.cjs` with `module.require`) or a file with an `import()` or `require()`
+ *         whose path is computed: such a helper loads `WovServer.ts` as a second instance
+ *         without naming it (follow-up point X13, finding C1 of the second follow-up attack
+ *         on step 0b).
+ *     2c. No `package.json` anywhere under `server/src`. One with `"type": "commonjs"` in a
+ *         sub-folder of `spiel/` makes the `.ts` files there CommonJS, and `module.require('../../WovServer.ts')`
+ *         then goes through unseen (follow-up point X14, finding C2). `server/package.json` itself
+ *         stays outside the scanned folder.
  *  3. Uniqueness, read on the syntax tree: each of the 14 names is declared
  *     exactly once under `server/src`, at module level, in the file the step
  *     put it in. Every other binding of such a name is a violation: a
@@ -175,7 +184,7 @@ interface Reference {
   readonly specifier: string | null;
 }
 interface Finding {
-  readonly rule: '2a' | '2b' | '3';
+  readonly rule: '2a' | '2b' | '2c' | '3';
   readonly file: string;
   readonly line: number;
   readonly text: string;
@@ -286,6 +295,13 @@ function direction(sources: Sources): Finding[] {
     return names.length > 0 ? { line: names[0]!.line, what: `the name ${names[0]!.name}` } : null;
   };
 
+  /** X13 (C1): what a file reached by value imports OUTSIDE spiel/ can hide from this scanner: another kind of module than `.ts`, or an `import()`/`require()` with a computed path. */
+  const hiddenLoad = (file: string): { line: number; what: string } | null => {
+    if (!file.endsWith('.ts')) return { line: 1, what: 'is not a .ts file' };
+    const r = (refs.get(file) ?? []).find((x) => x.specifier === null && (x.form === 'import()' || x.form === 'require()'));
+    return r ? { line: r.line, what: `${r.form} with a computed path` } : null;
+  };
+
   for (const file of inSpiel) {
     if (!file.endsWith('.ts')) {
       out.push({ rule: '2a', file, line: 1, text: 'is not a .ts file: under spiel/ only .ts is allowed, other kinds of module can hide a require() this scanner cannot read' });
@@ -339,13 +355,20 @@ function direction(sources: Sources): Finding[] {
     };
     let found = false;
     let moduleSystemFound = false;
-    while (queue.length > 0 && !(found && moduleSystemFound)) {
+    let hiddenFound = false;
+    while (queue.length > 0 && !(found && moduleSystemFound && hiddenFound)) {
       const file = queue.shift()!;
       // a reached file under spiel/ that uses the module system is a 2a finding of its own; the helpers outside are the 2b case
       const use = moduleSystemFound || file.startsWith(`${SPIEL}/`) ? null : moduleSystemUse(file);
       if (use !== null) {
         out.push({ rule: '2b', file: start, line: firstLine.get(file)!, text: `reaches the module system (${use.what} at ${file}:${use.line}) through value imports: ${chainTo(file).join(' -> ')}` });
         moduleSystemFound = true;
+      }
+      // a reached file under spiel/ is a 2a finding of its own; the helpers outside are the 2b case
+      const hidden = hiddenFound || file.startsWith(`${SPIEL}/`) ? null : hiddenLoad(file);
+      if (hidden !== null) {
+        out.push({ rule: '2b', file: start, line: firstLine.get(file)!, text: `reaches a file that can load WovServer.ts without a path this scanner can read (${file}:${hidden.line} ${hidden.what}) through value imports: ${chainTo(file).join(' -> ')}` });
+        hiddenFound = true;
       }
       for (const e of valueEdges(file)) {
         if (e.to === CLASS_FILE) {
@@ -436,6 +459,11 @@ function bindings(file: string, text: string): Binding[] {
   };
   visit(sf, true);
   return out;
+}
+
+/** Rule 2c (X14): a `package.json` anywhere under `server/src` can change how the `.ts` files below it are loaded. `paths` are relative to the server package. */
+function packageJsonFindings(paths: readonly string[]): Finding[] {
+  return paths.filter((p) => posix.basename(p) === 'package.json' && p.startsWith(`${SRC}/`)).map((p) => ({ rule: '2c' as const, file: p, line: 1, text: 'a package.json under server/src can turn the .ts files below it into CommonJS: not allowed' }));
 }
 
 /** Rule 3 over a set of sources. */
@@ -535,6 +563,16 @@ console.log('\n[0] Self-test of the scanner on invented sources');
     ['a .mts file', { 'src/spiel/Y.mts': 'export const a = 1;' }, '2a'],
     ['a .js file', { 'src/spiel/Y.js': 'export const a = 1;' }, '2a'],
     ['a .cts file in a sub-folder', { 'src/spiel/befehle/Y.cts': 'export = 1;' }, '2a'],
+    // what a helper outside spiel/ can hide (X13, C1): another kind of module, or a computed path
+    ['helper .cts with a computed require(), imported by value', { [X]: "import lade = require('../lader.cjs');\nexport const w = lade;", 'src/lader.cts': 'export = (p: string): unknown => require(p);' }, '2b'],
+    ['helper .cjs with module.require, imported by value', { [X]: "import { lade } from '../lader.cjs';\nexport const w = lade;", 'src/lader.cjs': "module.exports = { lade: (p) => module.require(p) };" }, '2b'],
+    ['helper .mjs, imported by value', { [X]: "import { a } from '../lader.mjs';\nexport const w = a;", 'src/lader.mjs': 'export const a = 1;' }, '2b'],
+    ['helper .js, imported by value', { [X]: "import { a } from '../lader.js';\nexport const w = a;", 'src/lader.js': 'export const a = 1;' }, '2b'],
+    ['helper .ts with a computed import()', { [X]: "import { l } from '../lader.js';\nexport const w = l;", 'src/lader.ts': 'export const l = (p: string): Promise<unknown> => import(p);' }, '2b'],
+    ['helper .ts with a computed require()', { [X]: "import { l } from '../lader.js';\nexport const w = l;", 'src/lader.ts': 'export const l = (p: string): unknown => require(p);' }, '2b'],
+    ['helper .ts with a template path in import()', { [X]: "import { l } from '../lader.js';\nexport const w = l;", 'src/lader.ts': 'export const l = (p: string): Promise<unknown> => import(`./${p}.js`);' }, '2b'],
+    ['a .cts helper two files away', { [X]: "import { a } from '../a.js';\nexport const w = a;", 'src/a.ts': "export { l as a } from './b.cjs';", 'src/b.cts': 'export const l = (p: string): unknown => require(p);' }, '2b'],
+    ['a computed require() helper from a sub-folder of spiel/', { 'src/spiel/befehle/Y.ts': "import { l } from '../../lader.js';\nexport const w = l;", 'src/lader.ts': 'export const l = (p: string): unknown => require(p);' }, '2b'],
   ];
   for (const [name, files, rule] of red) {
     const f = direction(set(files));
@@ -557,11 +595,23 @@ console.log('\n[0] Self-test of the scanner on invented sources');
     ['main.ts holds the module system, nothing under spiel/ reaches it', { 'src/main.ts': "import { createRequire } from 'node:module';\nexport const r = createRequire(import.meta.url);", [X]: "import { a } from '../hilf.js';\nexport const b = a;", 'src/hilf.ts': 'export const a = 1;' }],
     ['a helper with the module system reached over a type import only', { [X]: "import type { L } from '../lader.js';\nexport type M = L;", 'src/lader.ts': "import { createRequire } from 'node:module';\nexport const lade = createRequire(import.meta.url);\nexport type L = typeof lade;" }],
     ['.ts and .d.ts under spiel/ are fine', { [X]: 'export const a = 1;', 'src/spiel/Y.d.ts': 'export declare const a: number;' }],
+    // X13: a literal import() and a helper reached over a type import only are fine
+    ['a helper .ts with an import() of a literal path', { [X]: "import { l } from '../lader.js';\nexport const w = l;", 'src/lader.ts': "export const l = (): Promise<unknown> => import('./anders.js');", 'src/anders.ts': 'export const a = 1;' }],
+    ['a .cts helper reached over a type import only', { [X]: "import type { L } from '../lader.cjs';\nexport type M = L;", 'src/lader.cts': 'export type L = number;\nexport = (p: string): unknown => require(p);' }],
+    ['a .cts file outside spiel/ that no module of spiel/ imports', { 'src/main.ts': "import x = require('./lader.cjs');\nexport const a = x;", 'src/lader.cts': 'export = (p: string): unknown => require(p);' }],
   ];
   for (const [name, files] of green) {
     const f = direction(set(files));
     check(`green: ${name}`, f.length === 0, show(f));
   }
+
+  // rule 2c (X14): a package.json under server/src, at any depth
+  for (const p of ['src/package.json', 'src/spiel/package.json', 'src/spiel/unter/package.json', 'src/world/dungeon/package.json']) {
+    check(`red: ${p}`, packageJsonFindings([p]).length === 1 && packageJsonFindings([p])[0]!.rule === '2c', show(packageJsonFindings([p])) || 'no finding');
+  }
+  check('green: no package.json at all', packageJsonFindings([]).length === 0);
+  check('green: files with a similar name', packageJsonFindings(['src/spiel/package.json.txt', 'src/spiel/mypackage.json', 'src/spiel/Package.json']).length === 0);
+  check('green: server/package.json itself lies outside src', packageJsonFindings(['package.json']).length === 0);
 
   // rule 3: a good stand in miniature, then one fault each
   const byFile = new Map<string, string[]>();
@@ -609,6 +659,7 @@ console.log('\n[0] Self-test of the scanner on invented sources');
 // ── The real sources ───────────────────────────────────────────────────
 
 const links: string[] = [];
+const packageJsons: string[] = [];
 function readSources(dir: string, out = new Map<string, string>()): Map<string, string> {
   let entries;
   try {
@@ -622,6 +673,7 @@ function readSources(dir: string, out = new Map<string, string>()): Map<string, 
     else if (e.isDirectory()) {
       if (e.name !== 'node_modules') readSources(path, out);
     } else if (SOURCE_EXT.test(e.name)) out.set(path, readFileSync(resolve(SERVER_ROOT, path), 'utf-8'));
+    else if (e.name === 'package.json') packageJsons.push(path);
   }
   return out;
 }
@@ -671,7 +723,8 @@ console.log('\n[2] Direction: no module under server/src/spiel/ names or reaches
   const direct = found.filter((f) => f.rule === '2a');
   const chains = found.filter((f) => f.rule === '2b');
   check('2a: no file under spiel/ names WovServer.ts or the module system, only .ts files (one named exception: the context file, type-only)', direct.length === 0, show(direct));
-  check('2b: no file under spiel/ reaches WovServer.ts or the module system through value imports', chains.length === 0, show(chains));
+  check('2b: no file under spiel/ reaches WovServer.ts, the module system, a non-.ts file or a computed import()/require() through value imports', chains.length === 0, show(chains));
+  check('2c: no package.json under server/src', packageJsonFindings(packageJsons).length === 0, show(packageJsonFindings(packageJsons)));
   for (const a of ALLOWED) {
     const used = sources.has(a.file) && references(a.file, sources.get(a.file)!).some((r) => r.specifier !== null && candidates(a.file, r.specifier).includes(CLASS_FILE));
     console.log(`  note: exception ${a.file} (${a.form}; ${a.reason}): ${sources.has(a.file) ? (used ? 'in use' : 'file exists, names no class file') : 'file does not exist'}`);

@@ -440,20 +440,32 @@ check(
 console.log('\n10. Verdrahtung');
 
 const wovServer = readFileSync(resolve(WURZEL, 'server/src/WovServer.ts'), 'utf8');
+// Seit I1 Schritt 2 steht der Handler als Funktion mit Kontext in `spiel/DungeonEditPakete.ts`; die Klasse behält den
+// Zweig, die Weiterleitung und die Methode `dungeonsWurzel` (der Konstruktor braucht sie auch; sie ist Kontextmitglied
+// und darum nicht mehr private).
+const dungeonEditPakete = readFileSync(resolve(WURZEL, 'server/src/spiel/DungeonEditPakete.ts'), 'utf8');
 check(
   wovServer.includes('case PacketType.DungeonModulLoeschen:'),
   'WovServer hat einen Zweig für PacketType.DungeonModulLoeschen'
 );
 check(
-  /deleteModule\(/.test(wovServer),
-  'und der Zweig führt zu deleteModule (nicht zu einer zweiten Klemmenliste)'
+  /case PacketType\.DungeonModulLoeschen:\s*this\.handleDungeonModulLoeschen\(peer, reader\);\s*break;/.test(wovServer),
+  'der Zweig ruft this.handleDungeonModulLoeschen(peer, reader)'
+);
+check(
+  /private handleDungeonModulLoeschen\(peer: Peer, reader: Reader\): void \{\s*return handleDungeonModulLoeschen\(this, peer, reader\);\s*\}/.test(wovServer),
+  'die Weiterleitung in WovServer reicht die Instanz an die Funktion weiter'
+);
+check(
+  /function handleDungeonModulLoeschen\(k: [A-Za-z]+, peer: Peer, reader: Reader\): void \{[^]*?\bdeleteModule\(/.test(dungeonEditPakete),
+  'und die Funktion führt zu deleteModule (nicht zu einer zweiten Klemmenliste)'
 );
 // Und die Wurzel steht an EINER Stelle: Der DungeonManager bekommt seinen
 // Weltordner aus derselben Methode, aus der der Löschweg die Wurzel nimmt.
 // Zwei getrennte Ausdrücke liefen bei der nächsten Ordnerverschiebung
 // auseinander — und die Suche liefe dann ins Leere, ohne einen Fehler.
 check(
-  /private dungeonsWurzel\(\)/.test(wovServer),
+  /^  dungeonsWurzel\(\): string \{/m.test(wovServer),
   'WovServer benennt die Dokumentwurzel ALLER Welten an einer Stelle'
 );
 check(
@@ -461,7 +473,7 @@ check(
   'und der DungeonManager bekommt seinen Weltordner aus genau dieser Stelle'
 );
 check(
-  /dungeonsWurzel: this\.dungeonsWurzel\(\)/.test(wovServer),
+  /dungeonsWurzel: k\.dungeonsWurzel\(\)/.test(dungeonEditPakete),
   'der Löschweg bekommt die Wurzel, nicht den Weltordner'
 );
 

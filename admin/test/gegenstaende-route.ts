@@ -16,13 +16,14 @@
  *  7. Other verbs / paths / missing token.
  *  9. N1/F1: entries the reader DISCARDS in the old state count as removed (409, ids or `#<index>`), file byte-equal.
  * 10. N1/F2: a broken old state needs `?bestaetigt=1` (409 `alter-stand-kaputt`), a `.kaputt-<time>` copy is kept (max 5).
+ * 10b. N2/N-1+N-2: the rotation removes only its OWN names (foreign `.kaputt-*` stay), skips directories, checks its fresh copy.
  * 11. N1/F3+F4: a SECOND process holds the lock: PUT gets 503 `gesperrt` (+ Retry-After, no pid/path), another endpoint
  *     answers in < 300 ms meanwhile; a PUT waits (async) for a lock released within 2 s.
  * 12. N1/F5: stable `fehler` codes (404, 500 `intern`), `If-Match: *` 428, ETag lists, stale `.tmp` cleanup, HEAD.
  *
  * Run: npx tsx admin/test/gegenstaende-route.ts   (from the repo root; cwd as in scripts/kern/admin.mjs)
  */
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
@@ -141,6 +142,13 @@ function dienstStarten(): Promise<number> {
 }
 const port = await dienstStarten();
 const pids = [dienst!.pid!];
+/** Every pid of the service's process group (tsx starts the real node process as a child of `dienst.pid`). */
+function dienstPids(): number[] {
+  const aus = execFileSync('ps', ['-o', 'pid=', '-g', String(dienst!.pid)], { encoding: 'utf-8' });
+  const liste = aus.split(/\s+/).filter((x) => /^\d+$/.test(x)).map(Number);
+  if (liste.length < 2) throw new Error(`process group of the service not found: ${aus}`);
+  return liste;
+}
 
 type Antwort = { status: number; daten: Record<string, unknown>; etag: string | null; retryAfter: string | null; roh: string };
 async function anfrage(
@@ -443,6 +451,79 @@ let hash = sha(arbeitBytes());
   for (const k of kopien) rmSync(resolve(dirname(ARBEIT), k));
 }
 
+// ── 10b. N2/N-1+N-2: the rotation only touches its OWN names; the own fresh copy is checked ──
+{
+  const ordner = dirname(ARBEIT);
+  const basisName = ARBEIT.split('/').pop()!;
+  const alle = (): string[] => readdirSync(ordner).filter((f) => f.startsWith(`${basisName}.kaputt-`)).sort();
+  const eigene = (): string[] => alle().filter((f) => new RegExp(`^${basisName.replace(/\./g, '\\.')}\\.kaputt-\\d{8}T\\d{9}(-\\d+)?$`).test(f) && statSync(resolve(ordner, f)).isFile());
+  const aufraeumen = (): void => {
+    for (const f of alle()) rmSync(resolve(ordner, f), { recursive: true, force: true });
+  };
+  /** Breaks the working copy with `inhalt`, then a confirmed PUT; returns the response. */
+  const ueberschreiben = async (inhalt: string): Promise<{ status: number; daten: Record<string, unknown> }> => {
+    writeFileSync(ARBEIT, inhalt);
+    const g = await get();
+    const r = await put(datei([holzaxt]), String(g.daten.hash), '?bestaetigt=1');
+    if (r.status === 200) hash = String(r.daten.hash);
+    return r;
+  };
+  aufraeumen();
+
+  // Foreign files with a similar prefix stay, even the ones that sort first.
+  writeFileSync(resolve(ordner, `${basisName}.kaputt-0`), 'fremd-0');
+  writeFileSync(resolve(ordner, `${basisName}.kaputt-1999`), 'fremd-1999');
+  let r1 = await ueberschreiben('{"handarbeit":0');
+  for (let i = 1; i < 6 && r1.status === 200; i++) r1 = await ueberschreiben(`{"handarbeit":${i}`);
+  check('10b fremde kaputt-0 / kaputt-1999: 6 bestaetigte PUTs 200, 5 eigene Sicherungen', r1.status === 200 && eigene().length === 5, `${r1.status} ${JSON.stringify(r1.daten)} ${alle().join(',')}`);
+  check('10b fremde kaputt-0 / kaputt-1999 bleiben liegen, unveraendert', existsSync(resolve(ordner, `${basisName}.kaputt-0`)) && existsSync(resolve(ordner, `${basisName}.kaputt-1999`)) && readFileSync(resolve(ordner, `${basisName}.kaputt-0`), 'utf-8') === 'fremd-0' && readFileSync(resolve(ordner, `${basisName}.kaputt-1999`), 'utf-8') === 'fremd-1999', alle().join(','));
+  aufraeumen();
+
+  // 5 foreign names that sort like the newest: the own copy is there, with the old content, the foreign ones are untouched.
+  const fremd = ['z1', 'z2', 'z3', 'z4', 'z5'];
+  for (const f of fremd) writeFileSync(resolve(ordner, `${basisName}.kaputt-${f}`), `fremd-${f}`);
+  const r2 = await ueberschreiben('{"wichtig":"handarbeit"');
+  const eig2 = eigene();
+  check('10b 5 fremde kaputt-z1..z5: PUT 200', r2.status === 200, `${r2.status} ${JSON.stringify(r2.daten)}`);
+  check('10b 5 fremde: die eigene Sicherung ist da und enthaelt den alten Inhalt', eig2.length === 1 && readFileSync(resolve(ordner, eig2[0]), 'utf-8') === '{"wichtig":"handarbeit"', eig2.join(','));
+  check('10b 5 fremde: die fremden sind unveraendert', fremd.every((f) => existsSync(resolve(ordner, `${basisName}.kaputt-${f}`)) && readFileSync(resolve(ordner, `${basisName}.kaputt-${f}`), 'utf-8') === `fremd-${f}`));
+  aufraeumen();
+
+  // 8 confirmed runs, foreign files in between: exactly 5 own copies.
+  writeFileSync(resolve(ordner, `${basisName}.kaputt-AAA`), 'fremd-AAA');
+  writeFileSync(resolve(ordner, `${basisName}.kaputt-manual-backup.json`), 'fremd-manual');
+  let alleAcht = true;
+  for (let i = 0; i < 8; i++) alleAcht = (await ueberschreiben(`{"lauf":${i}`)).status === 200 && alleAcht;
+  check('10b nach 8 bestaetigten Laeufen liegen genau 5 eigene Sicherungen', alleAcht && eigene().length === 5, eigene().join(','));
+  check('10b die 5 eigenen sind die 5 neuesten Laeufe', eigene().map((f) => readFileSync(resolve(ordner, f), 'utf-8')).join('|') === [3, 4, 5, 6, 7].map((i) => `{"lauf":${i}`).join('|'));
+  check('10b die fremden AAA / manual-backup.json bleiben', readFileSync(resolve(ordner, `${basisName}.kaputt-AAA`), 'utf-8') === 'fremd-AAA' && readFileSync(resolve(ordner, `${basisName}.kaputt-manual-backup.json`), 'utf-8') === 'fremd-manual');
+  aufraeumen();
+
+  // N-2: a directory under the OLDEST own name does not abort, is skipped and does not count.
+  mkdirSync(resolve(ordner, `${basisName}.kaputt-00000101T000000000`));
+  writeFileSync(resolve(ordner, `${basisName}.kaputt-00000101T000000000`, 'drin.txt'), 'x');
+  const r3 = await ueberschreiben('{"verzeichnis":0');
+  check('10b Verzeichnis unter dem aeltesten eigenen Namen: kein 500, geschrieben', r3.status === 200 && arbeitBytes().toString('utf-8') === kanon([holzaxt]), `${r3.status} ${JSON.stringify(r3.daten)}`);
+  let stimmt = true;
+  for (let i = 1; i < 8; i++) stimmt = (await ueberschreiben(`{"verzeichnis":${i}`)).status === 200 && stimmt;
+  const mitVerzeichnis = alle().length;
+  for (let i = 8; i < 12; i++) stimmt = (await ueberschreiben(`{"verzeichnis":${i}`)).status === 200 && stimmt;
+  check('10b Verzeichnis: alle Laeufe 200, genau 5 eigene Dateien, das Verzeichnis bleibt', stimmt && eigene().length === 5 && statSync(resolve(ordner, `${basisName}.kaputt-00000101T000000000`)).isDirectory(), alle().join(','));
+  check('10b Verzeichnis: die Zahl der Eintraege waechst nicht mehr (6 nach 8 Laeufen und nach 12)', mitVerzeichnis === 6 && alle().length === 6, `${mitVerzeichnis} ${alle().length}`);
+  aufraeumen();
+
+  // The own fresh copy is checked after the rotation: five own-pattern names from the future push it out -> 500 before writing.
+  for (let i = 1; i <= 5; i++) writeFileSync(resolve(ordner, `${basisName}.kaputt-9999010${i}T000000000`), `zukunft-${i}`);
+  writeFileSync(ARBEIT, '{"nur":"alt"');
+  const g4 = await get();
+  const r4 = await put(datei([holzaxt]), String(g4.daten.hash), '?bestaetigt=1');
+  check('10b eigene Kopie nach der Rotation weg: 500 intern, vor dem Schreiben', r4.status === 500 && r4.daten.fehler === 'intern', `${r4.status} ${JSON.stringify(r4.daten)}`);
+  check('10b eigene Kopie weg: die Arbeitsdatei ist unveraendert', arbeitBytes().toString('utf-8') === '{"nur":"alt"');
+  aufraeumen();
+  writeFileSync(ARBEIT, kanon([holzaxt]));
+  hash = sha(kanon([holzaxt]));
+}
+
 // ── 11. N1/F3 + F4: a SECOND process holds the lock ──
 {
   const vorher = arbeitBytes();
@@ -458,7 +539,7 @@ let hash = sha(arbeitBytes());
   const zeit = Date.now() - t0;
   check('11 PUT bei fremder Sperre: 503 gesperrt mit Retry-After: 2', a.status === 503 && a.daten.fehler === 'gesperrt' && a.retryAfter === '2', `${a.status} ${a.roh} ${String(a.retryAfter)}`);
   check('11 der PUT wartet hoechstens rund 2 s (unter 3 s)', zeit < 3000, `${zeit} ms`);
-  check('11 Antwort ohne pid, Rechnername, Pfad', !/pid|\.lock|\/var\/tmp|\/opt\//i.test(a.roh) && !a.roh.includes(hostname()) && !a.roh.includes(String(h.pid)) && !a.roh.includes(ORDNER), a.roh);
+  check('11 Antwort ohne pid, Rechnername, Pfad', !/pid|\.lock|\/var\/tmp|\/opt\//i.test(a.roh) && !a.roh.includes(hostname()) && !a.roh.includes(String(h.pid)) && ![...dienstPids(), h.pid].some((p) => new RegExp(`\\b${p}\\b`).test(a.roh)) && !a.roh.includes(ORDNER), a.roh);
   check('11 Datei byte-gleich, keine .tmp', arbeitBytes().equals(vorher) && !readdirSync(dirname(ARBEIT)).some((f) => f.endsWith('.tmp')));
   await h.freigeben();
   const danach = await put(datei(JSON.parse(vorher.toString('utf-8')).gegenstaende), hash);

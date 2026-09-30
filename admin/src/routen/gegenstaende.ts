@@ -45,7 +45,7 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { basename, dirname, resolve } from 'node:path';
 import { LayoutGesperrt, layoutHash, layoutUnterSperre } from '@wov/shared/src/worldlayout/layoutDatei.js';
@@ -147,15 +147,52 @@ function tmpAufraeumen(dateien: string[]): void {
   }
 }
 
-/** Keeps a copy of the broken working copy (`<file>.kaputt-<UTC time>`) and removes all but the last 5. Inside the lock. */
+/** The time part of a copy name (`20260930T123456789`); the rotation pattern below is derived from this very function. */
+const kaputtStempel = (zeit: Date): string => zeit.toISOString().replace(/[-:.Z]/g, '');
+const KAPUTT_STEMPEL_MUSTER = kaputtStempel(new Date(0)).replace(/\d/g, '\\d');
+
+/**
+ * Keeps a copy of the broken working copy (`<file>.kaputt-<UTC time>[-<n>]`) and removes all but the last 5 OF THESE
+ * COPIES. Only names that match exactly this pattern (and are regular files) count and are ever removed; anything else
+ * with a similar prefix is left alone. An entry that cannot be removed is skipped and logged. Afterwards the own fresh
+ * copy must still exist with the same bytes, otherwise this throws BEFORE the working copy is overwritten. Inside the lock.
+ */
 function kaputtSichern(arbeit: string): void {
-  const stempel = new Date().toISOString().replace(/[-:.Z]/g, '');
+  const ordner = dirname(arbeit);
+  const stempel = kaputtStempel(new Date());
   let ziel = `${arbeit}.kaputt-${stempel}`;
   for (let i = 1; existsSync(ziel); i++) ziel = `${arbeit}.kaputt-${stempel}-${i}`;
   copyFileSync(arbeit, ziel);
-  const vorspann = `${basename(arbeit)}.kaputt-`;
-  const kopien = readdirSync(dirname(arbeit)).filter((n) => n.startsWith(vorspann)).sort();
-  for (const alt of kopien.slice(0, Math.max(0, kopien.length - KAPUTT_KOPIEN))) rmSync(resolve(dirname(arbeit), alt), { force: true });
+  const eigen = new RegExp(`^${basename(arbeit).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.kaputt-(${KAPUTT_STEMPEL_MUSTER})(?:-(\\d+))?$`);
+  const kopien: { name: string; stempel: string; nummer: number }[] = [];
+  for (const name of readdirSync(ordner)) {
+    const treffer = eigen.exec(name);
+    if (treffer === null) continue;
+    try {
+      if (!lstatSync(resolve(ordner, name)).isFile()) {
+        console.error(`[Admin] Gegenstaende: ${name} ist keine Datei, bei der Rotation der Sicherungen uebersprungen`);
+        continue;
+      }
+    } catch {
+      continue;
+    }
+    kopien.push({ name, stempel: treffer[1], nummer: treffer[2] === undefined ? 0 : Number(treffer[2]) });
+  }
+  kopien.sort((x, y) => (x.stempel < y.stempel ? -1 : x.stempel > y.stempel ? 1 : x.nummer - y.nummer));
+  for (const alt of kopien.slice(0, Math.max(0, kopien.length - KAPUTT_KOPIEN))) {
+    try {
+      rmSync(resolve(ordner, alt.name));
+    } catch (fehler) {
+      console.error(`[Admin] Gegenstaende: Sicherung ${alt.name} nicht entfernt, uebersprungen: ${fehler instanceof Error ? fehler.message : String(fehler)}`);
+    }
+  }
+  let heil = false;
+  try {
+    heil = readFileSync(ziel).equals(readFileSync(arbeit));
+  } catch {
+    /* gone or unreadable: not intact */
+  }
+  if (!heil) throw new Error(`Sicherung ${basename(ziel)} fehlt nach der Rotation oder weicht ab`);
 }
 
 /** The ids of entries the reader discards in `text`, read from the raw JSON (`#<index>` if there is none). */

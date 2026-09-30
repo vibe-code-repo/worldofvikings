@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "alt": "git:cb85ef60",
+  "neu": "git:96290a88",
+  "quelle": "client/src/editor/editorMain.ts",
+  "ziele": [
+    {
+      "datei": "client/src/editor/biome.ts",
+      "woertlich": [
+        "BIOME_NAMEN",
+        "biomTon",
+        "BIOME_FARBE"
+      ]
+    },
+    {
+      "datei": "client/src/editor/formen.ts",
+      "woertlich": [
+        "FormDef",
+        "rundPoly",
+        "zufall",
+        "FORMEN"
+      ]
+    },
+    {
+      "datei": "client/src/editor/seite/helfer.ts",
+      "woertlich": [
+        "breiterKnopf",
+        "hinweisZeile",
+        "seitenHost",
+        "beschriftet"
+      ]
+    }
+  ],
+  "einstiege": [
+    "client/src/editor/editorMain.ts"
+  ],
+  "freigaben": [
+    {
+      "schluessel": "laden:BIOME_FARBE",
+      "begruendung": "Built while loading from BIOME_NAMEN (a literal list that moves along) and BIOM_TON (a literal table of ./design, a module without imports). In the old state it was evaluated after the two top-level awaits that load the registries, now before them. It reads no registry, so the two awaits cannot change its value."
+    },
+    {
+      "schluessel": "lesen:seitenHost",
+      "begruendung": "The statements named hand `seiteBauen`, `pruefberichtBauen`, `weltSektionBauen` (which reach this name) to `erzeugeEditorKern` as values and register event listeners whose callbacks call them. `erzeugeEditorKern` (werkzeuge/kontext.ts) only stores the host functions and calls `host.seiteBauen()` and its siblings inside its own closures (`alles`, the tool hooks), never while it is being built; an event callback runs after the module has loaded. That holds because the module has exactly one top-level await pair, at lines 197 and 198 of editorMain.ts, in front of the first of these statements (line 574): from line 574 to the old place of the name (lines 1863 to 1867) the module runs without a break, so no event and no microtask can run in between (checked with a search for `await` at the start of a line in the old state 88ceb5e1). So `seitenHost` is initialised before any of these functions runs, in the old and in the new order."
+    },
+    {
+      "schluessel": "lesen:hinweisZeile",
+      "begruendung": "The statements named hand `seiteBauen`, `pruefberichtBauen`, `weltSektionBauen` (which reach this name) to `erzeugeEditorKern` as values and register event listeners whose callbacks call them. `erzeugeEditorKern` (werkzeuge/kontext.ts) only stores the host functions and calls `host.seiteBauen()` and its siblings inside its own closures (`alles`, the tool hooks), never while it is being built; an event callback runs after the module has loaded. That holds because the module has exactly one top-level await pair, at lines 197 and 198 of editorMain.ts, in front of the first of these statements (line 574): from line 574 to the old place of the name (lines 1863 to 1867) the module runs without a break, so no event and no microtask can run in between (checked with a search for `await` at the start of a line in the old state 88ceb5e1). So `hinweisZeile` is initialised before any of these functions runs, in the old and in the new order."
+    },
+    {
+      "schluessel": "reihenfolge:client/src/editor/editorMain.ts:shared/src/todTreffer.ts",
+      "begruendung": "The module came with a merge of main that lies between the two states (the head contains main 88ceb5e1); it is not part of this step. With the merged main commit as the old state the finding does not exist (manifest e1.json)."
+    }
+  ]
+}

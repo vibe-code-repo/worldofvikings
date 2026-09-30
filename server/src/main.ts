@@ -18,6 +18,8 @@ import {
   sorgeFuerRegistryDatei as sorgeFuerHochladenRegistryDatei,
 } from '@wov/shared/src/uploadedModelUpload.js';
 import { ASSET_WURZEL, KollisionsFormen } from './world/KollisionsFormen.js';
+import { gegenstandsArbeitsDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
+import { ladeGegenstandsDatei } from './world/gegenstandsLive.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = resolve(__dirname, '../data');
@@ -143,7 +145,17 @@ if (hochladenStand.geladen > 0) {
 for (const zeile of hochladenStand.warnungen) console.warn(`[ModellUpload] ${zeile}`);
 for (const zeile of hochladenStand.meldungen) console.error(`[ModellUpload] abgelehnt: ${zeile}`);
 
-const server = createWovServer(config);
+/*
+  Gegenstandsdaten (Karte G2): die Arbeitskopie der Gegenstaende laden — NACH der Upload-Registry (die Modellpruefung
+  kennt sie dann) und VOR createWovServer (Inventare und Spielstaende loesen ihre Namen schon beim Laden auf). Der Pfad
+  kommt aus demselben Helfer wie beim Betriebsdienst (gleicher Ordner wie die Welt-Arbeitskopie). Fehlt die Datei, ist
+  der Stand leer; eine kaputte Datei wird laut NICHT angewendet, der Code-Bestand laeuft weiter. Danach beobachtet die
+  Wache im Server dieselbe Datei (world/gegenstandsLive.ts).
+*/
+const gegenstandsDatei = gegenstandsArbeitsDatei(resolve(DATA_DIR, '../..'));
+const gegenstandsStand = ladeGegenstandsDatei(gegenstandsDatei);
+
+const server = createWovServer({ ...config, gegenstandsDatei, gegenstandsStart: gegenstandsStand.eintraege });
 
 /*
   DIE EINE EINHAENGESTELLE.

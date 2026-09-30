@@ -1,0 +1,301 @@
+/**
+ * Item data at run time: load at start, live watch, receipt (game card G2).
+ * Gegenstandsdaten zur Laufzeit: Laden beim Start, Live-Wache, Quittung (Karte G2).
+ *
+ * ── Channel ──────────────────────────────────────────────────────────
+ * File watch after the pattern of `layoutLive.ts`: in the 1-second block of `update()` one `statSync` of the
+ * working copy (mtime, size, inode) and of the confirmation file. Only when one of them changed the file is read
+ * ONCE and hashed from the same bytes. No `fs.watch`, no port.
+ *
+ * ── Lock ─────────────────────────────────────────────────────────────
+ * The watch reads only under `<working copy>.lock`, the very lock the admin route takes when it writes
+ * (`layoutUnterSperre`, one attempt, no waiting: the game tick must never sleep). A held lock means: skip this
+ * tick and try again at the next one (the state is not remembered), so a half written state is never read.
+ * The backup files `<working copy>.kaputt-<time>` are other files and are never read here.
+ *
+ * ── What is applied, what is not ─────────────────────────────────────
+ *  - broken file (no JSON, too big, wrong head): nothing applied, receipt `abgelehnt`;
+ *  - single entries discarded by the sanitiser: nothing applied, receipt `verworfen` with the list (an entry that
+ *    is discarded must not count as removed, and the old state stays);
+ *  - an entry that is gone from the new state but still held by inventories, chests or saved players: nothing
+ *    applied, receipt `bestaetigung-noetig` with `gehalten` ({id: count}). The admin route then leaves a
+ *    confirmation file (`gegenstaende.bestaetigen.json`, `{hash, zeit, id}` as `POST /api/welt/bestaetigen`); only
+ *    that makes the watch apply the state and remove the copies for good (no "raw stack" is kept);
+ *  - otherwise: replace the data items (atomic), re-bind the inventories, send the inventories to all peers.
+ * `interneFehler` counts the cases where the sanitiser swallowed an exception of its own
+ * (reason `eintrag-ungueltig`, which no JSON input can produce) plus the errors of the watch itself.
+ */
+import { readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  MAX_DATEI_BYTES,
+  leseGegenstandsDatei,
+  wendeGegenstandsDatenAn,
+  type GegenstandsEintrag,
+  type VerworfenerEintrag,
+} from '@wov/shared/src/items/gegenstandsDaten.js';
+import { LayoutGesperrt, layoutHash, layoutUnterSperre } from '@wov/shared/src/worldlayout/layoutDatei.js';
+import { bestaetigenAnfrageNehmen } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
+
+/** Status of a receipt (the form the editor already expects). */
+export type GegenstandsStatus = 'angewendet' | 'abgelehnt' | 'verworfen' | 'bestaetigung-noetig';
+
+export interface GegenstandsQuittung {
+  status: GegenstandsStatus;
+  /** SHA-256 of the bytes of the working copy this receipt is about. */
+  hash: string;
+  zeit: string;
+  /** `bestaetigung-noetig`: how many copies of each removed item are held. */
+  gehalten?: Record<string, number>;
+  /** `verworfen`: the discarded entries with a reason CODE (`VERWERF_GRUENDE`). */
+  verworfen?: Array<{ index: number; id: string | null; grund: string }>;
+}
+
+/** The tick takes the lock with ONE attempt (no waiting): a held lock means "skip, try again next tick". */
+const GESPERRT_WARTEN_MS = 0;
+
+const standVon = (pfad: string): string | null => {
+  try {
+    const s = statSync(pfad);
+    return `${s.mtimeMs}:${s.size}:${s.ino}`;
+  } catch {
+    return null;
+  }
+};
+
+/** Reads the working copy under its lock. `null`: the file is gone. Throws `LayoutGesperrt` if the lock is held. */
+function leseUnterSperre(pfad: string, wartenMs: number): { bytes: Buffer | null; groesse: number; stand: string } | null {
+  try {
+    return layoutUnterSperre(
+      pfad,
+      () => {
+        const s = statSync(pfad);
+        // A file far over the limit is never read into memory; the reader would refuse it anyway.
+        const bytes = s.size > MAX_DATEI_BYTES * 2 ? null : readFileSync(pfad);
+        return { bytes, groesse: s.size, stand: `${s.mtimeMs}:${s.size}:${s.ino}` };
+      },
+      { sperreWartenMs: wartenMs }
+    );
+  } catch (fehler) {
+    if ((fehler as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw fehler;
+  }
+}
+
+function quittungSchreiben(pfad: string, q: GegenstandsQuittung): void {
+  const temp = `${pfad}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temp, JSON.stringify(q, null, 2) + '\n');
+    renameSync(temp, pfad);
+  } catch (fehler) {
+    rmSync(temp, { force: true });
+    throw fehler;
+  }
+}
+
+export interface LadeErgebnis {
+  art: 'fehlt' | 'angewendet' | 'abgelehnt' | 'verworfen';
+  /** The entries that were applied (empty unless `angewendet`). */
+  eintraege: GegenstandsEintrag[];
+  hash: string | null;
+}
+
+export interface GegenstandsLog {
+  log(text: string): void;
+  warn(text: string): void;
+  error(text: string): void;
+}
+
+/**
+ * Start: read the working copy and apply it (main.ts, after the upload registry, before `createWovServer`).
+ * A missing file is the empty state, not an error. A broken file or a file with discarded entries is NOT applied
+ * (loud warning); the code items run on. The read takes the lock (at most 5 s); if it is held the state is
+ * left empty and the watch applies the file with its first tick.
+ */
+export function ladeGegenstandsDatei(pfad: string, log: GegenstandsLog = console): LadeErgebnis {
+  let gelesen: ReturnType<typeof leseUnterSperre>;
+  try {
+    gelesen = standVon(pfad) === null ? null : leseUnterSperre(pfad, 5000);
+  } catch (fehler) {
+    log.warn(`[Gegenstaende] Arbeitsdatei gesperrt (${(fehler as Error).message}): Start ohne Datenitems, die Wache holt es nach`);
+    return { art: 'abgelehnt', eintraege: [], hash: null };
+  }
+  if (!gelesen) return { art: 'fehlt', eintraege: [], hash: null };
+  if (!gelesen.bytes) {
+    log.error(`[Gegenstaende] ${pfad}: Datei zu gross (${gelesen.groesse} Byte), nichts angewendet`);
+    return { art: 'abgelehnt', eintraege: [], hash: null };
+  }
+  const hash = layoutHash(gelesen.bytes);
+  const lesung = leseGegenstandsDatei(gelesen.bytes.toString('utf-8'));
+  if (lesung.dateiFehler) {
+    log.error(`[Gegenstaende] ${pfad}: Datei unbrauchbar (${lesung.dateiFehler}), NICHTS angewendet. Der Code-Bestand laeuft weiter.`);
+    return { art: 'abgelehnt', eintraege: [], hash };
+  }
+  if (lesung.verworfen.length > 0) {
+    log.error(`[Gegenstaende] ${pfad}: ${lesung.verworfen.length} Eintrag/Eintraege verworfen (${beschreibe(lesung.verworfen)}), NICHTS angewendet.`);
+    return { art: 'verworfen', eintraege: [], hash };
+  }
+  try {
+    wendeGegenstandsDatenAn(lesung.eintraege);
+  } catch (fehler) {
+    log.error(`[Gegenstaende] ${pfad}: Anwenden gescheitert (${(fehler as Error).message}), NICHTS angewendet.`);
+    return { art: 'abgelehnt', eintraege: [], hash };
+  }
+  log.log(`[Gegenstaende] ${lesung.eintraege.length} Datenitem(s) geladen`);
+  return { art: 'angewendet', eintraege: lesung.eintraege, hash };
+}
+
+const beschreibe = (verworfen: readonly VerworfenerEintrag[]): string =>
+  verworfen.slice(0, 10).map((v) => `#${v.index}${v.id ? ` ${v.id}` : ''}: ${v.grund}`).join(', ') + (verworfen.length > 10 ? ` … (+${verworfen.length - 10})` : '');
+
+export interface GegenstandsWacheAbhaengigkeiten {
+  /** The working copy (`gegenstandsArbeitsDatei`). */
+  readonly pfad: string;
+  readonly quittungsPfad: string;
+  /** Where the admin route leaves the confirmation request. */
+  readonly bestaetigenPfad: string;
+  /** The state the start applied (`ladeGegenstandsDatei`); empty if nothing was applied. */
+  readonly angewendet?: readonly GegenstandsEintrag[];
+  /** A save is running: do not apply now. */
+  readonly speichertGerade?: () => boolean;
+  /** How many copies of each of these ids do inventories, chests and saved players hold? Only ids with more than 0. */
+  readonly gehalten: (ids: ReadonlySet<string>) => Record<string, number>;
+  /** Remove all copies of these ids for good (after the new state is applied). */
+  readonly entfernen: (ids: ReadonlySet<string>) => void;
+  /** Re-bind all inventories to the new definitions and send them to the peers. */
+  readonly neuBinden: () => void;
+  readonly log?: GegenstandsLog;
+}
+
+export class GegenstandsWache {
+  private letzterStand: string | null = null;
+  private letzterAnfrageStand: string | null = null;
+  private angewendet: readonly GegenstandsEintrag[];
+  private angewendetJson: string;
+  /** Sanitiser exceptions swallowed as `eintrag-ungueltig`, plus errors of the watch itself. */
+  interneFehler = 0;
+
+  constructor(private readonly d: GegenstandsWacheAbhaengigkeiten) {
+    this.angewendet = d.angewendet ?? [];
+    this.angewendetJson = JSON.stringify(this.angewendet);
+    // The receipt and a confirmation of the previous run do not apply to this one.
+    for (const p of [d.quittungsPfad, d.bestaetigenPfad]) {
+      try {
+        rmSync(p, { force: true });
+      } catch (fehler) {
+        this.log.error(`[Gegenstaende] ${p} nicht entfernt: ${(fehler as Error).message}`);
+      }
+    }
+  }
+
+  private get log(): GegenstandsLog {
+    return this.d.log ?? console;
+  }
+
+  /** Call in the 1-second block. Never throws. */
+  tick(): void {
+    try {
+      this.pruefe();
+    } catch (fehler) {
+      this.interneFehler++;
+      this.log.error(`[Gegenstaende] Wache: ${(fehler as Error).stack ?? (fehler as Error).message}`);
+    }
+  }
+
+  private pruefe(): void {
+    const stand = standVon(this.d.pfad);
+    if (stand === null) return; // gone for a moment (rename, maintenance): do nothing
+    const anfrageStand = standVon(this.d.bestaetigenPfad);
+    const neueAnfrage = anfrageStand !== null && anfrageStand !== this.letzterAnfrageStand;
+    if (stand === this.letzterStand && !neueAnfrage) {
+      this.letzterAnfrageStand = anfrageStand;
+      return;
+    }
+    if (this.d.speichertGerade?.()) return; // a save has priority; the next tick sees it all again
+
+    let gelesen: ReturnType<typeof leseUnterSperre>;
+    try {
+      gelesen = leseUnterSperre(this.d.pfad, GESPERRT_WARTEN_MS);
+    } catch (fehler) {
+      if (fehler instanceof LayoutGesperrt) return; // a writer holds the lock: skip, nothing remembered
+      throw fehler;
+    }
+    if (!gelesen) return;
+    this.letzterStand = gelesen.stand;
+    this.letzterAnfrageStand = anfrageStand;
+
+    // The request is consumed whenever it changed, whether or not it fits this state (a request for an
+    // overtaken state must not stay and meet a LATER one).
+    let bestaetigterHash: string | null = null;
+    if (neueAnfrage) {
+      const r = bestaetigenAnfrageNehmen(this.d.bestaetigenPfad);
+      if (r.art === 'ungueltig') this.log.warn(`[Gegenstaende] Bestaetigung ungueltig (${r.grund}), verbraucht, nichts bestaetigt`);
+      else if (r.art === 'gueltig') bestaetigterHash = r.anfrage.hash;
+    }
+
+    if (!gelesen.bytes) {
+      this.log.error(`[Gegenstaende] Arbeitsdatei zu gross (${gelesen.groesse} Byte), nichts angewendet`);
+      this.quittiere('abgelehnt', `zu-gross:${gelesen.groesse}`);
+      return;
+    }
+    const hash = layoutHash(gelesen.bytes);
+    if (bestaetigterHash !== null && bestaetigterHash !== hash) {
+      this.log.warn(`[Gegenstaende] Bestaetigung fuer einen ueberholten Stand (${bestaetigterHash.slice(0, 12)}, jetzt ${hash.slice(0, 12)}), nichts bestaetigt`);
+    }
+    const bestaetigt = bestaetigterHash === hash;
+    const lesung = leseGegenstandsDatei(gelesen.bytes.toString('utf-8'));
+    if (lesung.dateiFehler) {
+      this.log.error(`[Gegenstaende] Arbeitsdatei unbrauchbar (${lesung.dateiFehler}), nichts angewendet, der alte Stand bleibt`);
+      this.quittiere('abgelehnt', hash);
+      return;
+    }
+    for (const v of lesung.verworfen) {
+      if (v.grund !== 'eintrag-ungueltig') continue;
+      this.interneFehler++;
+      this.log.error(`[Gegenstaende] INTERNER FEHLER im Sanitizer: Eintrag #${v.index}${v.id ? ` (${v.id})` : ''} als eintrag-ungueltig verworfen, das kann aus JSON nicht entstehen`);
+    }
+    if (lesung.verworfen.length > 0) {
+      this.log.warn(`[Gegenstaende] ${lesung.verworfen.length} Eintrag/Eintraege verworfen (${beschreibe(lesung.verworfen)}), nichts angewendet, der alte Stand bleibt`);
+      this.quittiere('verworfen', hash, { verworfen: lesung.verworfen.map((v) => ({ index: v.index, id: v.id, grund: v.grund })) });
+      return;
+    }
+    if (JSON.stringify(lesung.eintraege) === this.angewendetJson) {
+      this.quittiere('angewendet', hash); // nothing to do (also a re-formatted file)
+      return;
+    }
+
+    const neueIds = new Set(lesung.eintraege.map((e) => e.id));
+    const entfernt = new Set(this.angewendet.map((e) => e.id).filter((id) => !neueIds.has(id)));
+    let gehalten: Record<string, number> = {};
+    if (entfernt.size > 0) {
+      gehalten = this.d.gehalten(entfernt);
+      if (Object.keys(gehalten).length > 0 && !bestaetigt) {
+        this.log.warn(`[Gegenstaende] Bestaetigung noetig, nichts angewendet: ${Object.entries(gehalten).map(([id, n]) => `${n}x ${id}`).join(', ')} noch im Besitz`);
+        this.quittiere('bestaetigung-noetig', hash, { gehalten });
+        return;
+      }
+    }
+    try {
+      wendeGegenstandsDatenAn(lesung.eintraege);
+    } catch (fehler) {
+      this.interneFehler++;
+      this.log.error(`[Gegenstaende] Anwenden gescheitert (${(fehler as Error).message}), der alte Stand bleibt`);
+      this.quittiere('abgelehnt', hash);
+      return;
+    }
+    if (entfernt.size > 0) this.d.entfernen(entfernt);
+    this.angewendet = lesung.eintraege;
+    this.angewendetJson = JSON.stringify(lesung.eintraege);
+    this.d.neuBinden();
+    this.log.log(`[Gegenstaende] angewendet: ${lesung.eintraege.length} Datenitem(s)${entfernt.size > 0 ? `, ${entfernt.size} entfernt` : ''}`);
+    this.quittiere('angewendet', hash);
+  }
+
+  private quittiere(status: GegenstandsStatus, hash: string, zusatz: { gehalten?: Record<string, number>; verworfen?: GegenstandsQuittung['verworfen'] } = {}): void {
+    const q: GegenstandsQuittung = { status, hash, zeit: new Date().toISOString(), ...zusatz };
+    try {
+      quittungSchreiben(this.d.quittungsPfad, q);
+    } catch (fehler) {
+      this.log.error(`[Gegenstaende] Quittung nicht geschrieben: ${(fehler as Error).message}`);
+    }
+  }
+}

@@ -184,6 +184,20 @@ export class Inventory {
     return null;
   }
 
+  /**
+   * Resolves every stack's `shared` reference by name again. Needed after the data items were replaced
+   * (`replaceDataItems`): a stack keeps the object it was created with, so without this it would go on
+   * showing and using the old definition. A name that no longer resolves keeps its old object (the
+   * caller removes such stacks on purpose, see the item watch).
+   */
+  rebind(): void {
+    for (const it of this.items) {
+      const neu = findItem(it.shared.name);
+      if (neu) it.shared = neu;
+    }
+    this.emit();
+  }
+
   serialize(): SavedItemStack[] {
     return this.items.map((it) => ({
       name: it.shared.name,

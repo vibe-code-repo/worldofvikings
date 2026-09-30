@@ -112,6 +112,10 @@ import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
 import { bootLoeschRegel, liveAbgleich, wuerdeEntfernen } from './world/layoutLiveAbgleich.js';
+import { GegenstandsWache } from './world/gegenstandsLive.js';
+import { entferneGehalten, zaehleGehalten, type BestandsQuellen } from './spiel/Gegenstandsbestand.js';
+import { datenRezepte, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
+import { gegenstandsBestaetigenDatei, gegenstandsQuittungsDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 import { bestaetigungsZdos, sperreAbgleichen, sperreBestaetigenPlan, sperreErweitern, sperreFreigeben } from './world/layoutBootSchutz.js';
 import { layoutDateiHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
@@ -170,7 +174,7 @@ import {
   AUSDAUER_REGEL,
 } from '@wov/shared/src/bewegung/ausdauer.js';
 import { pickableItem, ZWEIT_DROPS, wuerfleDrop, wuerfleTruhe } from './spiel/Beute.js';
-import { waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
+import { kannErnten, waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
 import { EIKTHYR_HASH, BOSS_ENTRY, NPC_ENTRY } from './spiel/Sondereintraege.js';
 import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
 // Tests import the weapon helpers from this file, so it keeps exporting them.
@@ -302,6 +306,13 @@ export interface ServerConfig {
   worldMode: 'radial' | 'layout';
   /** Pfad des WorldLayout-Dokuments (nur worldMode 'layout'). */
   worldLayoutPath: string;
+  /**
+   * Gegenstandsdaten (Karte G2): Arbeitsdatei, die die Live-Wache im 1-Sekunden-Takt beobachtet. Fehlt sie
+   * (Tests ohne Gegenstandsbezug), gibt es keine Wache. `gegenstandsStart` ist der Stand, den der Start
+   * angewendet hat (`ladeGegenstandsDatei` in main.ts).
+   */
+  gegenstandsDatei?: string;
+  gegenstandsStart?: readonly GegenstandsEintrag[];
   /**
    * F3 (Security-Review): Servergeheimnis fuer die SessionToken-Signatur.
    * NUR fuer Tests (deterministischer Lauf, zwei Server-Instanzen mit
@@ -621,6 +632,8 @@ export class WovServer {
   private zdoSyncAccumulator: number;
   /** Datei-Wache des Weltdokuments (K5.0), im Layout-Modus nach dem Boot angelegt. */
   private layoutWache: LayoutWache | null = null;
+  /** Datei-Wache der Gegenstandsdaten (Karte G2), angelegt wenn `config.gegenstandsDatei` gesetzt ist. */
+  private gegenstandsWache: GegenstandsWache | null = null;
   /** Karte Z3 N1: Pfad der dauerhaften Löschsperre, neben der Quittung. */
   private readonly loeschsperrePfad: string;
   private timeSyncAccumulator: number;
@@ -1270,7 +1283,52 @@ export class WovServer {
       });
     }
 
+    this.gegenstandsWache = this.baueGegenstandsWache();
+
     console.log('[WoV] Initialized');
+  }
+
+  /** Wache fuer die Gegenstandsdatei (Karte G2); `null` ohne konfigurierte Datei. */
+  private baueGegenstandsWache(): GegenstandsWache | null {
+    const pfad = this.config.gegenstandsDatei;
+    if (!pfad) return null;
+    return new GegenstandsWache({
+      pfad,
+      quittungsPfad: gegenstandsQuittungsDatei(pfad),
+      bestaetigenPfad: gegenstandsBestaetigenDatei(pfad),
+      angewendet: this.config.gegenstandsStart,
+      speichertGerade: () => this.speichertGerade,
+      gehalten: (ids) => zaehleGehalten(this.bestandsQuellen(), ids),
+      entfernen: (ids) => this.entferneGegenstaende(ids),
+      neuBinden: () => this.bindeInventareNeu(),
+    });
+  }
+
+  private bestandsQuellen(): BestandsQuellen {
+    return {
+      online: () => this.net.getPeers().filter((p) => p.authenticated && !p.nurEditor).map((p) => ({ spielerId: p.spielerId, name: p.name, inventar: p.inventar })),
+      gespeichert: () => this.savedPlayers.values(),
+      zdos: () => [...this.welten.values()].flatMap((w) => w.zdos.getAllZDOs()),
+    };
+  }
+
+  /** Alle Exemplare entfernter Datengegenstaende endgueltig raus: Inventare, gespeicherte Spieler, Truhen (Karte G2). */
+  private entferneGegenstaende(ids: ReadonlySet<string>): void {
+    const weg = entferneGehalten(this.bestandsQuellen(), ids, () => this.stempelZaehler().naechster());
+    console.log(`[Gegenstaende] entfernt: ${weg.lebend} Stapel in Inventaren, ${weg.gespeichert.length} gespeicherte(r) Spieler, ${weg.truhen.length} Truhe(n)`);
+    // Abwesende Spieler sofort in die Konten-SQLite, Truhen und Anwesende ueber den normalen Sicherungsweg.
+    if (weg.gespeichert.length > 0) this.spielerSicherung?.sichere(weg.gespeichert, 'admin');
+    this.sichereSpieler(this.net.getPeers(), 'gegenstaende', 'alle');
+    void this.saveWorldAsync();
+  }
+
+  /** Nach dem Tausch der Datengegenstaende: Inventare an die neuen Definitionen binden und allen Spielern schicken. */
+  private bindeInventareNeu(): void {
+    for (const peer of this.net.getPeers()) {
+      if (!peer.authenticated || peer.nurEditor) continue;
+      peer.inventar.rebind();
+      this.inventarSync(peer);
+    }
   }
 
   /**
@@ -1896,6 +1954,7 @@ export class WovServer {
       // getaktet und nicht nur beim Befehl: s. gleicheAdminrechteAb().
       this.gleicheAdminrechteAb();
       this.layoutWache?.tick();
+      this.gegenstandsWache?.tick();
       // Dungeon-Regeneration: leere Instanzen nach Ablauf abreißen.
       this.dungeons.tick(now);
       this.eventTick(now);
@@ -3493,7 +3552,8 @@ export class WovServer {
   /** Craften server-autoritativ: Rezept + Zutaten prüfen, abziehen, geben. */
   private handleCraft(peer: Peer, reader: Reader): void {
     const ergebnis = reader.readString();
-    const rezept = REZEPTE.find((r) => r.ergebnis === ergebnis);
+    // Code recipes first (they win), then the recipes of the data items; no station for either.
+    const rezept = REZEPTE.find((r) => r.ergebnis === ergebnis) ?? datenRezepte().find((r) => r.ergebnis === ergebnis);
     const antwort = (ok: boolean, message: string) => {
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(ok);
@@ -4108,10 +4168,10 @@ export class WovServer {
     if (!ziel || !art) return;
 
     // Werkzeug-Pflicht wie im Original: Holz braucht die Axt, Stein die Spitzhacke.
-    if (art === 'baum' && waffe !== 'AxeFlint') {
+    if (art === 'baum' && !kannErnten(waffe, 'baum')) {
       return antwort('Zu hart — dafür braucht es eine Axt');
     }
-    if (art === 'fels' && waffe !== 'PickaxeAntler') {
+    if (art === 'fels' && !kannErnten(waffe, 'fels')) {
       return antwort('Zu hart — dafür braucht es eine Spitzhacke');
     }
 

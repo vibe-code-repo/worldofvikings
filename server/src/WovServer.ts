@@ -4385,6 +4385,7 @@ export class WovServer {
     }
     // Immediate revival is followed by the caller's own PlayerState (one packet, as before).
     if (!sofort) this.sendPlayerState(peer);
+    this.sichereSpielerSofort(peer, 'tod'); // F8: the revived state goes to disk now, not with the next 30 s tick
   }
 
   /**

@@ -21,6 +21,14 @@
  *         `/// <reference path>` and `new URL('…', import.meta.url)`, by a
  *         relative path or by the package name. An `import()` or `require()`
  *         with a computed path is a violation in itself: it cannot be read.
+ *         An import of Node's module system (`node:module` or `module`, in
+ *         any form, also `import type` and `require('module')`) and the names
+ *         `createRequire` and `getBuiltinModule` (as identifier, property or
+ *         string) are violations as well: they open a `require()` this
+ *         scanner cannot read, and under tsx such a `require` loads
+ *         `WovServer.ts` a second time, as a module of its own. No file under
+ *         `spiel/` has a legitimate use for the module system, so there is
+ *         no allowed form of it (N1, finding B1 of the attack).
  *         ONE file is allowed to name the class, and only with `import type`:
  *         the context file (list `ALLOWED`).
  *     2b. No file under `server/src/spiel/` reaches `WovServer.ts` through a
@@ -139,6 +147,10 @@ type Form =
   | 'reference path'
   | 'new URL';
 const VALUE_FORMS: readonly Form[] = ['import', 'export from', 'import = require', 'import()', 'require()'];
+/** Specifiers of Node's module system. It carries `createRequire`: a `require()` this scanner cannot read (N1, B1). */
+const MODULE_SYSTEM: readonly string[] = ['module', 'node:module'];
+/** Names that reach the module system without importing it (`process.getBuiltinModule('module').createRequire`). */
+const MODULE_SYSTEM_NAMES: readonly string[] = ['createRequire', 'getBuiltinModule'];
 
 interface Reference {
   readonly line: number;
@@ -206,6 +218,20 @@ function references(file: string, text: string): Reference[] {
   return out;
 }
 
+/** Every identifier, property name or string literal of a source that is one of MODULE_SYSTEM_NAMES. Comments do not count. */
+function moduleSystemNames(file: string, text: string): { line: number; name: string }[] {
+  const sf = parse(file, text);
+  const out: { line: number; name: string }[] = [];
+  const visit = (n: ts.Node): void => {
+    if ((ts.isIdentifier(n) || ts.isStringLiteralLike(n)) && MODULE_SYSTEM_NAMES.includes(n.text)) {
+      out.push({ line: sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1, name: n.text });
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
+}
+
 /** The files a specifier may mean, in the order they are tried. Empty for another package. */
 function candidates(from: string, specifier: string): string[] {
   const clean = specifier.replace(/[?#].*$/, '');
@@ -243,10 +269,17 @@ function direction(sources: Sources): Finding[] {
         }
         continue;
       }
+      if (MODULE_SYSTEM.includes(r.specifier.replace(/[?#].*$/, ''))) {
+        out.push({ rule: '2a', file, line: r.line, text: `${r.form} '${r.specifier}' imports the module system: createRequire is a require() this scanner cannot read` });
+        continue;
+      }
       if (!candidates(file, r.specifier).includes(CLASS_FILE)) continue;
       const specifier = r.specifier;
       const allowed = ALLOWED.some((a) => a.file === file && a.form === r.form && a.specifiers.includes(specifier));
       if (!allowed) out.push({ rule: '2a', file, line: r.line, text: `${r.form} '${r.specifier}' names WovServer.ts` });
+    }
+    for (const m of moduleSystemNames(file, sources.get(file)!)) {
+      out.push({ rule: '2a', file, line: m.line, text: `names ${m.name}: a way to require() this scanner cannot read` });
     }
   }
 
@@ -427,6 +460,20 @@ console.log('\n[0] Self-test of the scanner on invented sources');
     ['chain over one file', { [X]: "import { h } from '../hilf.js';", 'src/hilf.ts': "import { Wov } from './WovServer.js';\nexport const h = Wov;" }, '2b'],
     ['chain over two files', { [X]: "import { h } from '../a.js';", 'src/a.ts': "export { h } from './b.js';", 'src/b.ts': "export const h = import('./WovServer.js');" }, '2b'],
     ['chain from a sub-folder', { 'src/spiel/befehle/Y.ts': "import { h } from '../X.js';", [X]: "import { g } from '../hilf.js';\nexport const h = g;", 'src/hilf.ts': "import './WovServer.js';\nexport const g = 1;" }, '2b'],
+    // the module system (N1, B1): the four forms of the attack, then the other ways to it
+    ['createRequire from node:module', { [X]: "import { createRequire } from 'node:module';\nexport const r = (): unknown => createRequire(import.meta.url)('../WovServer.ts');" }, '2a'],
+    ['createRequire under an alias', { [X]: "import { createRequire as cr } from 'node:module';\nexport const r = (): unknown => cr(import.meta.url)('../WovServer.js');" }, '2a'],
+    ['namespace import of node:module', { [X]: "import * as nm from 'node:module';\nexport const r = (): unknown => nm.createRequire(import.meta.url)('../WovServer.js');" }, '2a'],
+    ['require kept in a variable', { [X]: "import { createRequire } from 'node:module';\nconst req = createRequire(import.meta.url);\nexport const r = (): unknown => req('../WovServer.js');" }, '2a'],
+    ["'module' without the node: prefix", { [X]: "import { createRequire } from 'module';\nexport const r = createRequire;" }, '2a'],
+    ['default import of node:module', { [X]: "import nm from 'node:module';\nexport const r = nm;" }, '2a'],
+    ['import type of node:module', { [X]: "import type { createRequire } from 'node:module';\nexport type R = typeof createRequire;" }, '2a'],
+    ['import() of node:module', { [X]: "export const r = import('node:module');" }, '2a'],
+    ["require('module').createRequire", { [X]: "export const r = require('module').createRequire;" }, '2a'],
+    ['import = require of node:module', { [X]: "import nm = require('node:module');\nexport const r = nm;" }, '2a'],
+    ['process.getBuiltinModule', { [X]: "export const r = process.getBuiltinModule('node:module');" }, '2a'],
+    ['createRequire as a string key', { [X]: "declare const nm: Record<string, unknown>;\nexport const r = nm['createRequire'];" }, '2a'],
+    ['module system in a sub-folder', { 'src/spiel/befehle/Y.ts': "import { createRequire } from 'node:module';\nexport const r = createRequire;" }, '2a'],
   ];
   for (const [name, files, rule] of red) {
     const f = direction(set(files));
@@ -442,6 +489,10 @@ console.log('\n[0] Self-test of the scanner on invented sources');
     ['chain that ends with a type import', { [X]: "import { h } from '../hilf.js';", 'src/hilf.ts': "import type { WovServer } from './WovServer.js';\nexport const h = 1;" }],
     ['a file outside the folder may import the class', { 'src/main.ts': "import { createServer } from './WovServer.js';" }],
     ['a circle among the modules themselves', { [X]: "import { b } from './Z.js';", 'src/spiel/Z.ts': "import { a } from './X.js';" }],
+    // the module system: the rule holds under spiel/ only, and only for the bare specifier and the names
+    ['a file outside the folder may import node:module', { 'src/main.ts': "import { createRequire } from 'node:module';\nexport const r = createRequire(import.meta.url);" }],
+    ['a relative module named module is not the module system', { [X]: "import { a } from './module.js';", 'src/spiel/module.ts': 'export const a = 1;' }],
+    ['a comment naming createRequire is no import', { [X]: "// createRequire(import.meta.url)('../WovServer.ts') would be a violation\nexport const a = 1;" }],
   ];
   for (const [name, files] of green) {
     const f = direction(set(files));
@@ -555,7 +606,7 @@ console.log('\n[2] Direction: no module under server/src/spiel/ names or reaches
   const found = direction(sources);
   const direct = found.filter((f) => f.rule === '2a');
   const chains = found.filter((f) => f.rule === '2b');
-  check('2a: no file under spiel/ names WovServer.ts (one named exception: the context file, type-only)', direct.length === 0, show(direct));
+  check('2a: no file under spiel/ names WovServer.ts or the module system (one named exception: the context file, type-only)', direct.length === 0, show(direct));
   check('2b: no file under spiel/ reaches WovServer.ts through value imports', chains.length === 0, show(chains));
   for (const a of ALLOWED) {
     const used = sources.has(a.file) && references(a.file, sources.get(a.file)!).some((r) => r.specifier !== null && candidates(a.file, r.specifier).includes(CLASS_FILE));

@@ -71,8 +71,6 @@ for (const [id, p] of [
   ['V47', 'x: number[][] = [[1], [2, 3]]'],
   ['V48', "x: object = { a: { b: 's', c: [1, true, null] }, 'd': -2, 3: 4 }"],
   ['V49', 'x: null | number = null'],
-  ['V50', 'x = () => this.zahl'],
-  ['V51', 'x = function (): number { return 1; }'],
 ] as const) {
   lauf.fall({ id, name: `green: \`${p}\` is a plain literal (or a function value) and stays allowed`, soll: [], eingabe: () => vg(p) });
 }
@@ -139,12 +137,12 @@ for (const [id, was, text] of [
   ['G31', 'a function that is called after the constant', `${LIES.trimEnd()}\n\nconst GRENZE = 5;\n\nexport const START = lies();\n`],
   ['G32', 'a function that is called in front of the constant but does not read it', 'function lies(): number {\n  return 7;\n}\n\nexport const START = lies();\n\nexport const GRENZE = 5;\n'],
   ['G33', 'the moved name read after its old place', 'const GRENZE = 5;\n\nexport const START = GRENZE + 1;\n'],
-  ['G34', 'an object with a method that reads it and is never touched in front', 'const api = {\n  lies(): number {\n    return GRENZE;\n  },\n};\nexport const VOR = 1;\nvoid api;'],
+  ['G34', 'an object with a method that reads it and is never mentioned in front', 'const api = {\n  lies(): number {\n    return GRENZE;\n  },\n};\nexport const VOR = 1;'],
   ['G38', 'a function value in a variable that is never mentioned in front', 'const lies = (): number => GRENZE;\nexport const VOR = 1;'],
-  ['G39', 'an arrow function as the property of an object that is never touched in front', 'const api = { a: (): number => GRENZE };\nexport const VOR = 1;\nvoid api;'],
-  ['G40', 'a static field with an arrow function that is never called in front (an arrow function of a class field is a unit, not run at the definition)', 'class K {\n  static f = (): number => GRENZE;\n}\nexport const VOR = 1;\nvoid K;'],
+  ['G39', 'an arrow function as the property of an object that is never mentioned in front', 'const api = { a: (): number => GRENZE };\nexport const VOR = 1;'],
+  ['G40', 'a static field with an arrow function that is never mentioned in front (an arrow function of a class field is a unit, not run at the definition)', 'class K {\n  static f = (): number => GRENZE;\n}\nexport const VOR = 1;'],
   ['G41', 'a function declaration inside a block of the rest, never called, reads the name (a declaration runs nothing)', '{\n  function h(): number {\n    return GRENZE;\n  }\n}\nexport const VOR = 1;'],
-  ['G35', 'a class with a method that reads it, instantiated but the method not named in front', 'class K {\n  lies(): number {\n    return GRENZE;\n  }\n}\n\nexport const OBJ = new K();'],
+  ['G35', 'a class with a method that reads it, never mentioned in front', 'class K {\n  lies(): number {\n    return GRENZE;\n  }\n}\n\nexport const VOR = 1;'],
 ] as const) {
   lauf.fall({ id, name: `green: ${was}`, soll: [], eingabe: () => grenze(text.includes('const GRENZE') ? text : `${text}${SPAET}`) });
 }
@@ -230,5 +228,127 @@ lauf.fall({ id: 'D11', name: 'X18: a tagged template on a plain name: `lies`x``'
   const text = alsText(laufe(grenze(`${LIES}export const VOR = 1;`)));
   lauf.pruefe('T01', 'the limits list no longer says "never one too few for a call", and names the over-approximation and its blind spots', !/never one too few/.test(text) && /over-approximates/.test(text) && /eval/.test(text), text.split('\n').filter((z) => /B9 \(reads/.test(z)).join('\n'));
 }
+
+// ==== Third fix round (V2 N3): the second attack, `2026-09-30 Refactoring V2 — Nachangriff 2` ===========================
+// V2N2A-1: a function value in a default value is created in the forwarder's parameter scope.
+const HILFE = { 'src/hilfe.ts': 'export const z = { n: 0 };\nexport function gibNix(): number | undefined {\n  z.n++;\n  return undefined;\n}\nexport function mach(f: unknown): number {\n  void f;\n  return 1;\n}\n' };
+const fk = (param: string, rumpf = 'return [x, this.zahl];', frei: string[] = []): Eingabe =>
+  schnitt(`import { gibNix, mach, z } from './hilfe';\nexport class A {\n  zahl = 1;\n  m(${param}): unknown {\n    void gibNix; void mach; void z;\n    ${rumpf}\n  }\n}\n`, auftrag(['m']), { dateien: HILFE, freigaben: frei.map((schluessel) => ({ schluessel, begruendung: GRUND })) });
+const teileFn = ['B12/vorgabe-funktion'];
+const teileClosure = ['B12/vorgabe-funktion-closure'];
+
+lauf.abschnitt('V2N2A-1: a function value as a default value is not free; a closure over a parameter is never releasable');
+for (const [id, was, e] of [
+  ['N301', 'A01: an arrow function closes over parameter `a`, the body assigns to `a`', () => fk('a: number, x = (): number => a', 'a = 5;\n    return [x(), this.zahl];')],
+  ['N302', 'A02: an arrow function closes over the LATER parameter `b`', () => fk('x = (): number => b, b = 1', 'b = 7;\n    return [x(), this.zahl];')],
+  ['N303', 'A03: a `function` expression closes over `a`', () => fk('a: number, x = function (): number { return a; }', 'a = 5;\n    return [x(), this.zahl];')],
+  ['N304', 'A25: an arrow function that mentions the parameter it is the default of', () => fk('x = (): unknown => x', 'const f = x;\n    x = () => 2;\n    return [f(), this.zahl];')],
+  ['N305', 'A09: the closure over `a` is red even if the body does not assign (the tool does not judge the body)', () => fk('a: number, x = (): number => a', 'return [x(), a, this.zahl];')],
+  ['N306', 'a class expression that mentions a parameter', () => fk('a: number, x = class { w = a; }', 'return [x, a, this.zahl];')],
+] as [string, string, () => Eingabe][]) {
+  lauf.fall({ id, name: `${was}: B12 vorgabe-funktion-closure, no release exists`, soll: ['B12'], teile: teileClosure, eingabe: e });
+}
+lauf.fall({ id: 'N307', name: 'A24: a call with an arrow over parameter `a` stays red WITH the release `vorgabe:m.x` (the call is released, the closure is not)', soll: ['B12'], teile: teileClosure, freigegeben: ['vorgabe:m.x'], eingabe: () => fk('a: number, x = mach((): number => a)', 'a = 5;\n    return [x, this.zahl];', ['vorgabe:m.x']) });
+for (const [id, p] of [
+  ['N310', 'x = (): number => this.zahl'],
+  ['N311', 'x = function (this: unknown): unknown { return this; }'],
+  ['N312', 'x = async (): Promise<number> => this.zahl'],
+  ['N313', 'x = (y: number = this.zahl): number => y'],
+] as const) {
+  lauf.fall({ id, name: `\`${p}\`: a function value is red without a release (B12 vorgabe-funktion)`, soll: ['B12'], teile: teileFn, eingabe: () => fk(p) });
+  lauf.fall({ id: `${id}f`, name: `\`${p}\`: green with the release \`vorgabe:m.x\` (it mentions no parameter of the method)`, soll: [], freigegeben: ['vorgabe:m.x'], eingabe: () => fk(p, undefined, ['vorgabe:m.x']) });
+}
+lauf.fall({ id: 'N314', name: 'A07/M06: a class expression as a default value is red without a release (B12 vorgabe)', soll: ['B12'], teile: ['B12/vorgabe'], eingabe: () => fk('x = class {}') });
+lauf.fall({ id: 'N315', name: 'A07/M06: a class expression without a parameter mention is green with the release', soll: [], freigegeben: ['vorgabe:m.x'], eingabe: () => fk('x = class {}', undefined, ['vorgabe:m.x']) });
+lauf.fall({ id: 'N316', name: 'a release for the wrong parameter does not cover a function value (and is itself a finding)', soll: ['B11', 'B12'], teile: teileFn, eingabe: () => fk('x = (): number => 1', undefined, ['vorgabe:m.y']) });
+{
+  const t = laufe(fk('x = (): number => this.zahl')).befunde.find((b) => b.teil === 'vorgabe-funktion')?.text ?? '';
+  lauf.pruefe('N317', 'V2N2A-5: the text of the finding names the other scope (the parameters of the forwarder)', /scope of ITS parameters/.test(t) && /once/.test(t), t.slice(0, 200));
+  const c = laufe(fk('x = mach(1)', undefined, [])).befunde.find((b) => b.teil === 'vorgabe')?.text ?? '';
+  lauf.pruefe('N318', 'V2N2A-5: the text of the call release says: evaluated in the forwarder (scope of its parameters) and, only if that passes undefined, a second time', /scope of ITS parameters/.test(c) && /second time/.test(c), c.slice(0, 260));
+}
+// V2N2A-4 (M02, M04): the plain literals stay free, one bad member makes the object red.
+lauf.fall({ id: 'N320', name: 'M02: `-1n` is a plain literal (a negated bigint) and stays green', soll: [], eingabe: () => vg('x = -1n') });
+lauf.fall({ id: 'N321', name: 'M04: an object literal whose SECOND property is a name is red (every member is checked, not only the first)', soll: ['B12'], teile: ['B12/vorgabe-this-undefined'], eingabe: () => vg('x = { a: 1, b: NIX }') });
+lauf.fall({ id: 'N322', name: 'M04: a list whose second element is a name is red', soll: ['B12'], teile: ['B12/vorgabe-this-undefined'], eingabe: () => vg('x = [1, NIX]') });
+lauf.fall({ id: 'N323', name: 'M04: a nested object whose last member is a call-free name is red', soll: ['B12'], teile: ['B12/vorgabe-this-undefined'], eingabe: () => vg('x = { a: { b: 1, c: [2, ZAHL] } }') });
+
+// V2N2A-2: implicit calls while loading, and objects that carry functions.
+const OBJ_G = 'const o = {\n  get g(): number {\n    return GRENZE;\n  },\n};\n\n';
+const OBJ_T = (n: string, r: string): string => `const o = {\n  ${n}(): ${r} {\n    return ${r === 'string' ? 'String(GRENZE)' : 'GRENZE'};\n  },\n};\n\n`;
+lauf.abschnitt('V2N2A-2: implicit calls while loading (spread, template, +, await, for-of, Object.*, JSON, getters): a mention of a carrier is a read');
+for (const [id, was, text] of [
+  ['L50', 'a spread `{ ...o }` of an object with a getter', `${OBJ_G}export const S = { ...o };`],
+  ['L51', '`JSON.stringify(o)` with `toJSON`', `${OBJ_T('toJSON', 'number')}export const S = JSON.stringify(o);`],
+  ['L52', 'a template `${o}` with `toString`', `${OBJ_T('toString', 'string')}export const S = \`\${o}\`;`],
+  ['L53', '`Object.values(api)[0]!()`', 'const api = {\n  lies(): number {\n    return GRENZE;\n  },\n};\n\nexport const S = Object.values(api)[0]!();'],
+  ['L54', 'a destructuring over an iterator `const [S] = it`', 'const it = {\n  *[Symbol.iterator](): Generator<number> {\n    yield GRENZE;\n  },\n};\n\nexport const [S] = it;'],
+  ['L55', '`+o` with `valueOf`', `${OBJ_T('valueOf', 'number')}export const S = +o;`],
+  ['L56', 'a class instance in a template (`toString`)', 'class K {\n  toString(): string {\n    return String(GRENZE);\n  }\n}\n\nexport const S = `${new K()}`;'],
+  ['L57', '`Object.assign({}, o)` with a getter', `${OBJ_G}export const S = Object.assign({}, o);`],
+  ['L58', '`await o` with `then`', 'const o = {\n  then(r: (v: number) => void): void {\n    r(GRENZE);\n  },\n};\n\nexport const S = await o;'],
+  ['L59', '`JSON.stringify(o)` with a getter', `${OBJ_G}export const S = JSON.stringify(o);`],
+  ['L60', '`String(o)` with `toString`', `${OBJ_T('toString', 'string')}export const S = String(o);`],
+  ['L61', '`for (const x of it)` over an iterator object', 'const it = {\n  *[Symbol.iterator](): Generator<number> {\n    yield GRENZE;\n  },\n};\n\nexport let S = 0;\nfor (const x of it) S = x;'],
+  ['L62', '`Object.entries(o)` with a getter', `${OBJ_G}export const S = Object.entries(o);`],
+  ['L63', 'a function that makes an object: `mache().lies()`', 'function mache(): { lies(): number } {\n  return {\n    lies(): number {\n      return GRENZE;\n    },\n  };\n}\n\nexport const S = mache().lies();'],
+  ['L64', '`Symbol.toPrimitive` through a template', 'const o = {\n  [Symbol.toPrimitive](): number {\n    return GRENZE;\n  },\n};\n\nexport const S = `${o}`;'],
+  ['L65', 'M14: a getter of a class: `new K().g`', 'class K {\n  get g(): number {\n    return GRENZE;\n  }\n}\n\nexport const S = new K().g;'],
+  ['L66', '`Array.from(it)` over an iterator object', 'const it = {\n  *[Symbol.iterator](): Generator<number> {\n    yield GRENZE;\n  },\n};\n\nexport const S = Array.from(it);'],
+  ['L67', 'a promise chain with top-level await', 'function lies(): number {\n  return GRENZE;\n}\n\nexport const S = await Promise.resolve().then(lies);'],
+  ['L68', '`Number(o)` with `valueOf`', `${OBJ_T('valueOf', 'number')}export const S = Number(o);`],
+  ['L69', 'a comparison `o < 1` with `valueOf`', `${OBJ_T('valueOf', 'number')}export const S = o < 1;`],
+  ['L70', 'a sum `o + 1` with `valueOf`', `${OBJ_T('valueOf', 'number')}export const S = o + 1;`],
+  ['L71', '`x instanceof K` with a static `Symbol.hasInstance`', 'class K {\n  static [Symbol.hasInstance](): boolean {\n    return GRENZE > 0;\n  }\n}\n\nexport const S = 1 instanceof K;'],
+  ['L72', 'a destructured getter `const { g } = o`', `${OBJ_G}export const { g: S } = o;`],
+  ['L73', '`Object.fromEntries(Object.entries(o))`', `${OBJ_G}export const S = Object.fromEntries(Object.entries(o));`],
+  ['L74', '`Object.keys(o)` (the getter is not run by keys, but the carrier is mentioned: over-approximated)', `${OBJ_G}export const S = Object.keys(o);`],
+  ['L75', 'an object literal that is used at once: `JSON.stringify({ toJSON() {} })`', 'export const S = JSON.stringify({\n  toJSON(): number {\n    return GRENZE;\n  },\n});'],
+  ['L76', 'an inline getter: `Object.assign({}, { get g() {} })`', 'export const S = Object.assign({}, {\n  get g(): number {\n    return GRENZE;\n  },\n});'],
+  ['L77', 'an inline `valueOf`: `+{ valueOf() {} }`', 'export const S = +{\n  valueOf(): number {\n    return GRENZE;\n  },\n};'],
+  ['L78', 'an inline `then`: `await Promise.resolve({ then(r) {} })`', 'export const S = await Promise.resolve({\n  then(r: (v: number) => void): void {\n    r(GRENZE);\n  },\n});'],
+  ['L79', 'a carrier held by another variable: `const p = o; ...${p}`', 'const o = {\n  toString(): string {\n    return String(GRENZE);\n  },\n};\nconst p = o;\n\nexport const S = `${p}`;'],
+  ['L80', 'a carrier inside a call that makes a variable: `const h = mk({ get g() {} })`, then a spread of `h`', 'function mk<T>(x: T): T {\n  return x;\n}\nconst h = mk({\n  get g(): number {\n    return GRENZE;\n  },\n});\n\nexport const S = { ...h };'],
+  ['L81', 'a nested literal `{ inner: { get g() {} } }` spread through its variable', 'const cfg = {\n  inner: {\n    get g(): number {\n      return GRENZE;\n    },\n  },\n};\n\nexport const S = JSON.stringify(cfg);'],
+  ['L82', 'a class field that holds a carrier: `new K()` and a spread of its field', 'class K {\n  o = {\n    get g(): number {\n      return GRENZE;\n    },\n  };\n}\n\nexport const S = { ...new K().o };'],
+  ['L83', 'M11: a computed method name of a bound literal reads the name while the literal is built', 'export const o = {\n  [String(GRENZE)]() {\n    return 1;\n  },\n};'],
+  ['L84', 'M11: the same with an unbound literal: `Object.keys({ [GRENZE]() {} })`', 'export const S = Object.keys({\n  [String(GRENZE)]() {\n    return 1;\n  },\n});'],
+] as const) {
+  lauf.fall({ id, name: `${was}: the rest reads the moved name while loading`, soll: ['B9'], teile: teileB9, eingabe: () => grenze(`${text}${SPAET}`) });
+}
+lauf.abschnitt('V2N2A-2: what stays green');
+for (const [id, was, text] of [
+  ['G50', 'an object with `toString` that is used only AFTER the old place', 'const o = {\n  toString(): string {\n    return String(GRENZE);\n  },\n};\n\nconst GRENZE = 5;\n\nexport const S = `${o}`;\n'],
+  ['G51', 'a bound literal in an `export default` that is not run while loading', 'export default {\n  get g(): number {\n    return GRENZE;\n  },\n};'],
+  ['G52', 'a carrier that does not read the moved name may be mentioned', 'const o = {\n  toString(): string {\n    return "x";\n  },\n};\n\nexport const S = `${o}`;'],
+  ['G53', 'a literal without a function or a getter that is spread', 'const o = { a: 1, b: [2, 3] };\n\nexport const S = { ...o };'],
+  ['G54', 'a class whose method reads the name, but the class is not mentioned in front', 'class K {\n  lies(): number {\n    return GRENZE;\n  }\n}\nexport const VOR = 1;'],
+] as const) {
+  lauf.fall({ id, name: `green: ${was}`, soll: [], eingabe: () => grenze(text.includes('const GRENZE') ? text : `${text}${SPAET}`) });
+}
+{
+  const text = alsText(laufe(grenze(`${LIES}export const VOR = 1;`)));
+  lauf.pruefe('T02', 'the limits line names the carriers and the implicit calls (spread, template, await, for of) and still names eval/Reflect', /carries a function, a method, a getter or a class/.test(text) && /await/.test(text) && /Reflect/.test(text), text.split('\n').filter((z) => /B9 \(reads/.test(z)).join('\n'));
+}
+
+// V2N2A-4 (M20): an assignment target that the type checker cannot resolve counts as the moved variable.
+lauf.fall({ id: 'Z60', name: 'M20: a target that does not resolve (an `import x = Nope.y` alias of the same name in a namespace) counts (B12)', soll: ['B7', 'B12'], teile: teileZ, eingabe: () => zl('namespace Q {\n    import zaehler = Nope.X;\n    zaehler = 1;\n  }') });
+
+// V2N2A-3: rule 4.6b of form k, a side-effect import behind the unchanged import of the same module.
+lauf.abschnitt('V2N2A-3: `import \'<module>\';` directly behind the unchanged import of the same module (rule 4.6b of form k)');
+const WERK = { 'src/werk.ts': 'export class Werk {}\n', 'src/anderes.ts': 'export const ANDERES = 1;\n', 'src/frei.ts': 'export const FREI = 2;\n' };
+const seite = (kopf: string): Eingabe =>
+  schnitt(`${kopf}export class A {\n  w?: Werk;\n  a = ANDERES;\n  m(): unknown {\n    return [new Werk(), ANDERES, this.a];\n  }\n}\n`, auftrag(['m']), { dateien: WERK });
+const KOPF = "import { Werk } from './werk';\nimport { ANDERES } from './anderes';\n";
+const glue = (nach: string, zeile = "import './werk';\n") => (t: string): string => muss(t, t.replace(nach, `${nach}${zeile}`), nach);
+lauf.fall({ id: 'S01', name: 'without the glue the order changes (the moved code takes the value import along): B10 is red', soll: ['B10'], eingabe: () => seite(KOPF) });
+lauf.fall({ id: 'S02', name: 'the glue directly behind the unchanged import: green (order as before)', soll: [], eingabe: () => mit(seite(KOPF), { rest: glue("import { Werk } from './werk';\n") }) });
+lauf.fall({ id: 'S03', name: 'the same line at another place (behind the other import) is no glue: B5 import-seiteneffekt, released only by `seiteneffekt:./werk`', soll: ['B5', 'B10'], teile: ['B5/import-seiteneffekt'], eingabe: () => mit(seite(KOPF), { rest: glue("import { ANDERES } from './anderes';\n") }) });
+lauf.fall({ id: 'S04', name: 'a side-effect import of a module the old state never imported: B5 import-seiteneffekt', soll: ['B5', 'B10'], teile: ['B5/import-seiteneffekt'], eingabe: () => mit(seite(KOPF), { rest: glue("import { Werk } from './werk';\n", "import './frei';\n") }) });
+lauf.fall({ id: 'S05', name: 'the same, released under `seiteneffekt:./frei`: only B10 stays (the order of evaluation changed)', soll: ['B10'], freigegeben: ['seiteneffekt:./frei'], eingabe: () => mit(seite(KOPF), { rest: glue("import { Werk } from './werk';\n", "import './frei';\n"), freigaben: [{ schluessel: 'seiteneffekt:./frei', begruendung: GRUND }] }) });
+lauf.fall({ id: 'S06', name: 'a second side-effect import behind the first glue line is not glue', soll: ['B5'], teile: ['B5/import-seiteneffekt'], eingabe: () => mit(seite(KOPF), { rest: glue("import { Werk } from './werk';\n", "import './werk';\nimport './werk';\n") }) });
+lauf.fall({ id: 'S07', name: 'the old import was only a type import: a side-effect import behind it adds a load, not glue', soll: ['B5', 'B10'], teile: ['B5/import-seiteneffekt'], eingabe: () => mit(schnitt("import type { Werk } from './werk';\nimport { ANDERES } from './anderes';\nexport class A {\n  w?: Werk;\n  a = ANDERES;\n  m(): unknown {\n    return [ANDERES, this.a];\n  }\n}\n", auftrag(['m']), { dateien: WERK }), { rest: glue("import type { Werk } from './werk';\n") }) });
+lauf.fall({ id: 'S08', name: 'the import in front lost a name: a side-effect import behind it is no glue', soll: ['B5'], teile: ['B5/import-seiteneffekt'], eingabe: () => mit(schnitt("import { Werk, Ding } from './werk';\nimport { ANDERES } from './anderes';\nexport class A {\n  w?: Werk;\n  a = ANDERES;\n  m(): unknown {\n    return [new Werk(), ANDERES, Ding, this.a];\n  }\n}\n", auftrag(['m']), { dateien: { ...WERK, 'src/werk.ts': 'export class Werk {}\nexport const Ding = 3;\n' } }), { rest: glue("import { Werk } from './werk';\n") }) });
+lauf.fall({ id: 'S09', name: 'a default import in the side-effect form with names is not the form (`import x from` behind is a new import)', soll: ['B5', 'B10'], teile: ['B5/import-neu-fremd'], eingabe: () => mit(seite(KOPF), { rest: glue("import { Werk } from './werk';\n", "import { FREI } from './frei';\n") }) });
 
 lauf.ende();

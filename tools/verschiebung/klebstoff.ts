@@ -151,6 +151,31 @@ function ausfuhrElemente(d: ts.ExportDeclaration): ts.ExportSpecifier[] {
   return d.exportClause && ts.isNamedExports(d.exportClause) ? [...d.exportClause.elements] : [];
 }
 
+/**
+ * Rule 4.6b of form k: when the last use of a value import goes away, the line stays byte-identical and a
+ * side-effect import `import '<module>';` stands DIRECTLY behind it, so that the module keeps its place
+ * in the order of evaluation (the compiler drops an import that is only used as a type). This is glue if
+ * the statement in front of it in the rest is the unchanged import of the same module (specifier, names
+ * and attributes as before, nothing taken out) and the old state imported at least one VALUE from it.
+ * Returns `null` if it is, else the reason why not. That the order of evaluation stays the same is judged
+ * by rule B10 on the two module graphs, not here.
+ */
+function seiteneffektHinterWertImport(n: Stueck, z: Zerlegung): string | null {
+  const d = n.knoten as ts.ImportDeclaration;
+  const spec = specText(d);
+  const sf = z.rest.sf;
+  const i = sf.statements.indexOf(d);
+  const davor = i > 0 ? sf.statements[i - 1]! : undefined;
+  if (!davor || !ts.isImportDeclaration(davor)) return 'no import of the same module stands directly in front of it';
+  const paar = [...z.importe.paare, ...z.importe.umgestellt].find((x) => x.neu.knoten === davor);
+  if (!paar) return 'the import directly in front of it is not an import of the old state';
+  if (specText(davor) !== spec || (davor.attributes ? davor.attributes.getText(sf) : '') !== '') return 'the import directly in front of it is of another module';
+  if (paar.entfernt.length > 0 || paar.alt.knoten.getText(paar.alt.datei.sf) !== davor.getText(sf)) return 'the import in front of it is not byte-identical to the old one';
+  const wert = einfuhren(paar.alt, z.alt.pfad).some((e) => !e.nurTyp);
+  if (!wert) return 'the old state imported no value from this module';
+  return null;
+}
+
 export function pruefeKlebstoff(manifest: Manifest, z: Zerlegung, p: Protokoll): void {
   const wissen = sammleWissen(z);
   const rest = z.rest;
@@ -182,6 +207,18 @@ export function pruefeKlebstoff(manifest: Manifest, z: Zerlegung, p: Protokoll):
     const d = n.knoten as ts.ImportDeclaration;
     const ziel = zielVon(rest.pfad, specText(d), manifest);
     if (ziel === null) {
+      if (!d.importClause && !d.attributes) {
+        const grund = seiteneffektHinterWertImport(n, z);
+        if (grund === null) continue; // rule 4.6b of form k: glue that keeps the order of evaluation
+        p.melde({
+          regel: 'B5',
+          teil: 'import-seiteneffekt',
+          ort: ortVonKnoten(rest, d),
+          text: `new import in the rest: ${kurz(d.getText(rest.sf), 70)} loads a module for its effect and is not the glue of rule 4.6b of form k (${grund})`,
+          freigabe: `seiteneffekt:${specText(d)}`,
+        });
+        continue;
+      }
       p.melde({ regel: 'B5', teil: 'import-neu-fremd', ort: ortVonKnoten(rest, d), text: `new import in the rest: ${kurz(d.getText(rest.sf), 70)} does not point to a target file of this step` });
       continue;
     }

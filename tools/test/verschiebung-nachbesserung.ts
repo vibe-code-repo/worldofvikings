@@ -52,10 +52,10 @@ for (const [id, vorgabe] of [
   ['A2g4', "x = 's'"],
   ['A2g5', 'x = true'],
   ['A2g6', 'x: null | number = null'],
-  ['A2g7', 'x = () => this.zahl'],
 ] as const) {
-  lauf.fall({ id, name: `green: the default value \`${vorgabe}\` is a literal or a function and stays allowed`, soll: [], eingabe: () => schnitt(mitVorgabe(vorgabe, 'void x;\n    return this.zaehler;'), auftrag(['m'])) });
+  lauf.fall({ id, name: `green: the default value \`${vorgabe}\` is a plain literal and stays allowed`, soll: [], eingabe: () => schnitt(mitVorgabe(vorgabe, 'void x;\n    return this.zaehler;'), auftrag(['m'])) });
 }
+lauf.fall({ id: 'A2g7', name: 'V2N2A-1: a function value `x = () => this.zahl` is no longer free: B12 vorgabe-funktion (it needs the release `vorgabe:m.x`)', soll: ['B12'], teile: ['B12/vorgabe-funktion'], eingabe: () => schnitt(mitVorgabe('x = () => this.zahl', 'void x;\n    return this.zaehler;'), auftrag(['m'])) });
 
 lauf.abschnitt('V2-A4: `this` in a computed name or an `extends` clause belongs to the method (B12, and B3/B4 agree on the owner)');
 const RA_OBJ = "export class A {\n  key = 'x';\n  zahl = 2;\n  m(): Record<string, unknown> {\n    return { [this.key]() { return 1; }, z: this.zahl };\n  }\n}\n";

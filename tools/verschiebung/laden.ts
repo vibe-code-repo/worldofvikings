@@ -170,6 +170,30 @@ function auspacken(e: ts.Node): ts.Node {
 
 const istFunktionsWert = (e: ts.Node): boolean => ts.isArrowFunction(auspacken(e)) || ts.isFunctionExpression(auspacken(e));
 
+/**
+ * True if an object literal (or array literal) is BOUND: it is the initial value of a variable, of a class field or
+ * of an `export default`, possibly nested in other literals. What such a literal carries is a unit of that
+ * variable and runs only when the variable is mentioned. A literal that stands anywhere else (an argument,
+ * an operand, a spread) is used at once: whatever it carries may run while the module loads (V2N2A-2).
+ */
+function istGebunden(literal: ts.Node): boolean {
+  let k: ts.Node = literal;
+  for (;;) {
+    const p: ts.Node | undefined = k.parent;
+    if (!p) return false;
+    if (ts.isParenthesizedExpression(p) || ts.isAsExpression(p) || ts.isSatisfiesExpression(p) || ts.isNonNullExpression(p) || ts.isTypeAssertionExpression(p) || ts.isArrayLiteralExpression(p)) {
+      k = p;
+      continue;
+    }
+    if (ts.isPropertyAssignment(p) && p.initializer === k && ts.isObjectLiteralExpression(p.parent)) {
+      k = p.parent;
+      continue;
+    }
+    if (ts.isVariableDeclaration(p) || ts.isPropertyDeclaration(p)) return p.initializer === k;
+    return ts.isExportAssignment(p) && p.expression === k;
+  }
+}
+
 /** The value of a variable (function or class), of an object property or of a class field: a unit of its own, not run by the statement that holds it. */
 function istEinheitswert(f: ts.Node): boolean {
   let k: ts.Node = f;
@@ -181,7 +205,8 @@ function istEinheitswert(f: ts.Node): boolean {
   if (!p) return false;
   if (ts.isVariableDeclaration(p) && p.initializer === k && ts.isIdentifier(p.name)) return true;
   if (ts.isClassLike(f)) return false;
-  return (ts.isPropertyAssignment(p) && p.initializer === k) || (ts.isPropertyDeclaration(p) && p.initializer === k);
+  if (ts.isPropertyAssignment(p) && p.initializer === k) return ts.isObjectLiteralExpression(p.parent) && istGebunden(p.parent);
+  return ts.isPropertyDeclaration(p) && p.initializer === k;
 }
 
 /** Records what a node itself mentions (not its children). */
@@ -235,9 +260,13 @@ function klassenCode(k: ts.ClassLikeDeclaration, b: Einheit, voll: boolean): voi
     for (const d of dekoratoren(m)) ganz(d, b);
     const name = (m as ts.NamedDeclaration).name;
     if (name && ts.isComputedPropertyName(name)) ganz(name, b);
+    if (voll && istGliedEinheit(m)) ganz(m, b); // an instance of the class may run a getter, `toString`, `valueOf` ... (V2N2A-2)
     if (ts.isClassStaticBlockDeclaration(m)) ganz(m.body, b);
     else if (ts.isPropertyDeclaration(m) && m.initializer) {
-      if (istFunktionsWert(m.initializer) && istEinheitswert(m.initializer)) continue;
+      if (istFunktionsWert(m.initializer) && istEinheitswert(m.initializer)) {
+        if (voll) ganz(m.initializer, b);
+        continue;
+      }
       if (voll || hatModifikator(m, K.StaticKeyword)) ganz(m.initializer, b);
     } else if (voll && ts.isConstructorDeclaration(m)) ganz(m, b);
   }
@@ -261,7 +290,8 @@ function ladeCode(st: ts.Node, b: Einheit): void {
       return;
     }
     if (istGliedEinheit(x) && ts.isObjectLiteralExpression(x.parent)) {
-      if (ts.isComputedPropertyName(x.name)) ganz(x.name, b);
+      if (!istGebunden(x.parent)) ganz(x, b); // a literal used at once: a getter, `toString`, `then`, `toJSON` ... may run
+      else if (ts.isComputedPropertyName(x.name)) ganz(x.name, b);
       return;
     }
     if (ts.isClassLike(x)) {
@@ -274,6 +304,24 @@ function ladeCode(st: ts.Node, b: Einheit): void {
     ts.forEachChild(x, geh);
   };
   geh(st);
+}
+
+/**
+ * A variable whose value carries functions, methods, getters or classes (an object literal, a call that gets one,
+ * `new K()`): mentioning the variable may run any of them, without a call and without a name that the code touches
+ * (`{ ...o }`, `` `${o}` ``, `+o`, `await o`, `for (x of o)`, `Object.entries(o)`, `JSON.stringify(o)`, a getter).
+ * So the variable is a unit that holds the code of all of them (V2N2A-2).
+ */
+function traegerCode(init: ts.Node, b: Einheit): void {
+  const geh = (x: ts.Node): void => {
+    if (ts.isTypeNode(x)) return;
+    if (ts.isFunctionLike(x) || ts.isClassLike(x)) {
+      ganz(x, b);
+      return;
+    }
+    ts.forEachChild(x, geh);
+  };
+  geh(init);
 }
 
 interface Index {
@@ -297,10 +345,11 @@ function baueIndex(alle: readonly Stueck[]): Index {
     if (ts.isTypeNode(x)) return;
     if (ts.isFunctionDeclaration(x) && x.name) ganz(x, eintrag(index.benannt, x.name.text));
     else if (ts.isClassDeclaration(x) && x.name) klassenCode(x, eintrag(index.benannt, x.name.text), true);
-    else if (ts.isVariableDeclaration(x) && ts.isIdentifier(x.name) && x.initializer) {
+    else if (ts.isVariableDeclaration(x) && x.initializer) {
       const i = auspacken(x.initializer);
-      if (ts.isArrowFunction(i) || ts.isFunctionExpression(i)) ganz(i, eintrag(index.benannt, x.name.text));
-      else if (ts.isClassExpression(i)) klassenCode(i, eintrag(index.benannt, x.name.text), true);
+      if (ts.isIdentifier(x.name) && (ts.isArrowFunction(i) || ts.isFunctionExpression(i))) ganz(i, eintrag(index.benannt, x.name.text));
+      else if (ts.isIdentifier(x.name) && ts.isClassExpression(i)) klassenCode(i, eintrag(index.benannt, x.name.text), true);
+      else for (const n of bindungsNamen(x.name)) traegerCode(x.initializer, eintrag(index.benannt, n));
     } else if (istGliedEinheit(x)) ganz(x, eintrag(index.glieder, gliedSchluessel(x.name)));
     else if ((ts.isPropertyAssignment(x) || ts.isPropertyDeclaration(x)) && x.initializer && istFunktionsWert(x.initializer)) ganz(x.initializer, eintrag(index.glieder, gliedSchluessel(x.name)));
     ts.forEachChild(x, geh);

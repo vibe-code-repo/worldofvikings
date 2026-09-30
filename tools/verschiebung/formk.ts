@@ -8,7 +8,7 @@
  */
 import ts from 'typescript';
 import { KnotenPaare, vergleicheBaum, vergleicheListe, vergleicheWahlweise, type BaumOptionen, type BaumUnterschied } from './baum';
-import { dekoratoren, hatModifikator, modifikatoren } from './stuecke';
+import { bindungsNamen, dekoratoren, hatModifikator, modifikatoren } from './stuecke';
 import { kurz, ortVonKnoten, type Datei, type KontextAngabe, type Protokoll } from './typen';
 import type { FormkPaar } from './zerlegung';
 
@@ -178,9 +178,11 @@ export function ersteWirkung(ausdruck: ts.Node): { knoten: ts.Node; was: string 
 /**
  * True for a default value the forwarder can pass on without a trace: a literal that is not
  * `undefined` (number, string without substitution, `true`, `false`, `null`, a negated number, a
- * bigint or regular expression), an array or object literal that holds only such literals, and a
- * function value (writing one down runs nothing). Everything else can yield `undefined` or has an
- * effect: the function would then evaluate its own default value a second time (rule 5, R-D).
+ * bigint or regular expression) and an array or object literal that holds only such literals.
+ * Everything else can yield `undefined` or has an effect: the function would then evaluate its own
+ * default value a second time (rule 5, R-D). A function value is NOT free (V2N2A-1): the forwarder
+ * evaluates it in ITS parameter scope and passes the closure on, so a closure over a parameter that the
+ * body assigns to sees the forwarder's variable, not the function's (`vorgabeFunktionen`).
  */
 function istErlaubteVorgabe(e: ts.Expression): boolean {
   if (ts.isNumericLiteral(e) || ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e) || ts.isBigIntLiteral(e) || ts.isRegularExpressionLiteral(e)) return true;
@@ -190,7 +192,7 @@ function istErlaubteVorgabe(e: ts.Expression): boolean {
   if (ts.isObjectLiteralExpression(e)) {
     return e.properties.every((x) => ts.isPropertyAssignment(x) && (ts.isIdentifier(x.name) || ts.isStringLiteral(x.name) || ts.isNumericLiteral(x.name)) && istErlaubteVorgabe(x.initializer));
   }
-  return ts.isArrowFunction(e) || ts.isFunctionExpression(e);
+  return false;
 }
 
 /**
@@ -229,6 +231,34 @@ function thisAlsWert(n: ts.Node): boolean {
   return !(p && (ts.isPropertyAccessExpression(p) || ts.isElementAccessExpression(p)) && p.expression === k);
 }
 
+/** Names the parameters of a method bind (patterns included). */
+function parameterNamen(m: ts.MethodDeclaration): Set<string> {
+  return new Set(m.parameters.flatMap((p) => bindungsNamen(p.name)));
+}
+
+/** The functions and classes at the top of an expression (the outermost ones) that mention one of `namen` anywhere inside. */
+function funktionenUeber(e: ts.Node, namen: ReadonlySet<string>): { knoten: ts.Node; name: string }[] {
+  const aus: { knoten: ts.Node; name: string }[] = [];
+  const erwaehnt = (n: ts.Node): string | null => {
+    if (ts.isIdentifier(n) && istVariablenname(n) && namen.has(n.text)) return n.text;
+    let fund: string | null = null;
+    ts.forEachChild(n, (k) => {
+      fund ??= erwaehnt(k);
+    });
+    return fund;
+  };
+  const geh = (n: ts.Node): void => {
+    if (ts.isFunctionLike(n) || ts.isClassLike(n)) {
+      const name = erwaehnt(n);
+      if (name !== null) aus.push({ knoten: n, name });
+      return;
+    }
+    ts.forEachChild(n, geh);
+  };
+  geh(e);
+  return aus;
+}
+
 /** Rule B12 for form k: constructs of the old method the form does not support. */
 export function pruefeUnterstuetzt(paar: { name: string; alt: { knoten: ts.Node } }, alt: Datei, klasse: string, kontext: KontextAngabe, p: Protokoll): void {
   const m = paar.alt.knoten;
@@ -258,7 +288,18 @@ export function pruefeUnterstuetzt(paar: { name: string; alt: { knoten: ts.Node 
     if (par.initializer) {
       const w = ersteWirkung(par.initializer);
       const pn = ts.isIdentifier(par.name) ? par.name.text : '?';
-      if (w) melde('vorgabe', w.knoten, `default value of parameter "${pn}" contains ${w.was}: it would be evaluated in the forwarder and in the function`, `vorgabe:${paar.name}.${pn}`);
+      const funktionswert = ts.isArrowFunction(par.initializer) || ts.isFunctionExpression(par.initializer);
+      // V2N2A-1: a function or class in a default value is created in the scope of the FORWARDER's parameters. A closure over a
+      // parameter (or over the parameter itself) that the body assigns to sees the forwarder's variable: never releasable.
+      const geschlossen = funktionenUeber(par.initializer, parameterNamen(m));
+      for (const g of geschlossen) {
+        melde('vorgabe-funktion-closure', g.knoten, `default value of parameter "${pn}" holds a function or class that mentions "${g.name}" (a parameter of the method, or the parameter itself): the forwarder creates it in the scope of ITS parameters and passes the closure on, so an assignment to "${g.name}" in the body would not reach it; this cannot be released`);
+      }
+      if (funktionswert) {
+        if (geschlossen.length === 0) melde('vorgabe-funktion', par.initializer, `default value of parameter "${pn}" is a function value: the forwarder creates it once, in the scope of ITS parameters (not those of the function), and passes the closure on; the function does not create a second one (a function is not \`undefined\`). The tool has checked that it mentions no parameter of the method`, `vorgabe:${paar.name}.${pn}`);
+        continue;
+      }
+      if (w) melde('vorgabe', w.knoten, `default value of parameter "${pn}" contains ${w.was}: it would be evaluated in the forwarder (in the scope of ITS parameters) and, if the forwarder passes \`undefined\` on, a second time in the function; a function or class inside it is created in the forwarder`, `vorgabe:${paar.name}.${pn}`);
       const v = vorgabeProblem(par.initializer);
       if (v && (!w || v.dieses)) melde('vorgabe-this-undefined', v.knoten, `default value of parameter "${pn}" ${v.was}: if the forwarder passes \`undefined\` on, the function evaluates its own default value a second time`);
     }

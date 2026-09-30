@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "alt": "git:cb85ef60",
+  "neu": "git:6bcbdac3",
+  "quelle": "client/src/editor/GegenstandsKatalog.ts",
+  "ziele": [
+    {
+      "datei": "client/src/editor/katalog/konstanten.ts",
+      "woertlich": [
+        "SEITE_GROESSE",
+        "LADE_TIMEOUT",
+        "PRUEF_PARALLEL",
+        "SPALTE_BREITE",
+        "Kennzahlen",
+        "StatusArt",
+        "REFERENZ_FIGUR_BREITE",
+        "REFERENZ_FIGUR_HOEHE",
+        "REFERENZ_FIGUR_TIEFE",
+        "REFERENZ_KISTE_KANTE",
+        "REFERENZ_LUECKE"
+      ]
+    },
+    {
+      "datei": "client/src/editor/katalog/format.ts",
+      "woertlich": [
+        "VORSCHLAG_SCHLUESSEL",
+        "vorschlagText",
+        "kollisionsartText",
+        "zahlLocale",
+        "fmtBytes",
+        "fmt"
+      ]
+    },
+    {
+      "datei": "client/src/editor/katalog/kategorien.ts",
+      "woertlich": [
+        "ITEMS_NACH_NAME",
+        "ITEM_TYP_TEXT",
+        "MIT_MODELL",
+        "Kategorie",
+        "SPEICHER_HINWEIS",
+        "KATEGORIEN"
+      ]
+    }
+  ],
+  "einstiege": [
+    "client/src/editor/GegenstandsKatalog.ts"
+  ],
+  "freigaben": [
+    {
+      "schluessel": "laden:ITEMS_NACH_NAME",
+      "begruendung": "Derived from the registry ITEM_DEFS (@wov/shared) while the module loads, as before: no statement of the rest that acts while loading ran before it in the old state, and kategorien.ts is evaluated directly before GegenstandsKatalog.ts (rule B10), after everything it imports. GegenstandsKatalog.ts is the only importer of the module and is loaded dynamically by the editor after the registrations; client/test/katalog-module-grenze.ts guards that (attack report of G1)."
+    },
+    {
+      "schluessel": "laden:MIT_MODELL",
+      "begruendung": "Derived from the registry PREFAB_DEFS (@wov/shared) while the module loads, as before: no statement of the rest that acts while loading ran before it in the old state, and kategorien.ts is evaluated directly before GegenstandsKatalog.ts (rule B10), after everything it imports. GegenstandsKatalog.ts is the only importer of the module and is loaded dynamically by the editor after the registrations; client/test/katalog-module-grenze.ts guards that (attack report of G1)."
+    },
+    {
+      "schluessel": "laden:KATEGORIEN",
+      "begruendung": "Derived from the registry STORE_ARTEN (StoreKatalogDaten.ts, a literal list) and of the lists above while the module loads, as before: no statement of the rest that acts while loading ran before it in the old state, and kategorien.ts is evaluated directly before GegenstandsKatalog.ts (rule B10), after everything it imports. GegenstandsKatalog.ts is the only importer of the module and is loaded dynamically by the editor after the registrations; client/test/katalog-module-grenze.ts guards that (attack report of G1)."
+    },
+    {
+      "schluessel": "reihenfolge:client/src/editor/GegenstandsKatalog.ts:shared/src/todTreffer.ts",
+      "begruendung": "The module came with a merge of main that lies between the two states (the head contains main 349b9d77); it is not part of this step. With the merged main commit as the old state the finding does not exist (manifest g1.json)."
+    },
+    {
+      "schluessel": "reihenfolge:client/src/editor/GegenstandsKatalog.ts:client/src/player/wurzelbewegung.ts",
+      "begruendung": "The module came with a merge of main that lies between the two states (the head contains main 349b9d77); it is not part of this step. With the merged main commit as the old state the finding does not exist (manifest g1.json)."
+    }
+  ]
+}

@@ -282,15 +282,6 @@ export default [
   */
   ['tools', 'test/generiert-getrennt.ts'],
   /*
-    I1 step 0 (N1): the proof tool `tools/i1-verschiebung.mjs` proves itself with 151 fixtures: real moves and every
-    forgery of the attack on #155 (forwarding form, the whole rest of the source file, the whole target file, free
-    names bound with scopes, local `k`, `arguments`, replacement table, effect comments, `k: any`), for a class method
-    (`this.` -> `k.`), a free function (form a) and verbatim moves (form 0); plus the command line (exit 0, 1, 2).
-    Node only, ~2 s.
-    Der Verschiebebeweis probt sich selbst: echt, gefälscht, unvollständig, je Form.
-  */
-  ['tools', 'test/i1-verschiebung.ts'],
-  /*
     Der Boden gegen das VORBILD (10.09.2026, `design/original-boden.md`).
     `tools/test/look-referenz.ts` ist dabei umgedreht worden, und das ist
     der Kern der Sache: Bis dahin hat er vier TOENUNGEN bewacht, die am
@@ -515,6 +506,32 @@ export default [
   // einen. Fehlt einer davon GANZ, wird uebersprungen; fehlen EINZELNE
   // Dateien darin, wird der Test rot. Begruendung bei der Funktion.
   ['tools', 'test/terrain-schichten.ts', brauchtBodenQuellen()],
+  /*
+    Move proof (tools/verschiebung/), seven self-tests. Small source texts in memory, no assets,
+    no installed packages: they run in the CI checkout. ~10 s each, aufruf ~20 s.
+     - altbestand: the 151 fixtures of the earlier proof tool, transferred, each with the
+       expectation it had there and a reason where the result differs.
+     - aufruf: the command line and the two states, on a throwaway git repository under a temp
+       folder (needs `git`, nothing of the checkout's history).
+     - nachbesserung: the gaps of the third attack (V2-A1 to A13) and the nine mutants that survived
+       the earlier self-tests, one fixture each; also starts the command line self-test and
+       interrupts it (~40 s).
+     - klassen: the second fix round (V2N): default values as a free list, reads while loading by
+       names (conservative), assignment targets through casts and by binding, and the fixtures of the
+       14 surviving mutants.
+     - nachangriff: the forgeries of both attacks on the earlier tool, each in its smallest form.
+     - regeln: every rule bites. For each rule B1 to B13 at least one green and one red fixture,
+       and every red fixture names exactly the rules that must report.
+     - typen: `tsc -p tools/verschiebung/tsconfig.json`, because `npm run typecheck` covers the
+       four workspaces and not tools/.
+  */
+  ['tools/test', 'verschiebung-altbestand.ts'],
+  ['tools/test', 'verschiebung-aufruf.ts'],
+  ['tools/test', 'verschiebung-klassen.ts'],
+  ['tools/test', 'verschiebung-nachangriff.ts'],
+  ['tools/test', 'verschiebung-nachbesserung.ts'],
+  ['tools/test', 'verschiebung-regeln.ts'],
+  ['tools/test', 'verschiebung-typen.ts'],
   ['tools', 'test/vorschau-buendeln-typpruefung.ts'],
   // Preview bundle stays untracked; the update script's dirty-tree warning is run for real,
   // and the tracked appearance.json is checked against its generator.

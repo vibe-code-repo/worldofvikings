@@ -282,7 +282,8 @@ export class WetterWuerfel {
 
   /** Lauf, der das Fenster `n` enthält. */
   private laufBei(bit: Biome, eintraege: readonly WetterEintrag[], n: number): Lauf {
-    if (eintraege.every((e) => e.fensterMin === 1 && e.fensterMax === 1)) return this.zieheLauf(eintraege, n);
+    // Läufe beginnen bei Fenster 0; vor der Weltzeit 0 gibt es keine, jedes Fenster ist ein eigener Lauf.
+    if (n < 0 || eintraege.every((e) => e.fensterMin === 1 && e.fensterMax === 1)) return this.zieheLauf(eintraege, n);
     let liste = this.laeufe.get(bit);
     if (!liste) this.laeufe.set(bit, (liste = []));
     let naechster = liste.length > 0 ? liste[liste.length - 1].start + liste[liste.length - 1].laenge : 0;

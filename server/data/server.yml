@@ -291,7 +291,11 @@ wetter:
   # Name einer Umgebung aus shared/src/envData.json (Clear, Misty, Rain,
   # ThunderStorm, LightRain, Snow, SwampRain, ...). Leer = wuerfeln wie
   # bisher. Ein unbekannter Name wird beim Start gemeldet und ignoriert.
-  umgebung: Village
+  # Seit 30.09.2026 leer (Mike): Das Wetter je Biom zieht der Server aus
+  # shared/data/wetter/biome.json und schickt es jedem Spieler (F9). Ein
+  # Name hier nagelt das Wetter fuer ALLE Biome fest und schlaegt den
+  # Wuerfel; nur der Admin-Befehl `wetter` ueberstimmt ihn dann noch.
+  umgebung:
   # Feste Nebeldichte. Leer oder fehlend = der Tageszeit folgen — und das
   # ist bei Klar-Comic die richtige Wahl: Dieses Wetter bringt seine vier
   # Dichten fuer die exp-Kurve selbst mit (0,0009 bis 0,0025), eine feste

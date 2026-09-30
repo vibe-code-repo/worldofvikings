@@ -17,7 +17,10 @@
 import WebSocket from 'ws';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { mkdirSync, rmSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { leseServerKonfig } from '../src/ServerKonfig.js';
 import {
   Biome,
   ENVIRONMENT_DURATION,
@@ -312,6 +315,118 @@ function teilA(): void {
   }
   check('Tageszeit über Mitternacht (von > bis)', nachtRichtig === 300, `${nachtRichtig}/300`);
 
+  // M3 (Angriff #178): negative Weltzeit mit Dauern > 1 warf einen TypeError.
+  let negativOk = true;
+  let negativFehler = '';
+  const negA = eigene((d) => {
+    for (const e of d.biome.find((b) => b.biom === 'Meadows')!.zustaende) {
+      e.fensterMin = 2;
+      e.fensterMax = 4;
+    }
+  });
+  const negB = eigene((d) => {
+    for (const e of d.biome.find((b) => b.biom === 'Meadows')!.zustaende) {
+      e.fensterMin = 2;
+      e.fensterMax = 4;
+    }
+  });
+  for (let n = -50; n <= 5; n++) {
+    try {
+      const x = negA.wetterFuer(Biome.Meadows, n * ENVIRONMENT_DURATION + 1);
+      const y = negB.wetterFuer(Biome.Meadows, n * ENVIRONMENT_DURATION + 1);
+      if (!x.umgebung || x.umgebung !== y.umgebung || x.fenster !== n) negativOk = false;
+    } catch (e) {
+      negativOk = false;
+      negativFehler = String(e);
+    }
+  }
+  check(
+    'negative Weltzeit (Fenster -50..5) mit Dauer 2-4: kein Fehler, gleiche Antwort in zwei Instanzen',
+    negativOk,
+    negativFehler,
+  );
+  check(
+    'negative Weltzeit, Dauer 2-4, als ERSTER Aufruf einer frischen Instanz',
+    (() => {
+      try {
+        return !!eigene((d) => {
+          const e = d.biome.find((b) => b.biom === 'Meadows')!.zustaende[0];
+          e.fensterMin = 2;
+          e.fensterMax = 4;
+        }).wetterFuer(Biome.Meadows, -5 * ENVIRONMENT_DURATION).umgebung;
+      } catch {
+        return false;
+      }
+    })(),
+  );
+  check(
+    'positive Zeit nach negativer bleibt unberührt (600/600 wie vorher)',
+    (() => {
+      try {
+        const z = eigene((d) => {
+          const e = d.biome.find((b) => b.biom === 'Meadows')!.zustaende.find((x) => x.zustand === 'Clear')!;
+          e.fensterMin = 2;
+          e.fensterMax = 4;
+        });
+        z.wetterFuer(Biome.Meadows, -3 * ENVIRONMENT_DURATION);
+        for (let n = 0; n < 600; n++)
+          if (z.wetterFuer(Biome.Meadows, n * ENVIRONMENT_DURATION + 1).zustand !== folge[n]) return false;
+        return true;
+      } catch {
+        return false;
+      }
+    })(),
+  );
+
+  // N2 (Angriff #178): eine Ersatzdatei mit vielen Fehlern füllt das Log nicht.
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'wov-wetter-n2-'));
+    const warnungen: string[] = [];
+    const alt = console.warn;
+    try {
+      const kaputt = (anzahl: number): unknown => ({
+        version: 1,
+        zustaende: [{ id: 'Clear', umgebung: 'Clear', textKey: 'inhalt.wetter.clear' }],
+        biome: Array.from({ length: anzahl }, () => ({
+          biom: 'Atlantis',
+          zustaende: [{ zustand: 'Clear', gewicht: 1 }],
+        })),
+      });
+      const lies = (anzahl: number): { zeilen: string[]; defs: unknown } => {
+        warnungen.length = 0;
+        writeFileSync(join(dir, 'wetter.json'), JSON.stringify(kaputt(anzahl)), 'utf-8');
+        writeFileSync(
+          join(dir, 'server.yml'),
+          'server:\n  name: Test\nworld:\n  mode: radial\nwetter:\n  definitionen: wetter.json\n',
+          'utf-8',
+        );
+        console.warn = (...a: unknown[]): void => void warnungen.push(a.map(String).join(' '));
+        const k = leseServerKonfig(dir, 'test');
+        console.warn = alt;
+        return {
+          zeilen: warnungen.filter((w) => w.startsWith('[Main] wetter.definitionen')),
+          defs: k.wetterDefinitionen,
+        };
+      };
+      const gross = lies(100);
+      check(
+        '100 Fehler: höchstens 20 Fehlerzeilen + "… und 80 weitere" + Verworfen-Zeile',
+        gross.zeilen.length === 22 && gross.zeilen.some((z) => z.includes('… und 80 weitere')),
+        `${gross.zeilen.length} Zeilen`,
+      );
+      check('… der Server nimmt die mitgelieferten Tabellen', gross.defs === undefined);
+      const klein = lies(2);
+      check(
+        '2 Fehler: beide einzeln, kein "weitere"',
+        klein.zeilen.length === 3 && !klein.zeilen.some((z) => z.includes('weitere')),
+        `${klein.zeilen.length} Zeilen`,
+      );
+    } finally {
+      console.warn = alt;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
   console.log('\n[A5] Wetterdienst mit Attrappen-Spielern');
   const gesendet: string[] = [];
   const attrappe = (extra: Partial<WetterEmpfaenger> = {}): WetterEmpfaenger => ({
@@ -382,6 +497,27 @@ function teilA(): void {
   );
   d2.setze('Rain');
   check('Admin-Override schlägt die feste Umgebung', d2.wetterFuer(attrappe(), t0)?.umgebung === 'Rain');
+
+  // M2 (Angriff #178): In einer Mischzone (Bitmaske) löst der Würfel auf EIN Biom auf; der Override muss es ebenso.
+  const mischung = new WetterDienst(
+    new WetterWuerfel(),
+    { umgebung: WETTER_AUTOMATISCH, nebelDichte: -1 },
+    () => Biome.Meadows | Biome.BlackForest,
+    'haupt',
+  );
+  const vorOverride = mischung.wetterFuer(attrappe(), t0)!.umgebung;
+  mischung.setze('Snow', 'Meadows');
+  check(
+    'Mischzone Meadows|BlackForest: Biom-Override "Meadows" wirkt (wie der Würfel, der Meadows nimmt)',
+    mischung.wetterFuer(attrappe(), t0)?.umgebung === 'Snow' && vorOverride !== 'Snow',
+    `vorher ${vorOverride}, danach ${mischung.wetterFuer(attrappe(), t0)?.umgebung}`,
+  );
+  mischung.setze(null, 'Meadows');
+  mischung.setze('Snow', 'BlackForest');
+  check(
+    'Mischzone: ein Override für das nicht aufgelöste Biom (BlackForest) wirkt dort nicht',
+    mischung.wetterFuer(attrappe(), t0)?.umgebung === vorOverride,
+  );
 
   console.log('\n[A6] Admin-Befehl');
   const d3 = dienst();

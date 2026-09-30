@@ -3199,7 +3199,8 @@ async function main() {
       // (alwaysDark — die Innenraum-Umgebung der Location),
       // nicht das Biom-Wetter der Oberwelt.
       lighting.setEnvironmentByName(dungeonEnv);
-    } else if (!envPinned) {
+    } else if (!envPinned || wetterAnnahme.fuehrt(params.get('env'))) {
+      // (Server-Wetter führt das Licht auch bei fester Vorgabe, s. WetterAnnahme.fuehrt)
       // The weather is picked here (the original's environment update); Lighting does
       // the cross-fade, so only the target is handed over.
       lighting.setEnvironmentByName(wx.to.name);

@@ -125,8 +125,8 @@ console.log('[5] main.ts: Verdrahtung');
     '?env= in der Adresszeile schlägt den Server; sonst ein Aufruf je Bild',
   );
   pruefe(
-    (main.match(/wetterAnnahme\./g) ?? []).length === 2,
-    'main.ts nennt das Modul an genau zwei Stellen',
+    (main.match(/wetterAnnahme\./g) ?? []).length === 3,
+    'main.ts nennt das Modul an genau drei Stellen (Handler, Übergabe, Lichtentscheid)',
   );
 }
 
@@ -151,6 +151,95 @@ console.log('[6] Mit dem echten WeatherManager');
   a.uebertrage(m);
   m.update(t, 0.1);
   pruefe(m.environment.name === lokal, 'leere Umgebung gibt den Würfel wieder frei', m.environment.name);
+}
+
+console.log('[7] M1: Der Server führt das Licht, auch bei fester Vorgabe aus server.yml (envPinned)');
+{
+  const a = new WetterAnnahme();
+  const z = new Ziel();
+  pruefe(!a.fuehrt(null), 'ohne Servernachricht führt der Server nicht (Vorgabe/Würfel wie bisher)');
+  a.lies(leser(['Village', 'Village', 3]));
+  a.uebertrage(z);
+  pruefe(a.fuehrt(null), 'Vorgabe Village vom Server: führt das Licht (gleicher Wert wie die Pin-Vorgabe)');
+  a.lies(leser(['Rain', 'Rain', 3]));
+  a.uebertrage(z);
+  pruefe(
+    a.fuehrt(null) && z.aufrufe[z.aufrufe.length - 1] === 'Rain',
+    'Admin-Override Rain: Licht folgt, Override am Manager',
+    JSON.stringify(z.aufrufe),
+  );
+  pruefe(!a.fuehrt('Clear'), '?env= in der Adresszeile schlägt den Server (führt nicht)');
+  a.lies(leser(['Village', 'Village', 3]));
+  a.uebertrage(z);
+  pruefe(
+    a.fuehrt(null) && z.aufrufe[z.aufrufe.length - 1] === 'Village',
+    'wetter auto: der Server schickt wieder die Vorgabe, das Licht kehrt zurück',
+  );
+  a.vergiss();
+  a.uebertrage(z);
+  pruefe(!a.fuehrt(null), 'nach dem Trennen führt der Server nicht mehr');
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf-8');
+  pruefe(
+    /\} else if \(!envPinned \|\| wetterAnnahme\.fuehrt\(params\.get\('env'\)\)\) \{/.test(main),
+    'main.ts: der Lichtzweig fragt fuehrt() neben envPinned',
+  );
+  pruefe(
+    main.split('\n').length < 3700,
+    'main.ts bleibt unter 3.700 Zeilen',
+    String(main.split('\n').length),
+  );
+}
+
+console.log('[8] N1: Unbekannte Umgebung vom Server = zurück auf den lokalen Würfel');
+{
+  class StrengesZiel {
+    aufrufe: (string | null)[] = [];
+    setEnvironmentOverride(name: string | null): boolean {
+      this.aufrufe.push(name);
+      return name === null || name === 'Snow';
+    }
+  }
+  const a = new WetterAnnahme();
+  const z = new StrengesZiel();
+  a.lies(leser(['Snow', 'Snow', 1]));
+  a.uebertrage(z);
+  a.lies(leser(['Hagelsturm_Unbekannt', 'x', 1]));
+  a.uebertrage(z);
+  pruefe(
+    z.aufrufe[z.aufrufe.length - 1] === null,
+    'nach der unbekannten Umgebung ist der Override aufgehoben',
+    JSON.stringify(z.aufrufe),
+  );
+  pruefe(!a.fuehrt(null), '… und der Server führt das Licht nicht');
+  const vorher = z.aufrufe.length;
+  for (let i = 0; i < 50; i++) a.uebertrage(z);
+  pruefe(
+    z.aufrufe.length === vorher,
+    'keine Wiederholung in den nächsten Bildern',
+    `${z.aufrufe.length - vorher} weitere Aufrufe`,
+  );
+  a.lies(leser(['Snow', 'Snow', 2]));
+  a.uebertrage(z);
+  pruefe(
+    a.fuehrt(null) && z.aufrufe[z.aufrufe.length - 1] === 'Snow',
+    'das nächste gültige Paket greift wieder',
+  );
+
+  const t = 40 * ENVIRONMENT_DURATION + 3;
+  const m = new WeatherManager(Biome.Meadows, t);
+  const lokal = selectWeather(Biome.Meadows, t).name;
+  const b = new WetterAnnahme();
+  const anderes = lokal === 'Snow' ? 'Rain' : 'Snow';
+  b.lies(leser([anderes, anderes, 40]));
+  b.uebertrage(m);
+  b.lies(leser(['Hagelsturm_Unbekannt', 'x', 40]));
+  b.uebertrage(m);
+  m.update(t, 0.1);
+  pruefe(
+    m.environment.name === lokal,
+    'echter WeatherManager: lokaler Würfel statt des alten Overrides',
+    `${m.environment.name} (lokal ${lokal})`,
+  );
 }
 
 console.log(

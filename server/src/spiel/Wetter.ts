@@ -30,6 +30,7 @@ import {
   WETTER_AUTOMATISCH,
   WetterWuerfel,
   isInDungeonBand,
+  resolveBiomeBit,
   type Vector3,
   type WetterErgebnis,
   type WetterVorgabe,
@@ -74,7 +75,8 @@ export class WetterDienst {
     const biom = this.biomVon(peer);
     if (biom === null) return null;
     const gewuerfelt = this.wuerfel.wetterFuer(biom, worldTime);
-    const name = Biome[biom];
+    // Mischzonen (Bitmaske) wie der Würfel auf EIN Biom auflösen, sonst fände der Biom-Override sie nicht.
+    const name = Biome[resolveBiomeBit(biom) ?? biom];
     const gewaehlt =
       this.overrides.get(name) ??
       this.overrides.get(GLOBAL) ??

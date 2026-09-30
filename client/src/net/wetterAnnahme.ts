@@ -31,6 +31,7 @@ export class WetterAnnahme {
   fenster = -1;
   private angewandtAuf: WetterZiel | null = null;
   private angewandt: string | null = null;
+  private fuehrend = false;
 
   /** Liest das Paket. Ein kaputtes Paket lässt den alten Stand stehen. */
   lies(leser: WetterLeser): void {
@@ -51,6 +52,7 @@ export class WetterAnnahme {
     this.umgebung = null;
     this.zustand = '';
     this.fenster = -1;
+    this.fuehrend = false;
   }
 
   /**
@@ -65,11 +67,27 @@ export class WetterAnnahme {
       this.angewandt = null;
       return false;
     }
-    if (!ziel.setEnvironmentOverride(this.umgebung)) {
-      console.warn(`[wetter] Server nennt unbekannte Umgebung "${this.umgebung}"`);
+    // Unbekannte Umgebung (Server und Client kennen verschiedene Listen): zurück auf den lokalen
+    // Würfel statt den vorigen Override stehen zu lassen; das Licht führt der Server dann nicht.
+    this.fuehrend = this.umgebung !== null && ziel.setEnvironmentOverride(this.umgebung);
+    if (this.umgebung !== null && !this.fuehrend) {
+      console.warn(`[wetter] Server nennt unbekannte Umgebung "${this.umgebung}" — lokaler Würfel`);
+      ziel.setEnvironmentOverride(null);
+    } else if (this.umgebung === null) {
+      ziel.setEnvironmentOverride(null);
     }
     this.angewandtAuf = ziel;
     this.angewandt = this.umgebung;
     return true;
+  }
+
+  /**
+   * Führt der Server das Licht? Ja, sobald er eine gültige Umgebung geschickt hat und keine
+   * `?env=` in der Adresszeile steht. Das gilt auch, wenn `server.yml` eine feste Umgebung
+   * vorgibt (`envPinned` in main.ts): Ein Admin-Override wechselt dann auch das Licht, und bei
+   * `wetter auto` schickt der Server wieder die Vorgabe.
+   */
+  fuehrt(envParam: string | null): boolean {
+    return this.fuehrend && !envParam;
   }
 }

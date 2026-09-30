@@ -242,6 +242,9 @@ function warnUnbekannteSchluessel(yaml: unknown): void {
  * die Vorgabe wird GEPRUEFT und im Zweifel VERWORFEN: Jeder Fehler steht als
  * eigene Zeile im Log, der Server startet mit den mitgelieferten Tabellen.
  */
+/** Höchstens so viele Fehlerzeilen beim Start, der Rest als „… und N weitere“. */
+const WETTER_FEHLER_ZEILEN = 20;
+
 function leseWetterDefinitionen(
   wetter: Record<string, unknown>,
   datenVerzeichnis: string
@@ -252,7 +255,10 @@ function leseWetterDefinitionen(
   try {
     const p = pruefeWetterDefinitionen(JSON.parse(readFileSync(pfad, 'utf-8')));
     if (p.ok) return p.defs;
-    for (const f of p.fehler) console.warn(`[Main] wetter.definitionen ${pfad}: ${f}`);
+    for (const f of p.fehler.slice(0, WETTER_FEHLER_ZEILEN)) console.warn(`[Main] wetter.definitionen ${pfad}: ${f}`);
+    if (p.fehler.length > WETTER_FEHLER_ZEILEN) {
+      console.warn(`[Main] wetter.definitionen ${pfad}: … und ${p.fehler.length - WETTER_FEHLER_ZEILEN} weitere`);
+    }
   } catch (e) {
     console.warn(`[Main] wetter.definitionen ${pfad} nicht lesbar (${(e as Error).message})`);
   }

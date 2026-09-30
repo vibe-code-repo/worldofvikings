@@ -495,3 +495,75 @@ Its own npm project inside the same repository, **deliberately not a workspace**
 — otherwise `npm ci` at the root would pull SvelteKit and Vite onto every
 container, including the pure game server. It brings its own `node_modules` and
 its own lockfile. It is deployed with `wov-web/tools/ausrollen.sh`.
+
+## 9. Move proof (`tools/verschiebung/`)
+
+A refactoring step that only moves code is proven, not judged by eye. The proof
+compares an old state (a commit) with a new state (a commit or the working tree)
+on the TypeScript syntax tree and with the type checker. Stage 1 knows two forms:
+declarations of the module level that move verbatim into a new file (form 0), and
+methods of a class that become functions of a new file with the instance as their
+first parameter `k`, while a forwarder stays in the class (form k). The rules of
+both forms are checked by the tool; `tools/verschiebung/README.md` lists them.
+
+The call, on the build host under the build lock (it builds two TypeScript
+programs, 1.5 to 1.7 GB, about 15 s per step):
+
+    tools/sperre.sh build -- node_modules/.bin/tsx tools/verschiebung/verschiebung.ts <manifest.json> [--json]
+
+Everything that influences the proof stands in the manifest: both states, the
+source file, the class, the target files with the names that move into them, the
+entry files from which the order of evaluation is compared, and the releases. A
+release names one finding by its key and gives a reason of at least 20 visible
+characters; the manifest, the releases and the full hashes of both states are
+printed into every output. There are no other switches. Exit 0 is the proof, exit
+1 means findings, exit 2 a broken call or manifest.
+
+**What exit 0 does not prove.** It proves that the source file, its rest and the
+target files differ by nothing but the declared move. It proves nothing about
+other files (tests, test lists, everything a merge brought in between the two
+states), nothing about installed packages that changed between the states, and
+nothing about the order of evaluation from entry files the manifest does not name
+(a module first loaded by a dynamic import or a worker needs its own entry). A
+released finding is not proven, it is explained: the reason is a claim the review
+reads. Program files under test folders are left out of the programs, so a global
+name that only a test declares is not seen. Whitespace between tokens is not
+compared for form k, and that other callers of a new function pass the instance is
+not checked. Behaviour is not executed. The full list stands in every output, and
+exit 0 replaces neither `typecheck` nor the tests nor the review of the releases.
+
+Since the attack on version 1.0 the tool also refuses, in form k: a default value of
+a parameter that reads `this` or can yield `undefined` (the forwarder would pass
+`undefined` on and the function would evaluate its own default a second time),
+`this` as a type or as a value, and `this` in a computed name, a decorator or an
+`extends` clause of a nested class or member (that `this` belongs to the method).
+In form 0 it refuses a moved `let`/`var` that the rest assigns to, and it reports
+a read of a moved name by a statement of the rest that runs while the module
+loads, in front of the old place, directly or through a called function (release
+`lesen:<name>`). Import attributes of a target file are compared, names with
+umlauts are valid in the manifest, a release reason needs words (10 letters or
+digits, 4 different ones, besides the 20 visible characters), and the output marks
+a rule that checked 0 places.
+
+Version 1.2 (second fix round) turned the two weakest rules into free lists: a default
+value of a form k parameter passes only as a plain literal (a name, member access, cast,
+conditional or template with a substitution is B12), and rule B9 reports every read of a
+moved name that a statement of the rest in front of the old place can reach by any mention
+of a function, member name or computed access (release `lesen:<name>`, all sites listed).
+An assignment to a moved `let`/`var` is found through casts and judged by its binding with
+the type checker.
+
+Version 1.3 (third fix round): a function or class value as a default value of a
+form k parameter is no plain literal and is no longer free: the forwarder creates it
+in the scope of its own parameters, so it needs a release `vorgabe:<method>.<parameter>`
+and never passes if it mentions a parameter of the method or itself. Rule B9 counts the
+mention of a variable that carries a function, method, getter or class (and an object
+literal used at once) as a read, which covers the implicit calls of the language (spread,
+template, `+`, `await`, `for of`, `Object.*`, `JSON.stringify`). A side-effect import
+`import '<module>';` directly behind the unchanged import of the same module is glue
+(form k rule 4.6b), any other one is a finding (release `seiteneffekt:<module>`).
+
+A step is delivered with its manifest under `tools/verschiebung/zeugen/` and the
+output of the proof in the pull request. The self-tests `tools/test/verschiebung-*.ts`
+run in the CI; the probe on real files with the git history,
+`tools/verschiebung/pruefstand/echt.ts`, runs locally only.

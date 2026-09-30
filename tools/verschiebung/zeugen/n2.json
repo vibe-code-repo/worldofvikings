@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "alt": "git:86ac2a52",
+  "neu": "git:9f6ab866",
+  "quelle": "client/src/entities/EntityManager.ts",
+  "klasse": "EntityManager",
+  "ziele": [
+    {
+      "datei": "client/src/entities/raumIndex.ts",
+      "woertlich": [],
+      "methoden": ["nearbyInstances", "indexSetzen", "ausZelleLoesen", "indexEntfernen"],
+      "kontext": { "parameter": "k", "typ": "RaumIndexKontext" }
+    }
+  ],
+  "einstiege": ["client/src/main.ts"],
+  "freigaben": []
+}

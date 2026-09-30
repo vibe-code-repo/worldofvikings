@@ -20,7 +20,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Inventory, findItem, packContainer, setzeUnbekannteVerwahren, unpackContainer } from '@wov/shared';
-import { STAPEL_OBERGRENZE } from '@wov/shared/src/items/Inventory.js';
+import { MENGE_REPARIERBAR_MAX, STAPEL_OBERGRENZE } from '@wov/shared/src/items/Inventory.js';
 import { leseGegenstandsDatei, wendeGegenstandsDatenAn, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { gegenstandsBestaetigenDatei, gegenstandsLetzterGuterDatei, gegenstandsQuittungsDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 import { GegenstandsWache, ladeGegenstandsDatei, type GegenstandsQuittung } from '../src/world/gegenstandsLive.js';
@@ -243,13 +243,25 @@ function main(): void {
       const nochmal = new Inventory();
       nochmal.load(JSON.parse(JSON.stringify(gross.serialize())) as never);
       check('N6b: after a save and the next login the sum is still 25000', summe(nochmal) === 25000, `${summe(nochmal)}`);
-      const absurd = new Inventory();
-      ohneWarnung(() => absurd.load([gespeichert('Wood', { stack: 1e308 })]));
-      check('an absurd amount (1e308) is not cut to a small number and no endless loop: the rest is kept apart', absurd.all.every((i) => i.stack <= STAPEL_OBERGRENZE) && absurd.verwahrte.some((x) => x.stack >= 1e300), `${absurd.verwahrte.length} kept`);
+      for (const menge of [MENGE_REPARIERBAR_MAX + 1, 2 ** 53, 1e15, 1e308, Number.MAX_VALUE]) {
+        const a = new Inventory();
+        const { warnungen: w } = ohneWarnung(() => a.load([gespeichert('Wood', { stack: menge })]));
+        let kept = a.verwahrte.length === 1 && a.verwahrte[0].stack === menge && a.all.length === 0 && w.length === 1;
+        for (let n = 0; n < 5; n++) { ohneWarnung(() => a.rebind()); kept = kept && a.verwahrte.length === 1 && a.verwahrte[0].stack === menge && a.all.length === 0; }
+        check(`N6-3: amount ${menge} is kept whole and untouched (no arithmetic, no split), also over 5 rebinds`, kept, `${a.all.length} in grid, ${a.verwahrte.map((x) => x.stack)}`);
+      }
+      const grenze = new Inventory();
+      ohneWarnung(() => grenze.load([gespeichert('Wood', { stack: MENGE_REPARIERBAR_MAX })]));
+      check('N6-3: exactly the limit (1e9) is still repaired and split; grid + kept add up to 1e9', summe(grenze) === MENGE_REPARIERBAR_MAX && grenze.all.length > 1, `${summe(grenze)}`);
       const hoch = new Inventory();
       ohneWarnung(() => hoch.load([gespeichert('Wood', { durability: 99999 })]));
       const max = findItem('Wood')!.maxDurability;
       check('durability over the maximum is brought to it; without a maximum it stays as it is (no invented cap)', max === undefined ? hoch.all[0].durability === 99999 : hoch.all[0].durability === max, `${hoch.all[0].durability} / ${max}`);
+      const hacke = findItem('Hoe')!;
+      const hackeMax = hacke.maxDurability;
+      const mitMax = new Inventory();
+      ohneWarnung(() => mitMax.load([gespeichert('Hoe', { durability: 99999 }), gespeichert('Hoe', { durability: Number.NaN, gridX: 1 }), gespeichert('Hoe', { durability: 50, gridX: 2 })]));
+      check('an item WITH a maximum: too much durability becomes the maximum, a broken one too, a normal one stays', hackeMax !== undefined && mitMax.all[0].durability === hackeMax && mitMax.all[1].durability === hackeMax && mitMax.all[2].durability === 50, `${mitMax.all.map((x) => x.durability)} / ${hackeMax}`);
       const fehlt = new Inventory();
       ohneWarnung(() => fehlt.load([gespeichert('Wood', { durability: undefined })]));
       check('a missing durability of an item without a maximum stays missing (no invented 100)', max !== undefined || fehlt.all[0].durability === undefined, `${fehlt.all[0].durability}`);
@@ -311,6 +323,28 @@ function main(): void {
       const l = existsSync(t.guter) ? leseGegenstandsDatei(readFileSync(t.guter, 'utf-8')) : null;
       check('a broken last good state is kept as .kaputt-<time> before it is replaced by an empty one', kopien.length === 1 && readFileSync(resolve(t.dir, kopien[0]), 'utf-8') === '{kaputt' && l !== null && !l.dateiFehler && l.eintraege.length === 0, kopien.join());
       setzeUnbekannteVerwahren(false);
+    }
+
+    console.log('\n[G] a missing durability stays missing through chest and inventory (N6-1), chest repair counts once (N6-2)');
+    {
+      let truhe = unpackContainer('[["Wood",7,null,1]]');
+      let inv = new Inventory();
+      inv.load([gespeichert('Wood', { stack: 7, durability: undefined })]);
+      let ok = truhe.all[0].durability === undefined && inv.all[0].durability === undefined;
+      for (let n = 0; n < 3; n++) {
+        const text = packContainer(truhe);
+        truhe = unpackContainer(text);
+        const weiter = new Inventory();
+        weiter.load(JSON.parse(JSON.stringify(inv.serialize())) as never);
+        inv = weiter;
+        ok = ok && text === '[["Wood",7,null,1]]' && truhe.all[0].durability === undefined && inv.all[0].durability === undefined && !('durability' in JSON.parse(JSON.stringify(inv.serialize()))[0]);
+      }
+      check('chest: ["Wood",7,null,1] stays undefined through pack/unpack 3x (not 0, not 100); inventory: through save/load 3x', ok);
+      check('addItem still gives a NEW stack 100 (only the stored gap stays open)', (() => { const n = new Inventory(); n.addItem(holz(), 1); return n.all[0].durability === 100; })());
+      const hoe = unpackContainer('[["Hoe",1,null,1]]');
+      check('a tool with a maximum and a null in the chest gets its maximum', hoe.all[0].durability === findItem('Hoe')!.maxDurability);
+      const { warnungen } = ohneWarnung(() => unpackContainer('[["Wood",2.5,0,0]]'));
+      check('chest: a repairable tuple is repaired and warned exactly once (unpack, not again in load)', warnungen.filter((w) => w.includes('repaired')).length === 1, `${warnungen.length}`);
     }
   } finally {
     setzeUnbekannteVerwahren(false);

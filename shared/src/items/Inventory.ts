@@ -33,15 +33,22 @@ export const HOTBAR_SIZE = INVENTORY_WIDTH;
 export const STAPEL_OBERGRENZE = 9999;
 
 /**
+ * Largest amount that is repaired and split. 1e9 is far below 2^53 (about 9e15, where whole numbers stop being exact
+ * and `stack - 9999` would return the same number), and some 30 000 times more than the grid can ever hold
+ * (32 cells x 999). An amount above it is not arithmetic any more but damage: it is kept whole, untouched, unsplit.
+ */
+export const MENGE_REPARIERBAR_MAX = 1e9;
+
+/**
  * The one repair of a saved stack of a KNOWN item, used by `load`, `holeVerwahrteZurueck` and `unpackContainer`.
- * Returns `null` only for what cannot be repaired: an amount that is not a finite number of at least 1 (that stack
+ * Returns `null` only for what cannot be repaired: an amount that is not a finite number from 1 to `MENGE_REPARIERBAR_MAX` (that stack
  * stays kept raw, never dropped, never in the grid). Everything else is brought into range and flagged `repariert`
  * (the caller warns): amount rounded down (never cut: an amount over the maximum is split by `teileUeberstapel`, what
  * finds no cell is kept), quality a whole number from 1, durability finite and not negative, and at most the item's
  * own maximum if it has one. No value is invented: without a maximum a missing or broken durability stays missing.
  */
 export function repariereStapel(s: SavedItemStack, shared: ItemShared): { stack: SavedItemStack; repariert: boolean } | null {
-  if (typeof s.stack !== 'number' || !Number.isFinite(s.stack) || s.stack < 1) return null;
+  if (typeof s.stack !== 'number' || !Number.isFinite(s.stack) || s.stack < 1 || s.stack > MENGE_REPARIERBAR_MAX) return null;
   const stack = Math.floor(s.stack);
   const quality = typeof s.quality === 'number' && Number.isFinite(s.quality) ? Math.max(1, Math.floor(s.quality)) : 1;
   const max = shared.maxDurability;

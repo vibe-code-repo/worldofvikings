@@ -48,7 +48,7 @@ export const CONTAINER_HEIGHT = 2;
 export const CONTAINER_SLOTS = CONTAINER_WIDTH * CONTAINER_HEIGHT;
 
 /** [Name, Menge, Haltbarkeit, Qualität] — s. Kopfkommentar. */
-type PackedStack = [name: string, stack: number, durability: number, quality: number];
+type PackedStack = [name: string, stack: number, durability: number | null, quality: number];
 
 /** Neue, leere Truhen-Inventory (feste Größe, s. CONTAINER_WIDTH/HEIGHT). */
 export function neueTruheInventory(): Inventory {
@@ -58,9 +58,9 @@ export function neueTruheInventory(): Inventory {
 /** Truhen-Inhalt → kompakte Zeichenkette für den ZDO-Member. */
 export function packContainer(inv: Inventory): string {
   const packed: PackedStack[] = [
-    ...inv.all.map((it): PackedStack => [it.shared.name, it.stack, it.durability, it.quality]),
+    ...inv.all.map((it): PackedStack => [it.shared.name, it.stack, it.durability ?? null, it.quality]),
     // Stacks kept without a definition (item watch, start without a last good state) stay in the chest.
-    ...inv.verwahrte.map((s): PackedStack => [s.name, s.stack, s.durability, s.quality]),
+    ...inv.verwahrte.map((s): PackedStack => [s.name, s.stack, s.durability ?? null, s.quality]),
   ];
   return JSON.stringify(packed);
 }
@@ -99,7 +99,8 @@ export function unpackContainer(json: string): Inventory {
     const s = {
       name,
       stack: stack as number,
-      durability: typeof durability === 'number' ? durability : 0,
+      // A missing durability stays missing (`null` in the list): `repariereStapel` gives a maximum only to items that have one.
+      durability: (typeof durability === 'number' ? durability : undefined) as number,
       quality: typeof quality === 'number' ? quality : 1,
       gridX: 0,
       gridY: 0,
@@ -107,6 +108,7 @@ export function unpackContainer(json: string): Inventory {
     };
     const shared = findItem(name);
     const r = shared ? repariereStapel(s, shared) : null;
+    if (r?.repariert) console.warn(`[Container] unpack: ${name} repaired (stack ${String(stack)} -> ${r.stack.stack})`);
     if (r && imRaster.length < CONTAINER_SLOTS) imRaster.push(r.stack); // repaired like `load` does, so it takes the cell it will keep
     else verwahrt.push(s);
   }

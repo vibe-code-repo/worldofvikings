@@ -49,3 +49,10 @@ export function gegenstandsQuittungsDatei(arbeitsDatei: string): string {
 export function gegenstandsBestaetigenDatei(arbeitsDatei: string): string {
   return gegenstandsNebenDatei(arbeitsDatei, GEGENSTAENDE_BESTAETIGEN_DATEI);
 }
+
+/** The last state the watch applied successfully (same form as the working copy); the start falls back to it if the working copy is broken or gone. */
+export const GEGENSTAENDE_LETZTER_GUTER_DATEI = 'gegenstaende.letzter-guter.json';
+
+export function gegenstandsLetzterGuterDatei(arbeitsDatei: string): string {
+  return gegenstandsNebenDatei(arbeitsDatei, GEGENSTAENDE_LETZTER_GUTER_DATEI);
+}

@@ -21,6 +21,10 @@
  *    applied, receipt `bestaetigung-noetig` with `gehalten` ({id: count}). The admin route then leaves a
  *    confirmation file (`gegenstaende.bestaetigen.json`, `{hash, zeit, id}` as `POST /api/welt/bestaetigen`); only
  *    that makes the watch apply the state and remove the copies for good (no "raw stack" is kept);
+ *  - after every successful application the applied state goes atomically to `gegenstaende.letzter-guter.json`
+ *    (next to the working copy). If the working copy is broken or gone at the NEXT start, that state is loaded
+ *    (loud warning, receipt `abgelehnt`): without the data items `Inventory.load` / `unpackContainer` would drop
+ *    their stacks silently at the next save;
  *  - otherwise: replace the data items (atomic), re-bind the inventories, send the inventories to all peers.
  * `interneFehler` counts the cases where the sanitiser swallowed an exception of its own
  * (reason `eintrag-ungueltig`, which no JSON input can produce) plus the errors of the watch itself.
@@ -29,11 +33,13 @@ import { readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:
 import {
   MAX_DATEI_BYTES,
   leseGegenstandsDatei,
+  schreibeGegenstandsDatei,
   wendeGegenstandsDatenAn,
   type GegenstandsEintrag,
   type VerworfenerEintrag,
 } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { LayoutGesperrt, layoutHash, layoutUnterSperre } from '@wov/shared/src/worldlayout/layoutDatei.js';
+import { gegenstandsLetzterGuterDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 import { bestaetigenAnfrageNehmen } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 
 /** Status of a receipt (the form the editor already expects). */
@@ -92,11 +98,43 @@ function quittungSchreiben(pfad: string, q: GegenstandsQuittung): void {
   }
 }
 
+/** Writes the applied state as the last good one (atomic). Never throws: a failure is loud but does not stop the apply. */
+function letzterGuterSchreiben(arbeitsDatei: string, eintraege: readonly GegenstandsEintrag[], log: GegenstandsLog): void {
+  const ziel = gegenstandsLetzterGuterDatei(arbeitsDatei);
+  const temp = `${ziel}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temp, schreibeGegenstandsDatei(eintraege));
+    renameSync(temp, ziel);
+  } catch (fehler) {
+    rmSync(temp, { force: true });
+    log.error(`[Gegenstaende] letzter guter Stand nicht geschrieben: ${(fehler as Error).message}`);
+  }
+}
+
+/** The last good state, or `null` if there is none or it is not usable (then the empty state applies). */
+function letzterGuterLesen(arbeitsDatei: string, log: GegenstandsLog): GegenstandsEintrag[] | null {
+  const pfad = gegenstandsLetzterGuterDatei(arbeitsDatei);
+  if (standVon(pfad) === null) return null;
+  try {
+    const lesung = leseGegenstandsDatei(readFileSync(pfad, 'utf-8'));
+    if (lesung.dateiFehler || lesung.verworfen.length > 0) {
+      log.error(`[Gegenstaende] ${pfad}: letzter guter Stand unbrauchbar (${lesung.dateiFehler ?? `${lesung.verworfen.length} verworfen`}), leerer Stand`);
+      return null;
+    }
+    return lesung.eintraege;
+  } catch (fehler) {
+    log.error(`[Gegenstaende] ${pfad}: letzter guter Stand nicht lesbar (${(fehler as Error).message}), leerer Stand`);
+    return null;
+  }
+}
+
 export interface LadeErgebnis {
-  art: 'fehlt' | 'angewendet' | 'abgelehnt' | 'verworfen';
-  /** The entries that were applied (empty unless `angewendet`). */
+  art: 'fehlt' | 'angewendet' | 'abgelehnt' | 'verworfen' | 'letzter-guter';
+  /** The entries that were applied (empty unless `angewendet` or `letzter-guter`). */
   eintraege: GegenstandsEintrag[];
   hash: string | null;
+  /** `letzter-guter`: the receipt the watch writes at its start for the (rejected) working copy. */
+  startQuittung?: { status: 'abgelehnt'; hash: string };
 }
 
 export interface GegenstandsLog {
@@ -112,11 +150,36 @@ export interface GegenstandsLog {
  * left empty and the watch applies the file with its first tick.
  */
 export function ladeGegenstandsDatei(pfad: string, log: GegenstandsLog = console): LadeErgebnis {
+  const r = ladeArbeitsDatei(pfad, log);
+  if (r.art === 'angewendet') {
+    letzterGuterSchreiben(pfad, r.eintraege, log);
+    return r;
+  }
+  if (r.art === 'verworfen') return fallbackLetzterGuter(pfad, r, log);
+  if (r.art === 'abgelehnt' || (r.art === 'fehlt' && standVon(gegenstandsLetzterGuterDatei(pfad)) !== null)) return fallbackLetzterGuter(pfad, r, log);
+  return r;
+}
+
+/** The working copy is broken, rejected or gone: load the last good state if there is one. */
+function fallbackLetzterGuter(pfad: string, r: LadeErgebnis, log: GegenstandsLog): LadeErgebnis {
+  const guter = letzterGuterLesen(pfad, log);
+  if (guter === null) return r;
+  try {
+    wendeGegenstandsDatenAn(guter);
+  } catch (fehler) {
+    log.error(`[Gegenstaende] letzter guter Stand nicht anwendbar (${(fehler as Error).message}), leerer Stand`);
+    return r;
+  }
+  log.error(`[Gegenstaende] Arbeitsdatei ${r.art === 'fehlt' ? 'fehlt' : 'abgelehnt'}: LETZTER GUTER STAND geladen (${guter.length} Datenitem(s)), Quittung abgelehnt`);
+  return { art: 'letzter-guter', eintraege: guter, hash: r.hash, startQuittung: { status: 'abgelehnt', hash: r.hash ?? '' } };
+}
+
+function ladeArbeitsDatei(pfad: string, log: GegenstandsLog): LadeErgebnis {
   let gelesen: ReturnType<typeof leseUnterSperre>;
   try {
     gelesen = standVon(pfad) === null ? null : leseUnterSperre(pfad, 5000);
   } catch (fehler) {
-    log.warn(`[Gegenstaende] Arbeitsdatei gesperrt (${(fehler as Error).message}): Start ohne Datenitems, die Wache holt es nach`);
+    log.warn(`[Gegenstaende] Arbeitsdatei gesperrt (${(fehler as Error).message}): Start ohne die Datei, die Wache holt es nach`);
     return { art: 'abgelehnt', eintraege: [], hash: null };
   }
   if (!gelesen) return { art: 'fehlt', eintraege: [], hash: null };
@@ -155,6 +218,8 @@ export interface GegenstandsWacheAbhaengigkeiten {
   readonly bestaetigenPfad: string;
   /** The state the start applied (`ladeGegenstandsDatei`); empty if nothing was applied. */
   readonly angewendet?: readonly GegenstandsEintrag[];
+  /** Start fell back to the last good state: the receipt for the rejected working copy (written at once). */
+  readonly startQuittung?: { status: 'abgelehnt'; hash: string };
   /** A save is running: do not apply now. */
   readonly speichertGerade?: () => boolean;
   /** How many copies of each of these ids do inventories, chests and saved players hold? Only ids with more than 0. */
@@ -185,6 +250,7 @@ export class GegenstandsWache {
         this.log.error(`[Gegenstaende] ${p} nicht entfernt: ${(fehler as Error).message}`);
       }
     }
+    if (d.startQuittung) this.quittiere(d.startQuittung.status, d.startQuittung.hash);
   }
 
   private get log(): GegenstandsLog {
@@ -285,6 +351,7 @@ export class GegenstandsWache {
     if (entfernt.size > 0) this.d.entfernen(entfernt);
     this.angewendet = lesung.eintraege;
     this.angewendetJson = JSON.stringify(lesung.eintraege);
+    letzterGuterSchreiben(this.d.pfad, lesung.eintraege, this.log);
     this.d.neuBinden();
     this.log.log(`[Gegenstaende] angewendet: ${lesung.eintraege.length} Datenitem(s)${entfernt.size > 0 ? `, ${entfernt.size} entfernt` : ''}`);
     this.quittiere('angewendet', hash);

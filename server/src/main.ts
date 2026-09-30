@@ -155,7 +155,7 @@ for (const zeile of hochladenStand.meldungen) console.error(`[ModellUpload] abge
 const gegenstandsDatei = gegenstandsArbeitsDatei(resolve(DATA_DIR, '../..'));
 const gegenstandsStand = ladeGegenstandsDatei(gegenstandsDatei);
 
-const server = createWovServer({ ...config, gegenstandsDatei, gegenstandsStart: gegenstandsStand.eintraege });
+const server = createWovServer({ ...config, gegenstandsDatei, gegenstandsStart: gegenstandsStand.eintraege, gegenstandsStartQuittung: gegenstandsStand.startQuittung });
 
 /*
   DIE EINE EINHAENGESTELLE.

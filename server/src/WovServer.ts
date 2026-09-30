@@ -313,6 +313,7 @@ export interface ServerConfig {
    */
   gegenstandsDatei?: string;
   gegenstandsStart?: readonly GegenstandsEintrag[];
+  gegenstandsStartQuittung?: { status: 'abgelehnt'; hash: string };
   /**
    * F3 (Security-Review): Servergeheimnis fuer die SessionToken-Signatur.
    * NUR fuer Tests (deterministischer Lauf, zwei Server-Instanzen mit
@@ -1297,6 +1298,7 @@ export class WovServer {
       quittungsPfad: gegenstandsQuittungsDatei(pfad),
       bestaetigenPfad: gegenstandsBestaetigenDatei(pfad),
       angewendet: this.config.gegenstandsStart,
+      startQuittung: this.config.gegenstandsStartQuittung,
       speichertGerade: () => this.speichertGerade,
       gehalten: (ids) => zaehleGehalten(this.bestandsQuellen(), ids),
       entfernen: (ids) => this.entferneGegenstaende(ids),

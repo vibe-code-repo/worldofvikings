@@ -20,6 +20,8 @@ import {
   SAVE_INTERVAL_MS,
   WETTER_VORGABE_AUS,
   type WetterVorgabe,
+  WetterWuerfel,
+  type WetterDefinitionen,
   ZDO_SEND_INTERVAL_MS,
   ZDO_MAX_SEND_THRESHOLD,
   ZDO_MIN_SEND_THRESHOLD,
@@ -105,6 +107,7 @@ import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/Worl
 import { SpielerSicherung, SPIELER_SICHERUNG_INTERVALL_MS, neuerAls } from './spiel/SpielerSicherung.js';
 import { WeltZdoSicherung, ueberlagern as weltZdoUeberlagern } from './spiel/WeltZdoSicherung.js';
 import { Stempel } from './spiel/Stempel.js';
+import { WetterDienst, fuehreWetterBefehlAus, pruefeGeladeneWeltzeit } from './spiel/Wetter.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
@@ -291,6 +294,12 @@ export interface ServerConfig {
    * Spieler dieselbe Stimmung sehen. Siehe shared/wetterVorgabe.ts.
    */
   wetterVorgabe: WetterVorgabe;
+  /**
+   * Wetterdefinitionen je Biom (server.yml `wetter: definitionen:` = Pfad zu einer
+   * JSON-Datei im Format von shared/data/wetter/biome.json). Fehlt das Feld, gelten
+   * die mitgelieferten (STANDARD_WETTER_DEFINITIONEN = die bisherigen Tabellen).
+   */
+  wetterDefinitionen?: WetterDefinitionen;
   /**
    * Ausprobieren ohne Registrierung (server.yml `standard-konto:`).
    * Leer oder `undefined` = kein Standardkonto — der Betreiber hat den
@@ -720,6 +729,7 @@ export class WovServer {
     this.registerAdminListeCommands();
     this.registerBannCommands();
     this.registerMarkeCommand();
+    this.registerWetterCommand();
     // Karten-Marker: Eingangs-Änderungen an alle Peers verteilen.
     this.dungeons.onEntrancesChanged = () => {
       for (const peer of this.net.getPeers()) this.sendDungeonEntrances(peer);
@@ -1987,6 +1997,8 @@ export class WovServer {
       this.gleicheAdminrechteAb();
       this.layoutWache?.tick();
       this.gegenstandsWache?.tick();
+      // F9: Wetter je Spieler nachfuehren (Fenster-, Biom-, Admin-Wechsel).
+      this.wetterDienst().takt(peers, this.worldTime);
       // Dungeon-Regeneration: leere Instanzen nach Ablauf abreißen.
       this.dungeons.tick(now);
       this.eventTick(now);
@@ -2457,6 +2469,8 @@ export class WovServer {
     characterZDO.setOwner(new ZDOID(peer.userId, 0));
     peer.characterID = characterZDO.zdoid;
     peer.position = spawnPos;
+    // F9: das Wetter des Bioms, in dem der Spieler steht — nach der Vorgabe (WeltWetter) oben.
+    this.wetterDienst().sendeAn(peer, this.worldTime);
 
     // Gewaehlte Figur aus dem Spielstand wiederherstellen und an das
     // Charakter-ZDO haengen. Ueber den ZDO-Member sehen ALLE anderen
@@ -5484,6 +5498,23 @@ export class WovServer {
     });
   }
 
+  /** F9: Wetterdienst, beim ersten Gebrauch gebaut (Tests bauen den Server oft ohne Konstruktor). */
+  private wetterInst?: WetterDienst;
+  private wetterDienst(): WetterDienst {
+    this.wetterInst ??= new WetterDienst(
+      new WetterWuerfel(this.config.wetterDefinitionen),
+      this.config.wetterVorgabe,
+      (p) => this.welten.get(p.worldId)?.geo.getBiome(p.position.x, p.position.z) ?? null,
+      HAUPTWELT_ID
+    );
+    return this.wetterInst;
+  }
+
+  /** `wetter <Zustand|auto> [Biom]` — Wetter setzen, s. spiel/Wetter.ts. */
+  private registerWetterCommand(): void {
+    this.adminCommands.register('wetter', (_peer, args) => fuehreWetterBefehlAus(this.wetterDienst(), args));
+  }
+
   /**
    * `abbau <prefab> [radius]` — gespawnte Prefabs wieder entfernen.
    *
@@ -6502,7 +6533,9 @@ export class WovServer {
       return;
     }
 
-    this.worldTime = data.worldTime;
+    const weltzeit = pruefeGeladeneWeltzeit(data.worldTime, TIME_DAY);
+    if (weltzeit.warnung) console.warn(`[WoV] ${weltzeit.warnung}`);
+    this.worldTime = weltzeit.wert;
     this.zones.restoreGeneratedZones(data.zones);
     // Spieler-Terraforming VOR den ZDOs herstellen (Vegetations-Nachsetzen
     // unten misst gegen den fertigen Boden).

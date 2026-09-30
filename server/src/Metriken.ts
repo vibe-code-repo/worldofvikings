@@ -39,6 +39,9 @@ let syncMax = 0;
 let restSumme = 0;
 let restMax = 0;
 let syncBytesAkkumulator = 0;
+/** F6: dieselben Bytes je Peer (Verbindungskennung), Sekundenakkumulator. */
+let syncBytesJePeerAkkumulator = new Map<string, number>();
+let syncBytesJePeerLetzte: ReadonlyMap<string, number> = new Map();
 let budgetAbbrueche = 0;
 
 /**
@@ -81,8 +84,25 @@ export function erfasseBudgetAbbruch(): void {
  * TimeSync, TerrainOpSync, ...), ein zweiter Rechenweg koennte vom echten
  * Netzwerkaufwand abweichen und still auseinanderlaufen.
  */
-export function erfasseSyncBytes(bytes: number): void {
+export function erfasseSyncBytes(bytes: number, peerId?: string): void {
   syncBytesAkkumulator += bytes;
+  if (peerId !== undefined) {
+    syncBytesJePeerAkkumulator.set(peerId, (syncBytesJePeerAkkumulator.get(peerId) ?? 0) + bytes);
+  }
+}
+
+/**
+ * F6: Bytes je Peer der GERADE ABGESCHLOSSENEN Sekunde (Schlüssel: Verbindungs-
+ * kennung). Kommt aus `schliesseSekundeAb`; vor dem ersten Abschluss leer.
+ * Der Sekundenschnappschuss selbst bleibt unverändert (Prometheus, JSONL).
+ */
+export function syncBytesJePeer(): ReadonlyMap<string, number> {
+  return syncBytesJePeerLetzte;
+}
+
+/** F6: laufende, noch nicht abgeschlossene Sekunde je Peer (für Tests und Proben). */
+export function syncBytesJePeerLaufend(): ReadonlyMap<string, number> {
+  return syncBytesJePeerAkkumulator;
 }
 
 const runde = (wert: number): number => Math.round(wert * 100) / 100;
@@ -134,6 +154,8 @@ export function schliesseSekundeAb(
   restSumme = 0;
   restMax = 0;
   syncBytesAkkumulator = 0;
+  syncBytesJePeerLetzte = syncBytesJePeerAkkumulator;
+  syncBytesJePeerAkkumulator = new Map();
   budgetAbbrueche = 0;
   return schnappschuss;
 }

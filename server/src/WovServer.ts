@@ -2029,51 +2029,81 @@ export class WovServer {
       // F2: Der NAHE Teil des Fensters (Ring <= SYNC_NAH_RING) wird jeden Tick
       // vollständig geprüft und hat im Budget Vorrang: Dort laufen die
       // Kreaturen und Mitspieler, deren Aktualisierung man sieht. Der FERNE
-      // Rest bekommt den Prüfdeckel: ab dem Cursor höchstens
-      // SYNC_PRUEFUNGEN_MAX ZDOs, danach macht der nächste Tick dort weiter
-      // (sonst verhungerten die hinteren Ringe). Je Tick werden also höchstens
-      // nahEnde + SYNC_PRUEFUNGEN_MAX ZDOs angesehen. Bei Fenstern bis zum
-      // Deckel wird von vorn geprüft, wie vor F2.
+      // Rest bekommt den Prüfdeckel: höchstens SYNC_PRUEFUNGEN_MAX ZDOs je
+      // Tick, danach macht der nächste Tick dort weiter (sonst verhungerten
+      // die hinteren Ringe). F6 staffelt den fernen Rest in zwei Gruppen: die
+      // mittlere (Ring 2–3) läuft im halben Takt, die äußere (Ring 4) bei
+      // Zu-/Abgängen in ihren Zonen und als Netz alle SYNC_AUSSEN_NETZ_TICKS.
+      // Jede Gruppe hat ihren eigenen Cursor. Wie viel der Peer sieht, ändert
+      // das nicht; Zerstörungen gehen weiter jeden Tick raus (s. u.).
       const nahEnde = Math.min(peer.fenster.nahEnde, fenster.length);
-      let ferneStart = nahEnde + peer.fenster.cursor;
-      if (ferneStart >= fenster.length) ferneStart = nahEnde;
-      const ende = Math.min(fenster.length, ferneStart + SYNC_PRUEFUNGEN_MAX);
-      // Cursor für den nächsten Tick: Deckel (ende) oder Fensterende (0).
-      let naechsterCursor = ende >= fenster.length ? 0 : ende - nahEnde;
-      for (let i = 0; i < ende; i++) {
-        if (i === nahEnde) i = Math.max(i, ferneStart); // nahen Teil fertig: zum Cursor springen
-        if (i >= ende) break;
-        const zdo = fenster[i]!;
-        const stand = peer.syncStand(zdo.zdoid);
-        if (
-          stand &&
-          stand.dataRevision === zdo.revision.dataRevision &&
-          stand.ownerRevision === zdo.revision.ownerRevision
-        ) {
-          continue; // Peer ist auf Stand
+      const mitteEnde = Math.min(Math.max(peer.fenster.mitteEnde, nahEnde), fenster.length);
+      const dran = peer.fenster.plane();
+      let ferneGeprueft = 0;
+      for (let gruppe = 0; gruppe < 3; gruppe++) {
+        if (gruppe === 1 && !dran.mitte) continue;
+        if (gruppe === 2 && !dran.aussen) continue;
+        const von = gruppe === 0 ? 0 : gruppe === 1 ? nahEnde : mitteEnde;
+        const bis = gruppe === 0 ? nahEnde : gruppe === 1 ? mitteEnde : fenster.length;
+        let start = gruppe === 1 ? peer.fenster.cursorMitte : gruppe === 2 ? peer.fenster.cursorAussen : 0;
+        if (von + start >= bis) start = 0;
+        if (gruppe === 2 && start === 0) peer.fenster.aussenBeginn();
+        let i = von + start;
+        let unterbrochen = false;
+        let budgetErreicht = false;
+        // Sind beide fernen Gruppen dran, bekommt die mittlere nur den halben
+        // Deckel: Sonst frisst sie ihn bei großen Fenstern jeden Tick auf, und
+        // die äußere käme nur in den Ticks voran, in denen die mittlere aussetzt.
+        const deckel =
+          gruppe === 1 && dran.aussen ? SYNC_PRUEFUNGEN_MAX / 2 : SYNC_PRUEFUNGEN_MAX;
+        for (; i < bis; i++) {
+          if (gruppe > 0 && ferneGeprueft >= deckel) {
+            unterbrochen = true;
+            break;
+          }
+          const zdo = fenster[i]!;
+          const stand = peer.syncStand(zdo.zdoid);
+          if (gruppe > 0) ferneGeprueft++;
+          if (
+            stand &&
+            stand.dataRevision === zdo.revision.dataRevision &&
+            stand.ownerRevision === zdo.revision.ownerRevision
+          ) {
+            continue; // Peer ist auf Stand
+          }
+          // Ist das Budget erreicht, wird dieses ZDO nicht mehr geschrieben (es
+          // bleibt schmutzig und geht im nächsten Tick raus). Das erste ZDO des
+          // Pakets darf das Budget überschreiten, sonst käme ein übergroßer
+          // Vollstand nie an. Ein Paket ist damit höchstens Budget + ein Satz
+          // groß.
+          if (anzahl > 0 && writer.geschrieben >= budget) {
+            budgetErreicht = true;
+            break;
+          }
+          this.writeZDO(writer, zdo, stand?.dataRevision, peer);
+          anzahl++;
+          gesendet.push(zdo);
         }
-        // Ist das Budget erreicht, wird dieses ZDO nicht mehr geschrieben (es
-        // bleibt schmutzig und geht im nächsten Tick raus). Das erste ZDO des
-        // Pakets darf das Budget überschreiten, sonst käme ein übergroßer
-        // Vollstand nie an. Ein Paket ist damit höchstens Budget + ein Satz
-        // groß. (Das ist dasselbe Verhalten wie die Prüfung nach dem Schreiben
-        // vor F2 — die Pakete sind byte-gleich; die Stelle steht hier, weil
-        // der Cursor den Index des ersten ungeschriebenen ZDOs braucht.)
-        if (anzahl > 0 && writer.geschrieben >= budget) {
-          // Im nahen Teil bleibt der Cursor stehen (der nahe Teil wird ohnehin
-          // nächsten Tick wieder von vorn geprüft). Im fernen Teil: steht das
-          // ZDO noch im vorderen Teil, lieber von vorn (nah zuerst); liegt es
-          // hinter dem halben Deckel, würde ein Neustart den Deckel vor dem
-          // ZDO aufbrauchen — dann genau hier weitermachen.
-          if (i < nahEnde) naechsterCursor = peer.fenster.cursor;
-          else naechsterCursor = i - nahEnde < SYNC_PRUEFUNGEN_MAX / 2 ? 0 : i - nahEnde;
-          break;
+        if (gruppe === 0) {
+          // Nahe Gruppe: Cursor unberührt (sie wird nächsten Tick von vorn geprüft).
+          if (budgetErreicht) break;
+          continue;
         }
-        this.writeZDO(writer, zdo, stand?.dataRevision, peer);
-        anzahl++;
-        gesendet.push(zdo);
+        // Ferne Gruppe: Deckel → dort weitermachen. Budget → lieber von vorn
+        // (nah zuerst), außer das ZDO liegt hinter dem halben Deckel, dann
+        // würde ein Neustart den Deckel davor aufbrauchen: genau hier weiter.
+        let naechster = 0;
+        if (unterbrochen) naechster = i - von;
+        else if (budgetErreicht) naechster = i - von < SYNC_PRUEFUNGEN_MAX / 2 ? 0 : i - von;
+        if (gruppe === 1) peer.fenster.cursorMitte = naechster;
+        else peer.fenster.cursorAussen = naechster;
+        if (budgetErreicht) break;
+        // Deckel der mittleren Gruppe: Fortsetzung im nächsten Tick, die äußere
+        // kommt trotzdem an die Reihe (sie hat ihren Anteil am Deckel).
+        if (unterbrochen) continue;
+        if (gruppe === 1) peer.fenster.mitteErledigt(peer.verbindungsId.charCodeAt(0));
+        else peer.fenster.aussenErledigt(peer.verbindungsId.charCodeAt(0));
       }
-      peer.fenster.cursor = naechsterCursor;
 
       if (anzahl === 0 && zerstoerungen.length === 0) continue;
       writer.patchInt32(zaehlerStelle, anzahl);

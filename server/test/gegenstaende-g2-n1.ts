@@ -7,6 +7,7 @@
  *        appear; the confirmation (hash of the receipt) does NOT delete them: new receipt with both, nothing removed.
  *  [F2b] More copies of the SAME confirmed id are removed too (Mike: "endgültig entfernen").
  *  [F2c] A confirmation without a receipt of this run (restart) does not apply: new receipt.
+ *  [F2d] A confirmation for hash H2 does not apply while the receipt named H1 (N1-b: `q.hash === hash`).
  *  [F3]  Stack 8, new maximum 1: split onto free slots (8 stacks of 1); no free slot: the excess stays, console.warn.
  *
  * Run: npx tsx server/test/gegenstaende-g2-n1.ts   (from the repo root)
@@ -117,6 +118,25 @@ function main(): Promise<void> {
         await t.bestaetige(hash);
         t.wache.tick();
         check('nothing removed, receipt bestaetigung-noetig (gehalten Holzaxt 2)', t.entfernt.length === 0 && t.quittung()?.status === 'bestaetigung-noetig' && t.quittung()?.gehalten?.Holzaxt === 2, JSON.stringify(t.quittung()));
+      }
+
+      console.log('\n[F2d] a confirmation counts only for the hash the receipt named (N1-b)');
+      {
+        const t = baue('f2d', eintraege('Holzaxt', 'Rest', 'Extra'), { Holzaxt: 1 });
+        const h1 = await t.schreibe(eintraege('Rest', 'Extra'));
+        t.wache.tick();
+        check('receipt bestaetigung-noetig for H1', t.quittung()?.status === 'bestaetigung-noetig' && t.quittung()?.hash === h1 && t.quittung()?.gehalten?.Holzaxt === 1, JSON.stringify(t.quittung()));
+        // The working file moves on to H2 (also without Holzaxt, plus a further change); H2 has no receipt yet.
+        const h2 = await t.schreibe(eintraege('Rest').map((e) => ({ ...e, gewicht: 5 })));
+        check('setup: H2 differs from H1', h1 !== h2);
+        await t.bestaetige(h2);
+        t.wache.tick();
+        const q = t.quittung();
+        check('the confirmation for H2 does NOT apply (the receipt was for H1): nothing removed, Holzaxt stays', t.entfernt.length === 0 && t.halt.Holzaxt === 1 && findItem('Holzaxt') !== undefined);
+        check('new receipt bestaetigung-noetig for H2', q?.status === 'bestaetigung-noetig' && q.hash === h2 && q.gehalten?.Holzaxt === 1, JSON.stringify(q));
+        await t.bestaetige(h2);
+        t.wache.tick();
+        check('a second confirmation for H2 (now with its receipt) applies and removes Holzaxt (and the unheld Extra)', t.entfernt.length === 1 && t.entfernt[0].join() === 'Extra,Holzaxt' && t.halt.Holzaxt === undefined && t.quittung()?.status === 'angewendet' && t.quittung()?.hash === h2, JSON.stringify(t.quittung()));
       }
 
       console.log('\n[F3] rebind with an over-stack');

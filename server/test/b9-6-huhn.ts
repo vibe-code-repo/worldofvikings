@@ -24,7 +24,7 @@
  *  [3] The REAL packet path: a WebSocket client on a running server hits a
  *      hen with fist, sword and flint axe; it dies after the counted
  *      number of hits (one with the axe — "ein Schlag mit der Steinaxt
- *      genügt", per the card) and the loot lands in the inventory.
+ *      genügt", per the card) and the loot lies on the ground (D5).
  *
  * Every claim carries the number that proves it. Ports are ephemeral
  * (`portVon`, scripts/testport.mjs).
@@ -631,7 +631,9 @@ async function main(): Promise<void> {
       return zdo;
     }
     const vorn = (von: Vector3, abstand: number): Vector3 => ({ x: von.x, y: von.y, z: von.z - abstand });
-    const beute = (): number => peer!.inventar.countOf('RawMeat');
+    // D5: loot lies on the ground at the corpse now; `beute()` counts what is in the inventory plus the RawMeat on the ground.
+    const bodenFleisch = (): number => server.zdos.getAllZDOs().filter((z) => server.beuteAmBoden.istBeute(z) && z.getString('beute_item') === 'RawMeat').reduce((a, z) => a + z.getInt('beute_menge'), 0);
+    const beute = (): number => peer!.inventar.countOf('RawMeat') + bodenFleisch();
 
     /** Hit with `waffe` until the hen is gone; returns the hits, the HP after each and the loot. */
     async function erschlage(zdo: ZDO, mitte: Vector3, waffe: string): Promise<{ schlaege: number; hpReihe: number[]; fleisch: number; meldung: string }> {
@@ -682,7 +684,7 @@ async function main(): Promise<void> {
       const r = await erschlage(huhn, mitte, waffe);
       const soll = Math.ceil(10 / schaden);
       check(`hen, ${waffe === '' ? 'fist' : waffe} (${schaden}): dead after ${soll} hit(s)`, r.schlaege === soll && huhn.destroyed, `hits ${r.schlaege}, HP ${r.hpReihe.join(' -> ')}`);
-      check(`hen, ${waffe === '' ? 'fist' : waffe}: loot exactly 1 RawMeat in the inventory and in the message`, r.fleisch === 1 && r.meldung === `Huhn besiegt — 1× RawMeat`, `${r.fleisch}× / "${r.meldung}"`);
+      check(`hen, ${waffe === '' ? 'fist' : waffe}: loot exactly 1 RawMeat on the ground (not in the inventory) and the kill message`, r.fleisch === 1 && r.meldung === 'Huhn besiegt' && peer.inventar.countOf('RawMeat') === 0, `${r.fleisch}× / "${r.meldung}"`);
     }
     // T1 (Pruefung 2026-09-28): removed an always-true check here
     // (`Math.ceil(10/15)===1`, two literals with no code under test). The

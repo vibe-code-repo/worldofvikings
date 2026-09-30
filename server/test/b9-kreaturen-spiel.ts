@@ -14,7 +14,7 @@
  *      a cow one metre from the player does no damage while the wolf does.
  *  [3] The REAL packet path: a WebSocket client on a running server hits a cow
  *      and a wolf with fist, sword and axe, they die after the counted number
- *      of hits, and the loot lands in the inventory.
+ *      of hits, and the loot lies on the ground (D5).
  *
  * Every claim carries the number that proves it. Ports are ephemeral
  * (`portVon`, scripts/testport.mjs).
@@ -454,7 +454,9 @@ async function main(): Promise<void> {
       return zdo;
     }
     const vorn = (von: Vector3, abstand: number): Vector3 => ({ x: von.x, y: von.y, z: von.z - abstand });
-    const beute = (): number => peer!.inventar.countOf('RawMeat');
+    // D5: loot lies on the ground at the corpse now; `beute()` counts what is in the inventory plus the RawMeat on the ground.
+    const bodenFleisch = (): number => server.zdos.getAllZDOs().filter((z) => server.beuteAmBoden.istBeute(z) && z.getString('beute_item') === 'RawMeat').reduce((a, z) => a + z.getInt('beute_menge'), 0);
+    const beute = (): number => peer!.inventar.countOf('RawMeat') + bodenFleisch();
 
     /** Hit with `waffe` until the animal is gone; returns the hits, the HP after each and the loot. */
     async function erschlage(zdo: ZDO, mitte: Vector3, waffe: string, halteFest = false): Promise<{ schlaege: number; hpReihe: number[]; fleisch: number; meldung: string }> {
@@ -508,7 +510,7 @@ async function main(): Promise<void> {
       const r = await erschlage(kuh, mitte, waffe, true);
       const soll = Math.ceil(30 / schaden);
       check(`cow, ${waffe === '' ? 'fist' : waffe} (${schaden}): dead after ${soll} hits`, r.schlaege === soll && kuh.destroyed, `hits ${r.schlaege}, HP ${r.hpReihe.join(' -> ')}`);
-      check(`cow, ${waffe === '' ? 'fist' : waffe}: loot 2-3 RawMeat in the inventory and in the message`, r.fleisch >= 2 && r.fleisch <= 3 && r.meldung === `Kuh besiegt — ${r.fleisch}× RawMeat`, `${r.fleisch}× / "${r.meldung}"`);
+      check(`cow, ${waffe === '' ? 'fist' : waffe}: loot 2-3 RawMeat on the ground (not in the inventory) and the kill message`, r.fleisch >= 2 && r.fleisch <= 3 && r.meldung === 'Kuh besiegt' && peer.inventar.countOf('RawMeat') === 0, `${r.fleisch}× / "${r.meldung}"`);
     }
 
     // [3c] Wolf: strikes back, dies, drops.
@@ -536,7 +538,7 @@ async function main(): Promise<void> {
     check('wolf anim member on the real server: run then attack', animSicht.has('run') && animSicht.has('attack'), [...animSicht].join(','));
     const gegen = await erschlage(wolf, mitte, 'AxeFlint');
     check('wolf, flint axe: dead after 2 hits', gegen.schlaege === 2 && wolf.destroyed, `hits ${gegen.schlaege}, HP ${gegen.hpReihe.join(' -> ')}`);
-    check('wolf: loot 1-2 RawMeat', gegen.fleisch >= 1 && gegen.fleisch <= 2 && gegen.meldung === `Wolf besiegt — ${gegen.fleisch}× RawMeat`, `${gegen.fleisch}× / "${gegen.meldung}"`);
+    check('wolf: loot 1-2 RawMeat on the ground', gegen.fleisch >= 1 && gegen.fleisch <= 2 && gegen.meldung === 'Wolf besiegt' && peer.inventar.countOf('RawMeat') === 0, `${gegen.fleisch}× / "${gegen.meldung}"`);
 
     mitte = await neuerPlatz(geoAnker.wald);
     const wolf2 = setze('Wolf', vorn(mitte, 3));

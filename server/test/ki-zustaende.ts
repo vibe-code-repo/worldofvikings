@@ -17,11 +17,22 @@
  *  [10] Fels: der Wolf bleibt davor stehen (Abstand ≥ Fels- plus Kreaturradius).
  *  [11] Umlaufen: bei Rückenansicht läuft der Wolf im Bogen zur Vorderseite.
  *  [12] NPC-Steckbrief deckt die Bänder von `aggroSchritt` (Editor-Vorschau).
+ *  [13] Heimkehr hängt nicht fest: Wand, Anker im Fels, Feldprobe (N1 B1).
+ *  [14] Leinen-Kiting: Heimkehrer sind unverwundbar und voll bei Leben (N1 B5).
+ *  [15] Schlagplätze zählen je tatsächlichem Ziel (N1 B6).
+ *  [16] Schaukeln an der Leine endet; Rückzug im Serverpfad (N1 B2, B7).
+ *  [17] Kettenaggro ist nicht transitiv (N1 B3).
+ *  [18] Im Fels: herausgeschoben, nicht hindurch; kein Spawn im Fels (N1 B4).
+ *  [19] Schrittdeckel der Simulation; nichts Totes exportiert (N1 B9, B8).
  *
  * Run: npx tsx server/test/ki-zustaende.ts   (from the repo root or server/)
  */
+import * as SHARED from '@wov/shared';
 import {
   AGGRO_VERFALL_SEC,
+  HEIMKEHR_FESTSITZEN_SEC,
+  HEIM_ANKUNFT_M,
+  maxLeben,
   NPC_KAMPF,
   SPAWN_TABLE,
   VERFOLGUNG_ANTEIL,
@@ -72,13 +83,14 @@ function wolfEintrag(ueber: Partial<SpawnEntry> = {}): SpawnEntry {
 }
 
 /** Ein SpawnSystem über echten ZDOs; Gelände ist flach, Zonen gelten als erzeugt. */
-function baue(table: readonly SpawnEntry[], seed = 1, opt: { kollision?: Kollisionswelt } = {}) {
+function baue(table: readonly SpawnEntry[], seed = 1, opt: { kollision?: Kollisionswelt; ki?: Partial<KiSteckbrief> } = {}) {
   const zdos = new ZDOManager(1n);
   const hm = { getGroundHeight: (): number => BODEN_Y };
   const zones = { isZoneGenerated: (): boolean => true };
   const spawns = new SpawnSystem(zdos, {} as never, hm as never, zones as never, {
     rng: new XorShiftRandom(seed),
     table,
+    kiUeberschreibung: opt.ki,
   });
   if (opt.kollision) spawns.kollision = opt.kollision;
   return { zdos, spawns };
@@ -118,10 +130,26 @@ console.log('\n[1] Steckbriefe: Werte in den Spannen, Tiere ohne KI');
 {
   const ki = WOLF_KI as unknown as Record<string, number>;
   const aus: string[] = [];
+  // AUSNAHME (Mike, 30.09.2026): Der Wolf behält den Takt von 2 s wie vor D4 —
+  // bewusst ausserhalb der Roadmap-Spanne 0,5–1,5 s. Nur dieser Wert, nur 2 s.
+  const AUSNAHME: Record<string, readonly [number, number]> = { taktSec: [2, 2] };
   for (const [feld, [lo, hi]] of Object.entries(KI_SPANNEN)) {
     const v = ki[feld];
-    if (!(v >= lo && v <= hi)) aus.push(`${feld}=${v} ausserhalb ${lo}..${hi}`);
+    const [alo, ahi] = feld in AUSNAHME ? [Math.min(lo, AUSNAHME[feld][0]), Math.max(hi, AUSNAHME[feld][1])] : [lo, hi];
+    if (!(v >= alo && v <= ahi)) aus.push(`${feld}=${v} ausserhalb ${alo}..${ahi}`);
   }
+  check('Ausnahme Takt: die Roadmap-Spanne bleibt 0,5–1,5 s, der Wolf steht mit 2 s darüber', KI_SPANNEN.taktSec[0] === 0.5 && KI_SPANNEN.taktSec[1] === 1.5 && WOLF_KI.taktSec === 2, `Takt ${WOLF_KI.taktSec}`);
+  // B7: die Werte des Wolfs wörtlich als Zahl (die Tests lesen sonst ihre Erwartung aus dem Steckbrief selbst).
+  check(
+    'Wolf wörtlich: Leine 12, Rückzug nach 3 mit 0,4, Takt 2, Verfall 20, Sicht 17 / 230°',
+    WOLF_KI.leine === 12 && WOLF_KI.rueckzugNach === 3 && WOLF_KI.rueckzugChance === 0.4 && WOLF_KI.taktSec === 2 && WOLF_KI.verfallSec === 20 && WOLF_KI.sicht === 17 && WOLF_KI.sichtWinkelGrad === 230,
+    `Leine ${WOLF_KI.leine}, Rückzug ${WOLF_KI.rueckzugNach}/${WOLF_KI.rueckzugChance}, Takt ${WOLF_KI.taktSec}, Verfall ${WOLF_KI.verfallSec}, Sicht ${WOLF_KI.sicht}/${WOLF_KI.sichtWinkelGrad}`
+  );
+  check(
+    'Wolf wörtlich: Hören 30, Haltesicht 17, Strecke 15, Zeit 10, Reichweite 1,7, Reaktion 0,25, Körper 0,45, Block 0',
+    WOLF_KI.hoeren === 30 && WOLF_KI.haltSicht === 17 && WOLF_KI.verfolgungM === 15 && WOLF_KI.verfolgungSec === 10 && WOLF_KI.angriffReichweite === 1.7 && WOLF_KI.bemerktSec === 0.25 && WOLF_KI.koerperRadius === 0.45 && WOLF_KI.blockChance === 0
+  );
+  check('der Körper des Wolfs liegt unter dem Ankunftsradius der Heimkehr (am Fels erreichbar)', WOLF_KI.koerperRadius < HEIM_ANKUNFT_M, `${WOLF_KI.koerperRadius} < ${HEIM_ANKUNFT_M}`);
   check('Wolf: jeder Wert liegt in seiner Spanne', aus.length === 0, aus.join('; ') || `${Object.keys(KI_SPANNEN).length} Werte`);
   check('Wolf: Verfolgungsstrecke 15 m, Haltesicht = Sicht', WOLF_KI.verfolgungM === 15 && WOLF_KI.haltSicht === WOLF_KI.sicht);
   check('Wolf: Verfall ist die Vorgabe 20 s', WOLF_KI.verfallSec === AGGRO_VERFALL_SEC);
@@ -348,7 +376,7 @@ console.log('\n[7] Rückzug nach n Angriffen mit Wahrscheinlichkeit p (fester Se
     if (b.schlag) s0++;
     kiReiz(z0, 'p0', 0);
   }
-  check('rueckzugNach 0: kein Wurf, der Wolf schlägt weiter', w0 === 0 && s0 > 100, `${w0} Würfe, ${s0} Schläge`);
+  check('rueckzugNach 0: kein Wurf, der Wolf schlägt weiter (200 s bei Takt 2 s: rund 100 Schläge)', w0 === 0 && s0 >= 95, `${w0} Würfe, ${s0} Schläge`);
 }
 
 // ── [8] Aggro-Tabelle ──────────────────────────────────────────────
@@ -536,6 +564,407 @@ console.log('\n[12] NPC-Steckbrief deckt die Bänder von aggroSchritt (Editor-Vo
     }
   }
   check(`${namen.length} NPCs, ${verglichen} Abstände: dieselbe Staffel wie aggroSchritt`, abweichungen.length === 0 && verglichen > 500, abweichungen.slice(0, 3).join('; ') || `${verglichen} gleich`);
+}
+
+// ── Aufbau mit Fels für [13]–[19] ──────────────────────────────────
+const FELS_NAME = 'D4_Fels';
+const KISTE_NAME = 'D4_Kiste';
+const FELS_RADIUS = 1.5;
+const KISTE_HALB = 10;
+type StateMap = Map<string, { home: Vector3; steck: KiSteckbrief }>;
+const creaturesVon = (spawns: SpawnSystem): StateMap => (spawns as unknown as { creatures: StateMap }).creatures;
+
+function felsRahmen(table: readonly SpawnEntry[], seed = 1, ki?: Partial<KiSteckbrief>, mitKollision = true) {
+  const felsHash = getStableHash(FELS_NAME);
+  const kisteHash = getStableHash(KISTE_NAME);
+  const prefabs = new PrefabManager();
+  prefabs.register({ hash: felsHash, name: FELS_NAME, localScale: { x: 1, y: 1, z: 1 } } as never);
+  prefabs.register({ hash: kisteHash, name: KISTE_NAME, localScale: { x: 1, y: 1, z: 1 } } as never);
+  const quelle: FormQuelle = {
+    formFuer: (n) =>
+      n === FELS_NAME
+        ? { art: 'kapsel', x: 0, z: 0, radius: FELS_RADIUS, yMin: -1, yMax: 3 }
+        : n === KISTE_NAME
+          ? { art: 'kiste', min: { x: -KISTE_HALB, y: -1, z: -KISTE_HALB }, max: { x: KISTE_HALB, y: 20, z: KISTE_HALB } }
+          : null,
+  };
+  const zdos = new ZDOManager(1n);
+  const kollision = new Kollisionswelt(zdos, prefabs, () => BODEN_Y, quelle);
+  const hm = { getGroundHeight: (): number => BODEN_Y };
+  const geo = { getBiome: (): number => -1 };
+  const spawns = new SpawnSystem(zdos, geo as never, hm as never, { isZoneGenerated: () => true } as never, {
+    rng: new XorShiftRandom(seed),
+    table,
+    kiUeberschreibung: ki,
+  });
+  if (mitKollision) spawns.kollision = kollision;
+  return {
+    zdos,
+    spawns,
+    kollision,
+    fels: (x: number, z: number): ZDO => zdos.createZDO(felsHash, { x, y: BODEN_Y, z }),
+    kiste: (x: number, z: number): ZDO => zdos.createZDO(kisteHash, { x, y: BODEN_Y, z }),
+  };
+}
+
+/** Wolf, der nach dem Anlegen nicht von selbst wandert (Wanderradius 0, endlose Pause). */
+const ruhigerWolf = (): SpawnEntry => wolfEintrag({ wanderRadius: 0, idleMinSec: 9999, idleMaxSec: 9999 });
+const FERN: Vector3 = { x: 100, y: BODEN_Y, z: -14 };
+
+// ── [13] Heimkehr hängt nicht fest (B1) ────────────────────────────
+console.log('\n[13] Heimkehr: Wand, Anker im Fels, Feldprobe — nichts bleibt dauerhaft in `heimkehren`');
+{
+  // (a) Wand aus Felsen zwischen Wolf (14 m vom Anker, jenseits der Leine) und Anker.
+  const r = felsRahmen([wolfEintrag()], 21);
+  for (let x = -30; x <= 30; x += 2) r.fels(x, -7);
+  const wolf = setzeWolf(r.zdos, 0, 0, 0);
+  r.spawns.adoptPersisted();
+  r.zdos.updateZDOZone(wolf, { x: 0, y: BODEN_Y, z: -14 });
+  const info = [{ id: 'p0', blick: null }];
+  let schlaege = 0;
+  r.spawns.onCreatureAttack = (): void => {
+    schlaege++;
+  };
+  r.spawns.update(0.05, [FERN], [FERN], info);
+  r.spawns.treffer(wolf, { id: 'p0', schaden: 8 });
+  let t = 0;
+  let tHeim = -1;
+  let tEnde = -1;
+  let zEndePos = { x: 0, z: 0 };
+  for (let i = 0; i < 600; i++) {
+    r.spawns.update(0.05, [FERN], [FERN], info);
+    t += 0.05;
+    const ph = r.spawns.kiPhase(wolf);
+    if (ph === 'heimkehren' && tHeim < 0) tHeim = t;
+    if (tHeim >= 0 && ph !== 'heimkehren' && tEnde < 0) {
+      tEnde = t;
+      zEndePos = { x: wolf.position.x, z: wolf.position.z };
+    }
+  }
+  const heimDauer = tEnde - tHeim;
+  check('Wand: der Wolf kehrt heim und bleibt an der Wand stehen', tHeim > 0 && zEndePos.z < -8 && zEndePos.z > -9.2, `Heimkehr ab ${f(tHeim)} s, steht bei z=${f(zEndePos.z, 2)}`);
+  // Anlauf ~1 s, dann HEIMKEHR_FESTSITZEN_SEC ohne Fortschritt.
+  check(`Wand: nach ${HEIMKEHR_FESTSITZEN_SEC} s ohne Fortschritt ist Schluss mit der Heimkehr`, tEnde > 0 && heimDauer >= HEIMKEHR_FESTSITZEN_SEC && heimDauer <= HEIMKEHR_FESTSITZEN_SEC + 2.5, `Heimkehr ${f(heimDauer)} s`);
+  const c = creaturesVon(r.spawns).values().next().value!;
+  check('Wand: der Anker liegt jetzt dort, wo er steht', Math.hypot(c.home.x - zEndePos.x, c.home.z - zEndePos.z) < 0.6, `Anker (${f(c.home.x)}; ${f(c.home.z)}) gegen Wolf (${f(zEndePos.x)}; ${f(zEndePos.z)})`);
+  check('Wand: danach wandert er wieder (Phase wandern)', r.spawns.kiPhase(wolf) === 'wandern', `Phase ${r.spawns.kiPhase(wolf)}`);
+  // Er nimmt wieder wahr: ein Spieler vor ihm (hinter der Wand) wird bemerkt.
+  const vor: Vector3 = { x: 0, y: BODEN_Y, z: -5 };
+  let bemerkt = false;
+  for (let i = 0; i < 60 && !bemerkt; i++) {
+    r.spawns.update(0.05, [vor], [vor], [{ id: 'p1', blick: null }]);
+    bemerkt = r.spawns.kiPhase(wolf) !== 'wandern';
+  }
+  check('Wand: der Festsitzer nimmt wieder wahr (Spieler vor ihm wird bemerkt)', bemerkt, `Phase ${r.spawns.kiPhase(wolf)}`);
+  // ... und wehrt sich: Treffer eines Spielers dicht hinter ihm.
+  const hinter: Vector3 = { x: 0, y: BODEN_Y, z: zEndePos.z - 1.2 };
+  r.spawns.treffer(wolf, { id: 'p2', schaden: 8 });
+  schlaege = 0;
+  for (let i = 0; i < 120; i++) r.spawns.update(0.05, [hinter], [hinter], [{ id: 'p2', blick: null }]);
+  check('Wand: der Festsitzer wehrt sich (Schläge gegen den Spieler dicht hinter ihm)', schlaege >= 1, `${schlaege} Schläge in 6 s`);
+}
+{
+  // (b) Anker im Fels: wird beim ersten Schritt herausgeschoben; die Heimkehr kommt an.
+  const r = felsRahmen([ruhigerWolf()], 22);
+  r.fels(0, 0);
+  const wolf = setzeWolf(r.zdos, 0.3, 0, 0);
+  r.spawns.adoptPersisted();
+  r.zdos.updateZDOZone(wolf, { x: 14, y: BODEN_Y, z: 0 });
+  const info = [{ id: 'p0', blick: null }];
+  const fern: Vector3 = { x: 100, y: BODEN_Y, z: 0 };
+  r.spawns.update(0.05, [fern], [fern], info);
+  const c = creaturesVon(r.spawns).values().next().value!;
+  const home0 = { ...c.home };
+  const dHome = Math.hypot(home0.x, home0.z);
+  check(`Anker im Fels (Abstand 0,3 m vom Felsmittelpunkt): geschoben auf ≥ Fels ${FELS_RADIUS} + Wolf ${WOLF.koerperRadius}`, dHome >= FELS_RADIUS + WOLF.koerperRadius - 1e-6 && dHome <= FELS_RADIUS + WOLF.koerperRadius + 0.3, `Anker ${f(dHome, 3)} m vom Felsmittelpunkt`);
+  r.spawns.treffer(wolf, { id: 'p0', schaden: 8 });
+  let ankunft = -1;
+  let t = 0;
+  let sahHeim = false;
+  for (let i = 0; i < 300 && ankunft < 0; i++) {
+    r.spawns.update(0.05, [fern], [fern], info);
+    t += 0.05;
+    const ph = r.spawns.kiPhase(wolf);
+    if (ph === 'heimkehren') sahHeim = true;
+    if (sahHeim && ph === 'wandern') ankunft = t;
+  }
+  check('Anker im Fels: die Heimkehr kommt an (unter der Frist), ohne den Anker neu zu setzen', ankunft > 0 && ankunft < HEIMKEHR_FESTSITZEN_SEC && Math.hypot(c.home.x - home0.x, c.home.z - home0.z) < 1e-9, `angekommen nach ${f(ankunft)} s, Wolf ${f(Math.hypot(wolf.position.x - home0.x, wolf.position.z - home0.z))} m vom Anker`);
+}
+{
+  // (c) Feldprobe: 30 Wölfe, 150 Felsen, Spieler steht, 300 s.
+  const r = felsRahmen([ruhigerWolf()], 23);
+  const zufall = new XorShiftRandom(77);
+  for (let i = 0; i < 150; i++) r.fels(zufall.rangeFloat(-35, 35), zufall.rangeFloat(-35, 35));
+  const wolfe: ZDO[] = [];
+  for (let i = 0; i < 30; i++) wolfe.push(setzeWolf(r.zdos, zufall.rangeFloat(-35, 35), zufall.rangeFloat(-35, 35), zufall.rangeFloat(0, Math.PI * 2)));
+  r.spawns.adoptPersisted();
+  const spieler: Vector3 = { x: 0, y: BODEN_Y, z: 0 };
+  const info = [{ id: 'p0', blick: null }];
+  const heimSeit = new Map<ZDO, number>();
+  let laengsteHeim = 0;
+  let ticks = 0;
+  const zeiten: number[] = [];
+  let simT = 0;
+  for (let i = 0; i < 6000; i++) {
+    const t0 = performance.now();
+    r.spawns.update(0.05, [spieler], [spieler], info);
+    zeiten.push(performance.now() - t0);
+    simT += 0.05;
+    ticks++;
+    for (const w of wolfe) {
+      if (r.spawns.kiPhase(w) === 'heimkehren') {
+        if (!heimSeit.has(w)) heimSeit.set(w, simT);
+        laengsteHeim = Math.max(laengsteHeim, simT - heimSeit.get(w)!);
+      } else heimSeit.delete(w);
+    }
+  }
+  const median = (a: number[]): number => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
+  const erste = median(zeiten.slice(300, 1300));
+  const letzte = median(zeiten.slice(-1000));
+  const dauerhaft = [...heimSeit.keys()].length;
+  check('Feldprobe 30 Wölfe / 150 Felsen / 300 s: kein Wolf steckt am Ende in `heimkehren`', dauerhaft === 0, `${dauerhaft} von 30; längste Heimkehr ${f(laengsteHeim, 1)} s (Fristen: Weg höchstens ~3 s + ${HEIMKEHR_FESTSITZEN_SEC} s)`);
+  check('Feldprobe: keine Heimkehr länger als 20 s (Zeuge gegen schleichenden Festhänger)', laengsteHeim < 20, `längste ${f(laengsteHeim, 1)} s`);
+  check('Feldprobe: Tickzeit stabil (Median der letzten 1000 Ticks höchstens dreimal der ersten plus 0,5 ms) und unter 3 ms', letzte <= erste * 3 + 0.5 && letzte < 3, `erste 1000 Ticks ${f(erste, 3)} ms, letzte 1000 ${f(letzte, 3)} ms`);
+  void ticks;
+}
+
+// ── [14] Leinen-Kiting (B5) ────────────────────────────────────────
+console.log('\n[14] Spieler bei 14 m vom Anker trifft aus 3,5 m: Heimkehrer sind unverwundbar und voll bei Leben');
+{
+  const { zdos, spawns } = baue([ruhigerWolf()], 31);
+  const wolf = setzeWolf(zdos, 0, 0, Math.PI / 2); // blickt +x, dem Spieler zu
+  spawns.adoptPersisted();
+  const spieler: Vector3 = { x: 14, y: BODEN_Y, z: 0 };
+  const info = [{ id: 'p0', blick: null }];
+  const voll = maxLeben('Wolf');
+  let schlaege = 0;
+  spawns.onCreatureAttack = (): void => {
+    schlaege++;
+  };
+  let treffer = 0;
+  let abgewehrt = 0;
+  let gestorben = false;
+  let vollBeiHeimstart = true;
+  let letztePhase = '';
+  let naechsterSchlag = 0;
+  let t = 0;
+  for (let i = 0; i < 4000 && !gestorben; i++) {
+    spawns.update(0.05, [spieler], [spieler], info);
+    t += 0.05;
+    const ph = spawns.kiPhase(wolf) ?? '';
+    if (ph === 'heimkehren' && letztePhase !== 'heimkehren' && wolf.getInt(HEALTH_MEMBER) !== voll) vollBeiHeimstart = false;
+    letztePhase = ph;
+    // Der Spieler schlägt alle 0,5 s, wenn der Wolf in 3,5 m Reichweite steht — wie handleAttack:
+    // ein Heimkehrer ist kein Ziel (unverwundbar), sonst Schaden und Reiz.
+    if (t >= naechsterSchlag && abstand(wolf.position, spieler) <= 3.5) {
+      naechsterSchlag = t + 0.5;
+      if (spawns.unverwundbar(wolf)) abgewehrt++;
+      else {
+        treffer++;
+        const hp = wolf.getInt(HEALTH_MEMBER) - 8;
+        if (hp <= 0) gestorben = true;
+        else {
+          wolf.setInt(HEALTH_MEMBER, hp);
+          spawns.treffer(wolf, { id: 'p0', schaden: 8 });
+        }
+      }
+    }
+  }
+  check('Leinen-Kiting 14 m / 200 s: der Wolf stirbt nicht', !gestorben, `Treffer ${treffer}, abgewehrt ${abgewehrt}, Leben ${wolf.getInt(HEALTH_MEMBER)}/${voll}`);
+  check('… Heimkehrer waren unverwundbar (mindestens ein Schlag des Spielers wurde abgewehrt)', abgewehrt >= 1, `${abgewehrt} abgewehrt`);
+  check('… beim Heimkehren sind die Lebenspunkte voll', vollBeiHeimstart);
+  check('… und kein Schaden-ohne-Risiko: der Spieler trifft höchstens dreimal, bevor der Wolf heimkehrt (30 Leben, Schaden 8 ⇒ vier nötig)', treffer <= 3, `${treffer} Treffer`);
+  void schlaege;
+}
+
+// ── [15] Schlagplätze je tatsächliches Ziel (B6) ───────────────────
+console.log('\n[15] Zwei Spieler, sechs Wölfe mit Aggro nur auf B: höchstens zwei schlagen gleichzeitig auf B');
+{
+  const { zdos, spawns } = baue([ruhigerWolf()], 41, { ki: { rueckzugNach: 0 } });
+  const A: Vector3 = { x: 0, y: BODEN_Y, z: 0 };
+  const B: Vector3 = { x: 2, y: BODEN_Y, z: 0 };
+  // Drei Wölfe näher an A, drei näher an B, alle in 1,7 m von B (Abstand zu B 0,8–1,2 m).
+  const xs = [0.8, 0.85, 0.9, 1.1, 1.15, 1.2];
+  const wolfe = xs.map((x, i) => setzeWolf(zdos, x, (i - 2.5) * 0.05, Math.PI / 2));
+  spawns.adoptPersisted();
+  const info = [{ id: 'A', blick: null }, { id: 'B', blick: null }];
+  const jeTick: number[] = [];
+  let imTick = 0;
+  spawns.onCreatureAttack = (_p, _d, _r, ziel): void => {
+    if (ziel.x === B.x) imTick++;
+  };
+  for (const w of wolfe) spawns.treffer(w, { id: 'B', schaden: 8 });
+  for (let i = 0; i < 400; i++) {
+    imTick = 0;
+    spawns.update(0.05, [A, B], [A, B], info);
+    jeTick.push(imTick);
+  }
+  const hoechst = Math.max(...jeTick);
+  const gesamt = jeTick.reduce((x, y) => x + y, 0);
+  check('höchstens 2 Wölfe schlagen im selben Tick auf B', hoechst <= 2, `höchstens ${hoechst} je Tick`);
+  // Zwei Plätze, Takt 2 s, 20 s: rund 2 × 10 Schläge (±1 je Platz).
+  check('… und insgesamt in 20 s nicht mehr als zwei Schlagplätze hergeben (≤ 2 × 10 + 2)', gesamt >= 10 && gesamt <= 22, `${gesamt} Schläge in 20 s`);
+}
+
+// ── [16] Schaukeln an der Leine (B2), Rückzug im Serverpfad (B7) ───
+console.log('\n[16] Spieler still bei 14 m: höchstens eine Handvoll Zustandswechsel; Rückzug im echten SpawnSystem');
+{
+  const { zdos, spawns } = baue([ruhigerWolf()], 51);
+  const wolf = setzeWolf(zdos, 0, 0, Math.PI / 2);
+  spawns.adoptPersisted();
+  const spieler: Vector3 = { x: 14, y: BODEN_Y, z: 0 };
+  const info = [{ id: 'p0', blick: null }];
+  let wechsel = 0;
+  let letzte = spawns.kiPhase(wolf);
+  // Schlimmster Fall: Der Wolf schaut in Ruhe immer zum Spieler (kein Wegdrehen nach der Heimkehr).
+  const zumSpieler = (): void => {
+    if (spawns.kiPhase(wolf) === 'wandern') wolf.rotation = yawQuaternion(Math.PI / 2);
+  };
+  for (let i = 0; i < 4000; i++) {
+    zumSpieler();
+    spawns.update(0.05, [spieler], [spieler], info);
+    const ph = spawns.kiPhase(wolf);
+    if (ph !== letzte) {
+      wechsel++;
+      letzte = ph;
+    }
+  }
+  check('Spieler still bei 14 m, 200 s: höchstens 6 Zustandswechsel (vorher 75)', wechsel <= 6, `${wechsel} Wechsel`);
+  // Der Wolf bemerkt einen aufgegebenen Spieler nicht gleich wieder; betritt er das Revier, schon.
+  const revier: Vector3 = { x: 9, y: BODEN_Y, z: 0 };
+  let ging = false;
+  for (let i = 0; i < 100 && !ging; i++) {
+    zumSpieler();
+    spawns.update(0.05, [revier], [revier], info);
+    ging = spawns.kiPhase(wolf) !== 'wandern';
+  }
+  check('Betritt der Spieler das Revier (9 m vom Anker, Leine 12), greift der Wolf wieder an', ging, `Phase ${spawns.kiPhase(wolf)}`);
+}
+{
+  // Rückzug mit den echten Werten im echten SpawnSystem: Spieler 1,2 m vor dem Wolf, Schläge zählen.
+  const { zdos, spawns } = baue([ruhigerWolf()], 52);
+  const wolf = setzeWolf(zdos, 0, 0, 0); // blickt +z, dem Spieler zu
+  spawns.adoptPersisted();
+  const spieler: Vector3 = { x: 0, y: BODEN_Y, z: 1.2 };
+  const info = [{ id: 'p0', blick: null }];
+  let schlaege = 0;
+  spawns.onCreatureAttack = (): void => {
+    schlaege++;
+  };
+  let rueckzuege = 0;
+  let letzte = '';
+  let weitesterRueckzug = 0;
+  for (let i = 0; i < 80000; i++) {
+    spawns.update(0.05, [spieler], [spieler], info);
+    const ph = spawns.kiPhase(wolf) ?? '';
+    if (ph === 'zurueckziehen' && letzte !== 'zurueckziehen') rueckzuege++;
+    if (ph === 'zurueckziehen') weitesterRueckzug = Math.max(weitesterRueckzug, abstand(wolf.position, spieler));
+    letzte = ph;
+  }
+  const wuerfe = Math.floor(schlaege / 3); // wörtlich 3: nach jedem dritten Schlag wird gewürfelt
+  const anteil = rueckzuege / wuerfe;
+  check(`Serverpfad: Rückzugsanteil ${f(anteil * 100, 1)} % = 40 % ± 4 (alle 3 Schläge gewürfelt, ${wuerfe} Würfe)`, wuerfe >= 500 && Math.abs(anteil - 0.4) <= 0.04, `${rueckzuege} Rückzüge bei ${schlaege} Schlägen`);
+  check('Serverpfad: Schläge je Takt 2 s — 4000 s ergeben rund 2000 Schläge abzüglich der Rückzugslücken (1300–2000)', schlaege >= 1300 && schlaege <= 2000, `${schlaege} Schläge`);
+  check('Serverpfad: im Rückzug entfernt sich der Wolf aus der Schlagreichweite', weitesterRueckzug > 1.7 + 1, `größter Abstand im Rückzug ${f(weitesterRueckzug)} m`);
+}
+
+// ── [17] Kettenaggro nicht transitiv (B3) ──────────────────────────
+console.log('\n[17] 12 Wölfe im Abstand von 10 m: nur die direkten Nachbarn des getroffenen Wolfs werden alarmiert');
+{
+  const { zdos, spawns } = baue([ruhigerWolf()], 61);
+  const wolfe: ZDO[] = [];
+  for (let i = 0; i < 12; i++) wolfe.push(setzeWolf(zdos, i * 10, 0, -Math.PI / 2)); // blicken −x, alle vom Spieler weg
+  spawns.adoptPersisted();
+  // Der Spieler steht weit hinter der Kette (Sicht 17 m, Kegel nach −x): niemand sieht ihn.
+  const spieler: Vector3 = { x: 130, y: BODEN_Y, z: 0 };
+  const info = [{ id: 'p0', blick: null }];
+  for (let i = 0; i < 20; i++) spawns.update(0.1, [spieler], [spieler], info);
+  const vorher = wolfe.map((w) => spawns.kiPhase(w));
+  spawns.treffer(wolfe[5], { id: 'p0', schaden: 8 });
+  for (let i = 0; i < 40; i++) spawns.update(0.1, [spieler], [spieler], info);
+  const phasen = wolfe.map((w) => spawns.kiPhase(w));
+  const alarmiert = phasen.map((ph, i) => (ph !== 'wandern' ? i : -1)).filter((i) => i >= 0);
+  check('Ausgangslage: alle 12 unbemerkt', vorher.every((p) => p === 'wandern'), vorher.join(','));
+  check('Treffer auf Wolf 5: Wolf 5 und seine direkten Nachbarn 4 und 6 (10 m, innerhalb der Leine 12 m) sind alarmiert', [4, 5, 6].every((i) => alarmiert.includes(i)), `alarmiert: ${alarmiert.join(',')}`);
+  check('… aber keiner weiter weg: der Ruf läuft nicht von Nachbar zu Nachbar weiter', alarmiert.length === 3, `alarmiert: ${alarmiert.join(',')} (${alarmiert.length})`);
+}
+
+// ── [18] Im Fels (B4) ──────────────────────────────────────────────
+console.log('\n[18] Steckt der Wolf im Fels, wird er auf dem kürzesten Weg herausgeschoben; kein Spawn im Fels');
+{
+  // Die Abfrage selbst, ohne ZDO-Spiel: Mittelpunkt im Fels, in der Berührung, frei; Kiste.
+  const zdos = new ZDOManager(1n);
+  const kw = new Kollisionswelt(zdos, new PrefabManager(), () => BODEN_Y);
+  const kapsel = { art: 'kapsel' as const, x: 0, z: 0, radius: FELS_RADIUS, yMin: -1, yMax: 3 };
+  const nah = kw.nahfeldAus([{ form: kapsel, position: { x: 0, y: BODEN_Y, z: 0 } }]);
+  const r = WOLF.koerperRadius;
+  const im = nah.ausDemFels({ x: 0.3, y: BODEN_Y, z: 0 }, r);
+  check('ausDemFels: Mittelpunkt 0,3 m vom Felsmittelpunkt ⇒ geschoben auf Fels + Radius (+ 5 cm Luft), in die nächste der 8 Richtungen', !!im && Math.abs(Math.hypot(im.x, im.z) - (FELS_RADIUS + r + 0.05 - 0)) < 0.35 && Math.hypot(im.x, im.z) >= FELS_RADIUS + r, im ? `(${f(im.x, 3)}; ${f(im.z, 3)}) = ${f(Math.hypot(im.x, im.z), 3)} m` : 'null');
+  check('ausDemFels: an der Fläche (Abstand 1,7 m < 1,95 m = Berührung, Mittelpunkt ausserhalb) ist kein Steckenbleiben', nah.ausDemFels({ x: 1.7, y: BODEN_Y, z: 0 }, r) === null && nah.ausDemFels({ x: 1.2, y: BODEN_Y, z: 1.2 }, r) === null);
+  // Berührung in allen 16 Richtungen um den Fels, dicht an der Fläche (Mittelpunkt 1,55 m): nie „steckt".
+  const beruehrt = Array.from({ length: 16 }, (_, i) => nah.ausDemFels({ x: 1.55 * Math.cos((i * Math.PI) / 8), y: BODEN_Y, z: 1.55 * Math.sin((i * Math.PI) / 8) }, r)).filter((x) => x !== null).length;
+  check('ausDemFels: Mittelpunkt 1,55 m vom Felsmittelpunkt in 16 Richtungen (Berührung, 5 cm ausserhalb): nie als steckend gemeldet', beruehrt === 0, `${beruehrt} von 16`);
+  check('ausDemFels: frei (5 m) ⇒ null', nah.ausDemFels({ x: 5, y: BODEN_Y, z: 0 }, r) === null);
+  const kiste = kw.nahfeldAus([{ form: { art: 'kiste', min: { x: -4, y: -1, z: -4 }, max: { x: 4, y: 6, z: 4 } }, position: { x: 0, y: BODEN_Y, z: 0 } }]);
+  const imK = kiste.ausDemFels({ x: 3, y: BODEN_Y, z: 0.5 }, r);
+  check('ausDemFels: Kiste, 1 m vom Rand ⇒ hinaus über die nächste Seite (x ≥ 4 + Radius)', !!imK && imK.x >= 4 + r && imK.x <= 4 + r + 0.2, imK ? `(${f(imK.x, 3)}; ${f(imK.z, 3)})` : 'null');
+}
+{
+  // Der Fels wird unter den laufenden Wolf geladen; der Spieler steht hinter dem Fels.
+  const r = felsRahmen([ruhigerWolf()], 71);
+  const wolf = setzeWolf(r.zdos, 0, -6, 0); // blickt +z
+  r.spawns.adoptPersisted();
+  const spieler: Vector3 = { x: 0, y: BODEN_Y, z: 5 };
+  const info = [{ id: 'p0', blick: null }];
+  for (let i = 0; i < 10; i++) r.spawns.update(0.05, [spieler], [spieler], info);
+  r.fels(wolf.position.x + 0.3, wolf.position.z); // nachgeladen: der Wolf steht mitten darin
+  const mx = wolf.position.x;
+  const mz = wolf.position.z;
+  const minR = FELS_RADIUS + WOLF.koerperRadius;
+  let minNachher = Infinity;
+  let zuerst = -1;
+  let t = 0;
+  r.spawns.treffer(wolf, { id: 'p0', schaden: 8 });
+  for (let i = 0; i < 200; i++) {
+    r.spawns.update(0.05, [spieler], [spieler], info);
+    t += 0.05;
+    const d = Math.hypot(wolf.position.x - (mx + 0.3), wolf.position.z - mz);
+    if (zuerst < 0 && d >= minR - 0.02) zuerst = t;
+    if (zuerst >= 0) minNachher = Math.min(minNachher, d);
+  }
+  check('Fels auf den Wolf geladen: er wird zuerst herausgeschoben (spätestens im dritten Schritt)', zuerst > 0 && zuerst <= 0.16, `draußen ab ${f(zuerst, 2)} s`);
+  check(`… und läuft danach nie durch den Fels (Abstand ≥ ${f(minR)} m − 2 cm bis zum Ende)`, minNachher >= minR - 0.02, `kleinster Abstand ${f(minNachher, 3)} m`);
+}
+{
+  // Kein Spawn im Fels: eine Kiste deckt den Ring (5 m um den Spieler) ab.
+  const eintrag = wolfEintrag({ spawnChance: 1, globalMax: 20, maxPerPlayer: 20, spawnIntervalSec: 1, ringMin: 5, ringMax: 5, groupSizeMin: 1, groupSizeMax: 1 });
+  const peer: Vector3 = { x: 0, y: BODEN_Y, z: 0 };
+  const mit = felsRahmen([eintrag], 81);
+  mit.kiste(0, 0);
+  const ohne = felsRahmen([eintrag], 81);
+  for (let i = 0; i < 20; i++) {
+    mit.spawns.update(0.5, [peer]);
+    ohne.spawns.update(0.5, [peer]);
+  }
+  check('Spawn: im Fels (Kiste über dem Ring) entsteht kein Wolf', mit.spawns.creatureCount === 0, `${mit.spawns.creatureCount} Wölfe`);
+  check('Gegenprobe ohne Kiste: es entstehen Wölfe (Zeuge, dass die Probe überhaupt spawnt)', ohne.spawns.creatureCount >= 5, `${ohne.spawns.creatureCount} Wölfe`);
+}
+
+// ── [19] Schrittdeckel (B9), nichts Totes (B8) ─────────────────────
+console.log('\n[19] Ein Schritt der Simulation ist höchstens 0,25 s lang; `kiBlockt` (ohne Aufrufer) ist entfernt');
+{
+  const { zdos, spawns } = baue([ruhigerWolf()], 91);
+  const wolf = setzeWolf(zdos, 0, 0, 0);
+  spawns.adoptPersisted();
+  const spieler: Vector3 = { x: 0, y: BODEN_Y, z: 14 }; // in Sicht und in der Leine, 14 m vor dem Wolf
+  spawns.update(0.05, [spieler], [spieler], [{ id: 'p0', blick: null }]); // bemerkt
+  for (let i = 0; i < 6; i++) spawns.update(0.05, [spieler], [spieler], [{ id: 'p0', blick: null }]); // losgerannt
+  const z0 = wolf.position.z;
+  spawns.update(10, [spieler], [spieler], [{ id: 'p0', blick: null }]); // ein einziger Stau von 10 s
+  const weg = wolf.position.z - z0;
+  // 4,9 m/s × 0,25 s = 1,2 m; ungekappt wären es bis zum Spieler 14 m.
+  check('ein Schritt von 10 s wird auf 0,25 s gekappt: der Wolf läuft höchstens 4,9 × 0,25 m', weg > 0 && weg <= 4.9 * 0.25 + 1e-6, `Weg ${f(weg, 3)} m`);
+  check('`kiBlockt` hatte keinen Aufrufer und ist entfernt (kein totes Export)', !('kiBlockt' in SHARED));
 }
 
 console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAILED`);

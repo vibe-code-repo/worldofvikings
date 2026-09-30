@@ -64,17 +64,18 @@ export const KI_VORGABE: KiSteckbrief = {
  *    schon beim Wandern jenseits davon.
  *  - verfolgungM 15, verfolgungSec 10: 15 m Strecke ist der Wert der Vorgabe,
  *    10 s die Mitte von 5–20 s.
- *  - taktSec 1.5: Obergrenze der Spanne 0,5–1,5 s und damit der Wert, der dem
- *    bisherigen Takt (2 s) am nächsten liegt. Bei gleichem Schaden (8) sind
- *    das 33 % mehr Schaden je Sekunde im Dauerkampf — der Rückzug unten nimmt
- *    davon wieder etwas (siehe Bericht).
+ *  - taktSec 2: der bisherige Takt, bewusst außerhalb der Roadmap-Spanne
+ *    0,5–1,5 s (Entscheidung Mike, 30.09.2026). Der Schaden je Sekunde im
+ *    Dauerkampf bleibt damit wie vor der Zustandsmaschine. Der Test
+ *    `ki-zustaende` führt diese Ausnahme ausdrücklich.
  *  - angriffReichweite 1.7, schlagen mit Radius 2.4 (SpawnSystem): unverändert.
  *  - anrennenAb 17 (= sicht): was er sieht, rennt er an. bemerktSec 0.25: ein
  *    Sync-Schritt (4 Hz), damit die Clients die Drehung vor dem Losrennen sehen.
  *  - rueckzugNach 3, rueckzugChance 0.4: Mitte von 2–5 Schlägen bei 40 %, dem
  *    Wert, den die Roadmap für die Spielprobe nennt (0–80 % ist die Spanne).
- *  - blockChance 0: ein Tier blockt nicht (Spanne 0–100 %); Schlagabwehr der
- *    Kreatur gibt es im Kampfkern noch nicht.
+ *  - blockChance 0: ein Tier blockt nicht (Spanne 0–100 %). NOCH OHNE
+ *    WIRKUNG: Der Kampfkern kennt keine Schlagabwehr der Kreatur, der Wert
+ *    wird nirgends gelesen.
  *  - umlaufen true: ein Rudeltier läuft dem abgewandten Spieler nicht in den Rücken.
  *  - verfallSec 20: die Vorgabe.
  */
@@ -89,7 +90,7 @@ const WOLF: KreaturSteckbrief = {
     leine: 12,
     verfolgungM: 15,
     verfolgungSec: 10,
-    taktSec: 1.5,
+    taktSec: 2,
     angriffReichweite: 1.7,
     anrennenAb: 17,
     bemerktSec: 0.25,
@@ -131,6 +132,8 @@ export const KI_SPANNEN = {
   hoeren: [30, 30],
   leine: [10, 12],
   verfolgungSec: [5, 20],
+  // Roadmap-Spanne. Der Wolf liegt mit 2 s bewusst darüber (siehe WOLF); der Test
+  // führt die Ausnahme je Art und Wert, `KI_SPANNEN` bleibt die Spanne der Roadmap.
   taktSec: [0.5, 1.5],
   rueckzugNach: [2, 5],
   rueckzugChance: [0, 0.8],

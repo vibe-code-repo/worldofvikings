@@ -25,7 +25,13 @@
  * Kettenaggro: Wer eine Kreatur reizt, reizt damit auch ihre Nachbarn —
  * aber nur, wenn die rufende Kreatur innerhalb ihrer Leine steht
  * (`kiDarfRufen`; bemerkt sie jemanden jenseits davon, kehrt sie heim und
- * hat kein Ziel mehr). Die Nachbarn entscheiden das für sich selbst noch einmal.
+ * hat kein Ziel mehr). Es ruft nur, wer das Ziel selbst wahrgenommen hat
+ * oder getroffen wurde: Ein gerufener Nachbar ruft nicht weiter (`kiRuf`).
+ *
+ * Wer an Leine, Strecke oder Zeit aufgibt, merkt sich das Ziel als
+ * `aufgegeben` und bemerkt es nicht noch einmal, solange es außerhalb
+ * seines Reviers (Leine) steht und in der Nähe bleibt. Sonst liefe ein
+ * Spieler, der still an der Leine steht, den Wolf im Kreis.
  */
 
 import type { NpcKampf } from './npc.js';
@@ -40,6 +46,26 @@ export type KiPhase =
 
 /** Nach so vielen Sekunden ohne neuen Reiz lässt die Kreatur ein Ziel los. */
 export const AGGRO_VERFALL_SEC = 20;
+
+/** Ankunftsradius am Heimatpunkt: näher als das ist sie zu Hause. */
+export const HEIM_ANKUNFT_M = 0.5;
+
+/**
+ * Kommt eine heimkehrende Kreatur so lange nicht näher an den Heimatpunkt,
+ * setzt sie ihn auf ihre Position und wandert dort weiter (Ausweg aus Fels,
+ * Wand oder einem Anker im Fels).
+ *
+ * 5 s: Der Wolf läuft 4,9 m/s; die Leine ist 12 m, der gerade Heimweg also
+ * rund 2,5 s. 5 s sind das Doppelte davon; wer um ein Hindernis herum
+ * läuft, hat in dieser Zeit mehr Fortschritt als `HEIM_FORTSCHRITT_M`.
+ */
+export const HEIMKEHR_FESTSITZEN_SEC = 5;
+
+/**
+ * Fortschritt, der die Uhr zurücksetzt: 0,25 m in 5 s = 0,05 m/s. Wer
+ * langsamer kommt, sitzt fest (Zittern an einer Wand gilt nicht als Weg).
+ */
+export const HEIM_FORTSCHRITT_M = 0.25;
 
 /** Die Werte einer Art. Alle Längen in Metern, alle Zeiten in Sekunden. */
 export interface KiSteckbrief {
@@ -69,7 +95,11 @@ export interface KiSteckbrief {
   readonly rueckzugNach: number;
   /** Wahrscheinlichkeit des Rückzugs je Wurf, 0..1. */
   readonly rueckzugChance: number;
-  /** Anteil der Schläge des Spielers, die sie blockt, 0..1. */
+  /**
+   * Anteil der Schläge des Spielers, die sie blockt, 0..1.
+   * NOCH OHNE WIRKUNG: Der Kampfkern (`handleAttack`) kennt keinen Block
+   * einer Kreatur; der Wert steht nur im Steckbrief.
+   */
   readonly blockChance: number;
   /** Bei Rückenansicht des Ziels außen herum statt von hinten. */
   readonly umlaufen: boolean;
@@ -84,6 +114,11 @@ export interface KiEintrag {
   wert: number;
   /** Sekunden seit dem letzten Reiz. */
   alter: number;
+  /**
+   * Der Eintrag stammt von einem Ruf (`kiRuf`), die Kreatur hat das Ziel
+   * nicht selbst wahrgenommen: Sie ruft ihrerseits niemanden.
+   */
+  gerufen?: boolean;
 }
 
 export interface KiZustand {
@@ -101,6 +136,12 @@ export interface KiZustand {
   ziel: string | null;
   /** Dauer des laufenden Rückzugs. */
   rueckzugSec: number;
+  /** Kürzester Abstand zum Heimatpunkt seit Beginn der Heimkehr. */
+  heimBest: number;
+  /** Sekunden seit dem letzten Fortschritt der Heimkehr. */
+  heimStillSec: number;
+  /** Ziele, an denen sie aufgegeben hat (Leine, Strecke, Zeit): nicht gleich wieder bemerken. */
+  readonly aufgegeben: Set<string>;
   readonly tabelle: Map<string, KiEintrag>;
 }
 
@@ -114,6 +155,9 @@ export function neuerKiZustand(): KiZustand {
     takt: 0,
     ziel: null,
     rueckzugSec: 0,
+    heimBest: Infinity,
+    heimStillSec: 0,
+    aufgegeben: new Set(),
     tabelle: new Map(),
   };
 }
@@ -168,6 +212,11 @@ export interface KiBefehl {
   readonly neuBemerkt: boolean;
   /** In diesem Schritt wurde der Rückzug gewürfelt: Ergebnis, sonst null. */
   readonly rueckzugWurf: boolean | null;
+  /**
+   * Die Heimkehr kam nicht voran (`HEIMKEHR_FESTSITZEN_SEC`): Der Aufrufer
+   * setzt den Heimatpunkt auf die jetzige Position; die Phase ist `wandern`.
+   */
+  readonly ankerNeu: boolean;
 }
 
 /** Sieht ein Wesen an (x,z) mit Blick `yaw` ein Ziel an (zx,zz)? */
@@ -190,25 +239,38 @@ export function hoert(s: KiSteckbrief, x: number, z: number, lx: number, lz: num
   return dx * dx + dz * dz <= s.hoeren * s.hoeren;
 }
 
-/** Schaden (oder ein anderer Reiz mit Wert) von einem Angreifer. */
+/**
+ * Schaden (oder ein anderer Reiz mit Wert) von einem Angreifer. Die Kreatur
+ * hat ihn selbst erlebt (gesehen, gehört, getroffen): Schaden hebt auch ein
+ * früheres Aufgeben auf.
+ */
 export function kiReiz(z: KiZustand, key: string, wert: number): void {
   const e = z.tabelle.get(key);
   if (e) {
     e.wert += wert;
     e.alter = 0;
+    e.gerufen = false;
   } else {
     z.tabelle.set(key, { wert, alter: 0 });
   }
+  if (wert > 0) z.aufgegeben.delete(key);
+}
+
+/**
+ * Ein Nachbar hat den Verursacher wahrgenommen und ruft: Der Eintrag trägt
+ * keinen Wert und gilt nicht als eigene Wahrnehmung, damit der Ruf nicht
+ * von Nachbar zu Nachbar weiterläuft. Ein vorhandener Eintrag bleibt, wie er
+ * ist, und wird nur aufgefrischt.
+ */
+export function kiRuf(z: KiZustand, key: string): void {
+  const e = z.tabelle.get(key);
+  if (e) e.alter = 0;
+  else z.tabelle.set(key, { wert: 0, alter: 0, gerufen: true });
 }
 
 /** Ein Lärm, den die Kreatur gehört hat: der Verursacher ist bekannt, ohne Wert. */
 export function kiLaerm(z: KiZustand, key: string): void {
   kiReiz(z, key, 0);
-}
-
-/** Blockt die Kreatur diesen Schlag? Je Schlag ein Wurf. */
-export function kiBlockt(s: KiSteckbrief, wuerfel: () => number): boolean {
-  return s.blockChance > 0 && wuerfel() < s.blockChance;
 }
 
 /** Darf diese Kreatur ihre Nachbarn rufen? Nur innerhalb ihrer Leine. */
@@ -224,12 +286,18 @@ export function kiDarfRufen(s: KiSteckbrief, x: number, z: number, homeX: number
  */
 function verliere(z: KiZustand, s: KiSteckbrief): void {
   if (Number.isFinite(s.leine)) {
+    gibAuf(z);
     wechsle(z, 'heimkehren');
   } else {
     // Wer aufgibt, vergisst das Ziel; sonst finge er im nächsten Schritt von vorn an.
     z.tabelle.clear();
     wechsle(z, 'wandern');
   }
+}
+
+/** Das laufende Ziel als aufgegeben merken (vor dem Wechsel nach `heimkehren`). */
+function gibAuf(z: KiZustand): void {
+  if (z.ziel !== null) z.aufgegeben.add(z.ziel);
 }
 
 function wechsle(z: KiZustand, phase: KiPhase): void {
@@ -244,6 +312,8 @@ function wechsle(z: KiZustand, phase: KiPhase): void {
   if (phase === 'heimkehren') {
     z.tabelle.clear();
     z.ziel = null;
+    z.heimBest = Infinity;
+    z.heimStillSec = 0;
   }
   if (phase === 'wandern') {
     z.ziel = null;
@@ -252,8 +322,8 @@ function wechsle(z: KiZustand, phase: KiPhase): void {
 }
 
 /** Das wichtigste bekannte Ziel: höchster Wert, bei Gleichstand das nächste. */
-function waehleZiel(z: KiZustand, w: KiWelt): { ziel: KiZiel; wert: number; abstand: number } | null {
-  let best: { ziel: KiZiel; wert: number; abstand: number } | null = null;
+function waehleZiel(z: KiZustand, w: KiWelt): { ziel: KiZiel; wert: number; abstand: number; gerufen: boolean } | null {
+  let best: { ziel: KiZiel; wert: number; abstand: number; gerufen: boolean } | null = null;
   for (const ziel of w.ziele) {
     const e = z.tabelle.get(ziel.key);
     if (!e) continue;
@@ -261,7 +331,7 @@ function waehleZiel(z: KiZustand, w: KiWelt): { ziel: KiZiel; wert: number; abst
     const dz = ziel.z - w.z;
     const abstand = Math.sqrt(dx * dx + dz * dz);
     if (!best || e.wert > best.wert || (e.wert === best.wert && abstand < best.abstand)) {
-      best = { ziel, wert: e.wert, abstand };
+      best = { ziel, wert: e.wert, abstand, gerufen: e.gerufen === true };
     }
   }
   return best;
@@ -342,8 +412,15 @@ export function kiSchritt(
     // ohne Kegel, denn die Kreatur dreht sich zum Ziel, statt es zu verlieren.
     const gesehen = engagiert
       ? (ziel.x - w.x) ** 2 + (ziel.z - w.z) ** 2 <= s.haltSicht * s.haltSicht
-      : z.phase === 'wandern' && sieht(s, w.x, w.z, w.yaw, ziel.x, ziel.z);
+      : z.phase === 'wandern' && !z.aufgegeben.has(ziel.key) && sieht(s, w.x, w.z, w.yaw, ziel.x, ziel.z);
     if (gesehen) kiReiz(z, ziel.key, 0);
+  }
+  // Aufgegebene Ziele: vergessen, wenn es sie nicht mehr gibt, sie im Revier
+  // (Leine) stehen oder weit vom Revier weg sind (Leine + Sicht).
+  for (const key of z.aufgegeben) {
+    const ziel = w.ziele.find((q) => q.key === key);
+    const dHeim = ziel ? Math.sqrt((ziel.x - w.homeX) ** 2 + (ziel.z - w.homeZ) ** 2) : Infinity;
+    if (!ziel || dHeim <= s.leine || dHeim > s.leine + s.sicht) z.aufgegeben.delete(key);
   }
   // Verfall und Ziele, die es nicht mehr gibt (tot, abgemeldet).
   for (const [key, e] of z.tabelle) {
@@ -353,6 +430,7 @@ export function kiSchritt(
   const heimD = Math.sqrt((w.x - w.homeX) ** 2 + (w.z - w.homeZ) ** 2);
   let neuBemerkt = false;
   let rueckzugWurf: boolean | null = null;
+  let ankerNeu = false;
   let schlag = false;
 
   const befehl = (
@@ -376,6 +454,7 @@ export function kiSchritt(
     abstand,
     neuBemerkt,
     rueckzugWurf,
+    ankerNeu,
   });
 
   // Mehrere Übergänge hintereinander sind erlaubt, aber nie endlos.
@@ -387,6 +466,7 @@ export function kiSchritt(
       (phase === 'bemerkt' || phase === 'anrennen' || phase === 'kaempfen' || phase === 'zurueckziehen') &&
       heimD > s.leine
     ) {
+      gibAuf(z);
       wechsle(z, 'heimkehren');
       continue;
     }
@@ -397,7 +477,8 @@ export function kiSchritt(
       z.ziel = t.ziel.key;
       // Jenseits der Leine folgt gleich der Übergang nach `heimkehren` (oben in
       // der Schleife); `ziel` ist dann null, der Ruf an die Nachbarn entfällt.
-      neuBemerkt = true;
+      // Ein gerufener Nachbar hat nichts selbst wahrgenommen und ruft nicht weiter.
+      neuBemerkt = !t.gerufen;
       wechsle(z, 'bemerkt');
       continue;
     }
@@ -496,9 +577,22 @@ export function kiSchritt(
 
     // heimkehren
     const r = richtung(w.x, w.z, w.homeX, w.homeZ);
-    if (r.d <= 0.5) {
+    if (r.d <= HEIM_ANKUNFT_M) {
       z.tabelle.clear();
       wechsle(z, 'wandern');
+      return befehl('frei', 0, 0, Infinity, 0, 0, Infinity);
+    }
+    // Kommt sie nicht näher (Fels, Wand, Anker im Fels), ist hier ihr neues Zuhause.
+    if (r.d < z.heimBest - HEIM_FORTSCHRITT_M) {
+      z.heimBest = r.d;
+      z.heimStillSec = 0;
+    } else {
+      z.heimStillSec += dt;
+    }
+    if (z.heimStillSec >= HEIMKEHR_FESTSITZEN_SEC) {
+      z.tabelle.clear();
+      wechsle(z, 'wandern');
+      ankerNeu = true;
       return befehl('frei', 0, 0, Infinity, 0, 0, Infinity);
     }
     // Während des Heimwegs verfallen die Einträge weiter; was neu reizt,

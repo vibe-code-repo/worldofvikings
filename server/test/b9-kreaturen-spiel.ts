@@ -560,6 +560,31 @@ async function main(): Promise<void> {
     await warte(1200);
     const schw = await erschlage(wolf3, mitte, 'SwordNorth');
     check('wolf, north sword (12): dead after 3 hits', schw.schlaege === 3 && wolf3.destroyed, `hits ${schw.schlaege}, HP ${schw.hpReihe.join(' -> ')}`);
+
+    // [3d] D4 N1 (B5): a wolf beyond its leash goes home at full health and cannot be hit on the way
+    // (the player's 3.5 m reach against the wolf's 1.7 m made a free kill at the leash).
+    console.log('\n[3d] Wolf beyond its leash: home at full HP, not hittable on the way (real handleAttack)');
+    mitte = await neuerPlatz(geoAnker.wald);
+    const ankerFern = { x: mitte.x, y: mitte.y, z: mitte.z + 15 }; // 15 m behind the player: beyond the 12 m leash
+    const wolf4 = setze('Wolf', ankerFern);
+    const dort = { ...vorn(mitte, 2), y: wolf4.position.y };
+    server.zdos.updateZDOZone(wolf4, dort);
+    const hpSicht: number[] = [wolf4.getInt(HEALTH_MEMBER)];
+    let unverwundbarGesehen = false;
+    for (let i = 0; i < 4 && !wolf4.destroyed; i++) {
+      peer.stamina = 100;
+      server.zdos.updateZDOZone(wolf4, dort); // keep it in reach; the test counts hits, it does not chase
+      await blicke(ws, 0, 100);
+      sendAttack(ws, mitte, 'AxeFlint', 0);
+      await warte(420);
+      if (!wolf4.destroyed && spawns.unverwundbar(wolf4)) unverwundbarGesehen = true;
+      hpSicht.push(wolf4.destroyed ? 0 : wolf4.getInt(HEALTH_MEMBER));
+    }
+    check(
+      'wolf beyond the leash: four flint-axe hits (15 each, 30 HP) do not kill it — it goes home, HP is full again',
+      !wolf4.destroyed && wolf4.getInt(HEALTH_MEMBER) === maxLeben('Wolf') && unverwundbarGesehen,
+      `HP ${hpSicht.join(' -> ')}, unverwundbar gesehen ${unverwundbarGesehen}`
+    );
     ws.close();
   } finally {
     server.stop();

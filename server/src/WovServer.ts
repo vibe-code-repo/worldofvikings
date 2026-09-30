@@ -3778,6 +3778,9 @@ export class WovServer {
       // Ein sterbendes Wesen (Todesclip laeuft) ist nicht mehr zu treffen:
       // sein Leben steht auf 0, und der Schlag risse es als „frisch" hoch.
       if (this.spawns?.stirbt(zdo)) continue;
+      // Wer heimkehrt (aufgegeben, Leben gefüllt), ist kein Ziel: sonst träfe
+      // ein Spieler mit 3,5 m Reichweite den Wolf an der Leine ohne Risiko.
+      if (this.spawns?.unverwundbar(zdo)) continue;
       const d = (zdo.position.x - von.x) ** 2 + (zdo.position.z - von.z) ** 2;
       if (d >= best) continue;
       // Der Kegel steht NACH dem Abstand, nicht davor: Er kostet einen

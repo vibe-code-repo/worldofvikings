@@ -113,7 +113,31 @@ interface Koerper {
 export interface Nahfeld extends BodenAbfrage, HindernisAbfrage {
   /** Wie viele Koerper in Reichweite stehen — fuer Messung und Diagnose. */
   readonly anzahl: number;
+  /**
+   * Steckt ein Koerper vom Halbmesser `radius` an `von` IN einer Form (nicht nur
+   * an ihr) — dann die Stelle, an die ihn der kuerzeste Weg waagerecht ins
+   * Freie fuehrt (8 Richtungen, eine Handbreit Luft); sonst `null`.
+   *
+   * Noetig, weil die Hindernisabfrage einen Koerper im Fels als frei in jede
+   * Richtung sieht (Fluchttuer, s. `sweepKiste`): Wer hineingeraten ist — Fels
+   * nachgeladen, in den Fels gesetzt —, laeuft sonst hindurch. Eine blosse
+   * Beruehrung (Mittelpunkt ausserhalb der Form, innerhalb des Halbmessers) ist
+   * kein Steckenbleiben und liefert `null`.
+   */
+  ausDemFels(von: Vek3, radius: number): { x: number; z: number } | null;
 }
+
+/**
+ * Ab dieser Tiefe (in Halbmessern bis ins Freie) gilt ein Koerper als IN der Form
+ * und nicht nur an ihr. 1,15: die acht Richtungen liegen bis zu 22,5 Grad neben der
+ * Wandnormalen (1 / cos 22,5 = 1,08).
+ */
+const HERAUS_TIEFE = 1.15;
+
+/** Luft hinter der Formflaeche, wenn ein Koerper herausgeschoben wird, in m. */
+const HERAUS_LUFT = 0.05;
+/** Laenge der Suchstrecke von aussen her beim Herausschieben, in m (groesser als jede Form). */
+const HERAUS_STRECKE = 64;
 
 // ── Gitterindex fuer grosse Netze ───────────────────────────────────
 
@@ -1131,6 +1155,47 @@ export class Kollisionswelt {
 
     return {
       anzahl: koerper.length,
+
+      /**
+       * Der Weg aus der Form: je Richtung ein Sweep VON AUSSEN zur Figur. Er
+       * trifft die aufgeblasene Form an ihrer Aussenseite; der Abstand
+       * dieser Stelle zur Figur ist der Weg, den die Figur in DIESE Richtung
+       * bis ins Freie braeuchte. Gilt nur, wenn der Vorwaertsweg darueber
+       * frei ist (sonst liegt eine andere Form davor) — dann ist die Figur in
+       * der Form, und die kleinste Laenge gewinnt.
+       */
+      ausDemFels(von: Vek3, radius: number): { x: number; z: number } | null {
+        if (koerper.length === 0) return null;
+        const drin = koerper.filter(
+          (k) =>
+            von.x >= k.hx0 - radius && von.x <= k.hx1 + radius &&
+            von.z >= k.hz0 - radius && von.z <= k.hz1 + radius &&
+            k.hy1 >= von.y + STRAHL_HOEHEN[0]! &&
+            k.hy0 <= von.y + STRAHL_HOEHEN[STRAHL_HOEHEN.length - 1]! + radius
+        );
+        if (drin.length === 0) return null;
+        const enger = selbst.baueNahfeld(drin);
+        let beste: { e: number; dx: number; dz: number } | null = null;
+        for (let i = 0; i < 8; i += 1) {
+          const a = (i * Math.PI) / 4;
+          const dx = Math.cos(a);
+          const dz = Math.sin(a);
+          const aussen: Vek3 = { x: von.x + dx * HERAUS_STRECKE, y: von.y, z: von.z + dz * HERAUS_STRECKE };
+          const t = enger.ersterTreffer(aussen, von, radius);
+          if (t === null) continue;
+          const e = HERAUS_STRECKE - t.abstand;
+          if (e <= 0 || e >= HERAUS_STRECKE - 1) continue;
+          const ziel: Vek3 = { x: von.x + dx * (e + HERAUS_LUFT), y: von.y, z: von.z + dz * (e + HERAUS_LUFT) };
+          if (enger.ersterTreffer(von, ziel, radius) !== null) continue;
+          if (beste === null || e < beste.e) beste = { e, dx, dz };
+        }
+        // Beruehrung ist kein Steckenbleiben: Wer mit dem Mittelpunkt ausserhalb der
+        // Form steht, kommt in Richtung Wand-weg auf hoechstens einen Halbmesser
+        // (plus die Schraege der acht Richtungen) ins Freie. Eine Tangente kann
+        // laenger sein, sie gewinnt nie gegen die kuerzeste Richtung.
+        if (beste === null || beste.e <= radius * HERAUS_TIEFE) return null;
+        return { x: von.x + beste.dx * (beste.e + HERAUS_LUFT), z: von.z + beste.dz * (beste.e + HERAUS_LUFT) };
+      },
 
       /**
        * NUR das Gelaende — ohne einen einzigen Strahl.

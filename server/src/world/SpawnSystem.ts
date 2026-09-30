@@ -52,6 +52,7 @@ import {
   kiSchritt,
   kiReiz,
   kiLaerm,
+  kiRuf,
   kiDarfRufen,
   hoert,
   neuerKiZustand,
@@ -80,8 +81,9 @@ export interface SpawnSystemOptions {
   simRadius?: number;
   syncIntervalSec?: number;
   /**
-   * Werte des KI-Steckbriefs, die für alle aggressiven Kreaturen dieses Systems
-   * überschrieben werden (Tests: einen Wert isolieren, etwa den Rückzug).
+   * NUR FÜR TESTS (Server und Konfiguration setzen sie nicht): Werte des
+   * KI-Steckbriefs, die für alle aggressiven Kreaturen dieses Systems
+   * überschrieben werden, um einen Wert zu isolieren, etwa den Rückzug.
    */
   kiUeberschreibung?: Partial<KiSteckbrief>;
 }
@@ -113,6 +115,8 @@ interface CreatureState {
   radius?: number;
   /** Weg des letzten Schritts — die Strecke der Verfolgung. */
   gelaufen?: number;
+  /** Der Heimatpunkt wurde gegen die Formen geprüft (einmal, beim ersten Schritt). */
+  ankerGeprueft?: boolean;
 }
 
 /** Ein Angreifer, wie das Spawnsystem ihn kennt: Kennung und Schaden. */
@@ -193,6 +197,16 @@ const ARRIVE_DIST = 0.4;
  * it flickering between candidates every tick.
  */
 const MAX_GLEICHZEITIGE_ANGREIFER = 2;
+
+/**
+ * Längster Schritt der Simulation in Sekunden. Nach einem Stau des Servers
+ * (Speichern, Ladepause) käme sonst ein Schritt von Sekunden an: Der Wolf
+ * sprang mehrere Meter durch die Kollision, und Takt und Fristen der KI
+ * liefen auf einmal ab. 0,25 s sind ein Sync-Schritt (4 Hz) und bei 4,9 m/s
+ * Laufschritt 1,2 m, weniger als der Wolf (Durchmesser 0,9 m) plus ein Fels.
+ * (Die Eingabe der Spieler kappt bei 0,5 s, WovServer.handlePlayerInput.)
+ */
+const MAX_SCHRITT_SEC = 0.25;
 
 export class SpawnSystem {
   private readonly table: readonly SpawnEntry[];
@@ -328,13 +342,25 @@ export class SpawnSystem {
    * kennt den Verursacher danach. Hören ist an diesen Reiz gebunden: Ein Spieler,
    * der nur im Hörradius steht, macht keinen Lärm und bleibt unbemerkt, solange
    * er außerhalb des Sichtkegels ist. Wer Lärm erzeugt (Schritte, Schläge),
-   * ruft diese Methode; der Server hängt noch keine Quelle ein.
+   * ruft diese Methode.
+   *
+   * NOCH OHNE QUELLE: Kein Code des Servers ruft sie auf (Schritte, Schläge
+   * und Rufe als Lärm sind offen); nur der Test `ki-zustaende` benutzt sie.
    */
   laerm(id: string, pos: Vector3): void {
     for (const c of this.creatures.values()) {
       if (!c.ki || !c.steck || c.stirbtBis !== undefined) continue;
       if (hoert(c.steck, c.zdo.position.x, c.zdo.position.z, pos.x, pos.z)) kiLaerm(c.ki, id);
     }
+  }
+
+  /**
+   * Heimkehrende Kreaturen sind unverwundbar (sie haben ihre Lebenspunkte beim
+   * Aufgeben aufgefüllt): Der Angriffspfad des Servers überspringt sie als Ziel.
+   * Sonst träfe ein Spieler mit längerer Reichweite an der Leine gratis.
+   */
+  unverwundbar(zdo: ZDO): boolean {
+    return this.eigene(zdo)?.ki?.phase === 'heimkehren';
   }
 
   /** Die Phase der KI einer Kreatur (Diagnose, Tests); null ohne Zustandsmaschine. */
@@ -351,7 +377,7 @@ export class SpawnSystem {
       if (o === c || o.entry !== c.entry || !o.ki || o.stirbtBis !== undefined) continue;
       const dx = o.zdo.position.x - c.zdo.position.x;
       const dz = o.zdo.position.z - c.zdo.position.z;
-      if (dx * dx + dz * dz <= rSqr) kiLaerm(o.ki, id);
+      if (dx * dx + dz * dz <= rSqr) kiRuf(o.ki, id);
     }
   }
 
@@ -492,6 +518,7 @@ export class SpawnSystem {
     ziele: readonly Vector3[] = peerPositions,
     zielInfo: readonly SpawnZielInfo[] = []
   ): void {
+    deltaSec = Math.min(deltaSec, MAX_SCHRITT_SEC);
     this.simTime += deltaSec;
     this.zielInfo = zielInfo;
     this.letzteZiele = ziele;
@@ -568,6 +595,8 @@ export class SpawnSystem {
       const mz = m === 0 ? az : az + this.rng.rangeFloat(-entry.groupRadius, entry.groupRadius);
       const ground = this.heightmaps.getGroundHeight(mx, mz);
       if (ground < entry.minAltitude) continue;
+      // Nicht in einen Fels oder ein Bauwerk setzen (sonst läuft die Kreatur hindurch).
+      if (this.stecktImFels({ x: mx, y: ground, z: mz }, steckbriefFuer(entry.prefab)?.koerperRadius ?? KI_VORGABE.koerperRadius)) continue;
 
       const yaw = this.rng.rangeFloat(0, TWO_PI);
       const rot = yawQuaternion(yaw);
@@ -594,13 +623,13 @@ export class SpawnSystem {
 
   private simulateTick(deltaSec: number, peerPositions: readonly Vector3[]): void {
     const simSqr = this.simRadius * this.simRadius;
-    const angriffsSlots = this.berechneAngriffsSlots(peerPositions);
     const kiZiele: KiZiel[] = peerPositions.map((p, i) => ({
       key: this.zielInfo[i]?.id ?? `p${i}`,
       x: p.x,
       z: p.z,
       blick: this.zielInfo[i]?.blick ?? null,
     }));
+    const angriffsSlots = this.berechneAngriffsSlots(kiZiele);
     for (const [key, c] of this.creatures) {
       // Extern getötet (Spieler-Angriff): Zustand aufräumen.
       if (c.zdo.destroyed) {
@@ -717,6 +746,13 @@ export class SpawnSystem {
     const ki = c.ki as KiZustand;
     const p = c.zdo.position;
     const vorher = ki.phase;
+    // Der Heimatpunkt liegt nicht im Fels (nachgeladener Fels, Spawn am Bauwerk):
+    // sonst käme die Heimkehr nie an. Einmal, beim ersten Schritt mit Formen.
+    if (!c.ankerGeprueft && this.kollision?.hatFormen) {
+      c.ankerGeprueft = true;
+      const raus = this.kollision.nahfeld(c.home, 0).ausDemFels(c.home, c.radius ?? KI_VORGABE.koerperRadius);
+      if (raus) c.home = { x: raus.x, y: c.home.y, z: raus.z };
+    }
     const befehl: KiBefehl = kiSchritt(
       ki,
       c.steck as KiSteckbrief,
@@ -734,6 +770,11 @@ export class SpawnSystem {
       () => this.rng.nextFloat()
     );
     c.gelaufen = 0;
+    // Festgesessen auf dem Heimweg: hier ist jetzt der Anker (kiSchritt: `ankerNeu`).
+    if (befehl.ankerNeu) c.home = { x: p.x, y: p.y, z: p.z };
+    // Beim Aufgeben füllt sie ihre Lebenspunkte (wie ein Zurücksetzen), und bis
+    // zur Ankunft trifft sie niemand (`unverwundbar`).
+    if (befehl.phase === 'heimkehren' && vorher !== 'heimkehren') this.fuelleLeben(c);
     // Jenseits der Leine ist `ziel` schon null (sie kehrt heim): dann gibt es nichts zu rufen.
     if (befehl.neuBemerkt && befehl.ziel) this.ruf(c, befehl.ziel);
     if (befehl.phase === 'wandern') {
@@ -771,6 +812,21 @@ export class SpawnSystem {
     return true;
   }
 
+  /** Volle Lebenspunkte (Heimkehr): der Wert der Art aus `maxLeben`. */
+  private fuelleLeben(c: CreatureState): void {
+    const voll = maxLeben(c.entry.prefab);
+    if (c.zdo.getInt(HEALTH_MEMBER) === voll) return;
+    c.zdo.setInt(HEALTH_MEMBER, voll);
+    c.zdo.revision.reviseData();
+    c.zdo.dirty = true;
+  }
+
+  /** Steckt ein Körper dieses Radius an `pos` im Fels? (Nur mit Formen, sonst nie.) */
+  private stecktImFels(pos: Vector3, radius: number): boolean {
+    if (!this.kollision?.hatFormen) return false;
+    return this.kollision.nahfeld(pos, 0).ausDemFels(pos, radius) !== null;
+  }
+
   /** Blickrichtung setzen, erst ab 3° Änderung (jede Schreibung kostet Sync). */
   private richte(c: CreatureState, bx: number, bz: number): void {
     const yaw = Math.atan2(bx, bz);
@@ -797,6 +853,13 @@ export class SpawnSystem {
     if (this.kollision?.hatFormen && step > 0) {
       const nah = this.kollision.nahfeld(p, step);
       if (nah.anzahl > 0) {
+        // Steckt sie schon im Fels (nachgeladen, hineingesetzt), läuft sie sonst
+        // hindurch: Erst auf dem kürzesten Weg hinaus, dann weiter.
+        const raus = nah.ausDemFels(p, c.radius ?? KI_VORGABE.koerperRadius);
+        if (raus) {
+          this.applyMove(c, raus.x, raus.z, 0, 0);
+          return true;
+        }
         const g = gleitBewegung({
           von: p,
           nachX: p.x + dirX * step,
@@ -878,31 +941,37 @@ export class SpawnSystem {
 
   /**
    * Which creatures may run their strike timer this tick (see
-   * MAX_GLEICHZEITIGE_ANGREIFER). Grouped by the nearest peer's array index
-   * (peerPositions is the same array for the whole tick, so the index is a
-   * stable per-tick key even without peer identity) and ranked by ZDO id —
-   * a deterministic order that stays the same from tick to tick as long as
-   * the same creatures are in range, so a slot does not flicker between
-   * candidates.
+   * MAX_GLEICHZEITIGE_ANGREIFER). Grouped by the creature's ACTUAL target (the
+   * one its aggro table chose, `ki.ziel`), not by the nearest player: the two
+   * differ as soon as a player with less aggro stands closer, and a count by
+   * nearest player let four wolves strike one target at once. Only creatures
+   * that run at or fight their target count; the target is the one of the last
+   * step, so a creature that switches target wins its place one tick later.
+   * Ranked by ZDO id — a deterministic order that stays the same from tick to
+   * tick as long as the same creatures are in range, so a slot does not flicker
+   * between candidates.
    */
-  private berechneAngriffsSlots(peerPositions: readonly Vector3[]): ReadonlySet<string> {
-    const kandidatenJeZiel = new Map<number, { key: string; dist: number }[]>();
+  private berechneAngriffsSlots(ziele: readonly KiZiel[]): ReadonlySet<string> {
+    const kandidatenJeZiel = new Map<string, string[]>();
     for (const [key, c] of this.creatures) {
       if (c.zdo.destroyed || c.stirbtBis !== undefined) continue;
       if (c.entry.flees || c.entry.aggro === false) continue;
-      const nearest = this.nearestPeer(c.zdo.position, peerPositions);
-      if (!nearest) continue;
-      const dist = Math.sqrt(nearest.distSqr);
-      if (dist > 1.7 + 1e-6) continue;
-      const idx = peerPositions.indexOf(nearest.pos);
-      const liste = kandidatenJeZiel.get(idx) ?? [];
-      liste.push({ key, dist });
-      kandidatenJeZiel.set(idx, liste);
+      const ki = c.ki;
+      if (!ki || ki.ziel === null) continue;
+      if (ki.phase !== 'anrennen' && ki.phase !== 'kaempfen') continue;
+      const ziel = ziele.find((q) => q.key === ki.ziel);
+      if (!ziel) continue;
+      const dx = ziel.x - c.zdo.position.x;
+      const dz = ziel.z - c.zdo.position.z;
+      if (Math.sqrt(dx * dx + dz * dz) > 1.7 + 1e-6) continue;
+      const liste = kandidatenJeZiel.get(ziel.key) ?? [];
+      liste.push(key);
+      kandidatenJeZiel.set(ziel.key, liste);
     }
     const slots = new Set<string>();
     for (const liste of kandidatenJeZiel.values()) {
-      liste.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-      for (const { key } of liste.slice(0, MAX_GLEICHZEITIGE_ANGREIFER)) slots.add(key);
+      liste.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      for (const key of liste.slice(0, MAX_GLEICHZEITIGE_ANGREIFER)) slots.add(key);
     }
     return slots;
   }

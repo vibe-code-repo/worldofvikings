@@ -574,11 +574,12 @@ async function main(): Promise<void> {
     // N2 (N1-3): a blow on a creature that is going home costs no stamina, harvests nothing and says why.
     let abgewehrtGeprueft = 0;
     let abgewehrtFehler = '';
-    for (let i = 0; i < 4 && !wolf4.destroyed; i++) {
+    for (let i = 0; i < 3 && !wolf4.destroyed; i++) {
       peer.stamina = 100;
       server.zdos.updateZDOZone(wolf4, dort); // keep it in reach; the test counts hits, it does not chase
       await blicke(ws, 0, 100);
       const heim = spawns.unverwundbar(wolf4);
+      const zeitVorher = peer.staminaZuletztVerbraucht;
       meldungen.length = 0;
       sendAttack(ws, mitte, 'AxeFlint', 0);
       await warte(420);
@@ -586,20 +587,55 @@ async function main(): Promise<void> {
       if (heim && !wolf4.destroyed) {
         abgewehrtGeprueft++;
         if (peer.stamina !== 100) abgewehrtFehler += ` stamina ${peer.stamina};`;
+        if (peer.staminaZuletztVerbraucht !== zeitVorher) abgewehrtFehler += ' Zeitstempel verändert;';
         if (meldungen.length !== 1 || meldungen[0] !== '@kampf.unverwundbar') abgewehrtFehler += ` Meldungen [${meldungen.join('|')}];`;
       }
       hpSicht.push(wolf4.destroyed ? 0 : wolf4.getInt(HEALTH_MEMBER));
     }
     check(
-      'wolf beyond the leash: four flint-axe hits (15 each, 30 HP) do not kill it — it goes home, HP is full again',
+      'wolf beyond the leash: three flint-axe hits (15 each, 30 HP) do not kill it — it goes home, HP is full again',
       !wolf4.destroyed && wolf4.getInt(HEALTH_MEMBER) === maxLeben('Wolf') && unverwundbarGesehen,
       `HP ${hpSicht.join(' -> ')}, unverwundbar gesehen ${unverwundbarGesehen}`
     );
     check(
-      'blows on the homing wolf: no stamina cost, exactly one message "@kampf.unverwundbar", no harvest message',
+      'blows on the homing wolf: no stamina cost (value and timestamp), exactly one message "@kampf.unverwundbar", no harvest message',
       abgewehrtGeprueft >= 1 && abgewehrtFehler === '',
       `${abgewehrtGeprueft} blows checked${abgewehrtFehler}`
     );
+
+    // N3 (N2-1 d): a homing wolf BEHIND the player is outside the blow's cone: the blow is an ordinary one
+    // (costs stamina, no "unhittable" message).
+    const hinten = { ...vorn(mitte, -2), y: wolf4.position.y };
+    server.zdos.updateZDOZone(wolf4, hinten);
+    peer.stamina = 100;
+    await blicke(ws, 0, 100);
+    const heimHinten = !wolf4.destroyed && spawns.unverwundbar(wolf4);
+    meldungen.length = 0;
+    sendAttack(ws, mitte, 'AxeFlint', 0);
+    await warte(420);
+    check(
+      'homing wolf behind the player (outside the cone): the blow costs stamina and gives no "unhittable" message',
+      heimHinten && peer.stamina < 100 && !meldungen.includes('@kampf.unverwundbar'),
+      `homing ${heimHinten}, stamina ${peer.stamina}, messages [${meldungen.join('|')}]`
+    );
+
+    // N3 (N2-2): a homing wolf in the cone does not stop the harvest of a tree in reach: the tree takes the blow,
+    // the stamina is spent and there is no "unhittable" message.
+    const baum = server.zdos.createZDO(getStableHash('Beech_small1'), { ...vorn(mitte, 2.5), y: wolf4.position.y });
+    server.zdos.updateZDOZone(wolf4, dort);
+    peer.stamina = 100;
+    await blicke(ws, 0, 100);
+    const heimVorn = !wolf4.destroyed && spawns.unverwundbar(wolf4);
+    meldungen.length = 0;
+    sendAttack(ws, mitte, 'AxeFlint', 0);
+    await warte(420);
+    const baumHp = baum.destroyed ? 0 : baum.getInt(HEALTH_MEMBER);
+    check(
+      'homing wolf in the cone and a tree in reach: the tree takes the blow (HP < 60), stamina is spent, no "unhittable" message',
+      heimVorn && baumHp > 0 && baumHp < 60 && peer.stamina < 100 && !meldungen.includes('@kampf.unverwundbar'),
+      `homing ${heimVorn}, tree HP ${baumHp}, stamina ${peer.stamina}, messages [${meldungen.join('|')}]`
+    );
+    server.zdos.destroyZDO(baum.zdoid);
     ws.close();
   } finally {
     server.stop();

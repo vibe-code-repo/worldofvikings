@@ -651,6 +651,8 @@ console.log('\n[13] Heimkehr: Wand, Anker im Fels, Feldprobe — nichts bleibt d
   // Anlauf ~1 s, dann HEIMKEHR_FESTSITZEN_SEC ohne Fortschritt.
   check(`Wand: nach ${HEIMKEHR_FESTSITZEN_SEC} s ohne Fortschritt ist Schluss mit der Heimkehr`, tEnde > 0 && heimDauer >= HEIMKEHR_FESTSITZEN_SEC && heimDauer <= HEIMKEHR_FESTSITZEN_SEC + 2.5, `Heimkehr ${f(heimDauer)} s`);
   const c = creaturesVon(r.spawns).values().next().value!;
+  const uSpur = (c as unknown as { ursprung: Vector3 }).ursprung;
+  check('Wand: der Ursprung bleibt, wo die Kreatur aufgenommen wurde (nur der Anker zieht um)', Math.hypot(uSpur.x, uSpur.z) < 1e-9 && Math.hypot(c.home.x - uSpur.x, c.home.z - uSpur.z) > 5, `Ursprung (${f(uSpur.x)}; ${f(uSpur.z)}), Anker (${f(c.home.x)}; ${f(c.home.z)})`);
   check('Wand: der Anker liegt jetzt dort, wo er steht', Math.hypot(c.home.x - zEndePos.x, c.home.z - zEndePos.z) < 0.6, `Anker (${f(c.home.x)}; ${f(c.home.z)}) gegen Wolf (${f(zEndePos.x)}; ${f(zEndePos.z)})`);
   check('Wand: danach wandert er wieder (Phase wandern)', r.spawns.kiPhase(wolf) === 'wandern', `Phase ${r.spawns.kiPhase(wolf)}`);
   // Er nimmt wieder wahr: ein Spieler vor ihm (hinter der Wand) wird bemerkt.

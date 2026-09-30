@@ -3803,20 +3803,23 @@ export class WovServer {
       und ein Fehlschlag beim Faellen ist kein Kampfgefuehl, sondern nur
       Aerger. Die Ernte hat ihre eigenen, engeren Reichweiten (3,2 m).
     */
-    if (!ziel && abgewehrt) {
-      // Ein Schlag auf einen Heimkehrer kostet keine Ausdauer, erntet nichts und sagt, warum.
-      peer.stamina = staminaVorher.wert;
-      peer.staminaZuletztVerbraucht = staminaVorher.zuletztVerbraucht;
-      this.sendPlayerState(peer);
-      peer.sendPacketWith(PacketType.InteractResult, (w) => {
-        w.writeBool(false);
-        w.writeString(SERVER_MELDUNG_UNVERWUNDBAR);
-        w.writeString('');
-        w.writeInt32(0);
-      });
+    if (!ziel) {
+      // Die Ernte läuft wie immer. Nur wenn der Schlag sonst nichts getroffen hätte und ein
+      // Heimkehrer im Kegel stand, kostet er keine Ausdauer und sagt, warum.
+      const geerntet = this.handleHarvest(peer, von, waffe);
+      if (!geerntet && abgewehrt) {
+        peer.stamina = staminaVorher.wert;
+        peer.staminaZuletztVerbraucht = staminaVorher.zuletztVerbraucht;
+        this.sendPlayerState(peer);
+        peer.sendPacketWith(PacketType.InteractResult, (w) => {
+          w.writeBool(false);
+          w.writeString(SERVER_MELDUNG_UNVERWUNDBAR);
+          w.writeString('');
+          w.writeInt32(0);
+        });
+      }
       return;
     }
-    if (!ziel) return this.handleHarvest(peer, von, waffe);
     const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
     this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 1, peer.worldId, peer);
     // Startwert aus shared/leben.ts statt aus einem Literal. Der
@@ -3869,7 +3872,8 @@ export class WovServer {
    * `waffe` kommt bereits geprüft von handleAttack (waffeFuerSchlag, K2a) —
    * kein zweiter Abgleich hier nötig.
    */
-  private handleHarvest(peer: Peer, pos: Vector3, waffe: string): void {
+  /** Erntet, was im Schlagbereich steht. Liefert false, wenn es nichts zu ernten gab (dann ist nichts geschehen). */
+  private handleHarvest(peer: Peer, pos: Vector3, waffe: string): boolean {
     const antwort = (message: string, itemName = '', amount = 0) => {
       this.gebeItem(peer, itemName, amount);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
@@ -3904,14 +3908,16 @@ export class WovServer {
         art = a;
       }
     }
-    if (!ziel || !art) return;
+    if (!ziel || !art) return false;
 
     // Werkzeug-Pflicht wie im Original: Holz braucht die Axt, Stein die Spitzhacke.
     if (art === 'baum' && waffe !== 'AxeFlint') {
-      return antwort('Zu hart — dafür braucht es eine Axt');
+      antwort('Zu hart — dafür braucht es eine Axt');
+      return true;
     }
     if (art === 'fels' && waffe !== 'PickaxeAntler') {
-      return antwort('Zu hart — dafür braucht es eine Spitzhacke');
+      antwort('Zu hart — dafür braucht es eine Spitzhacke');
+      return true;
     }
 
     const startHp = art === 'baum' ? 60 : art === 'fels' ? 90 : 15;
@@ -3922,12 +3928,13 @@ export class WovServer {
       ziel.setInt(HEALTH_MEMBER, hp);
       ziel.revision.reviseData();
       ziel.dirty = true;
-      return;
+      return true;
     }
     this.zdosVon(peer).destroyZDO(ziel.zdoid);
     const menge = art === 'weich' ? 2 : 6 + ((Math.random() * 5) | 0);
     const item = art === 'fels' ? 'Stone' : 'Wood';
     antwort(`${art === 'baum' ? 'Baum gefällt' : art === 'fels' ? 'Fels zerbrochen' : 'Zerlegt'} — ${menge}× ${item}`, item, menge);
+    return true;
   }
 
   /** Kreaturen-Treffer auf Spieler (vom SpawnSystem gemeldet). */

@@ -143,6 +143,7 @@ for (const [id, was, text] of [
   ['G38', 'a function value in a variable that is never mentioned in front', 'const lies = (): number => GRENZE;\nexport const VOR = 1;'],
   ['G39', 'an arrow function as the property of an object that is never touched in front', 'const api = { a: (): number => GRENZE };\nexport const VOR = 1;\nvoid api;'],
   ['G40', 'a static field with an arrow function that is never called in front (an arrow function of a class field is a unit, not run at the definition)', 'class K {\n  static f = (): number => GRENZE;\n}\nexport const VOR = 1;\nvoid K;'],
+  ['G41', 'a function declaration inside a block of the rest, never called, reads the name (a declaration runs nothing)', '{\n  function h(): number {\n    return GRENZE;\n  }\n}\nexport const VOR = 1;'],
   ['G35', 'a class with a method that reads it, instantiated but the method not named in front', 'class K {\n  lies(): number {\n    return GRENZE;\n  }\n}\n\nexport const OBJ = new K();'],
 ] as const) {
   lauf.fall({ id, name: `green: ${was}`, soll: [], eingabe: () => grenze(text.includes('const GRENZE') ? text : `${text}${SPAET}`) });

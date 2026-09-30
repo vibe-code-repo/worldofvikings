@@ -105,22 +105,14 @@ import type { AssetContainer } from '@babylonjs/core/assetContainer';
 */
 import '@babylonjs/loaders/glTF/2.0';
 import {
-  BAU_PREFABS,
-  EIGENE_MODELLE,
-  FOLIAGE,
-  ITEM_DEFS,
-  NPC_VORGABEN,
   PREFABS_BY_NAME,
-  PREFAB_DEFS,
   STORE_BASIS,
   cmVerdacht,
-  isRenderable,
   istEigenesModell,
   schlageZielgroesseVor,
   uploadedModelRegistry,
   type Groessenvorschlag,
   type PrefabDef,
-  type Vorschlagsquelle,
   type Zieldimension,
 } from '@wov/shared';
 import { ladeHochgeladeneRegistrierung } from '../net/UploadedModelRegistryLoad';
@@ -157,7 +149,6 @@ import {
 } from './design';
 import {
   SPEICHER_WURZEL,
-  STORE_ARTEN,
   gruppenDerArt,
   ladeStoreKatalog,
   sucheSpeicher,
@@ -165,206 +156,22 @@ import {
   type StoreArt,
   type StoreEintrag,
 } from './StoreKatalogDaten';
-import { aktuelleSprache, t } from './i18n';
-import type { TranslationKey } from '../i18n';
-
-/** Zeilen je Listenseite — s. Kopf („Warum Seiten"). */
-const SEITE_GROESSE = 60;
-
-/**
- * Uebersetzungsschluessel je `Vorschlagsquelle` (Auftrag Punkt 4, N1 Befund
- * B1) — `schlageZielgroesseVor` liefert seit N1 nur noch Zahlen und (bei den
- * ersten beiden Quellen) einen Namen, keinen fertigen Satz mehr.
- */
-const VORSCHLAG_SCHLUESSEL: Readonly<Record<Vorschlagsquelle, TranslationKey>> = {
-  'aehnliches-modell': 'editor.upload.vorschlag.aehnliches_modell',
-  kategorie: 'editor.upload.vorschlag.kategorie',
-  rohgroesse: 'editor.upload.vorschlag.rohgroesse',
-};
-
-/** Vorschlagszeile für das Zielgrößenfeld — s. `VORSCHLAG_SCHLUESSEL`. */
-function vorschlagText(vorschlag: Groessenvorschlag): string {
-  return t(VORSCHLAG_SCHLUESSEL[vorschlag.quelle], {
-    name: vorschlag.begruendungName ?? '',
-    meter: vorschlag.meter.toFixed(2),
-  });
-}
-
-/**
- * N1 (Angriff „Editor T0a", Befund B4): `eintrag.kollisionsart` ist ein
- * interner Wert (`'fest' | 'durchlaessig'`), keine Anzeige — die passenden
- * Anzeigenamen gibt es schon als Katalogschlüssel (dieselben, die die
- * Kollisions-Auswahl im Formular benutzt).
- */
-function kollisionsartText(art: uploadedModelRegistry.Kollisionsart): string {
-  return t(art === 'fest' ? 'editor.upload.kollision.fest' : 'editor.upload.kollision.durchlaessig');
-}
-
-/**
- * N1 (Befund B4): `toLocaleString('de-DE')` blieb auch bei `lang=en` fest
- * deutsch (Punkt statt Komma als Tausendertrennzeichen). Zahlen folgen jetzt
- * der aktiven Sprache wie der restliche Text.
- */
-function zahlLocale(): 'de-DE' | 'en-US' {
-  return aktuelleSprache() === 'de' ? 'de-DE' : 'en-US';
-}
-
-/**
- * Geduld für EIN Modell (ms). Großzügig, weil einzelne GLBs des Exports
- * zweistellige Megabyte haben (Grabhügel: 17 MB) — aber endlich, damit
- * eine hängende Anfrage nicht als Dauerzustand erscheint.
- */
-const LADE_TIMEOUT = 30_000;
-
-/** Gleichzeitige HEAD-Anfragen der Verfügbarkeitsprüfung. */
-const PRUEF_PARALLEL = 6;
-
-/** Breite der Listenspalte (Entwurf). */
-const SPALTE_BREITE = 322;
-
-/** Schnellzugriff auf Item-Angaben (Icon, Gewicht, Stapel) je Prefabname. */
-const ITEMS_NACH_NAME = new Map(ITEM_DEFS.map((i) => [i.name, i]));
-
-/**
- * Anzeigetexte der ItemType-Werte.
- *
- * Bewusst eine Zahlentabelle statt `import { ItemType }`: Der Typ ist ein
- * `const enum`, und die werden von esbuild/Vite über Modulgrenzen hinweg
- * nicht zuverlässig aufgelöst. Für eine reine Beschriftung ist das die
- * Mühe nicht wert.
- */
-const ITEM_TYP_TEXT: Readonly<Record<number, string>> = {
-  1: 'Material',
-  14: 'Zweihandwaffe',
-  19: 'Werkzeug',
-};
-
-/** Nur Prefabs, die im Spiel überhaupt ein Bild bekommen (s. isRenderable). */
-const MIT_MODELL = PREFAB_DEFS.filter((d) => d.model !== null && isRenderable(d));
-
-interface Kategorie {
-  name: string;
-  /** Erklärung unter der Auswahl — was steckt in dieser Liste? */
-  hinweis: string;
-  namen: () => string[];
-  /**
-   * Gesetzt = diese Kategorie kommt aus dem SPEICHER, nicht aus der
-   * Prefab-Registry. Die Liste heisst dann nicht „Prefabnamen", sondern
-   * „Store-Ids", und Vorschau, Infoblock und Verfügbarkeitsprüfung nehmen
-   * jeweils den anderen Zweig (s. `istSpeicher`).
-   */
-  speicher?: StoreArt;
-  /**
-   * Gesetzt = die Liste wächst/schrumpft zur LAUFZEIT (Uploads, Karte U1)
-   * — anders als Registry, Vegetation oder PieceTable, die für die
-   * Sitzung feststehen. `katAnzahl` darf ihre Zahl deshalb NICHT im
-   * `katAnzahlen`-Cache mitschleppen (s. dort), sonst zeigte die Marke
-   * nach dem ersten Öffnen dauerhaft die Zahl von damals.
-   */
-  dynamisch?: boolean;
-}
-
-/** Erklärungen der sechs Speicher-Arten — eine Zeile je Bereich. */
-const SPEICHER_HINWEIS: Readonly<Record<StoreArt, string>> = {
-  Modelle: 'Alle GLBs des Speichers — Gebäude, Requisiten, Gegenstände, Umgebung, Fahrzeuge, Vegetation.',
-  Texturen: 'Bilder des Speichers: Boden-Texturen der Landschaft und die Atlanten der Modelle.',
-  Ton: 'Klänge des Speichers (Opus in .ogg) — anhören mit dem Abspieler, „Weiter" geht die Untergruppe durch.',
-  Höhenfelder: 'Gelände-GLBs (terrain/) — dieselbe 3D-Vorschau wie bei Modellen, nur größer.',
-  Kulisse: 'Horizontschalen und Wolken. Bis 600 m Spannweite — die Kamera rückt dafür weiter weg.',
-  Symbole: 'UI-Bilder des Speichers: HUD-Rahmen und Gegenstandssymbole (PNG) — keine 3D-Vorschau, kein Setzen in die Welt.',
-};
-
-/**
- * Die Kategorien des Katalogs.
- *
- * Reihenfolge ist Absicht: „Eigene Modelle" steht vorn und ist die
- * Vorgabe, weil das die Liste ist, deren GLBs überall wirklich liegen.
- * Alles Weitere ist nach Nutzen sortiert (was man beim Weltbau sucht),
- * die vollständige Registry steht als letzter Ausweg am Ende.
- *
- * Gefiltert wird überall gegen PREFABS_BY_NAME: Ein Name ohne
- * Registry-Eintrag hätte weder Modell noch Maße — eine tote Zeile.
- *
- * Gegen EIGENE_MODELLE wird hier NICHT gefiltert — anders als im
- * SpawnPanel, und mit Absicht: Der Katalog setzt nichts in die Welt, er
- * zeigt. „Wie sah das aus, was da entfällt?" ist genau die Frage, die
- * man beim Nachbauen stellt, und ihre Antwort wegzunehmen hiesse, sich
- * die Vorlage zu verbauen. Gleichrangig bleibt es deshalb trotzdem
- * nicht: Ohne eigenes Modell steht die Zeile ausgegraut mit ⊘ da, der
- * Metadatenblock sagt es in Worten, und über der Liste steht die Quote
- * der Kategorie.
- */
-const KATEGORIEN: readonly Kategorie[] = [
-  {
-    name: '★ Eigene Modelle',
-    hinweis: 'Selbst gebaut (Blender/Tripo/Baumgenerator) — diese GLBs liegen immer vor.',
-    namen: () => EIGENE_MODELLE.filter((n) => PREFABS_BY_NAME.has(n)),
-  },
-  /*
-    Hochgeladene Modelle (Karte U1) bekommen eine EIGENE Gruppe statt in
-    „★ Eigene Modelle" mitzulaufen — sie stehen zwar in derselben
-    EIGENE_MODELLE-Liste (dieselbe Whitelist, s. `uploadedModelRegistry.
-    registerUploadedPrefab`), aber „woher kam das?" ist hier trotzdem eine
-    andere Antwort als bei den handgebauten Modellen, und der Uploadknopf
-    braucht eine Stelle, an der auch die Liste der bereits hochgeladenen
-    Dinge steht (Entfernen sitzt am Infoblock, s. `infoSchreiben`).
-  */
-  {
-    name: '⇧ Hochgeladen',
-    hinweis: 'Per Editor hochgeladene Modelle — eigene Registry (assets/hochgeladen/), nicht in shared/src/prefabs.ts.',
-    dynamisch: true,
-    namen: () =>
-      uploadedModelRegistry
-        .uploadedModelEntries()
-        .map((m) => m.name)
-        .filter((n) => PREFABS_BY_NAME.has(n)),
-  },
-  {
-    name: 'Vegetation',
-    hinweis: 'Alles, was die Weltgenerierung streut (shared/vegetation.ts).',
-    namen: () => [...new Set(FOLIAGE.map((f) => f.prefabName))].filter((n) => PREFABS_BY_NAME.has(n)),
-  },
-  {
-    name: 'Bauteile',
-    hinweis: 'Was der Hammer setzen kann (PieceTable).',
-    namen: () => [...BAU_PREFABS].filter((n) => PREFABS_BY_NAME.has(n)),
-  },
-  {
-    name: 'Figuren (NPC)',
-    hinweis: 'Prefabs mit NPC-Vorgaben — Rolle, Fraktion, Stufe (shared/npc.ts).',
-    namen: () => [...NPC_VORGABEN.keys()].filter((n) => PREFABS_BY_NAME.has(n)),
-  },
-  {
-    name: 'Gegenstände (Items)',
-    hinweis: 'Inventarfähige Dinge mit Icon und Gewicht (shared/items/itemDefs.ts).',
-    namen: () => ITEM_DEFS.map((i) => i.name).filter((n) => PREFABS_BY_NAME.has(n)),
-  },
-  {
-    name: 'Alle mit Modell',
-    hinweis: `Die volle Registry, ${MIT_MODELL.length} Einträge — die meisten GLBs fehlen auf diesem Server.`,
-    namen: () => MIT_MODELL.map((d) => d.name),
-  },
-  /*
-    Der Speicher als eigener Bereich — eine Kategorie je Art in {@link STORE_ARTEN}.
-
-    Sie stehen HINTEN und nicht vorn: Die Vorgabe-Kategorie bleibt
-    „★ Eigene Modelle", wie sie es war. Wer den Katalog öffnet, um ein
-    Prefab nachzuschlagen, soll nicht plötzlich in einem Dateibrowser
-    landen. Der Speicher ist die zweite Frage („was liegt überhaupt da?"),
-    nicht die erste.
-
-    `namen()` liefert hier eine LEERE Liste und wird nie gerufen: Der
-    Bestand kommt aus zwei JSON-Dateien, die erst geladen werden müssen
-    (s. `speicherTreffer`). Ein Rückgabewert, der so tut, als wäre er die
-    Liste, wäre die schlechtere Lüge als eine leere.
-  */
-  ...STORE_ARTEN.map((art) => ({
-    name: `Speicher · ${art}`,
-    hinweis: SPEICHER_HINWEIS[art],
-    namen: () => [],
-    speicher: art,
-  })),
-];
+import { t } from './i18n';
+import { fmt, fmtBytes, kollisionsartText, vorschlagText, zahlLocale } from './katalog/format';
+import { ITEMS_NACH_NAME, ITEM_TYP_TEXT, KATEGORIEN } from './katalog/kategorien';
+import {
+  LADE_TIMEOUT,
+  PRUEF_PARALLEL,
+  REFERENZ_FIGUR_BREITE,
+  REFERENZ_FIGUR_HOEHE,
+  REFERENZ_FIGUR_TIEFE,
+  REFERENZ_KISTE_KANTE,
+  REFERENZ_LUECKE,
+  SEITE_GROESSE,
+  SPALTE_BREITE,
+  type Kennzahlen,
+  type StatusArt,
+} from './katalog/konstanten';
 
 /**
  * Einträge je Kategorie — einmal gezählt, dann gemerkt.
@@ -397,31 +204,6 @@ function katAnzahl(speicher: readonly StoreEintrag[] | null): readonly number[] 
     return n;
   });
 }
-
-/** Gemessene Kennzahlen des geladenen Modells. */
-interface Kennzahlen {
-  breite: number;
-  hoehe: number;
-  tiefe: number;
-  dreiecke: number;
-  meshes: number;
-  materialien: number;
-  mitte: Vector3;
-}
-
-/** Zustand der Statusplakette über der Bühne. */
-type StatusArt = 'laedt' | 'da' | 'fehlt' | 'neutral';
-
-/**
- * Maße der beiden Referenzkörper neben der Upload-Vorschau (Auftrag Punkt 4)
- * — eine 1,8-m-Figur (Breite/Tiefe grob wie ein Mensch) und eine 1-m-Kiste,
- * mit derselben Lücke auf beiden Seiten des Modells.
- */
-const REFERENZ_FIGUR_BREITE = 0.5;
-const REFERENZ_FIGUR_HOEHE = 1.8;
-const REFERENZ_FIGUR_TIEFE = 0.3;
-const REFERENZ_KISTE_KANTE = 1;
-const REFERENZ_LUECKE = 0.4;
 
 export class GegenstandsKatalog {
   private readonly root: HTMLDivElement;
@@ -3737,26 +3519,4 @@ export class GegenstandsKatalog {
     }).length;
     this.statusSetzen(`${da} von ${ids.length} Dateien dieser Seite liegen vor.`, da > 0 ? 'da' : 'fehlt');
   }
-}
-
-/**
- * Dateigröße in der Einheit, in der man sie im Kopf hat.
- *
- * Bytes ausgeschrieben (`20560`) beantworten die Frage nicht, die man
- * stellt („ist das gross?"). Gerundet wird bewusst grob — auf ein
- * Kilobyte kommt es beim Durchsehen eines Speichers nie an.
- */
-function fmtBytes(b: number): string {
-  if (!Number.isFinite(b) || b < 0) return '—';
-  if (b < 1024) return `${b} B`;
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(0).replace('.', ',')} kB`;
-  return `${(b / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`;
-}
-
-/** Kurze Zahl fürs Auge: 12,4 statt 12.412345678. */
-function fmt(v: number): string {
-  if (!Number.isFinite(v)) return '—';
-  const abs = Math.abs(v);
-  const stellen = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
-  return v.toFixed(stellen).replace('.', ',');
 }

@@ -85,7 +85,8 @@
  */
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import * as ts from 'typescript';
@@ -274,6 +275,17 @@ function strukturWaechterTestflug(): void {
   }
 }
 
+/** Every source file under `dir`, subfolders included (TypeScript and JavaScript, every module flavour). */
+function sourceFilesUnder(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...sourceFilesUnder(path));
+    else if (/\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(entry.name)) out.push(path);
+  }
+  return out.sort();
+}
+
 function strukturWaechter(): void {
   strukturWaechterTestflug();
   const katalog = readFileSync(new URL('../src/editor/GegenstandsKatalog.ts', import.meta.url), 'utf-8');
@@ -289,9 +301,20 @@ function strukturWaechter(): void {
     iGuard >= 0 && iSend >= 0 && iGuard < iSend,
     'gesendet wird ERST NACH der Erfolgsprüfung, nie vorher (M5 — „Senden auch bei fehlgeschlagenem PATCH")'
   );
+  // Scope since refactoring step G1: the catalogue is GegenstandsKatalog.ts AND every source file
+  // under client/src/editor/katalog/, subfolders included. What the check demands is unchanged:
+  // one send call in all of them together. A missing folder throws, it does not pass.
+  const catalogueDir = fileURLToPath(new URL('../src/editor/katalog/', import.meta.url));
+  const sendCalls = [
+    ['GegenstandsKatalog.ts', katalog] as const,
+    ...sourceFilesUnder(catalogueDir).map(
+      (file) => [`katalog/${relative(catalogueDir, file).split(sep).join('/')}`, readFileSync(file, 'utf-8')] as const
+    ),
+  ].map(([name, text]) => [name, (text.match(/sendeGrundskalaGeaendert\(/g) ?? []).length] as const);
+  const sendCallsFound = sendCalls.filter(([, count]) => count > 0).map(([name, count]) => `${name} ${count}`);
   pruefe(
-    (katalog.match(/sendeGrundskalaGeaendert\(/g) ?? []).length === 1,
-    'genau eine Sendestelle im ganzen Katalog (keine zweite, unkontrollierte)'
+    sendCalls.reduce((sum, [, count]) => sum + count, 0) === 1,
+    `genau eine Sendestelle im ganzen Katalog, das sind GegenstandsKatalog.ts und jede Quelldatei unter katalog/ (keine zweite, unkontrollierte): ${sendCallsFound.join(', ') || 'keine'}, gelesen ${sendCalls.length} Dateien`
   );
 }
 

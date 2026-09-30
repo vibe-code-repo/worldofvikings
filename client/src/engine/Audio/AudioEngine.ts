@@ -72,6 +72,8 @@ export class AudioEngine {
    * bus, group, clip). Hörprobe witness: what was played, not merely requested.
    */
   readonly wiedergaben: { ausgeloest: number; zeit: number; bus: AudioBusName; gruppe: string; klip: string }[] = [];
+  /** Hörprobe-Zeugen der Module (z. B. `wald`: Baumzahl, Stufe, Pegel und Lautstärke der Schleifen). */
+  readonly diagnose: Record<string, unknown> = {};
   private disposed = false;
 
   private constructor(
@@ -232,6 +234,36 @@ export class AudioEngine {
     sound.play({ loop: options.loop ?? false });
     this.wiedergaben.push({ ausgeloest, zeit: performance.now() / 1000, bus, gruppe: group, klip: clipName });
     if (this.wiedergaben.length > 200) this.wiedergaben.shift();
+  }
+
+  /**
+   * Starts a looping clip (first clip of the group) at volume 0 and returns a
+   * handle to fade it: `volume` is the clip's own gain (0..1, before the bus),
+   * `stop()` ends it. Same gate as `playAsync` (nothing before 'unlocked',
+   * nothing while muted): resolves to `null` then, and the caller asks again
+   * later. The clip is shared with `playAsync` of the same group, so this is
+   * for ambience beds, not for clips that are also one-shots.
+   */
+  async startLoopAsync(bus: AudioBusName, group: string): Promise<{ volume: number; stop(): void } | null> {
+    if (this.disposed || !isPlaybackAllowed(this.automaton.current, this.muted)) return null;
+    const clipName = this.groups[bus].get(group)?.[0];
+    if (!clipName) return null;
+    const sound = await this.loadClip(clipName, bus);
+    if (this.disposed || !sound) return null;
+    sound.volume = 0;
+    sound.play({ loop: true });
+    const ausgeloest = performance.now() / 1000;
+    this.wiedergaben.push({ ausgeloest, zeit: ausgeloest, bus, gruppe: group, klip: clipName });
+    if (this.wiedergaben.length > 200) this.wiedergaben.shift();
+    return {
+      get volume() {
+        return sound.volume;
+      },
+      set volume(v: number) {
+        sound.volume = v;
+      },
+      stop: () => sound.stop(),
+    };
   }
 
   /**

@@ -85,6 +85,7 @@ import type { SteinKitConfig } from '@wov/shared';
 // Raum-Einrichtung) und haetten im Barrel jedes Client-Bundle aufgeblaeht.
 import { getFeaturePieces } from '@wov/shared/src/featurePieces.js';
 import { ZDOManager, worldToZone } from './zdo/ZDOManager.js';
+import { SYNC_PRUEFUNGEN_MAX } from './zdo/ZonenFenster.js';
 import { DungeonManager } from './world/dungeon/DungeonManager.js';
 import {
   GENERIERT_DIR,
@@ -1951,7 +1952,24 @@ export class WovServer {
       let anzahl = 0;
       const gesendet = this.sendePuffer;
       gesendet.length = 0;
-      for (const zdo of fenster) {
+      // F2: Der NAHE Teil des Fensters (Ring <= SYNC_NAH_RING) wird jeden Tick
+      // vollständig geprüft und hat im Budget Vorrang: Dort laufen die
+      // Kreaturen und Mitspieler, deren Aktualisierung man sieht. Der FERNE
+      // Rest bekommt den Prüfdeckel: ab dem Cursor höchstens
+      // SYNC_PRUEFUNGEN_MAX ZDOs, danach macht der nächste Tick dort weiter
+      // (sonst verhungerten die hinteren Ringe). Je Tick werden also höchstens
+      // nahEnde + SYNC_PRUEFUNGEN_MAX ZDOs angesehen. Bei Fenstern bis zum
+      // Deckel wird von vorn geprüft, wie vor F2.
+      const nahEnde = Math.min(peer.fenster.nahEnde, fenster.length);
+      let ferneStart = nahEnde + peer.fenster.cursor;
+      if (ferneStart >= fenster.length) ferneStart = nahEnde;
+      const ende = Math.min(fenster.length, ferneStart + SYNC_PRUEFUNGEN_MAX);
+      // Cursor für den nächsten Tick: Deckel (ende) oder Fensterende (0).
+      let naechsterCursor = ende >= fenster.length ? 0 : ende - nahEnde;
+      for (let i = 0; i < ende; i++) {
+        if (i === nahEnde) i = Math.max(i, ferneStart); // nahen Teil fertig: zum Cursor springen
+        if (i >= ende) break;
+        const zdo = fenster[i]!;
         const stand = peer.syncStand(zdo.zdoid);
         if (
           stand &&
@@ -1960,11 +1978,28 @@ export class WovServer {
         ) {
           continue; // Peer ist auf Stand
         }
+        // Ist das Budget erreicht, wird dieses ZDO nicht mehr geschrieben (es
+        // bleibt schmutzig und geht im nächsten Tick raus). Das erste ZDO des
+        // Pakets darf das Budget überschreiten, sonst käme ein übergroßer
+        // Vollstand nie an. Ein Paket ist damit höchstens Budget + ein Satz
+        // groß. (Das ist dasselbe Verhalten wie die Prüfung nach dem Schreiben
+        // vor F2 — die Pakete sind byte-gleich; die Stelle steht hier, weil
+        // der Cursor den Index des ersten ungeschriebenen ZDOs braucht.)
+        if (anzahl > 0 && writer.geschrieben >= budget) {
+          // Im nahen Teil bleibt der Cursor stehen (der nahe Teil wird ohnehin
+          // nächsten Tick wieder von vorn geprüft). Im fernen Teil: steht das
+          // ZDO noch im vorderen Teil, lieber von vorn (nah zuerst); liegt es
+          // hinter dem halben Deckel, würde ein Neustart den Deckel vor dem
+          // ZDO aufbrauchen — dann genau hier weitermachen.
+          if (i < nahEnde) naechsterCursor = peer.fenster.cursor;
+          else naechsterCursor = i - nahEnde < SYNC_PRUEFUNGEN_MAX / 2 ? 0 : i - nahEnde;
+          break;
+        }
         this.writeZDO(writer, zdo, stand?.dataRevision, peer);
         anzahl++;
         gesendet.push(zdo);
-        if (writer.geschrieben >= budget) break;
       }
+      peer.fenster.cursor = naechsterCursor;
 
       if (anzahl === 0 && zerstoerungen.length === 0) continue;
       writer.patchInt32(zaehlerStelle, anzahl);
@@ -2300,10 +2335,7 @@ export class WovServer {
       ? saved.waffe : peer.inventar.all.find((i) => i.equipped && !i.shared.ruestungsteil)?.shared.name ?? '';
     this.inventarSync(peer);
     // Piece-Budget: eigene Bauten einmalig zählen (15k-ZDO-Scan, nur Login).
-    const meineId = peer.userId.toString();
-    peer.bautenAnzahl = this.zdosVon(peer)
-      .getAllZDOs()
-      .filter((z) => z.getInt('spieler') === 1 && z.getString('besitzer') === meineId).length;
+    peer.bautenAnzahl = this.zaehleEigeneBauten(peer);
 
     // Send initial time sync
     this.sendTimeSync(peer);
@@ -3072,6 +3104,24 @@ export class WovServer {
     zdo.revision.reviseData();
     zdo.dirty = true;
     antwort(true, `${def.name} gebaut`);
+  }
+
+  /**
+   * Wie viele Bauwerke `peer` besitzt (Piece-Budget), beim Login gezählt.
+   *
+   * Vorher: `getAllZDOs()` = Vollkopie aller ZDOs der Welt (bei ~48.000 ein
+   * spürbarer Tick-Stopp je Login). Jetzt: nur die Spielerbauten aus dem
+   * Index des ZDOManager, mit demselben Prädikat wie vorher (spieler == 1 und
+   * besitzer == userId). Ein Zählen über die Prefab-Mengen der Bauteile ginge
+   * nicht: `KiPine2` ist Bauteil UND Weltbaum, die Menge hat Tausende Einträge.
+   */
+  private zaehleEigeneBauten(peer: Peer): number {
+    const meineId = peer.userId.toString();
+    let n = 0;
+    for (const z of this.zdosVon(peer).spielerbauten()) {
+      if (z.getInt('spieler') === 1 && z.getString('besitzer') === meineId) n++;
+    }
+    return n;
   }
 
   /**

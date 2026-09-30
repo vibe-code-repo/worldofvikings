@@ -105,8 +105,6 @@ interface FunktionSpec {
   readonly laenge: number;
   /** The packet type whose `case` in `onPacket` calls `this.<name>(peer, reader)` (the name of the method without `handle`); none when no packet leads here. */
   readonly paketTyp?: string;
-  /** A section line (`// ── Title ──`) that stood before the moved method and stays before its forwarding (rule 2.7, 4.5); none for every function of steps 2 and 3. */
-  readonly abschnittDavor?: string;
 }
 interface ModulSpec {
   /** Path from the repository root. */
@@ -352,11 +350,13 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       const kopf = body ? text.slice(m.getStart(sf), body.getStart(sf)).trim() : '';
       if (kopf !== fn.kopf) f.push(`${fn.name}: head of the forwarding is "${kopf}", frozen "${fn.kopf}"`);
       // no comment at the forwarding (rule 4.5): before it only blank space or a section line that stood there; inside it nothing but the one statement
-      // before it: exactly the one new blank line of rule 4.5a and nothing else; a section line only if it stood there before (`abschnittDavor`), a new one is not allowed (H5 of the attack on step 3)
+      // before it: exactly the one new blank line of rule 4.5a and nothing else, no comment and no section line (H5, H9 of the attack on step 3);
+      // no function of steps 2 and 3 had a section line before it. A later step that moves a method with a section line before it needs a field of FunktionSpec whose value the test
+      // compares with the line at the place before the move (a bare name in a spec would be a statement nobody checks); that is not built here.
       const davorText = text.slice(m.getFullStart(), m.getStart(sf));
       const davor = davorText.split('\n').map((z) => z.trim()).filter((z) => z !== '');
-      if (!same(davor, fn.abschnittDavor === undefined ? [] : [fn.abschnittDavor])) f.push(`${fn.name}: before the forwarding stands ${davor.length === 0 ? 'nothing' : `"${davor[0]!.slice(0, 40)}"`}, allowed is ${fn.abschnittDavor === undefined ? 'nothing (no comment, no new section line)' : `"${fn.abschnittDavor}"`}`);
-      else if (fn.abschnittDavor === undefined && davorText !== '\n\n  ') f.push(`${fn.name}: rule 4.5a wants exactly one new blank line before the forwarding`);
+      if (davor.length > 0) f.push(`${fn.name}: before the forwarding stands "${davor[0]!.slice(0, 40)}", allowed is nothing (no comment, no section line)`);
+      else if (davorText !== '\n\n  ') f.push(`${fn.name}: rule 4.5a wants exactly one new blank line before the forwarding`);
       if (body) {
         const gesamt = text.slice(m.getStart(sf), m.getEnd()).replace(/\s+/g, ' ');
         const erwartet = `${fn.kopf} { return ${fn.name}(this, ${m.parameters.map((p) => p.name.getText(sf)).join(', ')}); }`;
@@ -523,11 +523,7 @@ console.log('\n[0] Self-test of the checks on invented sources');
   const gut = gutesGebaeude();
   check('green: the good class', pruefeKlasse([S], gut, OEFF).length === 0, show(pruefeKlasse([S], gut, OEFF)));
   const mitAbschnitt = gut.replace('\n  private fb(', '\n  // ── Weiterleitungen ─────────────\n  private fb(');
-  const SAbschnitt: ModulSpec = { ...S, funktionen: [PAKET('fa'), { ...PAKET('fb'), abschnittDavor: '// ── Weiterleitungen ─────────────' }] };
-  check('green: a section line that stood before the moved method is allowed when the step names it (abschnittDavor)', pruefeKlasse([SAbschnitt], mitAbschnitt, OEFF).length === 0, show(pruefeKlasse([SAbschnitt], mitAbschnitt, OEFF)));
-  check('red: a NEW section line before a forwarding (H5)', pruefeKlasse([S], mitAbschnitt, OEFF).length > 0, show(pruefeKlasse([S], mitAbschnitt, OEFF)) || 'no finding');
-  check('red: a section line other than the named one', pruefeKlasse([SAbschnitt], mitAbschnitt.replace('Weiterleitungen', 'Anderes'), OEFF).length > 0);
-  check('red: the named section line is missing', pruefeKlasse([SAbschnitt], gut, OEFF).length > 0);
+  check('red: a section line before a forwarding, whoever names it (H5, H9: no field allows one)', pruefeKlasse([S], mitAbschnitt, OEFF).length > 0, show(pruefeKlasse([S], mitAbschnitt, OEFF)) || 'no finding');
   const hinten = (z: string): string => gut.replace('    return fa(this, peer, reader);\n  }\n', `    return fa(this, peer, reader);\n  }${z}\n`);
   check('red: a line comment behind a forwarding on its last line (H8)', pruefeKlasse([S], hinten(' // comment'), OEFF).length > 0, show(pruefeKlasse([S], hinten(' // comment'), OEFF)) || 'no finding');
   check('red: a block comment behind a forwarding on its last line (H8)', pruefeKlasse([S], hinten(' /* comment */'), OEFF).length > 0, show(pruefeKlasse([S], hinten(' /* comment */'), OEFF)) || 'no finding');

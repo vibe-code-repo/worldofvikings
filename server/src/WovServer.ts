@@ -1678,8 +1678,18 @@ export class WovServer {
     // noch bevor sich ein Spieler verbinden kann (kein I/O-Rueckruf lief bisher), damit die Kennung auf der
     // Platte steht, ehe die erste Zustandszeile unter ihr geschrieben wird.
     if (this.kennungNochNichtGespeichert) {
-      this.saveWorld();
-      this.kennungNochNichtGespeichert = false;
+      try {
+        this.saveWorld();
+        this.kennungNochNichtGespeichert = false;
+      } catch (err) {
+        // Kein Grund, den Start zu reissen (die Welt laeuft, der naechste Weltspeicher schreibt die Kennung mit) — aber laut:
+        // Zeilen, die bis dahin unter dieser Kennung geschrieben werden, sind nach einem harten Abbruch nicht mehr zuzuordnen.
+        console.error(
+          `[WoV] WELTKENNUNG_NICHT_GESPEICHERT: die Weltdatei konnte beim Start nicht geschrieben werden (${
+            err instanceof Error ? err.message : String(err)
+          }) — Spielerzeilen bis zum naechsten erfolgreichen Weltspeichern sind nach einem Absturz nicht zuzuordnen`
+        );
+      }
     }
 
     // F8 N2: Ausgangslage der Behaelter-/Bau-ZDOs (Weltspeicher + Zeilen sind

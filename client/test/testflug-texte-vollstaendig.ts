@@ -26,8 +26,8 @@
  *     (Umlaute/ß oder typische deutsche Woerter) ausserhalb von
  *     Kommentaren und console.*-Aufrufen, dazu JEDES Literal in einer der
  *     fuenf DOM-Senken. Der Upload-Dialog in GegenstandsKatalog.ts ist nur
- *     der Abschnitt zwischen den Markern "U1: Modell-Upload" und "private
- *     get speicherArt" -- der Rest der Datei ist T0b.
+ *     der Abschnitt zwischen den Markern "U1: Modell-Upload" und "get
+ *     speicherArt" -- der Rest der Datei ist T0b.
  *  2. Jeder verwendete Uebersetzungsschluessel (Literal, ob als `t('...')`-
  *     Aufruf oder als Tabellenwert wie in `BewuchsStufe.ts`s
  *     `STUFE_NAME_SCHLUESSEL`) muss in de.json UND en.json existieren --
@@ -85,7 +85,7 @@ function markenPosition(text: string, marke: string, ab = 0): number {
  * liegt "Hauptteil: Liste links, Vorschau rechts", der allgemeine Katalog
  * (T0b), den derselbe Bauabschnitt der Klasse mit aufbaut.
  *  A. die Zeile "U1: Modell-Upload" bis "Hauptteil: Liste links" (Formular).
- *  B. "hochladenStatusSchreiben" bis "private get speicherArt" (Vorschau,
+ *  B. "hochladenStatusSchreiben" bis "get speicherArt" (Vorschau,
  *     Hochladen, Grundskala-PATCH).
  * Gibt Zeichen-BEREICHE zurueck (nicht Text-Ausschnitte) -- der Syntaxbaum
  * wird ueber die GANZE Datei gebaut (nur so bleibt er gueltig), gefiltert
@@ -95,7 +95,7 @@ function uploadDialogBereiche(text: string): Bereich[] {
   const aStart = markenPosition(text, 'U1: Modell-Upload');
   const aEnde = markenPosition(text, 'Hauptteil: Liste links, Vorschau rechts', aStart);
   const bStart = markenPosition(text, 'private hochladenStatusSchreiben', aEnde);
-  const bEnde = markenPosition(text, 'private get speicherArt', bStart);
+  const bEnde = markenPosition(text, 'get speicherArt', bStart);
   if (aEnde <= aStart || bEnde <= bStart) {
     throw new Error('Marken in falscher Reihenfolge — GegenstandsKatalog.ts umgebaut?');
   }

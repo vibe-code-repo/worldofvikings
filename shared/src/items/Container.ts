@@ -35,7 +35,7 @@
  * zu D9.
  */
 
-import { Inventory, unbekannteWerdenVerwahrt } from './Inventory.js';
+import { Inventory, stapelBrauchbar, unbekannteWerdenVerwahrt } from './Inventory.js';
 import { findItem } from './itemDefs.js';
 import type { SavedItemStack } from './ItemData.js';
 
@@ -85,40 +85,32 @@ export function unpackContainer(json: string): Inventory {
   }
   if (!Array.isArray(roh)) return inv;
 
-  // Neither kind is cut because of the other: raw (kept) tuples are never cut, and the known stacks give way only
-  // when there are more of them than the chest has cells (manipulated data). Positions follow the list order, so
-  // every stack owns its own cell (a raw one behind a full chest gets a cell outside the grid, it is still packed).
-  const kandidaten: { name: string; stack: number; durability: number; quality: number; roh: boolean }[] = [];
+  // Order of the list does not matter: the first CONTAINER_SLOTS usable known stacks lie in the grid (list order), everything
+  // else (raw, unusable, known ones beyond the grid) is kept raw on a cell behind them. Nothing is cut, and no known
+  // stack lies outside the grid, where `removeByName` and the client would miss it.
+  const imRaster: SavedItemStack[] = [];
+  const verwahrt: SavedItemStack[] = [];
   for (const eintrag of roh) {
     if (!Array.isArray(eintrag) || eintrag.length !== 4) continue;
     const [name, stack, durability, quality] = eintrag as unknown[];
-    if (typeof name !== 'string' || typeof stack !== 'number' || stack <= 0) continue;
+    if (typeof name !== 'string') continue;
     const bekannt = findItem(name) !== undefined;
     if (!bekannt && !unbekannteWerdenVerwahrt()) continue; // unbekanntes Item (alter/fremder Save) — verwerfen
-    kandidaten.push({
+    const s = {
       name,
-      stack,
+      stack: stack as number,
       durability: typeof durability === 'number' ? durability : 0,
       quality: typeof quality === 'number' ? quality : 1,
-      roh: !bekannt,
-    });
-  }
-  // Deckel: manipulierte/fremde Daten mit mehr Einträgen, als ein Container je legitim erreichen kann (s. Kopfkommentar).
-  let platzFuerBekannte = CONTAINER_SLOTS;
-  const saved: SavedItemStack[] = [];
-  for (const k of kandidaten) {
-    if (!k.roh && platzFuerBekannte-- <= 0) continue;
-    const slot = saved.length;
-    saved.push({
-      name: k.name,
-      stack: k.stack,
-      durability: k.durability,
-      quality: k.quality,
-      gridX: slot % CONTAINER_WIDTH,
-      gridY: (slot / CONTAINER_WIDTH) | 0,
+      gridX: 0,
+      gridY: 0,
       equipped: false,
-    });
+    };
+    if (bekannt && stapelBrauchbar(s) && imRaster.length < CONTAINER_SLOTS) imRaster.push(s);
+    else verwahrt.push(s);
   }
+  const zelle = (n: number): { gridX: number; gridY: number } => ({ gridX: n % CONTAINER_WIDTH, gridY: (n / CONTAINER_WIDTH) | 0 });
+  const saved = imRaster.map((s, n) => ({ ...s, ...zelle(n) }));
   inv.load(saved);
+  verwahrt.forEach((s, n) => inv.verwahreStapel({ ...s, ...zelle(imRaster.length + n) }));
   return inv;
 }

@@ -29,6 +29,22 @@ export const HOTBAR_SIZE = INVENTORY_WIDTH;
  * `serialize`) instead of dropping them. The item watch switches it on at a start without a usable last good state:
  * then it cannot tell which data items the working copy lost, so nothing unknown may vanish until it is confirmed.
  */
+/** Upper bound for a stack amount when nothing better is known (bounds the over-stack split loop too). */
+export const STAPEL_OBERGRENZE = 9999;
+
+/**
+ * The one check of a saved stack, used by `load`, `holeVerwahrteZurueck` and `unpackContainer`: amount an integer from
+ * 1 to `STAPEL_OBERGRENZE` (a stack over the current maximum is split, see `teileUeberstapel`), durability finite and
+ * not negative, quality an integer from 1. A stack that fails stays kept raw, it is never dropped and never enters the grid.
+ */
+export function stapelBrauchbar(s: { stack: unknown; durability: unknown; quality: unknown }): boolean {
+  return (
+    typeof s.stack === 'number' && Number.isInteger(s.stack) && s.stack >= 1 && s.stack <= STAPEL_OBERGRENZE &&
+    typeof s.durability === 'number' && Number.isFinite(s.durability) && s.durability >= 0 &&
+    typeof s.quality === 'number' && Number.isInteger(s.quality) && s.quality >= 1
+  );
+}
+
 let unbekannteVerwahren = false;
 export function setzeUnbekannteVerwahren(an: boolean): void {
   unbekannteVerwahren = an;
@@ -65,6 +81,11 @@ export class Inventory {
   /** The kept stacks without a definition. */
   get verwahrte(): readonly SavedItemStack[] {
     return this.verwahrt;
+  }
+
+  /** Keeps a stack raw (a chest list that has no cell left for it, or an unusable one). */
+  verwahreStapel(s: SavedItemStack): void {
+    this.verwahrt.push({ ...s });
   }
 
   /** Drops the kept stacks of these names for good; returns how many stacks went. */
@@ -147,16 +168,15 @@ export class Inventory {
   removeByName(name: string, amount: number): boolean {
     if (this.countOf(name) < amount) return false;
     let rest = amount;
-    for (let y = 0; y < this.height && rest > 0; y++) {
-      for (let x = 0; x < this.width && rest > 0; x++) {
-        const stack = this.itemAt(x, y);
-        if (!stack || stack.shared.name !== name) continue;
-        const nehmen = Math.min(rest, stack.stack);
-        this.removeItem(stack, nehmen);
-        rest -= nehmen;
-      }
+    // Over the stacks themselves, not the grid cells: a stack is counted and removed the same way, wherever it lies.
+    for (const stack of [...this.items]) {
+      if (rest <= 0) break;
+      if (stack.shared.name !== name) continue;
+      const nehmen = Math.min(rest, stack.stack);
+      this.removeItem(stack, nehmen);
+      rest -= nehmen;
     }
-    return true;
+    return rest <= 0;
   }
 
   countOf(name: string): number {
@@ -242,7 +262,7 @@ export class Inventory {
     for (const s of [...this.verwahrt]) {
       const shared = findItem(s.name);
       if (!shared) continue;
-      if (!Number.isInteger(s.stack) || s.stack < 1 || !Number.isFinite(s.durability) || !Number.isFinite(s.quality)) {
+      if (!stapelBrauchbar(s)) {
         // A raw stack that no normal stack could be (amount, durability or quality not a usable number): it stays kept
         // as it is, nothing is lost and nothing unusable enters the grid.
         console.warn(`[Inventory] rebind: kept ${s.name} is unusable (stack ${String(s.stack)}, durability ${String(s.durability)}, quality ${String(s.quality)}), it stays kept`);
@@ -305,15 +325,25 @@ export class Inventory {
         if (unbekannteVerwahren) this.verwahrt.push({ ...s });
         continue;
       }
-      this.items.push({
-        shared,
-        stack: s.stack,
-        durability: s.durability,
-        quality: s.quality,
-        gridX: s.gridX,
-        gridY: s.gridY,
-        equipped: s.equipped,
-      });
+      if (!stapelBrauchbar(s)) {
+        console.warn(`[Inventory] load: ${s.name} is unusable (stack ${String(s.stack)}, durability ${String(s.durability)}, quality ${String(s.quality)}), it is kept`);
+        this.verwahrt.push({ ...s });
+        continue;
+      }
+      // A cell outside the grid, not a whole number or already taken gets a free one; without a free cell the stack is kept.
+      let gridX = s.gridX;
+      let gridY = s.gridY;
+      const imRaster = Number.isInteger(gridX) && Number.isInteger(gridY) && gridX >= 0 && gridY >= 0 && gridX < this.width && gridY < this.height;
+      if (!imRaster || this.itemAt(gridX, gridY)) {
+        const slot = this.findEmptySlot(topFirst(shared));
+        if (!slot) {
+          console.warn(`[Inventory] load: ${s.name} x${s.stack} has no cell and no free slot, it is kept`);
+          this.verwahrt.push({ ...s });
+          continue;
+        }
+        [gridX, gridY] = slot;
+      }
+      this.items.push({ shared, stack: s.stack, durability: s.durability, quality: s.quality, gridX, gridY, equipped: s.equipped === true });
     }
     this.teileUeberstapel('load');
     this.emit();

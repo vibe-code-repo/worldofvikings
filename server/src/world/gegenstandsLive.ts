@@ -34,7 +34,7 @@
  * (reason `eintrag-ungueltig`, which no JSON input can produce) plus the errors of the watch itself.
  */
 import { findItem } from '@wov/shared';
-import { readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import {
   MAX_DATEI_BYTES,
   leseGegenstandsDatei,
@@ -113,6 +113,27 @@ function letzterGuterSchreiben(arbeitsDatei: string, eintraege: readonly Gegenst
   } catch (fehler) {
     rmSync(temp, { force: true });
     log.error(`[Gegenstaende] letzter guter Stand nicht geschrieben: ${(fehler as Error).message}`);
+  }
+}
+
+/** `ohneDatei` scans at most every this many ticks while its receipt stands. */
+const OHNE_DATEI_TAKTE = 5;
+
+/**
+ * A last good state that exists but cannot be used is about to be replaced by an empty one: keep it first as
+ * `<file>.kaputt-<UTC time>` (like the working copy), so the evidence is not lost. A usable or missing one is left alone.
+ */
+function sichereKaputtenGutenStand(arbeitsDatei: string, log: GegenstandsLog): void {
+  const gut = gegenstandsLetzterGuterDatei(arbeitsDatei);
+  if (standVon(gut) === null || letzterGuterLesen(arbeitsDatei, log) !== null) return;
+  const stempel = new Date().toISOString().replace(/[-:.Z]/g, '');
+  let ziel = `${gut}.kaputt-${stempel}`;
+  for (let i = 1; existsSync(ziel); i++) ziel = `${gut}.kaputt-${stempel}-${i}`;
+  try {
+    renameSync(gut, ziel);
+    log.warn(`[Gegenstaende] kaputter letzter guter Stand gesichert als ${ziel}`);
+  } catch (fehler) {
+    log.error(`[Gegenstaende] kaputter letzter guter Stand nicht gesichert: ${(fehler as Error).message}`);
   }
 }
 
@@ -285,6 +306,8 @@ export class GegenstandsWache {
   /** Start without a usable last good state and the check against the held names is still open. */
   private ohneGutenStand: boolean;
   /** The last receipt `bestaetigung-noetig`: a confirmation covers exactly this hash and these ids (plus more copies of them). */
+  /** Ticks since the last scan of `ohneDatei` while a receipt stands. */
+  private ohneDateiTakte = 0;
   private quittiert: { hash: string; ids: ReadonlySet<string> } | null = null;
   /** Sanitiser exceptions swallowed as `eintrag-ungueltig`, plus errors of the watch itself. */
   interneFehler = 0;
@@ -455,6 +478,10 @@ export class GegenstandsWache {
    */
   private ohneDatei(): void {
     if (this.d.speichertGerade?.()) return;
+    // The scan walks every player, save and chest (12.5 ms at 250 000 ZDOs). While a receipt stands and the file is
+    // still missing, once every 5 ticks is enough: a change in what is held is seen within 5 s, and nothing else
+    // can change meanwhile (the file is what ends this state, and that path has its own check).
+    if (this.quittiert !== null && this.ohneDateiTakte++ % OHNE_DATEI_TAKTE !== 0) return;
     const unbekannt = this.d.unbekanntGehalten?.((name) => findItem(name) !== undefined) ?? {};
     const ids = Object.keys(unbekannt);
     if (ids.length > 0) {
@@ -462,13 +489,18 @@ export class GegenstandsWache {
       if (this.quittiert?.hash === hash && ids.every((id) => this.quittiert!.ids.has(id))) return; // receipt stands
       this.log.warn(`[Gegenstaende] Bestaetigung noetig (keine Arbeitsdatei, kein letzter guter Stand), nichts entfernt: ${Object.entries(unbekannt).map(([id, n]) => `${n}x ${id}`).join(', ')} gehalten`);
       this.quittiert = { hash, ids: new Set(ids) };
+      this.ohneDateiTakte = 1;
       this.quittiere('bestaetigung-noetig', hash, { gehalten: unbekannt });
       return;
     }
+    // Nothing held (any more): the state is settled. A receipt that asked for a confirmation is outdated and is replaced.
+    const warteteAufBestaetigung = this.quittiert !== null;
     this.ohneGutenStand = false;
     this.quittiert = null;
     this.d.verwahren?.(false);
+    sichereKaputtenGutenStand(this.d.pfad, this.log);
     letzterGuterSchreiben(this.d.pfad, this.angewendet, this.log);
+    if (warteteAufBestaetigung) this.quittiere('angewendet', layoutHash(Buffer.alloc(0)));
   }
 
   private quittiere(status: GegenstandsStatus, hash: string, zusatz: { gehalten?: Record<string, number>; verworfen?: GegenstandsQuittung['verworfen'] } = {}): void {

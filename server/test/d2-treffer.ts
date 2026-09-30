@@ -33,10 +33,13 @@ import { Writer } from '../src/io/Writer.js';
 import type { ZDO } from '../src/zdo/ZDO.js';
 import {
   KETTE_FENSTER_S,
+  SCHLAG_FENSTER_S,
   SchlagErgebnis,
   abklingzeitMs,
   neuerSchlagZustand,
   pruefeSchlag,
+  SPITZE_MAX_MS,
+  trefferAbstand,
   trifftKugel,
   verbucheSchlag,
   zielToleranz,
@@ -56,7 +59,7 @@ const P = {
   AdminCommand: 53,
   HitEffect: 59,
   Equip: 80,
-  AttackAck: 86,
+  AttackAck: 88,
   AuthChallenge: 68,
 };
 const ERG = ['Treffer', 'Fehl', 'Kombo', 'Abklingzeit', 'Zeit', 'Ausdauer'];
@@ -390,6 +393,24 @@ async function main(): Promise<void> {
     check('nach der Abklingzeit im Kettenfenster: Schritt 2', zwei.ok && zwei.schritt === 2);
     const spaet = pruefeSchlag(z0, m(3), 1000 + abklingzeitMs('') + KETTE_FENSTER_S * 1000 + 1, '');
     check('1 ms nach dem Kettenfenster: Schritt 3 abgelehnt', !spaet.ok && spaet.ergebnis === SchlagErgebnis.Kombo);
+    // F1: die Kante des Kettenfensters (Abklingzeit 350 ms + 0,6 s = 950 ms ab dem vorigen Schlag).
+    const kante = 950; // literal, nicht aus den Konstanten: sonst wandert die Probe mit einer verstellten Konstante mit
+    const innen = pruefeSchlag(z0, m(2), 1000 + kante - 10, '');
+    check(`${kante - 10} ms nach dem vorigen Schlag (knapp innerhalb): Schritt 2`, innen.ok && innen.schritt === 2);
+    const aufKante = pruefeSchlag(z0, m(2), 1000 + kante, '');
+    check(`${kante} ms (Kante, noch innerhalb): Schritt 2`, aufKante.ok && aufKante.schritt === 2);
+    const aussen = pruefeSchlag(z0, m(2), 1000 + kante + 1, '');
+    check(`${kante + 1} ms (ausserhalb): die Kette beginnt neu, Schritt 1`, aussen.ok && aussen.schritt === 1);
+    const weit = pruefeSchlag(z0, m(1), 1000 + kante + 500, '');
+    check('weit nach dem Fenster: Schritt 1', weit.ok && weit.schritt === 1);
+    // F2: Spitzendeckel (600 ms) + Fenster 200 ms = 800 ms, auch wenn der Client eine riesige Spitze meldet.
+    const riesig = { seq: 1, schritt: 1, spitzeMs: 6_000_000 };
+    const riesigAlt = pruefeSchlag(neuerSchlagZustand(), { ...riesig, alterMs: 5000 }, 9000, '');
+    check('Spitze 6 000 000 ms gemeldet, Alter 5000 ms: abgelehnt (Deckel)', !riesigAlt.ok && riesigAlt.ergebnis === SchlagErgebnis.Zeit);
+    const deckelRand = pruefeSchlag(neuerSchlagZustand(), { ...riesig, alterMs: SPITZE_MAX_MS + SCHLAG_FENSTER_S * 1000 }, 9000, '');
+    check(`Alter ${SPITZE_MAX_MS + SCHLAG_FENSTER_S * 1000} ms (Deckel + Fenster): gerade noch im Fenster`, deckelRand.ok);
+    const deckelUeber = pruefeSchlag(neuerSchlagZustand(), { ...riesig, alterMs: SPITZE_MAX_MS + SCHLAG_FENSTER_S * 1000 + 1 }, 9000, '');
+    check('1 ms darueber: abgelehnt', !deckelUeber.ok && deckelUeber.ergebnis === SchlagErgebnis.Zeit);
     const alter = pruefeSchlag(neuerSchlagZustand(), m(1, 601), 5000, '');
     check('Alter 601 ms bei Spitze 400 ms (Fenster 200 ms): abgelaufen', !alter.ok && alter.ergebnis === SchlagErgebnis.Zeit);
     const randOk = pruefeSchlag(neuerSchlagZustand(), m(1, 600), 5000, '');
@@ -398,6 +419,11 @@ async function main(): Promise<void> {
     check('Alter NaN: abgelehnt', !nan.ok && nan.ergebnis === SchlagErgebnis.Zeit);
     const von = { x: 0, y: 0, z: 0 };
     check('Kugel: Ziel 2,3 m geradeaus trifft (0,8 + 0,6 Koerper), 2,5 m nicht', trifftKugel(von, 0, { x: 0, y: 0, z: -2.3 }) && !trifftKugel(von, 0, { x: 0, y: 0, z: -2.5 }));
+    // F2: Hoehe. Ziel 1,5 m geradeaus (Kugelmitte 1 m vorn, 0,5 m waagerecht), aber hoeher/tiefer.
+    const beiHoehe = (dy: number) => trifftKugel(von, 0, { x: 0, y: dy, z: -1.5 });
+    check('Hoehe: dy 0 und 1,0 m treffen, dy 1,6 m und -1,6 m nicht (waagerecht in Reichweite)', beiHoehe(0) && beiHoehe(1) && !beiHoehe(1.6) && !beiHoehe(-1.6));
+    const abst = trefferAbstand(von, 0, { x: 0, y: 1, z: -1.5 });
+    check('Hoehe fliesst in den Abstand ein: dy 1 m bei 0,5 m waagerecht = 1,118 m', abst !== null && Math.abs(abst - Math.hypot(0.5, 1)) < 1e-9, `${abst}`);
     check('Kugel: kein Yaw (NaN) trifft nichts', !trifftKugel(von, NaN, { x: 0, y: 0, z: -1 }));
     check('Toleranz: 5 m/s = 0,70 m, 20 m/s = gedeckelt 1,50 m, negativ/NaN = 0', Math.abs(zielToleranz(5) - 0.7) < 1e-9 && zielToleranz(20) === 1.5 && zielToleranz(-3) === 0 && zielToleranz(NaN) === 0);
   } finally {

@@ -18,6 +18,19 @@ export interface SchlagFelder {
   spitzeMs: number;
 }
 
+/**
+ * How long (s), counted from the start of a swing, the server keeps the chain open: the cooldown of the
+ * slowest weapon (350 ms) plus `KETTE_FENSTER_S` (0.6 s), server/src/spiel/Treffer.ts. The figure's own window
+ * (clip length / tempo - 0.25 s + 0.6 s = 1.33 .. 1.63 s for the real weapon clips) is longer; without this cap
+ * the figure plays blow 2 or 3 where the server already counted blow 1 again.
+ */
+export const SERVER_KETTE_S = 0.95;
+
+/** The figure's chain window (s from swing start): its own, but never longer than the server's. */
+export function komboRestS(angriffRest: number, komboFenster: number): number {
+  return Math.min(angriffRest + komboFenster, SERVER_KETTE_S);
+}
+
 /** `AttackAck.ergebnis`, as the server sends it (server/src/spiel/Treffer.ts, SchlagErgebnis). */
 export const ERGEBNIS_TREFFER = 0;
 export const ERGEBNIS_KOMBO = 2;

@@ -467,7 +467,7 @@ export enum PacketType {
    * `Attack` carries them appended after the weapon: Int32 seq, Int32 schritt, Float32 alterMs,
    * Float32 spitzeMs. An old client sends none and gets no ack; an old server ignores the tail.
    */
-  AttackAck = 86,
+  AttackAck = 88,
 }
 
 // === Vector3 ===

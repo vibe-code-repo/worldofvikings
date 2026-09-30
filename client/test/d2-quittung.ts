@@ -6,7 +6,8 @@
  * Run: npx tsx client/test/d2-quittung.ts   (from the repo root)
  */
 import { PacketType } from '@wov/shared';
-import { SchlagBuch, ERGEBNIS_KOMBO, ERGEBNIS_TREFFER } from '../src/net/Quittung';
+import { SchlagBuch, ERGEBNIS_KOMBO, ERGEBNIS_TREFFER, SERVER_KETTE_S, komboRestS } from '../src/net/Quittung';
+import { KETTE_FENSTER_S, abklingzeitMs } from '../../server/src/spiel/Treffer';
 import { verdrahteKampf } from '../src/net/KampfNetz';
 
 let fehler = 0;
@@ -68,6 +69,27 @@ console.log('\n[2] Verdrahtung (Standin-Socket und -Figur):');
   uhr = 5040;
   for (const h of handler.get(PacketType.AttackAck) ?? []) h(leser as never);
   check('Quittung verweigert die Kette: die Figur beginnt wieder bei Hieb 1', kettenEnde === 1);
+}
+
+console.log('[3] Kettenfenster der Figur nie laenger als das des Servers (F4):');
+{
+  check(
+    'SERVER_KETTE_S = Abklingzeit + Kettenfenster des Servers',
+    Math.abs(SERVER_KETTE_S - (abklingzeitMs('') + KETTE_FENSTER_S * 1000) / 1000) < 1e-9,
+    `${SERVER_KETTE_S} s`
+  );
+  // Gemessene Clips (WikingerKoerper.glb/WikingerinKoerper.glb): Laenge s, Tempo wie AvatarRig.hiebDauer, Ausstieg 0,25, Fenster 0,6.
+  const clips: Array<[string, number, number]> = [
+    ['angriff', 3.042, 2.5], ['angriff2', 3.042, 2.5], ['angriff3', 3.125, 2.5],
+    ['faust', 1.958, 2], ['faust2', 2.167, 2], ['faust3', 1.917, 1.5],
+    ['stab_angriff', 3.042, 2.5], ['stab_angriff2', 3.042, 2.5], ['stab_angriff3', 1.792, 1.5],
+  ];
+  for (const [name, laenge, tempo] of clips) {
+    const eigen = Math.max(0.5, laenge / tempo) - 0.25 + 0.6;
+    const fenster = komboRestS(Math.max(0.5, laenge / tempo) - 0.25, 0.6);
+    check(`${name}: eigenes Fenster ${eigen.toFixed(3)} s, gedeckelt ${fenster.toFixed(3)} s`, eigen > SERVER_KETTE_S && fenster === SERVER_KETTE_S);
+  }
+  check('ein kurzer Schlag (Rest 0,1 s) behaelt sein kuerzeres Fenster (0,7 s)', Math.abs(komboRestS(0.1, 0.6) - 0.7) < 1e-9);
 }
 
 console.log(fehler === 0 ? '\nD2 Quittung (Client): alles gruen' : `\nD2 Quittung (Client): ${fehler} FEHLER`);

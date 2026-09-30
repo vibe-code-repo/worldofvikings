@@ -4,6 +4,9 @@
  *
  * Step 2 moved six methods of `server/src/WovServer.ts` unchanged into two modules: the four dungeon editor handlers
  * into `spiel/DungeonEditPakete.ts`, the admin command handler and the time-of-day handler into `spiel/AdminPakete.ts`.
+ * Step 3 moved five more: the chest, appearance and figure handlers into `spiel/Interaktion.ts` (`handleTruheOeffnen`,
+ * `sendeTruheInhalt`, `handleSetAussehen`, `handleSetFigur`) and `handleChatMessage` into `spiel/Chat.ts`. `handleInteract` and
+ * `handleContainerAction` stay in the class (they read the static member `WovServer.FREMDER_BESITZ_MELDUNG`, rule 5).
  * In the class stays one forwarding method per name, in the same place; `k` in the module IS the server. Rules:
  * `Karten/refactoring/01 Form k — Regeln für Methoden mit Kontext.md`. After the merge this test is the only guard
  * (the one-time proofs K1 to K8 of the step are history). Later steps add their modules to `MODULE` below and their
@@ -28,16 +31,18 @@
  *  6. The list of the NON-PRIVATE members of `WovServer` (fields, methods, parameter properties of the constructor) is
  *     frozen. Every step that needs a private member in its context relaxes it to public, and that widens the surface of
  *     the class for good; here the step says so, in `PUBLIC_MEMBERS`. A relaxation that is not listed turns this red.
+ *     A forwarding whose method is itself a context member (`sendeTruheInhalt`, step 3) has no `private` in its frozen head.
  *  7. Behaviour: one fixed sequence of calls, on a stand-in for the server and on a real instance (through the
  *     forwarding methods), gives the numbers that were measured before the move (`SOLL_*`; measured with
  *     `--messen-basis` on the stand before the move, see below). Recorded are the packets sent, the calls into the
  *     context, the state changes and the exceptions.
- *  Not applicable in step 2: the identity of returned objects of the stock (K9-5), no function returns a value.
+ *  Not applicable in steps 2 and 3: the identity of returned objects of the stock (K9-5), no function returns a value.
  *
  * Section [0] shows first that each check can turn red: the same checks run over small invented sources, one fault
  * each (`red:`), and over a good stand (`green:`).
  *
- * `--messen-basis`: prints the measured summary for the stand BEFORE the move, calling `WovServer.prototype.<name>` with
+ * `--messen-basis`: prints the measured summaries (step 2: stand-in and real instance; step 3: the same for the chest,
+ * appearance, figure and chat handlers) for the stand BEFORE the move, calling `WovServer.prototype.<name>` with
  * the stand-in as `this` instead of the module functions. On the base commit (where the test file is copied next to the
  * old sources) this reproduces `SOLL_ATTRAPPE`/`SOLL_ECHT`. Reads no source, checks nothing else.
  *
@@ -48,15 +53,18 @@
  *
  * Run (from server/): npx tsx test/i1-form-k.ts
  */
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import * as ts from 'typescript';
-import { PacketType, WORLD_TIME_LENGTH, dungeon2 } from '@wov/shared';
+import { PacketType, WORLD_TIME_LENGTH, dungeon2, Inventory, WILDWARDEN_PARTS, findItem, FRISUR_VORGABE, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, FIGUREN, TRUHE_INHALT_MEMBER, TRUHE_LOOTED_MEMBER, packContainer, unpackContainer, ChatMsgType } from '@wov/shared';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import { WovServer, createWovServer } from '../src/WovServer.js';
 import { registryChecksum } from '../src/world/dungeon/ModuleBuild.js';
+import { HAUPTWELT_ID } from '../src/world/Welt.js';
+import { ZDOManager } from '../src/zdo/ZDOManager.js';
 
 const WURZEL = resolve(import.meta.dirname, '../..');
 const MESSEN_BASIS = process.argv.includes('--messen-basis');
@@ -81,6 +89,10 @@ interface FunktionSpec {
   readonly name: string;
   /** The head of the forwarding in the class, from the modifier to the return type (nothing after the type). */
   readonly kopf: string;
+  /** The method of the class that calls `this.<name>(<args>)` (`onPacket` for the packet handlers). */
+  readonly aufrufer: { readonly methode: string; readonly args: string };
+  /** `Function.length` of the method on the prototype: the number of parameters of the forwarding. */
+  readonly laenge: number;
 }
 interface ModulSpec {
   /** Path from the repository root. */
@@ -95,6 +107,8 @@ interface ModulSpec {
 }
 
 const KOPF = (name: string): string => `private ${name}(peer: Peer, reader: Reader): void`;
+/** A packet handler: private forwarding `(peer, reader)`, called by `onPacket`. */
+const PAKET = (name: string): FunktionSpec => ({ name, kopf: KOPF(name), aufrufer: { methode: 'onPacket', args: 'peer, reader' }, laenge: 2 });
 const MODULE: readonly ModulSpec[] = [
   {
     datei: 'server/src/spiel/AdminPakete.ts',
@@ -102,10 +116,15 @@ const MODULE: readonly ModulSpec[] = [
     kontextTyp: 'AdminPaketeKontext',
     mitglieder: ['adminCommands', 'net', 'worldTime', 'getTimeOfDay', 'getDay', 'sendTimeSync'],
     wertImporte: ['@wov/shared'],
-    funktionen: [
-      { name: 'handleAdminCommand', kopf: KOPF('handleAdminCommand') },
-      { name: 'handleSetTimeOfDay', kopf: KOPF('handleSetTimeOfDay') },
-    ],
+    funktionen: [PAKET('handleAdminCommand'), PAKET('handleSetTimeOfDay')],
+  },
+  {
+    datei: 'server/src/spiel/Chat.ts',
+    spezifizierer: './spiel/Chat.js',
+    kontextTyp: 'ChatKontext',
+    mitglieder: ['net'],
+    wertImporte: ['@wov/shared', '../io/Writer.js', './ChatReichweite.js'],
+    funktionen: [PAKET('handleChatMessage')],
   },
   {
     datei: 'server/src/spiel/DungeonEditPakete.ts',
@@ -113,18 +132,30 @@ const MODULE: readonly ModulSpec[] = [
     kontextTyp: 'DungeonEditKontext',
     mitglieder: ['dungeons', 'config', 'enterDungeon', 'dungeonsWurzel'],
     wertImporte: ['@wov/shared', '../world/dungeon/ModuleBuild.js'],
+    funktionen: [PAKET('handleDungeonEditRequest'), PAKET('handleDungeonEditSave'), PAKET('handleDungeonModulBau'), PAKET('handleDungeonModulLoeschen')],
+  },
+  {
+    datei: 'server/src/spiel/Interaktion.ts',
+    spezifizierer: './spiel/Interaktion.js',
+    kontextTyp: 'InteraktionKontext',
+    mitglieder: ['sendeTruheInhalt', 'inventarSync', 'zdosVon', 'kappeLeben', 'sichereSpielerSofort'],
+    wertImporte: ['@wov/shared', './Beute.js'],
     funktionen: [
-      { name: 'handleDungeonEditRequest', kopf: KOPF('handleDungeonEditRequest') },
-      { name: 'handleDungeonEditSave', kopf: KOPF('handleDungeonEditSave') },
-      { name: 'handleDungeonModulBau', kopf: KOPF('handleDungeonModulBau') },
-      { name: 'handleDungeonModulLoeschen', kopf: KOPF('handleDungeonModulLoeschen') },
+      // called by `handleInteract` (stays in the class), not by `onPacket`; three parameters
+      { name: 'handleTruheOeffnen', kopf: 'private handleTruheOeffnen(peer: Peer, ziel: ZDO, def: Prefab | undefined): void', aufrufer: { methode: 'handleInteract', args: 'peer, ziel, def' }, laenge: 3 },
+      // a context member: the forwarding is public (no `private` in the head); called by `handleContainerAction` (stays in the class)
+      { name: 'sendeTruheInhalt', kopf: 'sendeTruheInhalt(peer: Peer, ziel: ZDO): void', aufrufer: { methode: 'handleContainerAction', args: 'peer, ziel' }, laenge: 2 },
+      PAKET('handleSetAussehen'),
+      PAKET('handleSetFigur'),
     ],
   },
 ];
 
 /**
  * The non-private members of `WovServer`, sorted: 36 before step 2, plus `dungeonsWurzel`, `sendTimeSync` and `worldTime`
- * (context members of step 2, relaxed from private). One per line; a later step adds its relaxations here, each with a reason.
+ * (context members of step 2, relaxed from private), plus `inventarSync`, `kappeLeben`, `sendeTruheInhalt`,
+ * `sichereSpielerSofort` and `zdosVon` (context members of step 3, relaxed from private). One per line; a later step adds
+ * its relaxations here, each with a reason.
  */
 const PUBLIC_MEMBERS: readonly string[] = [
   'adminCommands',
@@ -144,6 +175,8 @@ const PUBLIC_MEMBERS: readonly string[] = [
   'init',
   'instanzWeltAnlegen',
   'instanzWeltEntfernen',
+  'inventarSync', // step 3: context member of Interaktion
+  'kappeLeben', // step 3: context member of Interaktion
   'kollisionswelt',
   'leaveDungeon',
   'liegezeitMs',
@@ -154,7 +187,9 @@ const PUBLIC_MEMBERS: readonly string[] = [
   'saveWorld',
   'saveWorldAsync',
   'sendTimeSync', // step 2: context member of AdminPakete
+  'sendeTruheInhalt', // step 3: context member of Interaktion (the forwarding itself is public)
   'serverUserId',
+  'sichereSpielerSofort', // step 3: context member of Interaktion (F8, #146)
   'spawns',
   'start',
   'stop',
@@ -165,6 +200,7 @@ const PUBLIC_MEMBERS: readonly string[] = [
   'worldManager',
   'worldTime', // step 2: context member of AdminPakete (the field stays in the class)
   'zdos',
+  'zdosVon', // step 3: context member of Interaktion
   'zones',
 ];
 
@@ -260,7 +296,6 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
   const klasse = sf.statements.find((s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && s.name?.text === 'WovServer');
   if (!klasse) return ['class WovServer not found'];
   const nameVon = (m: ts.ClassElement): string => (m.name ? m.name.getText(sf) : '');
-  const onPacket = klasse.members.find((m): m is ts.MethodDeclaration => ts.isMethodDeclaration(m) && nameVon(m) === 'onPacket');
   for (const spec of specs) {
     // the import under its own names, once
     const imps = sf.statements.filter((s): s is ts.ImportDeclaration => ts.isImportDeclaration(s) && ts.isStringLiteral(s.moduleSpecifier) && s.moduleSpecifier.text === spec.spezifizierer);
@@ -301,14 +336,15 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       const soll = ['this', ...m.parameters.map((p) => p.name.getText(sf))];
       const ok = ts.isIdentifier(c.expression) && c.expression.text === fn.name && !c.typeArguments && !c.questionDotToken && c.arguments[0]?.kind === ts.SyntaxKind.ThisKeyword && same(args, soll);
       if (!ok) f.push(`${fn.name}: the call is \`${c.getText(sf)}\`, expected \`${fn.name}(${soll.join(', ')})\` with a plain \`this\``);
-      // onPacket still calls the method by its name
+      // the caller in the class (`onPacket` or another method that stays) still calls the method by its name
+      const aufrufer = klasse.members.find((x): x is ts.MethodDeclaration => ts.isMethodDeclaration(x) && nameVon(x) === fn.aufrufer.methode);
       let ruft = false;
       const gehe = (n: ts.Node): void => {
-        if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.expression.kind === ts.SyntaxKind.ThisKeyword && n.expression.name.text === fn.name && n.arguments.map((a) => a.getText(sf)).join(',') === 'peer,reader') ruft = true;
+        if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.expression.kind === ts.SyntaxKind.ThisKeyword && n.expression.name.text === fn.name && n.arguments.map((a) => a.getText(sf)).join(',') === fn.aufrufer.args.replace(/ /g, '')) ruft = true;
         ts.forEachChild(n, gehe);
       };
-      if (onPacket) gehe(onPacket);
-      if (!ruft) f.push(`${fn.name}: onPacket does not call this.${fn.name}(peer, reader)`);
+      if (aufrufer) gehe(aufrufer);
+      if (!ruft) f.push(`${fn.name}: ${fn.aufrufer.methode} does not call this.${fn.name}(${fn.aufrufer.args})`);
     }
   }
   // 6. the non-private members
@@ -341,10 +377,7 @@ console.log('\n[0] Self-test of the checks on invented sources');
     kontextTyp: 'TestKontext',
     mitglieder: ['a', 'b'],
     wertImporte: ['@wov/shared'],
-    funktionen: [
-      { name: 'fa', kopf: KOPF('fa') },
-      { name: 'fb', kopf: KOPF('fb') },
-    ],
+    funktionen: [PAKET('fa'), PAKET('fb')],
   };
   const gutesModul = [
     "import { PacketType } from '@wov/shared';",
@@ -466,6 +499,39 @@ console.log('\n[0] Self-test of the checks on invented sources');
     const f = pruefeKlasse([S], text, oeff);
     check(`red: class, ${name}`, f.length > 0, show(f) || 'no finding');
   }
+  // a public forwarding (the method is a context member), three parameters, called by another method of the class (step 3)
+  const S3: ModulSpec = {
+    datei: 'server/src/spiel/Test3.ts', spezifizierer: './spiel/Test3.js', kontextTyp: 'Test3Kontext', mitglieder: ['a'], wertImporte: [],
+    funktionen: [{ name: 'fc', kopf: 'fc(peer: Peer, ziel: Ziel, def: Def | undefined): void', aufrufer: { methode: 'andere', args: 'peer, ziel, def' }, laenge: 3 }],
+  };
+  const gut3 = [
+    "import { fc } from './spiel/Test3.js';",
+    'export class WovServer {',
+    '  readonly a = 1;',
+    '  private andere(peer: Peer, ziel: Ziel, def: Def): void {',
+    '    this.fc(peer, ziel, def);',
+    '  }',
+    '',
+    '  fc(peer: Peer, ziel: Ziel, def: Def | undefined): void {',
+    '    return fc(this, peer, ziel, def);',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  check('green: the good class with a public forwarding and another caller', pruefeKlasse([S3], gut3, ['a', 'fc']).length === 0, show(pruefeKlasse([S3], gut3, ['a', 'fc'])));
+  const klassenFehler3: [string, string, readonly string[]][] = [
+    ['a public forwarding that became private (frozen: public)', gut3.replace('  fc(peer', '  private fc(peer'), ['a']],
+    ['a public forwarding that is not listed as public member', gut3, ['a']],
+    ['a third parameter dropped', gut3.replace('ziel: Ziel, def: Def | undefined): void {\n    return fc(this, peer, ziel, def);', 'ziel: Ziel): void {\n    return fc(this, peer, ziel);'), ['a', 'fc']],
+    ['the caller calls with other arguments', gut3.replace('this.fc(peer, ziel, def);', 'this.fc(peer, ziel);'), ['a', 'fc']],
+    ['the caller is another method', gut3.replace('private andere(', 'private woanders('), ['a', 'fc']],
+    ['the caller does not call', gut3.replace('    this.fc(peer, ziel, def);\n', ''), ['a', 'fc']],
+    ['the third argument swapped', gut3.replace('return fc(this, peer, ziel, def);', 'return fc(this, peer, def, ziel);'), ['a', 'fc']],
+  ];
+  for (const [name, text, oeff] of klassenFehler3) {
+    const f = pruefeKlasse([S3], text, oeff);
+    check(`red: class, ${name}`, f.length > 0, show(f) || 'no finding');
+  }
 }
 
 // ── [1] The real sources ───────────────────────────────────────────────
@@ -488,7 +554,8 @@ if (!MESSEN_BASIS) {
   check(`WovServer.ts: ${alleNamen.length} forwardings in the frozen form, imports, onPacket, ${PUBLIC_MEMBERS.length} non-private members`, f.length === 0, show(f));
   for (const n of alleNamen) {
     const d = Object.getOwnPropertyDescriptor(WovServer.prototype, n);
-    check(`${n}: a prototype method of WovServer (length ${(d?.value as { length?: number } | undefined)?.length})`, typeof d?.value === 'function' && (d.value as { length: number }).length === 2 && (d.value as { name: string }).name === n);
+    const laenge = MODULE.flatMap((m) => m.funktionen).find((x) => x.name === n)!.laenge;
+    check(`${n}: a prototype method of WovServer (length ${(d?.value as { length?: number } | undefined)?.length})`, typeof d?.value === 'function' && (d.value as { length: number }).length === laenge && (d.value as { name: string }).name === n);
   }
   // every module under spiel/ that uses the context type stands under this guard (only Kontext.ts itself defines it)
   const alleDateien = new Set(MODULE.map((m) => m.datei));
@@ -498,11 +565,11 @@ if (!MESSEN_BASIS) {
 
 // ── [2] Behaviour ──────────────────────────────────────────────────────
 
-type Fn = (k: unknown, peer: unknown, reader: unknown) => unknown;
+type Fn = (k: unknown, ...a: unknown[]) => unknown;
 const proto = WovServer.prototype as unknown as Record<string, (...x: unknown[]) => unknown>;
 const F = {} as Record<string, Fn>;
 for (const spec of MODULE) {
-  if (MESSEN_BASIS) for (const fn of spec.funktionen) F[fn.name] = (k, p, r) => proto[fn.name]!.call(k, p, r);
+  if (MESSEN_BASIS) for (const fn of spec.funktionen) F[fn.name] = (k, ...x) => proto[fn.name]!.call(k, ...x);
   else {
     const mod = (await import(`../../${spec.datei.replace(/\.ts$/, '.js')}`)) as Record<string, Fn>;
     for (const fn of spec.funktionen) F[fn.name] = mod[fn.name]!;
@@ -693,6 +760,221 @@ function messeEcht(): Aufzeichnung {
   return a;
 }
 
+
+// ── [2b] Behaviour of step 3: chest, appearance, figure, chat ──────────
+
+interface Aufzeichnung3 extends Aufzeichnung {
+  notizen: string[];
+}
+const neueAufzeichnung3 = (): Aufzeichnung3 => ({ ...neueAufzeichnung(), notizen: [] });
+/** Math.random with a fixed sequence for the length of one call: `wuerfleTruhe` draws from it. */
+function mitZufall<T>(seed: number, fn: () => T): T {
+  const orig = Math.random;
+  let x = seed;
+  Math.random = (): number => { x = (x + 0x6d2b79f5) | 0; let t = Math.imul(x ^ (x >>> 15), 1 | x); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  try { return fn(); } finally { Math.random = orig; }
+}
+const kurz = (b: Buffer): string => `${b.length}:${createHash('sha256').update(b).digest('hex').slice(0, 10)}`;
+function peerI(a: Aufzeichnung3, name: string, o: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    name, figur: 'wikinger', frisur: FRISUR_VORGABE, haarfarbe: HAARFARBE_VORGABE, augenfarbe: AUGENFARBE_VORGABE, ruestung: '|', characterID: 'c1', inventar: new Inventory(),
+    sendPacketWith(type: PacketType, fn: (w: Writer) => void): void {
+      const w = new Writer();
+      fn(w);
+      const r = new Reader(w.toBuffer());
+      const d = type === PacketType.InteractResult ? [r.readBool(), r.readString()] : type === PacketType.ContainerSync ? [r.readString(), r.readInt32(), r.readString().length] : [kurz(w.toBuffer())];
+      a.paket.push(`${name}:${PacketType[type]}:${JSON.stringify(d)}`);
+    },
+    ...o,
+  };
+}
+/** A stand-in for a ZDO (chest or character) that records what is read and written. */
+function zdoA(a: Aufzeichnung3, start: Record<string, string | number> = {}): Record<string, unknown> {
+  const m = new Map<string, string | number>(Object.entries(start));
+  return {
+    zdoid: { userId: { toString: (): string => 'u' }, id: 7 },
+    dirty: false,
+    revision: { reviseData(): void { zaehle(a, 'reviseData'); } },
+    getInt(k: string): number { const v = m.get(k); return typeof v === 'number' ? v : 0; },
+    setInt(k: string, v: number): void { zaehle(a, 'setInt'); m.set(k, v); a.notizen.push(`setInt ${k}=${v}`); },
+    getString(k: string): string { const v = m.get(k); return typeof v === 'string' ? v : ''; },
+    setString(k: string, v: string): void { zaehle(a, 'setString'); m.set(k, v); a.notizen.push(`setString ${k}=${v.length > 16 ? `${v.length}:${createHash('sha256').update(v).digest('hex').slice(0, 8)}` : v}`); },
+  };
+}
+const paketS = (...werte: string[]): Reader => leser((w) => { for (const x of werte) w.writeString(x); });
+const teileWild = (): Record<string, string> => Object.fromEntries(WILDWARDEN_PARTS.map((p) => [p.slot, p.id]));
+const inventarMit = (): Inventory => { const inv = new Inventory(); for (const t of WILDWARDEN_PARTS) inv.addItem(findItem(t.item)!, 1); return inv; };
+const angelegt = (p: Record<string, unknown>): number => (p['inventar'] as Inventory).all.filter((i) => i.equipped).length;
+const truhenInhalt = (): string => { const inv = unpackContainer(''); inv.addItem(findItem('Coins')!, 3); return packContainer(inv); };
+const F0 = FIGUREN[0]!.id;
+const F1 = FIGUREN[1]!.id;
+
+/** Chest, appearance and figure on a stand-in: every context member records its calls. */
+function messeInteraktionAttrappe(): Aufzeichnung3 {
+  const a = neueAufzeichnung3();
+  const ruecksetzen = konsole(a);
+  let charZdo: Record<string, unknown> | undefined = zdoA(a);
+  const k: Record<string, unknown> = {
+    // a moved method that is a context member: before the move through the prototype, after it through the function (R12)
+    sendeTruheInhalt(this: unknown, ...x: unknown[]): unknown { zaehle(a, 'sendeTruheInhalt'); return F['sendeTruheInhalt']!(this, ...x); },
+    inventarSync: (): void => { zaehle(a, 'inventarSync'); },
+    zdosVon: (): unknown => { zaehle(a, 'zdosVon'); return { getZDO: (): unknown => charZdo }; },
+    kappeLeben: (): void => { zaehle(a, 'kappeLeben'); },
+    sichereSpielerSofort: (_p: unknown, grund: unknown): void => { zaehle(a, 'sichereSpielerSofort'); a.notizen.push(`sofort:${String(grund)}`); },
+  };
+  const lauf = (name: string, seed: number, ...args: unknown[]): void => versuche(a, () => mitZufall(seed, () => F[name]!(k, ...args)));
+  try {
+    // the chest: first touch (drawn from the loot table), touched again, old chest, direct send
+    for (const [seed, start, def] of [
+      [1, {}, { name: 'trollcave_chest' }], [2, {}, undefined], [3, { [TRUHE_LOOTED_MEMBER]: 1 }, { name: 'x' }],
+      [4, { [TRUHE_LOOTED_MEMBER]: 1, [TRUHE_INHALT_MEMBER]: truhenInhalt() }, { name: 'x' }], [5, { [TRUHE_INHALT_MEMBER]: 'kein-container' }, { name: 'x' }],
+    ] as const) lauf('handleTruheOeffnen', seed, peerI(a, 't'), zdoA(a, start as Record<string, string | number>), def);
+    lauf('sendeTruheInhalt', 6, peerI(a, 't'), zdoA(a, { [TRUHE_INHALT_MEMBER]: truhenInhalt() }));
+    // appearance: old and new clients, refusals, the parts of a set
+    const teile = teileWild();
+    lauf('handleSetAussehen', 7, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', ''));
+    lauf('handleSetAussehen', 8, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE));
+    lauf('handleSetAussehen', 9, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE));
+    lauf('handleSetAussehen', 10, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, '{}'));
+    lauf('handleSetAussehen', 11, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, '{kaputt'));
+    lauf('handleSetAussehen', 12, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, JSON.stringify({ kopf: 'wildwarden_vest' })));
+    lauf('handleSetAussehen', 13, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, JSON.stringify(teile)));
+    lauf('handleSetAussehen', 14, peerI(a, 'a'), paketS('gibtsnicht', '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, '{}'));
+    lauf('handleSetAussehen', 15, peerI(a, 'a'), paketS(FRISUR_VORGABE, 'nix', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, '{}'));
+    const mit = peerI(a, 'm', { inventar: inventarMit() });
+    lauf('handleSetAussehen', 16, mit, paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, JSON.stringify(teile)));
+    a.zustand.push(String(mit['ruestung']).length, angelegt(mit));
+    lauf('handleSetAussehen', 17, mit, paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, '{}'));
+    a.zustand.push(String(mit['ruestung']).length, angelegt(mit));
+    charZdo = undefined;
+    lauf('handleSetAussehen', 18, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, '{}'));
+    charZdo = zdoA(a);
+    lauf('handleSetAussehen', 19, peerI(a, 'a'), new Reader(Buffer.alloc(0)));
+    // figure: new, same, unknown, no character
+    const f = peerI(a, 'f', { figur: F0 });
+    lauf('handleSetFigur', 20, f, paketS(F1));
+    a.zustand.push(f['figur'] === F1 ? 1 : 0);
+    lauf('handleSetFigur', 21, f, paketS(F1));
+    lauf('handleSetFigur', 22, f, paketS('drache'));
+    charZdo = undefined;
+    lauf('handleSetFigur', 23, peerI(a, 'f', { figur: F0 }), paketS(F1));
+    charZdo = zdoA(a);
+    lauf('handleSetFigur', 24, peerI(a, 'f', { figur: F0 }), new Reader(Buffer.alloc(0)));
+  } finally {
+    ruecksetzen();
+  }
+  return a;
+}
+
+/** The same on a real instance through the methods of the class (forwardings); the ZDO space is a real one. */
+function messeInteraktionEcht(): Aufzeichnung3 {
+  const a = neueAufzeichnung3();
+  const ruecksetzen = konsole(a);
+  const tmp = mkdtempSync(join(tmpdir(), 'i1-form-k-'));
+  try {
+    const server = createWovServer({
+      port: 0, worldFeatures: false, worldName: 'i1-form-k3', everyoneAdmin: true,
+      worldsDir: join(tmp, 'worlds'), kontenDir: join(tmp, 'konten'), forumDir: join(tmp, 'forum'), generiertDir: join(tmp, 'generiert'),
+    } as never) as unknown as Record<string, unknown>;
+    // the main world only exists after init(): a real ZDO space is enough for `zdosVon`
+    (server['welten'] as Map<string, unknown>).set(HAUPTWELT_ID, { zdos: new ZDOManager(1n) });
+    server['inventarSync'] = (): void => { zaehle(a, 'inventarSync'); };
+    server['kappeLeben'] = (): void => { zaehle(a, 'kappeLeben'); };
+    server['sichereSpielerSofort'] = (_p: unknown, grund: unknown): void => { zaehle(a, 'sichereSpielerSofort'); a.notizen.push(`sofort:${String(grund)}`); };
+    const rufe = (name: string, seed: number, ...args: unknown[]): void => versuche(a, () => mitZufall(seed, () => (server[name] as (...x: unknown[]) => unknown).call(server, ...args)));
+    const ep = peerI(a, 'e', { worldId: HAUPTWELT_ID, userId: 1, inventar: inventarMit() });
+    const zm = (server['zdosVon'] as (p: unknown) => ZDOManager).call(server, ep);
+    const truhe = zm.createZDO(1234, { x: 0, y: 0, z: 0 });
+    const chr = zm.createZDO(4321, { x: 0, y: 0, z: 0 });
+    ep['characterID'] = chr.zdoid;
+    rufe('handleTruheOeffnen', 1, ep, truhe, { name: 'trollcave_chest' });
+    a.zustand.push(truhe.getInt(TRUHE_LOOTED_MEMBER), truhe.getString(TRUHE_INHALT_MEMBER).length);
+    rufe('handleTruheOeffnen', 2, ep, truhe, { name: 'trollcave_chest' });
+    rufe('sendeTruheInhalt', 3, ep, truhe);
+    const teile = teileWild();
+    rufe('handleSetAussehen', 4, ep, paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, JSON.stringify(teile)));
+    a.zustand.push(String(ep['ruestung']).length, angelegt(ep), chr.getString('ruestung').length, chr.getString('frisur').length);
+    rufe('handleSetAussehen', 5, ep, paketS('nein', '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, '{}'));
+    rufe('handleSetAussehen', 6, ep, paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, '{x'));
+    rufe('handleSetAussehen', 7, ep, paketS(FRISUR_VORGABE, '', ''));
+    a.zustand.push(String(ep['ruestung']).length, angelegt(ep));
+    rufe('handleSetFigur', 8, ep, paketS(F1));
+    rufe('handleSetFigur', 9, ep, paketS(F1));
+    rufe('handleSetFigur', 10, ep, paketS('drache'));
+    a.zustand.push(ep['figur'] === F1 ? 1 : 0, chr.getString('figur') === F1 ? 1 : 0);
+    (server['kontenDb'] as { close?: () => void } | undefined)?.close?.();
+  } finally {
+    ruecksetzen();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  return a;
+}
+
+function chatPeer(a: Aufzeichnung3, name: string, id: number, x: number, welt: string, o: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    name, userId: id, worldId: welt, position: { x, y: 0, z: 0 }, nurEditor: false,
+    sendPacket(type: PacketType, payload: Buffer): void {
+      const r = new Reader(payload);
+      r.readString();
+      a.paket.push(`${name}:${PacketType[type]}:${JSON.stringify([r.readString(), r.readInt32(), r.readString().slice(0, 14)])}`);
+    },
+    ...o,
+  };
+}
+/** The chat handler on a stand-in: who receives what (range by type, world, sender always), the console line, refusals. */
+function messeChatAttrappe(): Aufzeichnung3 {
+  const a = neueAufzeichnung3();
+  const ruecksetzen = konsole(a);
+  const liste: Record<string, unknown>[] = [];
+  const k: Record<string, unknown> = { net: { getPeers: (): unknown[] => { zaehle(a, 'getPeers'); return liste; } } };
+  const lauf = (p: unknown, r: Reader): void => versuche(a, () => F['handleChatMessage']!(k, p, r));
+  const chat = (typ: number, text: string): Reader => leser((w) => { w.writeInt32(typ); w.writeString(text); });
+  try {
+    const ich = chatPeer(a, 'ich', 1, 0, HAUPTWELT_ID);
+    liste.push(ich, chatPeer(a, 'nah', 2, 5, HAUPTWELT_ID), chatPeer(a, 'mittel', 3, 40, HAUPTWELT_ID), chatPeer(a, 'fern', 4, 100, HAUPTWELT_ID), chatPeer(a, 'weit', 5, 300, HAUPTWELT_ID), chatPeer(a, 'inst', 6, 1, 'dungeon:x'));
+    for (const t of [ChatMsgType.Normal, ChatMsgType.Whisper, ChatMsgType.Shout, 99]) lauf(ich, chat(t, 'Hallo Welt'));
+    lauf(ich, chat(ChatMsgType.Normal, 'Grüße aus Ägir — ß'));
+    lauf(ich, chat(ChatMsgType.Normal, 'x'.repeat(5000)));
+    lauf(ich, chat(ChatMsgType.Normal, ''));
+    lauf(chatPeer(a, 'ed', 9, 0, HAUPTWELT_ID, { nurEditor: true }), chat(ChatMsgType.Normal, 'still'));
+    lauf(chatPeer(a, 'ed', 9, 0, HAUPTWELT_ID, { nurEditor: true }), new Reader(Buffer.alloc(0)));
+    lauf(ich, new Reader(Buffer.alloc(0)));
+    lauf(ich, leser((w) => w.writeInt32(1)));
+    liste.length = 0;
+    lauf(ich, chat(ChatMsgType.Normal, 'allein'));
+    liste.push(ich, chatPeer(a, 'nah', 2, 5, HAUPTWELT_ID));
+    lauf(chatPeer(a, 'ich', 1, 0, 'dungeon:x'), chat(ChatMsgType.Normal, 'drin'));
+    a.zustand.push(liste.length);
+  } finally {
+    ruecksetzen();
+  }
+  return a;
+}
+function messeChatEcht(): Aufzeichnung3 {
+  const a = neueAufzeichnung3();
+  const ruecksetzen = konsole(a);
+  const tmp = mkdtempSync(join(tmpdir(), 'i1-form-k-'));
+  try {
+    const server = createWovServer({
+      port: 0, worldFeatures: false, worldName: 'i1-form-k3c', everyoneAdmin: true,
+      worldsDir: join(tmp, 'worlds'), kontenDir: join(tmp, 'konten'), forumDir: join(tmp, 'forum'), generiertDir: join(tmp, 'generiert'),
+    } as never) as unknown as Record<string, unknown>;
+    const liste: Record<string, unknown>[] = [];
+    (server['net'] as Record<string, unknown>)['getPeers'] = (): unknown[] => { zaehle(a, 'getPeers'); return liste; };
+    const rufe = (p: unknown, r: Reader): void => versuche(a, () => (server['handleChatMessage'] as (x: unknown, y: unknown) => unknown).call(server, p, r));
+    const ich = chatPeer(a, 'a', 1, 0, HAUPTWELT_ID);
+    liste.push(ich, chatPeer(a, 'b', 2, 20, HAUPTWELT_ID), chatPeer(a, 'd', 3, 200, HAUPTWELT_ID), chatPeer(a, 'i', 4, 1, 'dungeon:x'));
+    for (const t of [ChatMsgType.Normal, ChatMsgType.Whisper, ChatMsgType.Shout]) rufe(ich, leser((w) => { w.writeInt32(t); w.writeString('Hallo Ägir'); }));
+    rufe(chatPeer(a, 'ed', 9, 0, HAUPTWELT_ID, { nurEditor: true }), leser((w) => { w.writeInt32(1); w.writeString('still'); }));
+    rufe(ich, new Reader(Buffer.alloc(0)));
+    (server['kontenDb'] as { close?: () => void } | undefined)?.close?.();
+  } finally {
+    ruecksetzen();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  return a;
+}
+
 /** Measured on the stand before the move (`--messen-basis`); the packets: peer:type:[ok, first 22 characters of the message]. */
 const SOLL_ATTRAPPE: Aufzeichnung = {
   paket: [
@@ -756,10 +1038,139 @@ const SOLL_ECHT: Aufzeichnung = {
   ausnahmen: [],
 };
 
+/** Step 3, measured on the stand before the move: chest/appearance/figure (stand-in, real instance) and chat (stand-in, real instance). */
+const SOLL_INTERAKTION_ATTRAPPE: Aufzeichnung3 = {
+  paket: [
+    't:InteractResult:[true,"Truhe geöffnet"]',
+    't:ContainerSync:["u",7,19]',
+    't:InteractResult:[true,"Truhe geöffnet"]',
+    't:ContainerSync:["u",7,0]',
+    't:InteractResult:[true,"Truhe geöffnet"]',
+    't:ContainerSync:["u",7,19]',
+    't:InteractResult:[true,"Truhe geöffnet"]',
+    't:ContainerSync:["u",7,18]',
+    't:ContainerSync:["u",7,19]',
+  ],
+  aufrufe: { setInt:  3,  setString:  27,  reviseData:  2,  sendeTruheInhalt:  4,  zdosVon:  9,  kappeLeben:  7,  sichereSpielerSofort:  9,  inventarSync:  6 },
+  konsole: { log: 2, warn: 2 },
+  zustand: [151, 5, 1, 0, 1],
+  ausnahmen: ['TypeError', 'RangeError', 'RangeError'],
+  notizen: [
+    'setInt looted=1',
+    'setString truheInhalt=19:5b46b599',
+    'setInt looted=1',
+    'setInt looted=1',
+    'setString truheInhalt=18:540dba5e',
+    'setString frisur=H_01',
+    'setString haarfarbe=mittelbraun',
+    'setString augenfarbe=fjordblau',
+    'setString ruestung=|',
+    'sofort:ausruestung',
+    'setString frisur=H_01',
+    'setString haarfarbe=mittelbraun',
+    'setString augenfarbe=fjordblau',
+    'setString ruestung=|',
+    'sofort:ausruestung',
+    'setString frisur=H_01',
+    'setString haarfarbe=mittelbraun',
+    'setString augenfarbe=fjordblau',
+    'setString ruestung=|',
+    'sofort:ausruestung',
+    'setString frisur=H_01',
+    'setString haarfarbe=mittelbraun',
+    'setString augenfarbe=fjordblau',
+    'setString ruestung=|',
+    'sofort:ausruestung',
+    'setString frisur=H_01',
+    'setString haarfarbe=mittelbraun',
+    'setString augenfarbe=fjordblau',
+    'setString ruestung=151:3a7a8d0f',
+    'sofort:ausruestung',
+    'setString frisur=H_01',
+    'setString haarfarbe=mittelbraun',
+    'setString augenfarbe=fjordblau',
+    'setString ruestung=|',
+    'sofort:ausruestung',
+    'sofort:ausruestung',
+    'setString figur=wikingerin',
+    'sofort:figur',
+    'sofort:figur',
+  ],
+};
+const SOLL_INTERAKTION_ECHT: Aufzeichnung3 = {
+  paket: [
+    'e:InteractResult:[true,"Truhe geöffnet"]',
+    'e:ContainerSync:["1",1,19]',
+    'e:InteractResult:[true,"Truhe geöffnet"]',
+    'e:ContainerSync:["1",1,19]',
+    'e:ContainerSync:["1",1,19]',
+  ],
+  aufrufe: { kappeLeben:  2,  sichereSpielerSofort:  3,  inventarSync:  2 },
+  konsole: { log: 5, warn: 2 },
+  zustand: [1, 19, 151, 5, 151, 4, 1, 0, 1, 1],
+  ausnahmen: [],
+  notizen: [
+    'sofort:ausruestung',
+    'sofort:ausruestung',
+    'sofort:figur',
+  ],
+};
+const SOLL_CHAT_ATTRAPPE: Aufzeichnung3 = {
+  paket: [
+    'ich:ChatMessage:["ich",1,"Hallo Welt"]',
+    'nah:ChatMessage:["ich",1,"Hallo Welt"]',
+    'mittel:ChatMessage:["ich",1,"Hallo Welt"]',
+    'ich:ChatMessage:["ich",0,"Hallo Welt"]',
+    'nah:ChatMessage:["ich",0,"Hallo Welt"]',
+    'ich:ChatMessage:["ich",2,"Hallo Welt"]',
+    'nah:ChatMessage:["ich",2,"Hallo Welt"]',
+    'mittel:ChatMessage:["ich",2,"Hallo Welt"]',
+    'fern:ChatMessage:["ich",2,"Hallo Welt"]',
+    'ich:ChatMessage:["ich",99,"Hallo Welt"]',
+    'nah:ChatMessage:["ich",99,"Hallo Welt"]',
+    'mittel:ChatMessage:["ich",99,"Hallo Welt"]',
+    'ich:ChatMessage:["ich",1,"Grüße aus Ägir"]',
+    'nah:ChatMessage:["ich",1,"Grüße aus Ägir"]',
+    'mittel:ChatMessage:["ich",1,"Grüße aus Ägir"]',
+    'ich:ChatMessage:["ich",1,"xxxxxxxxxxxxxx"]',
+    'nah:ChatMessage:["ich",1,"xxxxxxxxxxxxxx"]',
+    'mittel:ChatMessage:["ich",1,"xxxxxxxxxxxxxx"]',
+    'ich:ChatMessage:["ich",1,""]',
+    'nah:ChatMessage:["ich",1,""]',
+    'mittel:ChatMessage:["ich",1,""]',
+  ],
+  aufrufe: { getPeers:  9 },
+  konsole: { log: 9, warn: 0 },
+  zustand: [2],
+  ausnahmen: ['RangeError', 'RangeError'],
+  notizen: [
+  ],
+};
+const SOLL_CHAT_ECHT: Aufzeichnung3 = {
+  paket: [
+    'a:ChatMessage:["a",1,"Hallo Ägir"]',
+    'b:ChatMessage:["a",1,"Hallo Ägir"]',
+    'a:ChatMessage:["a",0,"Hallo Ägir"]',
+    'a:ChatMessage:["a",2,"Hallo Ägir"]',
+    'b:ChatMessage:["a",2,"Hallo Ägir"]',
+    'd:ChatMessage:["a",2,"Hallo Ägir"]',
+  ],
+  aufrufe: { getPeers:  3 },
+  konsole: { log: 7, warn: 0 },
+  zustand: [],
+  ausnahmen: ['RangeError'],
+  notizen: [
+  ],
+};
+
 if (MESSEN_BASIS) {
   const attrappe = messeAttrappe();
   const echt = messeEcht();
-  process.stdout.write(`${JSON.stringify({ attrappe, echt }, null, 1)}\n`);
+  const interAttrappe = messeInteraktionAttrappe();
+  const interEcht = messeInteraktionEcht();
+  const chatAttrappe = messeChatAttrappe();
+  const chatEcht = messeChatEcht();
+  process.stdout.write(`${JSON.stringify({ attrappe, echt, interAttrappe, interEcht, chatAttrappe, chatEcht }, null, 1)}\n`);
   process.exit(0);
 }
 
@@ -778,6 +1189,22 @@ console.log('\n[2] Behaviour: the fixed sequence gives the numbers measured befo
   check('real instance through the forwardings: worldTime after each call and the files of the hall', same(echt.zustand, SOLL_ECHT.zustand), echt.zustand.join(','));
   check('real instance through the forwardings: the console output and the exceptions', JSON.stringify([echt.konsole, echt.ausnahmen]) === JSON.stringify([SOLL_ECHT.konsole, SOLL_ECHT.ausnahmen]), JSON.stringify([echt.konsole, echt.ausnahmen]));
   check('real instance through the forwardings: all of it', gleich(echt, SOLL_ECHT));
+}
+
+console.log('\n[3] Behaviour of step 3: chest, appearance, figure and chat give the numbers measured before the move');
+{
+  const gleich = (a: Aufzeichnung3, b: Aufzeichnung3): boolean => JSON.stringify(a) === JSON.stringify(b);
+  const teil = (titel: string, gemessen: Aufzeichnung3, soll: Aufzeichnung3): void => {
+    check(`${titel}: the packets sent, in order`, same(gemessen.paket, soll.paket), `${gemessen.paket.length} packets, expected ${soll.paket.length}; first difference: ${gemessen.paket.find((x, i) => x !== soll.paket[i])}`);
+    check(`${titel}: the calls into the context`, JSON.stringify(gemessen.aufrufe) === JSON.stringify(soll.aufrufe), JSON.stringify(gemessen.aufrufe));
+    check(`${titel}: the writes to the ZDO and the reasons of the immediate saves`, same(gemessen.notizen, soll.notizen), `${gemessen.notizen.length} notes, expected ${soll.notizen.length}; first difference: ${gemessen.notizen.find((x, i) => x !== soll.notizen[i])}`);
+    check(`${titel}: the state numbers, the console output and the exceptions`, JSON.stringify([gemessen.zustand, gemessen.konsole, gemessen.ausnahmen]) === JSON.stringify([soll.zustand, soll.konsole, soll.ausnahmen]), JSON.stringify([gemessen.zustand, gemessen.konsole, gemessen.ausnahmen]));
+    check(`${titel}: all of it`, gleich(gemessen, soll));
+  };
+  teil('chest/appearance/figure on a stand-in', messeInteraktionAttrappe(), SOLL_INTERAKTION_ATTRAPPE);
+  teil('chest/appearance/figure on a real instance through the forwardings', messeInteraktionEcht(), SOLL_INTERAKTION_ECHT);
+  teil('chat on a stand-in', messeChatAttrappe(), SOLL_CHAT_ATTRAPPE);
+  teil('chat on a real instance through the forwarding', messeChatEcht(), SOLL_CHAT_ECHT);
 }
 
 console.log(failures === 0 ? `\n=== I1 form k: ALL PASSED (${total}) ===` : `\n=== I1 form k: ${failures} of ${total} FAILED ===`);

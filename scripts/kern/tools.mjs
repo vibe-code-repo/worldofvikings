@@ -282,15 +282,6 @@ export default [
   */
   ['tools', 'test/generiert-getrennt.ts'],
   /*
-    I1 step 0 (N1): the proof tool `tools/i1-verschiebung.mjs` proves itself with 151 fixtures: real moves and every
-    forgery of the attack on #155 (forwarding form, the whole rest of the source file, the whole target file, free
-    names bound with scopes, local `k`, `arguments`, replacement table, effect comments, `k: any`), for a class method
-    (`this.` -> `k.`), a free function (form a) and verbatim moves (form 0); plus the command line (exit 0, 1, 2).
-    Node only, ~2 s.
-    Der Verschiebebeweis probt sich selbst: echt, gefälscht, unvollständig, je Form.
-  */
-  ['tools', 'test/i1-verschiebung.ts'],
-  /*
     Der Boden gegen das VORBILD (10.09.2026, `design/original-boden.md`).
     `tools/test/look-referenz.ts` ist dabei umgedreht worden, und das ist
     der Kern der Sache: Bis dahin hat er vier TOENUNGEN bewacht, die am

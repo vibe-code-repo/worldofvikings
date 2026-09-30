@@ -133,6 +133,9 @@ export default [
   ['server', 'test/besitz-grenzen.ts'],
   // A foreign peer never gets the builder's account id (`besitzer`) or the ZDO owner field of a character, full state or delta, real clients + strict wire reader.
   ['server', 'test/besitzer-sichtbar.ts'],
+  // Loot tables: the numbers of KREATUR_DROPS and TRUHEN frozen through the dice (scripted random), every pickable prefab of
+  // the spawn/scatter data gives its item (BlueberryBush -> Blueberries), wuerfleTruhe('') gives an empty loot. No server. ~2 s.
+  ['server', 'test/beute-daten.ts'],
   ['server', 'test/bewuchs-freiraum-huellen.ts'],
   ['server', 'test/bewuchs-freiraum.ts'],
   // G1-Durchsicht (verwaiste Tests, 20.08.2026): init() ohne start() —
@@ -165,6 +168,11 @@ export default [
   // der Inhalt uebersteht Speichern/Laden. Drei gestartete Server + ein
   // init()-only Reload, ~5s.
   ['server', 'test/f1-truhe.ts'],
+  // F12 (Roadmap): Zonenbudget je Spieler statt einer globalen Schlange nach
+  // Abstand: Spieler mit wenigen offenen Zonen kommt in <= 2 Ticks dran
+  // (simulierte Uhr), keine O(Q×P)-Sortierung, dieselbe Menge Zonen/ZDOs wie
+  // vorher (Golden), Abgang ohne Leck. Layoutwelt, ~20 s.
+  ['server', 'test/f12-zonenbudget.ts'],
   // F14 (Roadmap): Reichweiten-Auswahl der Chat-Empfänger (Whisper/
   // Normal/Shout, Herleitung s. Kopfkommentar von ChatReichweite.ts),
   // Grenzwert exakt auf der Reichweite, Absender immer dabei, sowie die
@@ -719,6 +727,9 @@ export default [
     curve. Pure arithmetic, ~0.3 s, no browser and no assets.
   */
   ['server', 'test/stufe2-licht.ts'],
+  // Death is saved at once: the revival calls the event save with the reason `tod`, the row is in the account database
+  // right after it (tick one hour away), measured over a real WebSocket player. ~6 s.
+  ['server', 'test/tod-sicherung.ts'],
   /*
     Tod und Treffer N1 (Nachbesserung zu #149): Der Tote bleibt in der Positionsliste (echte Woelfe bleiben, beissen im Tod 0x,
     danach wieder; allein tickt die Welt weiter), jeder TOT_GESPERRT-Eintrag ueber den echten WebSocket, Admin-Teleport im
@@ -730,6 +741,9 @@ export default [
     tot = kein Schaden/keine Eingabe, Beleben durch den Server, Kreaturen lassen ab). Wartet ~5 s Liegezeit ein paar Mal, ~40 s.
   */
   ['server', 'test/tod-treffer.ts'],
+  // A chest whose prefab has an empty name opens as an empty chest instead of throwing in the packet handler; a normal chest
+  // afterwards still works. Real WebSocket player. ~2 s.
+  ['server', 'test/truhe-leerer-name.ts'],
   // Truhe lesen: der Inhalt einer fremden Truhe reist nicht im ZDOSync mit
   // (Vollstand und Delta auf dem Draht mitgelesen, drei Runden), der Besitzer
   // mit offener Truhe sieht jede Aenderung, eigene/besitzerlose/Grab-Truhen

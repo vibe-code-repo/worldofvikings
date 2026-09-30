@@ -1828,6 +1828,7 @@ export class WovServer {
       // am Umkreis der Spieler. Eine leerstehende Instanz kostet nichts.
       const positionenJeWelt = new Map<string, Vector3[]>();
       const zieleJeWelt = new Map<string, Vector3[]>();
+      const kennungenJeWelt = new Map<string, string[]>();
       for (const p of peers) {
         // A dead player stays in the position list (zones, spawns and routes keep
         // running around him, creatures do not despawn because he lies) but is no
@@ -1835,6 +1836,9 @@ export class WovServer {
         const liste = positionenJeWelt.get(p.worldId);
         if (liste) liste.push(p.position);
         else positionenJeWelt.set(p.worldId, [p.position]);
+        const kennungen = kennungenJeWelt.get(p.worldId);
+        if (kennungen) kennungen.push(p.verbindungsId);
+        else kennungenJeWelt.set(p.worldId, [p.verbindungsId]);
         if (p.totBis > 0) continue;
         const ziele = zieleJeWelt.get(p.worldId);
         if (ziele) ziele.push(p.position);
@@ -1844,7 +1848,12 @@ export class WovServer {
       for (const welt of this.welten.values()) {
         const positionen = positionenJeWelt.get(welt.id);
         if (!positionen?.length) continue;
-        const { neueZonen } = welt.tick(deltaSec, positionen, zieleJeWelt.get(welt.id) ?? []);
+        const { neueZonen } = welt.tick(
+          deltaSec,
+          positionen,
+          zieleJeWelt.get(welt.id) ?? [],
+          kennungenJeWelt.get(welt.id)
+        );
         if (neueZonen > 0) {
           console.log(
             `[WoV] Vegetation (${welt.id}): +${neueZonen} zone(s) ` +
@@ -4042,7 +4051,9 @@ export class WovServer {
   /** Revives every dead player whose lying time is over. */
   private belebeFaellige(now: number): void {
     for (const peer of this.net.getPeers()) {
-      if (peer.totBis > 0 && now >= peer.totBis) this.belebeNeu(peer, false);
+      if (peer.totBis > 0 && now >= peer.totBis) {
+        try { this.belebeNeu(peer, false); } catch (e) { console.error(`[WoV] Wiederbelebung von ${peer.name} fehlgeschlagen: ${e}`); }
+      }
     }
   }
 
@@ -4086,6 +4097,7 @@ export class WovServer {
     }
     // Immediate revival is followed by the caller's own PlayerState (one packet, as before).
     if (!sofort) this.sendPlayerState(peer);
+    this.sichereSpielerSofort(peer, 'tod'); // F8: the revived state goes to disk now, not with the next 30 s tick
   }
 
   /**

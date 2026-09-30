@@ -22,6 +22,7 @@ import {
   MAX_EINTRAEGE,
   MAX_ERNTE,
   MAX_STAPEL,
+  MAX_TEXT_ZEICHEN,
   MAX_ZUTATEN,
   SELTENHEITEN,
   pruefeEintrag,
@@ -36,8 +37,11 @@ import { STAT_IDS, type ItemStats } from '@wov/shared/src/items/stats.js';
 
 export { ANIMATIONSSAETZE, GEGENSTANDS_TYPEN, SELTENHEITEN, STAT_IDS };
 
-/** Reasons only the mask knows (the reader folds these into one code or clamps silently). */
-export type LokalerGrund = 'name-fehlt' | 'zahl-ungueltig' | 'bereich' | 'ganzzahl' | 'vektor-unvollstaendig' | 'zutaten-fehlen' | 'zutat-fehlt';
+/** Longest text (UTF-16 units, as the reader counts): the reader's own constant, not a copy. */
+export const TEXT_MAX = MAX_TEXT_ZEICHEN;
+
+/** Reasons only the mask knows (the reader folds these into one code or clamps silently; the four `text-*` ones name what `texte-ungueltig` hides). */
+export type LokalerGrund = 'name-fehlt' | 'text-zeilenumbruch' | 'text-steuerzeichen' | 'text-zu-lang' | 'text-ohne-zeichen' | 'zahl-ungueltig' | 'bereich' | 'ganzzahl' | 'vektor-unvollstaendig' | 'zutaten-fehlen' | 'zutat-fehlt';
 export type Grund = VerwerfGrund | LokalerGrund;
 
 export interface FeldFehler {
@@ -321,6 +325,34 @@ export const ohneEintrag = (liste: readonly GegenstandsEintrag[], id: string): G
 export const andereOhne = (liste: readonly GegenstandsEintrag[], id: string | null): GegenstandsEintrag[] =>
   id === null ? [...liste] : liste.filter((e) => e.id !== id);
 
+/** Ids of the entries whose recipe uses `id` as an ingredient (list order). */
+export const verwender = (liste: readonly GegenstandsEintrag[], id: string): string[] =>
+  liste.filter((e) => e.id !== id && e.rezept !== null && e.rezept.zutaten.some((z) => z.item === id)).map((e) => e.id);
+
+/**
+ * Everything that would stop working if `id` were removed: the users of `id`, then their users, and so on
+ * (the reader drops an entry whose ingredient is gone, and then the ones that need that entry). Direct users
+ * come first. Never contains `id` itself.
+ */
+export function abhaengige(liste: readonly GegenstandsEintrag[], id: string): string[] {
+  const aus: string[] = [];
+  const gesehen = new Set<string>([id]);
+  let front = [id];
+  while (front.length > 0) {
+    const naechste: string[] = [];
+    for (const x of front) {
+      for (const u of verwender(liste, x)) {
+        if (gesehen.has(u)) continue;
+        gesehen.add(u);
+        aus.push(u);
+        naechste.push(u);
+      }
+    }
+    front = naechste;
+  }
+  return aus;
+}
+
 /** The text of the whole document, byte for byte what the route writes (`schreibeGegenstandsDatei`). */
 export const dokumentText = (liste: readonly GegenstandsEintrag[]): string => schreibeGegenstandsDatei(liste);
 
@@ -346,7 +378,8 @@ const GRUND_FELD: Record<VerwerfGrund, string> = {
   'rezept-selbstbezug': 'rezept',
   'rezept-zutat-unbekannt': 'rezept',
   'rezept-zyklus': 'rezept',
-  'texte-ungueltig': 'nameDe',
+  // The mask names the field itself (`textGrund`); if the reader still finds it, no single field is known.
+  'texte-ungueltig': 'allgemein',
   'texte-schluessel-fremd': 'allgemein',
   'texte-name-fehlt': 'nameDe',
   'eintrag-ungueltig': 'allgemein',
@@ -354,6 +387,44 @@ const GRUND_FELD: Record<VerwerfGrund, string> = {
 };
 
 const istEndlich = (n: number): boolean => Number.isFinite(n);
+
+// ── Texts, per field ───────────────────────────────────────────────────
+
+/** Line breaks the reader refuses as control / separator characters; named on their own so the author knows the cause. */
+const ZEILENUMBRUCH = /[\n\r\u0085\u2028\u2029]/;
+
+/** Ids of the four text fields (`FeldFehler.feld`) with the kind of text they hold. */
+export const TEXTFELDER = [
+  { feld: 'nameDe', art: 'name' },
+  { feld: 'nameEn', art: 'name' },
+  { feld: 'beschreibungDe', art: 'beschreibung' },
+  { feld: 'beschreibungEn', art: 'beschreibung' },
+] as const;
+export type TextArt = (typeof TEXTFELDER)[number]['art'];
+
+/** True if the reader keeps `wert` as the name / description of an otherwise fine entry. The reader is the judge, not a copy of its rules. */
+function leserNimmtText(art: TextArt, wert: string): boolean {
+  const f = leeresFormular();
+  f.id = 'Probe';
+  f.nameDe = 'a';
+  f.nameEn = 'a';
+  if (art === 'name') f.nameDe = wert;
+  else f.beschreibungDe = wert;
+  return !pruefeEintrag(formularZuEintrag(f), []).includes('texte-ungueltig');
+}
+
+/**
+ * Why a text is not allowed, or null. Order: too long, line break, then whatever the reader refuses (control /
+ * invisible characters; for a name also "no letter or digit at all"). Empty is fine here (a missing name is `name-fehlt`).
+ */
+export function textGrund(art: TextArt, wert: string): 'text-zu-lang' | 'text-zeilenumbruch' | 'text-steuerzeichen' | 'text-ohne-zeichen' | null {
+  if (wert === '') return null;
+  if (wert.length > MAX_TEXT_ZEICHEN) return 'text-zu-lang';
+  if (ZEILENUMBRUCH.test(wert)) return 'text-zeilenumbruch';
+  if (leserNimmtText(art, wert)) return null;
+  // Refused although short and single-line: a stray character, or (name only) nothing readable at all.
+  return art === 'name' && leserNimmtText(art, `${wert}a`) ? 'text-ohne-zeichen' : 'text-steuerzeichen';
+}
 
 function pruefeZahl(feld: string, bereichsId: string, s: string, aus: FeldFehler[]): void {
   if (s.trim() === '') return;
@@ -384,8 +455,16 @@ function pruefeVektor(feld: string, v: Vektor3, aus: FeldFehler[]): void {
 /** What the mask itself sees in a form (no reader involved): empty names, unparsable or out-of-range numbers, half vectors. */
 export function lokaleFehler(f: Formular): FeldFehler[] {
   const aus: FeldFehler[] = [];
-  if (f.nameDe.trim() === '') aus.push({ feld: 'nameDe', code: 'name-fehlt' });
-  if (f.nameEn.trim() === '') aus.push({ feld: 'nameEn', code: 'name-fehlt' });
+  const wertVon: Record<string, string> = { nameDe: f.nameDe, nameEn: f.nameEn, beschreibungDe: f.beschreibungDe, beschreibungEn: f.beschreibungEn };
+  for (const { feld, art } of TEXTFELDER) {
+    const wert = wertVon[feld];
+    if (art === 'name' && wert.trim() === '') {
+      aus.push({ feld, code: 'name-fehlt' });
+      continue;
+    }
+    const grund = textGrund(art, wert);
+    if (grund !== null) aus.push({ feld, code: grund, max: MAX_TEXT_ZEICHEN });
+  }
   pruefeZahl('skala', 'skala', f.skala, aus);
   pruefeVektor('haltePosition', f.haltePosition, aus);
   pruefeVektor('halteRotation', f.halteRotation, aus);

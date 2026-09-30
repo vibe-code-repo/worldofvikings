@@ -48,6 +48,10 @@ export const GRUND_SCHLUESSEL = {
 /** Checks only the mask does (empty name, range, half a vector ...). */
 export const LOKAL_SCHLUESSEL = {
   'name-fehlt': 'editor.gegenstand.lokal.name_fehlt',
+  'text-zeilenumbruch': 'editor.gegenstand.lokal.text_zeilenumbruch',
+  'text-steuerzeichen': 'editor.gegenstand.lokal.text_steuerzeichen',
+  'text-zu-lang': 'editor.gegenstand.lokal.text_zu_lang',
+  'text-ohne-zeichen': 'editor.gegenstand.lokal.text_ohne_zeichen',
   'zahl-ungueltig': 'editor.gegenstand.lokal.zahl_ungueltig',
   bereich: 'editor.gegenstand.lokal.bereich',
   ganzzahl: 'editor.gegenstand.lokal.ganzzahl',
@@ -93,6 +97,59 @@ export const QUITTUNG_SCHLUESSEL: Readonly<Record<string, TranslationKey>> = {
   'bestaetigung-noetig': 'editor.gegenstand.quittung.bestaetigung_noetig',
 };
 
+/** The label of a field id of the mask (`Unterschied.feld`), for the conflict lines. */
+export const FELD_SCHLUESSEL: Readonly<Record<string, TranslationKey>> = {
+  id: 'editor.gegenstand.feld.id',
+  nameDe: 'editor.gegenstand.feld.name_de',
+  nameEn: 'editor.gegenstand.feld.name_en',
+  beschreibungDe: 'editor.gegenstand.feld.beschreibung_de',
+  beschreibungEn: 'editor.gegenstand.feld.beschreibung_en',
+  typ: 'editor.gegenstand.feld.typ',
+  upload: 'editor.gegenstand.feld.upload',
+  skala: 'editor.gegenstand.feld.skala',
+  haltePosition: 'editor.gegenstand.feld.halte_position',
+  halteRotation: 'editor.gegenstand.feld.halte_rotation',
+  hiebVersatz: 'editor.gegenstand.feld.hieb_versatz',
+  animationsSatz: 'editor.gegenstand.feld.animations_satz',
+  symbol: 'editor.gegenstand.feld.symbol',
+  stapel: 'editor.gegenstand.feld.stapel',
+  gewicht: 'editor.gegenstand.feld.gewicht',
+  'wert.damage': 'editor.gegenstand.feld.wert_damage',
+  'wert.armor': 'editor.gegenstand.feld.wert_armor',
+  'wert.strength': 'editor.gegenstand.feld.wert_strength',
+  'wert.vitality': 'editor.gegenstand.feld.wert_vitality',
+  'wert.agility': 'editor.gegenstand.feld.wert_agility',
+  ernteBaum: 'editor.gegenstand.feld.ernte_baum',
+  ernteFels: 'editor.gegenstand.feld.ernte_fels',
+  haltbarkeitMax: 'editor.gegenstand.feld.haltbarkeit_max',
+  haltbarkeitVerbrauch: 'editor.gegenstand.feld.haltbarkeit_verbrauch',
+  haltbarkeitAusdauer: 'editor.gegenstand.feld.haltbarkeit_ausdauer',
+  itemLevel: 'editor.gegenstand.feld.item_level',
+  rarity: 'editor.gegenstand.feld.rarity',
+  rezept: 'editor.gegenstand.abschnitt.rezept',
+};
+
+/** Conflict lines shown at most; the rest is one line "and N more differences". */
+export const MAX_KONFLIKT_ZEILEN = 12;
+
+/**
+ * The text of a conflict (the server changed the entry the author is editing): the headline, one line per
+ * differing field with BOTH versions, and how many lines were left out. `server` null = the entry is gone there.
+ */
+export function konfliktInhalt(
+  k: { server: unknown; unterschiede: ReadonlyArray<{ feld: string; eigen: string; server: string }> },
+  uebersetze: Uebersetzer = t
+): { titel: string; zeilen: string[]; weitere: string | null } {
+  const zeigen = k.unterschiede.slice(0, MAX_KONFLIKT_ZEILEN);
+  const feldName = (feld: string): string => (hatSchluessel(FELD_SCHLUESSEL, feld) ? uebersetze(FELD_SCHLUESSEL[feld]) : sichtbarKuerzen(feld));
+  const leer = (v: string): string => (v === '' ? uebersetze('editor.gegenstand.konflikt.leer') : sichtbarKuerzen(v, 120));
+  return {
+    titel: uebersetze(k.server === null ? 'editor.gegenstand.konflikt.titel_entfernt' : 'editor.gegenstand.konflikt.titel'),
+    zeilen: zeigen.map((u) => uebersetze('editor.gegenstand.konflikt.zeile', { feld: feldName(u.feld), eigen: leer(u.eigen), server: leer(u.server) })),
+    weitere: k.unterschiede.length > zeigen.length ? uebersetze('editor.gegenstand.konflikt.weitere', { anzahl: k.unterschiede.length - zeigen.length }) : null,
+  };
+}
+
 const hatSchluessel = (tabelle: object, code: string): boolean => Object.hasOwn(tabelle, code);
 
 /** The text of a reader reason (`grund`), or the bare code in a sentence when it is one the mask does not know yet. */
@@ -113,7 +170,7 @@ export function feldFehlerText(f: FeldFehler, uebersetze: Uebersetzer = t): stri
 /** The text of a `fehler` code of the route. */
 export function routeFehlerText(code: string | null, uebersetze: Uebersetzer = t): string {
   if (code !== null && hatSchluessel(ROUTE_FEHLER_SCHLUESSEL, code)) return uebersetze(ROUTE_FEHLER_SCHLUESSEL[code]);
-  return uebersetze('editor.gegenstand.route.unbekannt', { code: code ?? '?' });
+  return uebersetze('editor.gegenstand.route.unbekannt', { code: sichtbarKuerzen(code ?? '?') });
 }
 
 /**
@@ -157,6 +214,38 @@ export function quittungText(q: { status: string; gehalten?: unknown; verworfen?
   return teile.length > 0 ? `${basis} ${teile.join('; ')}` : basis;
 }
 
+/** Longest run of one id / name shown in a dialog; a hand-written id can be any length. */
+export const MAX_KENNUNG_ANZEIGE = 40;
+/** Lines a dialog lists; the rest is one line "and N more". */
+export const MAX_DIALOG_ZEILEN = 10;
+
+/** Characters that would hide or reorder text: control, format (bidi, zero-width), separators, surrogates, private use, invisible fillers. */
+const UNSICHTBAR = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}\p{Co}\u2800\u3164\u115f\u1160\u180e\ufffc\ufe00-\ufe0f]/u;
+
+/**
+ * Text of a raw id or name for a dialog: at most `max` characters (then "…"), and every control / bidi /
+ * invisible character shown as `<U+XXXX>` instead of acting. Only for showing (`textContent`), never for matching.
+ */
+export function sichtbarKuerzen(roh: string, max = MAX_KENNUNG_ANZEIGE): string {
+  const zeichen = Array.from(roh);
+  const kurz = zeichen
+    .slice(0, max)
+    .map((c) => (UNSICHTBAR.test(c) ? `<U+${(c.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}>` : c))
+    .join('');
+  return zeichen.length > max ? `${kurz}…` : kurz;
+}
+
+/** The lines of a dialog list: the first `MAX_DIALOG_ZEILEN`, and how many are left out. */
+export function ersteZeilen(alle: readonly string[]): { punkte: string[]; weitere: number } {
+  return { punkte: alle.slice(0, MAX_DIALOG_ZEILEN), weitere: Math.max(0, alle.length - MAX_DIALOG_ZEILEN) };
+}
+
+/** "<name> (<id>)", or just the id when the name is missing or the same; both made safe to show. */
+const zeileVon = (id: string, n: string | null): string => {
+  const k = sichtbarKuerzen(id);
+  return n !== null && n !== id ? `${sichtbarKuerzen(n, MAX_KENNUNG_ANZEIGE * 2)} (${k})` : k;
+};
+
 /** What the confirmation dialog says about a removal or an overwrite (409 of the route). */
 export interface BestaetigungInfo {
   art: 'entfernen' | 'alter-stand-kaputt';
@@ -167,10 +256,12 @@ export interface BestaetigungInfo {
 
 export interface BestaetigungsInhalt {
   titel: string;
-  /** The sentence: how many, which, and that it is final. */
+  /** The sentence: how many, and that it is final. It names NO item: the names stand once, in `punkte`. */
   satz: string;
-  /** One line per item, "<name> (<id>)". */
+  /** One line per item, "<name> (<id>)": the first ten only. */
   punkte: string[];
+  /** "and N more" when there are more than ten items, else null. */
+  weitere: string | null;
   bestaetigen: string;
   abbrechen: string;
 }
@@ -178,37 +269,57 @@ export interface BestaetigungsInhalt {
 /**
  * The dialog text of a 409. `name(id)` gives the display name of an id in the current language (the old state's
  * texts); an id without a text is shown as itself. The removal sentence names the COUNT (ids and unreadable
- * entries together), the NAMES, and says "permanently", also for the copies in inventories and chests.
+ * entries together) and says "permanently", also for the copies in inventories and chests. Each item stands ONCE,
+ * in the list (ten lines at most, then "and N more"); raw ids are shortened and made visible (`sichtbarKuerzen`).
  */
 export function bestaetigungsInhalt(info: BestaetigungInfo, name: (id: string) => string | null, uebersetze: Uebersetzer = t): BestaetigungsInhalt {
   if (info.art === 'alter-stand-kaputt') {
     const grund = info.dateiFehler && hatSchluessel(DATEI_FEHLER_SCHLUESSEL, info.dateiFehler)
       ? uebersetze(DATEI_FEHLER_SCHLUESSEL[info.dateiFehler as DateiFehler])
-      : uebersetze('editor.gegenstand.route.unbekannt', { code: info.dateiFehler ?? '?' });
+      : uebersetze('editor.gegenstand.route.unbekannt', { code: sichtbarKuerzen(info.dateiFehler ?? '?') });
     return {
       titel: uebersetze('editor.gegenstand.bestaetigung.titel_ersetzen'),
       satz: uebersetze('editor.gegenstand.bestaetigung.satz_ersetzen', { grund }),
       punkte: [],
+      weitere: null,
       bestaetigen: uebersetze('editor.gegenstand.bestaetigung.ersetzen'),
       abbrechen: uebersetze('editor.gegenstand.bestaetigung.abbrechen'),
     };
   }
-  const punkte = [
-    ...info.entfernt.map((id) => {
-      const n = name(id);
-      return n !== null && n !== id ? `${n} (${id})` : id;
-    }),
-    ...info.entferntOhneId.map((roh) => uebersetze('editor.gegenstand.bestaetigung.ohne_id', { position: roh })),
+  const alle = [
+    ...[...new Set(info.entfernt)].map((id) => zeileVon(id, name(id))),
+    ...info.entferntOhneId.map((roh) => uebersetze('editor.gegenstand.bestaetigung.ohne_id', { position: sichtbarKuerzen(roh) })),
   ];
-  const anzahl = punkte.length;
+  const anzahl = alle.length;
+  const { punkte, weitere } = ersteZeilen(alle);
   return {
     titel: uebersetze('editor.gegenstand.bestaetigung.titel_entfernen'),
-    satz: uebersetze(anzahl === 1 ? 'editor.gegenstand.bestaetigung.satz_eins' : 'editor.gegenstand.bestaetigung.satz_mehrere', {
-      anzahl,
-      namen: punkte.join(', '),
-    }),
+    satz: uebersetze(anzahl === 1 ? 'editor.gegenstand.bestaetigung.satz_eins' : 'editor.gegenstand.bestaetigung.satz_mehrere', { anzahl }),
     punkte,
+    weitere: weitere > 0 ? uebersetze('editor.gegenstand.bestaetigung.weitere', { anzahl: weitere }) : null,
     bestaetigen: uebersetze('editor.gegenstand.bestaetigung.entfernen'),
+    abbrechen: uebersetze('editor.gegenstand.bestaetigung.abbrechen'),
+  };
+}
+
+/**
+ * The dialog before removing an item other recipes need. `abhaengige` = every entry that would go with it
+ * (`modell.abhaengige`, direct users first); the dialog lists them like the confirmation dialog does.
+ */
+export function abhaengigkeitsInhalt(
+  id: string,
+  abhaengige: readonly string[],
+  name: (id: string) => string | null,
+  uebersetze: Uebersetzer = t
+): BestaetigungsInhalt {
+  const anzahl = abhaengige.length;
+  const { punkte, weitere } = ersteZeilen(abhaengige.map((x) => zeileVon(x, name(x))));
+  return {
+    titel: uebersetze('editor.gegenstand.abhaengig.titel'),
+    satz: uebersetze(anzahl === 1 ? 'editor.gegenstand.abhaengig.satz_eins' : 'editor.gegenstand.abhaengig.satz_mehrere', { name: zeileVon(id, name(id)), anzahl }),
+    punkte,
+    weitere: weitere > 0 ? uebersetze('editor.gegenstand.bestaetigung.weitere', { anzahl: weitere }) : null,
+    bestaetigen: uebersetze('editor.gegenstand.abhaengig.mit_entfernen'),
     abbrechen: uebersetze('editor.gegenstand.bestaetigung.abbrechen'),
   };
 }

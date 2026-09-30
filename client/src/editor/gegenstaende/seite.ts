@@ -17,20 +17,16 @@ import type { GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.
 import type { TranslationKey } from '../../i18n';
 import { F, M, SCHRIFT, beschriftungStil, el, grundregelnEinhaengen, knopf, stil, zierTitel } from '../design';
 import { aktuelleSprache, t } from '../i18n';
-import {
-  ladeQuittung,
-  ladeStand,
-  speichernMitBestaetigung,
-  type ApiOptionen,
-  type SpeicherAblauf,
-  type Stand,
-} from './api';
+import { ladeQuittung, type ApiOptionen, type Stand } from './api';
+import { ladeGefangen, pruefeKonflikt, speichereGefangen, speicherSperre, type KonfliktErgebnis } from './ablauf';
 import {
   ANIMATIONSSAETZE,
   GEGENSTANDS_TYPEN,
   MAX_GEGENSTAENDE,
   SELTENHEITEN,
   STAT_IDS,
+  TEXT_MAX,
+  abhaengige,
   andereOhne,
   eintragZuFormular,
   formularZuEintrag,
@@ -45,7 +41,7 @@ import {
   type Formular,
   type Vektor3,
 } from './modell';
-import { bestaetigungsInhalt, feldFehlerText, fehlerErgebnisText, grundText, quittungText, routeFehlerText, zugangText, type BestaetigungInfo } from './texte';
+import { abhaengigkeitsInhalt, bestaetigungsInhalt, feldFehlerText, konfliktInhalt, fehlerErgebnisText, grundText, quittungText, routeFehlerText, zugangText, type BestaetigungInfo } from './texte';
 
 const Z = 9000;
 
@@ -87,7 +83,7 @@ const modellFehlt = (upload: string | null): boolean =>
   upload !== null && upload !== '' && uploadedModelRegistry.uploadedModelEntry(upload.slice(uploadedModelRegistry.UPLOAD_MODEL_PREFIX.length)) === undefined;
 
 /** Modal question dialog with two answers; resolves `true` on the confirm button, `false` on cancel. No Esc, no click outside. */
-function fragenDialog(inhalt: { titel: string; satz: string; punkte: string[]; bestaetigen: string; abbrechen: string }): Promise<boolean> {
+function fragenDialog(inhalt: { titel: string; satz: string; punkte: string[]; weitere: string | null; bestaetigen: string; abbrechen: string }): Promise<boolean> {
   return new Promise((aufloesen) => {
     grundregelnEinhaengen();
     const huelle = el(
@@ -106,6 +102,7 @@ function fragenDialog(inhalt: { titel: string; satz: string; punkte: string[]; b
     if (inhalt.punkte.length > 0) {
       const ul = el('ul', stil({ margin: '0', 'padding-left': '20px', color: F.warnText, 'line-height': '1.6' }));
       for (const p of inhalt.punkte) ul.appendChild(el('li', '', p));
+      if (inhalt.weitere !== null) ul.appendChild(el('li', stil({ 'list-style': 'none', color: F.gedimmt }), inhalt.weitere));
       mitte.appendChild(ul);
     }
     const fuss = el('div', stil({ padding: '12px 18px', display: 'flex', 'justify-content': 'flex-end', gap: '10px', 'border-top': `1px solid ${F.randLeise}` }));
@@ -128,7 +125,8 @@ class GegenstandsSeite {
   private readonly hinweisEl: HTMLDivElement;
   private readonly bannerEl: HTMLDivElement;
   private readonly quittungEl: HTMLDivElement;
-  private speichernKnopf!: HTMLButtonElement;
+  private speichernKnopf: HTMLButtonElement | null = null;
+  private zaehlerEls: Array<{ el: HTMLElement; text: () => string }> = [];
   private fehlerEls = new Map<string, HTMLElement>();
   private allgemeinFehlerEl: HTMLElement | null = null;
 
@@ -138,7 +136,13 @@ class GegenstandsSeite {
   private ausgewaehlt: string | null = null;
   /** The form as it was loaded, to notice unsaved edits. */
   private formAusgang = '';
-  private beschaeftigt = false;
+  /** Loading and saving are separate: the save button says "loading" only for the first. */
+  private laedt = false;
+  private speichert = false;
+  /** The saved version of the entry when the form was opened (null for a new one): the base of a conflict check. */
+  private basis: GegenstandsEintrag | null = null;
+  /** Set while the author has to choose between their version and the server's; saving is locked meanwhile. */
+  private konflikt: Extract<KonfliktErgebnis, { art: 'konflikt' }> | null = null;
   private offen = false;
   private readonly taste = (e: KeyboardEvent): void => {
     if (e.code === 'Escape' && !document.querySelector('[data-gegenstand-dialog]')) {
@@ -161,7 +165,7 @@ class GegenstandsSeite {
     this.quittungEl = el('div', stil({ 'font-size': '11.5px', color: F.gedimmt, flex: '1', 'min-width': '0' }));
     kopf.append(
       this.quittungEl,
-      knopf(t('editor.gegenstand.seite.neu_laden'), () => void this.laden(), { art: 'leise', hoehe: M.knopfHoeheKlein }),
+      knopf(t('editor.gegenstand.seite.neu_laden'), () => this.sicher(this.laden()), { art: 'leise', hoehe: M.knopfHoeheKlein }),
       knopf(t('editor.gegenstand.seite.schliessen'), () => this.schliessen(), { hoehe: M.knopfHoeheKlein })
     );
     this.bannerEl = el('div', stil({ display: 'none', 'flex-direction': 'column', gap: '6px', padding: '10px 16px', background: F.warnFlaeche, 'border-bottom': `1px solid ${F.warnRand}`, color: F.warnText, 'font-size': '12.5px' }));
@@ -194,7 +198,7 @@ class GegenstandsSeite {
     this.offen = true;
     this.wurzel.style.display = 'flex';
     document.addEventListener('keydown', this.taste, true);
-    void this.laden();
+    this.sicher(this.laden());
   }
 
   private schliessen(): void {
@@ -216,20 +220,36 @@ class GegenstandsSeite {
     this.bannerEl.style.display = zeilen.length > 0 || knoepfe.length > 0 ? 'flex' : 'none';
   }
 
-  /** Loads the items and the receipt. A draft in the form is kept (`neu laden` never discards it). */
-  private async laden(): Promise<void> {
-    if (this.beschaeftigt) return;
-    this.beschaeftigt = true;
+  /** Every promise of a button goes through here: nothing stays unhandled, a throw becomes one message. */
+  private sicher(p: Promise<unknown>): void {
+    p.catch(() => {
+      this.laedt = false;
+      this.speichert = false;
+      this.meldung(t('editor.gegenstand.seite.unerwartet'), true);
+      this.aktualisiere();
+    });
+  }
+
+  /**
+   * Loads the items and the receipt. A draft in the form is kept (`neu laden` never discards it), but it is
+   * compared with the new state: if the server changed THIS entry, the author chooses (`zeigeKonflikt`).
+   * `nach412`: this load follows a refused save (the file had changed).
+   */
+  private async laden(nach412 = false): Promise<void> {
+    if (this.laedt || this.speichert) return;
+    this.laedt = true;
+    this.aktualisiere();
     this.meldung(t('editor.gegenstand.seite.laedt'));
     try {
-      const erg = await ladeStand(this.api);
+      const erg = await ladeGefangen(this.api);
       if (erg.art !== 'ok') {
-        this.banner([erg.art === 'netz' ? zugangText('netz') : fehlerErgebnisText(erg)]);
+        this.banner([erg.art === 'ausnahme' ? t('editor.gegenstand.seite.unerwartet') : erg.art === 'netz' ? zugangText('netz') : fehlerErgebnisText(erg)]);
         this.meldung('', true);
         return;
       }
       this.stand = erg.stand;
       const zeilen: string[] = [];
+      if (nach412) zeilen.push(t('editor.gegenstand.seite.veraltet'));
       if (erg.stand.dateiFehler !== null) {
         zeilen.push(t('editor.gegenstand.seite.datei_kaputt', { grund: routeFehlerText(erg.stand.dateiFehler) }));
       }
@@ -241,16 +261,61 @@ class GegenstandsSeite {
           })
         );
       }
-      this.banner(zeilen);
-      // The selected saved entry follows the new state (its form keeps the draft as typed).
-      if (this.ausgewaehlt !== null && !erg.stand.eintraege.some((e) => e.id === this.ausgewaehlt) && this.form) this.form.neu = true;
+      const k: KonfliktErgebnis = this.form
+        ? pruefeKonflikt({ basis: this.basis, form: this.form, ausgewaehlt: this.ausgewaehlt, entwurfGeaendert: this.veraendert(), neuerStand: erg.stand.eintraege })
+        : { art: 'keiner' };
+      this.konflikt = k.art === 'konflikt' ? k : null;
+      if (k.art === 'uebernehmen' && k.server === null) zeilen.push(t('editor.gegenstand.seite.entfernt_woanders'));
+      if (this.konflikt) this.zeigeKonflikt(zeilen);
+      else this.banner(zeilen);
       this.meldung('');
-      this.zeichneListe();
-      this.zeichneForm();
-      void this.ladeQuittungAnzeige();
+      if (k.art === 'uebernehmen') this.setzeForm(k.server ? eintragZuFormular(k.server) : null, k.server ? k.server.id : null);
+      else {
+        this.zeichneListe();
+        this.zeichneForm();
+      }
+      this.sicher(this.ladeQuittungAnzeige());
     } finally {
-      this.beschaeftigt = false;
+      this.laedt = false;
+      this.aktualisiere();
     }
+  }
+
+  /** Both versions of the entry the server changed, and the two ways out. Nothing is decided for the author. */
+  private zeigeKonflikt(vorher: string[]): void {
+    const k = this.konflikt;
+    if (!k) return;
+    const inhalt = konfliktInhalt(k);
+    const wahl = el('div', stil({ display: 'flex', gap: '8px', 'flex-wrap': 'wrap' }));
+    wahl.append(
+      knopf(t('editor.gegenstand.konflikt.eigene_behalten'), () => this.eigeneBehalten(), { hoehe: M.knopfHoeheKlein }),
+      knopf(t('editor.gegenstand.konflikt.server_uebernehmen'), () => this.serverUebernehmen(), { hoehe: M.knopfHoeheKlein })
+    );
+    this.banner([...vorher, inhalt.titel, ...inhalt.zeilen, ...(inhalt.weitere === null ? [] : [inhalt.weitere])], [wahl]);
+  }
+
+  /** Keep the draft: the state loaded just now is its new base, saving overwrites the server's version of this entry. */
+  private eigeneBehalten(): void {
+    const k = this.konflikt;
+    if (!k || !this.form) return;
+    this.konflikt = null;
+    if (k.server === null) {
+      this.ausgewaehlt = null;
+      this.form.neu = true;
+    }
+    this.basis = this.ausgewaehlt === null ? null : k.server;
+    this.banner([]);
+    this.zeichneListe();
+    this.zeichneForm();
+  }
+
+  /** Take the server's version: the draft is dropped (the author chose so). */
+  private serverUebernehmen(): void {
+    const k = this.konflikt;
+    if (!k) return;
+    this.konflikt = null;
+    this.banner([]);
+    this.setzeForm(k.server ? eintragZuFormular(k.server) : null, k.server ? k.server.id : null);
   }
 
   private async ladeQuittungAnzeige(): Promise<void> {
@@ -301,8 +366,13 @@ class GegenstandsSeite {
   }
 
   private setzeForm(f: Formular | null, ausgewaehlt: string | null): void {
+    if (this.konflikt !== null) {
+      this.konflikt = null;
+      this.banner([]);
+    }
     this.form = f;
     this.ausgewaehlt = ausgewaehlt;
+    this.basis = ausgewaehlt === null ? null : (this.stand?.eintraege.find((e) => e.id === ausgewaehlt) ?? null);
     this.formAusgang = f ? JSON.stringify(f) : '';
     this.zeichneListe();
     this.zeichneForm();
@@ -336,7 +406,7 @@ class GegenstandsSeite {
     return pruefeFormular(this.form, andereOhne(this.stand.eintraege, this.ausgewaehlt));
   }
 
-  /** Field errors under their fields, the rest in the general line, and the state of the save button. */
+  /** Field errors under their fields, the counters, the rest in the general line, and the state of the save button. */
   private aktualisiere(): void {
     const fehler = this.fehlerListe();
     const je = new Map<string, string[]>();
@@ -347,17 +417,33 @@ class GegenstandsSeite {
       else uebrig.push(text);
     }
     for (const [feld, elem] of this.fehlerEls) elem.textContent = (je.get(feld) ?? []).join(' ');
+    for (const z of this.zaehlerEls) z.el.textContent = z.text();
     if (this.allgemeinFehlerEl) this.allgemeinFehlerEl.textContent = uebrig.join(' ');
-    this.speichernKnopf.disabled = fehler.length > 0 || this.beschaeftigt;
-    this.speichernKnopf.style.opacity = this.speichernKnopf.disabled ? '0.45' : '1';
-    this.speichernKnopf.style.cursor = this.speichernKnopf.disabled ? 'not-allowed' : 'pointer';
+    const knopfEl = this.speichernKnopf;
+    if (!knopfEl) return;
+    // Loading locks the button and says so; a click on it does nothing, so it must not look clickable.
+    const sperre = speicherSperre({ laedt: this.laedt, speichert: this.speichert, konflikt: this.konflikt !== null, fehlerAnzahl: fehler.length });
+    knopfEl.disabled = sperre !== null;
+    const beschriftung = knopfEl.lastElementChild;
+    if (beschriftung) beschriftung.textContent = t(sperre === 'laedt' ? 'editor.gegenstand.seite.speichern_laedt' : 'editor.gegenstand.seite.speichern');
+    knopfEl.style.opacity = knopfEl.disabled ? '0.45' : '1';
+    knopfEl.style.cursor = knopfEl.disabled ? 'not-allowed' : 'pointer';
   }
 
-  private zeile(feld: string | null, beschriftung: TranslationKey, inhalt: HTMLElement, hinweis?: string): HTMLElement {
+  private zeile(feld: string | null, beschriftung: TranslationKey, inhalt: HTMLElement, hinweis?: string, zaehler?: () => string): HTMLElement {
     const z = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '4px', 'min-width': '0' }));
     z.appendChild(el('span', beschriftungStil(), t(beschriftung)));
     z.appendChild(inhalt);
-    if (hinweis) z.appendChild(el('div', stil({ 'font-size': '11px', color: F.gedimmt }), hinweis));
+    if (hinweis || zaehler) {
+      const r = el('div', stil({ display: 'flex', 'justify-content': 'space-between', gap: '8px', 'font-size': '11px', color: F.gedimmt }));
+      if (hinweis) r.appendChild(el('span', '', hinweis));
+      if (zaehler) {
+        const zs = el('span', stil({ 'white-space': 'nowrap', 'font-family': SCHRIFT.mono }));
+        this.zaehlerEls.push({ el: zs, text: zaehler });
+        r.appendChild(zs);
+      }
+      z.appendChild(r);
+    }
     if (feld !== null) {
       const f = el('div', stil({ 'font-size': '11.5px', color: F.fehler, 'min-height': '0' }));
       this.fehlerEls.set(feld, f);
@@ -380,19 +466,6 @@ class GegenstandsSeite {
       this.aktualisiere();
     };
     return i;
-  }
-
-  private textFeld(wert: string, bei: (v: string) => void): HTMLTextAreaElement {
-    const a = el(
-      'textarea',
-      stil({ width: '100%', 'box-sizing': 'border-box', 'min-height': '54px', padding: '6px 10px', background: F.feld, border: `1px solid ${F.randFeld}`, 'border-radius': `${M.radiusKlein}px`, color: F.text, 'font-family': SCHRIFT.text, 'font-size': '13px', resize: 'vertical' })
-    );
-    a.value = wert;
-    a.oninput = () => {
-      bei(a.value);
-      this.aktualisiere();
-    };
-    return a;
   }
 
   private auswahl<T extends string>(werte: ReadonlyArray<{ id: T; name: string }>, gewaehlt: T, bei: (id: T) => void): HTMLSelectElement {
@@ -430,13 +503,13 @@ class GegenstandsSeite {
 
   private zeichneForm(): void {
     this.fehlerEls = new Map();
+    this.zaehlerEls = [];
     this.allgemeinFehlerEl = null;
     this.formEl.replaceChildren();
     const f = this.form;
     if (!f || !this.stand) {
       this.formEl.appendChild(el('div', stil({ color: F.gedimmt, padding: '20px 0' }), t('editor.gegenstand.seite.waehle')));
-      this.speichernKnopf = knopf(t('editor.gegenstand.seite.speichern'), () => undefined, { art: 'bronze' });
-      this.speichernKnopf.disabled = true;
+      this.speichernKnopf = null;
       return;
     }
     const stand = this.stand;
@@ -456,13 +529,15 @@ class GegenstandsSeite {
       this.zeile('symbol', 'editor.gegenstand.feld.symbol', this.eingabe(f.symbol, (v) => (f.symbol = v), { mono: true }))
     );
 
-    // Texts (name in both languages is required)
+    // Texts (name in both languages is required). One line each: a line break is refused, and the field says so while typing.
+    const textHinweis = t('editor.gegenstand.feld.text_hinweis', { max: TEXT_MAX });
+    const zaehlerVon = (wert: () => string) => (): string => t('editor.gegenstand.feld.zaehler', { n: wert().length, max: TEXT_MAX });
     const texte = this.abschnitt(
       'editor.gegenstand.abschnitt.texte',
-      this.zeile('nameDe', 'editor.gegenstand.feld.name_de', this.eingabe(f.nameDe, (v) => (f.nameDe = v))),
-      this.zeile('nameEn', 'editor.gegenstand.feld.name_en', this.eingabe(f.nameEn, (v) => (f.nameEn = v))),
-      this.zeile(null, 'editor.gegenstand.feld.beschreibung_de', this.textFeld(f.beschreibungDe, (v) => (f.beschreibungDe = v))),
-      this.zeile(null, 'editor.gegenstand.feld.beschreibung_en', this.textFeld(f.beschreibungEn, (v) => (f.beschreibungEn = v)))
+      this.zeile('nameDe', 'editor.gegenstand.feld.name_de', this.eingabe(f.nameDe, (v) => (f.nameDe = v)), textHinweis, zaehlerVon(() => f.nameDe)),
+      this.zeile('nameEn', 'editor.gegenstand.feld.name_en', this.eingabe(f.nameEn, (v) => (f.nameEn = v)), textHinweis, zaehlerVon(() => f.nameEn)),
+      this.zeile('beschreibungDe', 'editor.gegenstand.feld.beschreibung_de', this.eingabe(f.beschreibungDe, (v) => (f.beschreibungDe = v)), textHinweis, zaehlerVon(() => f.beschreibungDe)),
+      this.zeile('beschreibungEn', 'editor.gegenstand.feld.beschreibung_en', this.eingabe(f.beschreibungEn, (v) => (f.beschreibungEn = v)), textHinweis, zaehlerVon(() => f.beschreibungEn))
     );
 
     // Model
@@ -506,9 +581,9 @@ class GegenstandsSeite {
 
     // Buttons
     const leiste = el('div', stil({ display: 'flex', gap: '10px', padding: '16px 0', 'align-items': 'center' }));
-    this.speichernKnopf = knopf(t('editor.gegenstand.seite.speichern'), () => void this.speichern(), { art: 'bronze' });
+    this.speichernKnopf = knopf(t('editor.gegenstand.seite.speichern'), () => this.sicher(this.speichern()), { art: 'bronze' });
     leiste.appendChild(this.speichernKnopf);
-    if (this.ausgewaehlt !== null) leiste.appendChild(knopf(t('editor.gegenstand.seite.entfernen'), () => void this.entfernen(), { art: 'leise' }));
+    if (this.ausgewaehlt !== null) leiste.appendChild(knopf(t('editor.gegenstand.seite.entfernen'), () => this.sicher(this.entfernen()), { art: 'leise' }));
     this.formEl.appendChild(leiste);
     this.aktualisiere();
   }
@@ -574,27 +649,33 @@ class GegenstandsSeite {
     return fragenDialog(inhalt);
   }
 
-  /** Sends `neueListe`, answers the route's refusals in words; true if it was written. */
+  /**
+   * Sends `neueListe`, answers the route's refusals in words; true if it was written. Nothing throws out of here
+   * (`speichereGefangen`). After a 412 the file is reloaded at once, and if it changed THIS entry the author chooses.
+   */
   private async senden(neueListe: GegenstandsEintrag[]): Promise<boolean> {
-    if (!this.stand || this.beschaeftigt) return false;
-    this.beschaeftigt = true;
+    if (!this.stand || this.speichert || this.laedt || this.konflikt !== null) return false;
+    this.speichert = true;
     this.aktualisiere();
-    let erg: SpeicherAblauf;
+    let erg: Awaited<ReturnType<typeof speichereGefangen>>;
     try {
-      erg = await speichernMitBestaetigung(this.api, neueListe, this.stand.hash, (info) => this.frage(info));
+      erg = await speichereGefangen(this.api, neueListe, this.stand.hash, (info) => this.frage(info));
     } finally {
-      this.beschaeftigt = false;
+      this.speichert = false;
     }
     switch (erg.art) {
       case 'ok':
         this.banner([]);
         this.meldung(t('editor.gegenstand.seite.gespeichert', { anzahl: erg.eintraege }));
+        this.aktualisiere();
         return true;
       case 'veraltet':
-        this.banner(
-          [t('editor.gegenstand.seite.veraltet')],
-          [knopf(t('editor.gegenstand.seite.veraltet_neu_laden'), () => void this.laden(), { hoehe: M.knopfHoeheKlein })]
-        );
+        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.aktualisiere();
+        await this.laden(true);
+        return false;
+      case 'ausnahme':
+        this.banner([t('editor.gegenstand.seite.unerwartet')]);
         this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
         break;
       case 'gesperrt':
@@ -636,21 +717,40 @@ class GegenstandsSeite {
     await this.nachSpeichern(eintrag.id);
   }
 
+  /**
+   * Removes the selected item. If other recipes need it, the mask says so BEFORE the PUT (the route would
+   * refuse the file with a 422) and offers to remove those entries with it; "cancel" leaves everything as it is.
+   */
   private async entfernen(): Promise<void> {
     if (this.ausgewaehlt === null || !this.stand) return;
-    const geschrieben = await this.senden(ohneEintrag(this.stand.eintraege, this.ausgewaehlt));
+    const id = this.ausgewaehlt;
+    const liste = this.stand.eintraege;
+    const abh = abhaengige(liste, id);
+    let neueListe = ohneEintrag(liste, id);
+    if (abh.length > 0) {
+      const name = (x: string): string | null => {
+        const e = liste.find((y) => y.id === x);
+        return e ? anzeigeName(e) : null;
+      };
+      if (!(await fragenDialog(abhaengigkeitsInhalt(id, abh, name)))) {
+        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'));
+        return;
+      }
+      neueListe = neueListe.filter((e) => !abh.includes(e.id));
+    }
+    const geschrieben = await this.senden(neueListe);
     if (!geschrieben) return;
     await this.nachSpeichern(null);
   }
 
   /** Reloads the saved state (the writer may have changed the bytes) and selects the entry that was saved. */
   private async nachSpeichern(id: string | null): Promise<void> {
-    const erg = await ladeStand(this.api);
+    const erg = await ladeGefangen(this.api);
     if (erg.art !== 'ok') return;
     this.stand = erg.stand;
     const e = id === null ? undefined : erg.stand.eintraege.find((x) => x.id === id);
     this.setzeForm(e ? eintragZuFormular(e) : null, e ? e.id : null);
-    void this.ladeQuittungAnzeige();
+    this.sicher(this.ladeQuittungAnzeige());
   }
 }
 

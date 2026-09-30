@@ -10,11 +10,15 @@
  *  [6] the ranges of the mask are the reader's ranges: at the limit the reader keeps the value, beyond it clamps
  *  [7] what only the mask sees: half a vector, a bad number, a recipe without ingredients, the 500 limit
  *  [8] list operations and the document text
+ *  [9] N1 finding 1: a text error stands at the field that causes it (name / description, de / en), with its own
+ *      cause (line break, control character, too long, no letter); the reader is the judge
+ *  [10] N1 finding 6: which entries a removal would take with it (direct and through intermediate products)
  *
  * Run: npx tsx test/editor-gegenstaende-modell.ts   (from client/, cwd as in scripts/kern/client.mjs)
  */
 import {
   ID_MUSTER,
+  MAX_TEXT_ZEICHEN,
   VERWERF_GRUENDE,
   leseGegenstandsDatei,
   schreibeGegenstandsDatei,
@@ -23,6 +27,8 @@ import {
 import { istCodeItem } from '@wov/shared/src/items/itemDefs.js';
 import {
   BEREICHE,
+  TEXT_MAX,
+  abhaengige,
   andereOhne,
   dokumentText,
   eintragZuFormular,
@@ -37,6 +43,8 @@ import {
   ohneEintrag,
   pruefeFormular,
   setzeId,
+  textGrund,
+  verwender,
   type Formular,
 } from '../src/editor/gegenstaende/modell';
 
@@ -243,16 +251,6 @@ console.log('\n[5] Gleiche Grund-Codes wie der Server:');
     faelle.push(['rezept-zyklus (Ddd braucht Ccc)', f, [dddZyklus], 'rezept-zyklus']);
   }
   {
-    const f = gut('Zeichen');
-    f.nameDe = 'Na​me';
-    faelle.push(['texte-ungueltig (unsichtbares Zeichen)', f, andere, 'texte-ungueltig']);
-  }
-  {
-    const f = gut('Lang');
-    f.nameEn = 'x'.repeat(201);
-    faelle.push(['texte-ungueltig (201 Zeichen)', f, andere, 'texte-ungueltig']);
-  }
-  {
     const f = gut('Sym');
     f.symbol = 'bad symbol!';
     faelle.push(['symbol-ungueltig', f, andere, 'symbol-ungueltig']);
@@ -290,8 +288,16 @@ console.log('\n[5] Gleiche Grund-Codes wie der Server:');
     check(`${name}: Maske = Server = ${erwartet || 'nichts'}`, gleich(maske, server) && gleich(maske, soll), `Maske ${JSON.stringify(maske)}, Server ${JSON.stringify(server)}`);
   }
   // every code the mask reports for a form is a reader reason or a mask reason
-  const bekannt = new Set<string>([...VERWERF_GRUENDE, 'name-fehlt', 'zahl-ungueltig', 'bereich', 'ganzzahl', 'vektor-unvollstaendig', 'zutaten-fehlen', 'zutat-fehlt']);
+  const bekannt = new Set<string>([...VERWERF_GRUENDE, 'name-fehlt', 'text-zeilenumbruch', 'text-steuerzeichen', 'text-zu-lang', 'text-ohne-zeichen', 'zahl-ungueltig', 'bereich', 'ganzzahl', 'vektor-unvollstaendig', 'zutaten-fehlen', 'zutat-fehlt']);
   check('alle gemeldeten Codes sind bekannt', faelle.every(([, f, a]) => pruefeFormular(f, a).every((x) => bekannt.has(x.code))));
+  // Texts: the server says `texte-ungueltig` for all of these; the mask says the same thing but at the RIGHT field, with the cause.
+  for (const [name, f, feld, code] of [
+    ['Name de mit unsichtbarem Zeichen', Object.assign(gut('Zeichen'), { nameDe: 'Na\u200Bme' }), 'nameDe', 'text-steuerzeichen'],
+    ['Name en mit 201 Zeichen', Object.assign(gut('Lang'), { nameEn: 'x'.repeat(201) }), 'nameEn', 'text-zu-lang'],
+  ] as const) {
+    const maske = pruefeFormular(f, andere);
+    check(`${name}: Server = texte-ungueltig, Maske = ${code} am Feld ${feld}`, gleich(serverGruende(f, andere), ['texte-ungueltig']) && gleich(maske.map((x) => [x.feld, x.code]), [[feld, code]]), JSON.stringify(maske));
+  }
   check('VERWERF_GRUENDE hat 23 Codes (Aenderung bricht die Tabellen in texte.ts am Typ)', VERWERF_GRUENDE.length === 23, String(VERWERF_GRUENDE.length));
 }
 
@@ -408,6 +414,103 @@ console.log('\n[8] Liste und Dokument:');
   check('Bearbeiten: derselbe Eintrag gegen die anderen ist gueltig, gegen alle nicht (id-doppelt)', pruefeFormular(eintragZuFormular(SCHLICHT), andereOhne(liste, 'Feder')).length === 0 && pruefeFormular(eintragZuFormular(SCHLICHT), liste).some((x) => x.code === 'id-doppelt'));
   check('dokumentText = schreibeGegenstandsDatei', dokumentText(liste) === schreibeGegenstandsDatei(liste));
   check('Dokument liest sich zurueck', gleich(leseGegenstandsDatei(dokumentText(FIXTURES)).eintraege, FIXTURES));
+}
+
+// ── [9] text errors at the field that causes them ──────────────────────
+console.log('\n[9] Textfehler am richtigen Feld (N1, Befund 1):');
+{
+  check('die Grenze kommt aus dem Leser (MAX_TEXT_ZEICHEN), nicht aus einer Kopie', TEXT_MAX === MAX_TEXT_ZEICHEN && TEXT_MAX === 200);
+  const gut = (): Formular => {
+    const f = leeresFormular();
+    f.id = 'Textprobe';
+    f.nameDe = 'Name';
+    f.nameEn = 'Name';
+    return f;
+  };
+  const serverNimmt = (f: Formular): boolean => leseGegenstandsDatei(JSON.stringify({ version: 1, gegenstaende: [formularZuEintrag(f)] })).eintraege.length === 1;
+  const je = (f: Formular): Array<[string, string]> => pruefeFormular(f, []).map((x) => [x.feld, x.code]);
+  const felder = ['nameDe', 'nameEn', 'beschreibungDe', 'beschreibungEn'] as const;
+  const faelle: Array<[string, string, string]> = [
+    ['Zeilenumbruch \\n', 'zeile eins\nzeile zwei', 'text-zeilenumbruch'],
+    ['Zeilenumbruch \\r\\n', 'a\r\nb', 'text-zeilenumbruch'],
+    ['Zeilentrenner U+2028', 'a b', 'text-zeilenumbruch'],
+    ['Absatztrenner U+2029', 'a b', 'text-zeilenumbruch'],
+    ['201 Zeichen', 'x'.repeat(201), 'text-zu-lang'],
+    ['Nullbreitenzeichen', 'Na​me', 'text-steuerzeichen'],
+    ['Umkehrzeichen U+202E', 'ab‮cd', 'text-steuerzeichen'],
+    ['Tabulator', 'a\tb', 'text-steuerzeichen'],
+    ['NUL', 'a\u0000b', 'text-steuerzeichen'],
+  ];
+  for (const feld of felder) {
+    for (const [name, wert, code] of faelle) {
+      const f = gut();
+      (f as unknown as Record<string, string>)[feld] = wert;
+      check(`${feld}, ${name}: Fehler ${code} NUR an ${feld}, Speichern gesperrt, Server lehnt ab`, gleich(je(f), [[feld, code]]) && !kannSpeichern(f, []) && !serverNimmt(f), JSON.stringify(je(f)));
+    }
+  }
+  // exactly at the limit
+  for (const feld of felder) {
+    const f = gut();
+    (f as unknown as Record<string, string>)[feld] = 'x'.repeat(200);
+    check(`${feld}: genau 200 Zeichen sind erlaubt (Maske und Server)`, je(f).length === 0 && serverNimmt(f));
+  }
+  {
+    const f = gut();
+    f.nameDe = '😀'.repeat(101);
+    check('202 UTF-16-Einheiten (101 Emoji) = zu lang, so wie der Leser zaehlt', gleich(je(f), [['nameDe', 'text-zu-lang']]) && !serverNimmt(f));
+    f.nameDe = '😀'.repeat(100);
+    check('200 UTF-16-Einheiten (100 Emoji) sind erlaubt', je(f).length === 0 && serverNimmt(f));
+  }
+  {
+    const f = gut();
+    f.nameEn = '!!!';
+    check('Name en nur aus Satzzeichen: text-ohne-zeichen an nameEn, der Server lehnt ab', gleich(je(f), [['nameEn', 'text-ohne-zeichen']]) && !serverNimmt(f), JSON.stringify(je(f)));
+    f.nameEn = '';
+    check('Name en leer bleibt name-fehlt (kein zweiter Fehler)', gleich(je(f), [['nameEn', 'name-fehlt']]));
+    f.nameEn = ' \n ';
+    check('Name aus Leerraum + Zeilenumbruch: nur name-fehlt', gleich(je(f), [['nameEn', 'name-fehlt']]));
+    const b = gut();
+    b.beschreibungDe = '!!!';
+    check('eine Beschreibung nur aus Satzzeichen ist erlaubt (der Leser verlangt Buchstaben nur beim Namen)', je(b).length === 0 && serverNimmt(b));
+  }
+  {
+    const f = gut();
+    f.nameDe = 'a\nb';
+    f.beschreibungEn = 'x'.repeat(300);
+    check('zwei Fehler an zwei Feldern: beide stehen an ihrem Feld', gleich(je(f), [['nameDe', 'text-zeilenumbruch'], ['beschreibungEn', 'text-zu-lang']]), JSON.stringify(je(f)));
+    check('zu-lang nennt die Grenze 200 (fuer den Zaehler)', pruefeFormular(f, []).find((x) => x.code === 'text-zu-lang')?.max === 200);
+  }
+  check('textGrund: alles Erlaubte gibt null (Umlaute, CJK, Emoji-Folge, HTML-Zeichen)', ['Äpfel & Öl', '斧', '👨‍🌾', '<b>fett</b>', 'a b'].every((w) => textGrund('name', w) === null));
+  check('Rundreise: ein Text mit Umlauten und Emoji ist weiter frei von Fehlern', (() => {
+    const f = gut();
+    f.beschreibungDe = 'Scharfe Klinge — nur für Krieger 🗡️';
+    return je(f).length === 0 && serverNimmt(f);
+  })());
+}
+
+// ── [10] dependents ────────────────────────────────────────────────────
+console.log('\n[10] Wer haengt an einem Gegenstand (N1, Befund 6):');
+{
+  const mk = (id: string, zutaten: string[]): GegenstandsEintrag =>
+    eintragAus({ id, nameSchluessel: `inhalt.gegenstand.${id}.name`, typ: 'material', ...(zutaten.length > 0 ? { rezept: { menge: 1, zutaten: zutaten.map((item) => ({ item, menge: 1 })) } } : {}), texte: texte(id, id, id) });
+  const A = mk('Aaa', []);
+  const B = mk('Bbb', ['Aaa']);
+  const C = mk('Ccc', ['Bbb']);
+  const D = mk('Ddd', ['Wood']);
+  const E = mk('Eee', ['Aaa', 'Ccc']);
+  const liste = [A, B, C, D, E];
+  check('verwender(Aaa) = direkte Nutzer: Bbb, Eee', gleich(verwender(liste, 'Aaa'), ['Bbb', 'Eee']), JSON.stringify(verwender(liste, 'Aaa')));
+  check('abhaengige(Aaa) = Bbb, Eee direkt, dann Ccc ueber Bbb', gleich(abhaengige(liste, 'Aaa'), ['Bbb', 'Eee', 'Ccc']), JSON.stringify(abhaengige(liste, 'Aaa')));
+  check('abhaengige(Ddd) = leer (Wood ist kein Eintrag; niemand braucht Ddd)', abhaengige(liste, 'Ddd').length === 0);
+  check('abhaengige(Ccc) = Eee', gleich(abhaengige(liste, 'Ccc'), ['Eee']));
+  check('abhaengige enthaelt den Gegenstand selbst nie, keine Doppelten', abhaengige(liste, 'Aaa').every((x) => x !== 'Aaa') && new Set(abhaengige(liste, 'Aaa')).size === 3);
+  check('ein Gegenstand, den niemand braucht, hat nichts', abhaengige(liste, 'Eee').length === 0);
+  // The server agrees: removing Aaa without them is refused / drops them; with all abhaengige the file is clean.
+  const ohneNurA = leseGegenstandsDatei(dokumentText(ohneEintrag(liste, 'Aaa')));
+  check('Referenz: nur Aaa entfernen laesst den Leser Bbb, Ccc, Eee verwerfen (Rezept-Zutat unbekannt)', ohneNurA.verworfen.length === 3 && ohneNurA.verworfen.every((v) => v.grund === 'rezept-zutat-unbekannt'), JSON.stringify(ohneNurA.verworfen));
+  const rest = liste.filter((e) => e.id !== 'Aaa' && !abhaengige(liste, 'Aaa').includes(e.id));
+  const sauber = leseGegenstandsDatei(dokumentText(rest));
+  check('Aaa + abhaengige entfernen: der Leser verwirft nichts mehr', sauber.verworfen.length === 0 && sauber.eintraege.length === 1 && sauber.eintraege[0].id === 'Ddd');
 }
 
 console.log(fehler === 0 ? '\nalles gruen' : `\n${fehler} FEHLER`);

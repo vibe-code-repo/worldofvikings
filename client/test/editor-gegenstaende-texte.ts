@@ -10,6 +10,7 @@
  *  [3] every `fehler` code of the route (read from `admin/src/routen/gegenstaende.ts`, not from a list here),
  *      every file error, every mask reason, every receipt status and the access texts have a text
  *  [4] `seite.ts` and `texte.ts` carry no German or English plain text into the DOM (only `t()` results)
+ *  [5] N1: the four text errors and the conflict lines (field labels, both versions, "and N more") in both languages
  *
  * Run: npx tsx test/editor-gegenstaende-texte.ts   (from client/, cwd as in scripts/kern/client.mjs)
  */
@@ -20,6 +21,7 @@ import * as ts from 'typescript';
 import { VERWERF_GRUENDE } from '@wov/shared/src/items/gegenstandsDaten.js';
 import {
   DATEI_FEHLER_SCHLUESSEL,
+  FELD_SCHLUESSEL,
   GRUND_SCHLUESSEL,
   LOKAL_SCHLUESSEL,
   QUITTUNG_SCHLUESSEL,
@@ -27,6 +29,7 @@ import {
   fehlerErgebnisText,
   feldFehlerText,
   grundText,
+  konfliktInhalt,
   quittungText,
   routeFehlerText,
   zugangText,
@@ -237,7 +240,7 @@ console.log('\n[3] fehler-Codes der Route (am Syntaxbaum gelesen):');
   besuche(modell, (n) => {
     if (ts.isTypeAliasDeclaration(n) && n.name.text === 'LokalerGrund' && ts.isUnionTypeNode(n.type)) for (const t of n.type.types) if (ts.isLiteralTypeNode(t) && ts.isStringLiteral(t.literal)) lokal.add(t.literal.text);
   });
-  check('Maskengruende: Tabelle deckt genau den Typ LokalerGrund', lokal.size === 7 && Object.keys(LOKAL_SCHLUESSEL).sort().join() === [...lokal].sort().join(), [...lokal].join());
+  check('Maskengruende: Tabelle deckt genau den Typ LokalerGrund', lokal.size === 11 && Object.keys(LOKAL_SCHLUESSEL).sort().join() === [...lokal].sort().join(), [...lokal].join());
   for (const code of lokal) {
     const key = (LOKAL_SCHLUESSEL as Record<string, string>)[code];
     check(`Maskengrund ${code}: Text in beiden Sprachen`, typeof key === 'string' && Object.hasOwn(de, key) && Object.hasOwn(en, key));
@@ -272,6 +275,33 @@ for (const d of ['seite.ts', 'texte.ts']) {
     if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 't') tAufrufe++;
   });
   check('seite.ts benutzt t() reichlich', tAufrufe >= 40, String(tAufrufe));
+}
+
+// ── [5] N1: text errors and conflict lines ──
+console.log('\n[5] Textfehler und Konfliktzeilen (N1):');
+{
+  for (const code of ['text-zeilenumbruch', 'text-steuerzeichen', 'text-zu-lang', 'text-ohne-zeichen'] as const) {
+    const dt = feldFehlerText({ feld: 'beschreibungDe', code, max: 200 }, uebersetzer('de'));
+    const et = feldFehlerText({ feld: 'nameEn', code, max: 200 }, uebersetzer('en'));
+    check(`${code}: Text in beiden Sprachen, ohne offenen Platzhalter`, dt.length > 10 && et.length > 10 && !dt.includes('{') && !et.includes('{') && dt !== et);
+  }
+  check('text-zeilenumbruch nennt den Zeilenumbruch, text-zu-lang die Grenze 200', /Zeilenumbruch/.test(feldFehlerText({ feld: 'nameDe', code: 'text-zeilenumbruch' }, uebersetzer('de'))) && /line break/.test(feldFehlerText({ feld: 'nameDe', code: 'text-zeilenumbruch' }, uebersetzer('en'))) && feldFehlerText({ feld: 'nameDe', code: 'text-zu-lang', max: 200 }, uebersetzer('de')).includes('200') && feldFehlerText({ feld: 'nameDe', code: 'text-zu-lang', max: 200 }, uebersetzer('en')).includes('200'));
+  for (const [feld, key] of Object.entries(FELD_SCHLUESSEL)) {
+    check(`Feldname ${feld}: Schluessel in de und en`, Object.hasOwn(de, key) && Object.hasOwn(en, key));
+  }
+  const unt = [{ feld: 'nameDe', eigen: 'Meine Axt', server: 'Serveraxt' }, { feld: 'wert.damage', eigen: '', server: '12' }, { feld: 'fremdfeld', eigen: 'a', server: 'b' }];
+  for (const sprache of ['de', 'en'] as const) {
+    const k = konfliktInhalt({ server: {}, unterschiede: unt }, uebersetzer(sprache));
+    const alle = k.zeilen.join('\n');
+    check(`${sprache}: eine Zeile je Unterschied, beide Fassungen und der Feldname stehen darin`, k.zeilen.length === 3 && alle.includes('Meine Axt') && alle.includes('Serveraxt') && alle.includes(katalog(sprache)['editor.gegenstand.feld.wert_damage']) && alle.includes('12'), alle);
+    check(`${sprache}: leeres Feld heisst "${katalog(sprache)['editor.gegenstand.konflikt.leer']}", unbekanntes Feld nennt seine id`, alle.includes(katalog(sprache)['editor.gegenstand.konflikt.leer']) && alle.includes('fremdfeld'));
+    check(`${sprache}: keine offenen Platzhalter, kein "und N weitere" bei 3 Zeilen`, !/\{[a-z]+\}/.test(alle + k.titel) && k.weitere === null);
+    const viele = konfliktInhalt({ server: {}, unterschiede: Array.from({ length: 20 }, (_, i) => ({ feld: 'nameDe', eigen: String(i), server: 'x' })) }, uebersetzer(sprache));
+    check(`${sprache}: 20 Unterschiede = 12 Zeilen + "und 8 weitere"`, viele.zeilen.length === 12 && viele.weitere !== null && viele.weitere.includes('8'));
+    check(`${sprache}: Titel "geaendert" und Titel "entfernt" sind verschieden`, konfliktInhalt({ server: {}, unterschiede: [] }, uebersetzer(sprache)).titel !== konfliktInhalt({ server: null, unterschiede: [] }, uebersetzer(sprache)).titel);
+    const wild = konfliktInhalt({ server: {}, unterschiede: [{ feld: 'nameDe', eigen: 'K'.repeat(5000) + '\u202E', server: 'a\u0000b' }] }, uebersetzer(sprache));
+    check(`${sprache}: lange Werte werden gekuerzt, Steuer- und Umkehrzeichen sichtbar`, wild.zeilen[0].length < 400 && !/[\u202E\u0000]/.test(wild.zeilen[0]) && wild.zeilen[0].includes('<U+0000>'));
+  }
 }
 
 console.log(fehler === 0 ? '\nalles gruen' : `\n${fehler} FEHLER`);

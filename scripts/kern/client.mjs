@@ -177,6 +177,10 @@ export default [
   // AP15.3/15.4/15.5: the pure logic of the editor's cell tools — picking maths
   // and mutations, DOM-free, seconds.
   ['client', 'test/dungeon2-zellwerkzeuge.ts'],
+  // EG2 N1: der Ablauf ums Speichern, DOM-frei: Sperre des Speichern-Knopfs (laedt/speichert/Konflikt),
+  // nichts entkommt als unbehandelte Ablehnung, Konfliktpruefung nach 412 (eigene oder Server-Fassung,
+  // gegen einen Speicher-Server mit der If-Match-Regel) und die Verdrahtung in seite.ts am Syntaxbaum.
+  ['client', 'test/editor-gegenstaende-ablauf.ts'],
   // EG2 Gegenstands-Maske: der Client von GET/PUT /api/gegenstaende gegen den ECHTEN Betriebsdienst
   // (Testwurzel, Port 0, zweiter Prozess haelt die Sperre): 200, 412 mit Neu-laden (Entwurf bleibt),
   // 409 (bestaetigter PUT nur nach einem Ja), 422 mit Grund-Codes, 503, 428/401/Netz, Quittung.

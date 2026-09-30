@@ -958,6 +958,14 @@ function messeInteraktionAttrappe(): Aufzeichnung3 {
     lauf('handleSetFigur', 23, peerI(a, 'f', { figur: F0 }), paketS(F1));
     charZdo = zdoA(a);
     lauf('handleSetFigur', 24, peerI(a, 'f', { figur: F0 }), new Reader(Buffer.alloc(0)));
+    // H7: an invalid start value of the eyes with an old client (three values) becomes the default; a worn weapon stays worn when the armour changes
+    lauf('handleSetAussehen', 35, peerI(a, 'ak', { augenfarbe: 'kaputt' }), paketS(FRISUR_VORGABE, '', ''));
+    const waffe = peerI(a, 'wf', { inventar: inventarMit() });
+    (waffe['inventar'] as Inventory).addItem(findItem('Club')!, 1);
+    const club = (waffe['inventar'] as Inventory).all.find((i) => i.shared.name === 'Club')!;
+    club.equipped = true;
+    lauf('handleSetAussehen', 36, waffe, paketS(FRISUR_VORGABE, teile['oberkoerper']!, teile['beine']!, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, '{}'));
+    a.zustand.push(club.equipped ? 1 : 0, angelegt(waffe));
     // H6: long values (over 40 characters) and a packet that is refused with long texts: the console line cuts them
     lauf('handleSetAussehen', 33, peerI(a, 'lg'), paketS(`${'f'.repeat(40)}+frisur`, '', '', `${'h'.repeat(45)}farbe`, AUGENFARBE_VORGABE, '{}'));
     lauf('handleSetFigur', 34, peerI(a, 'lf', { figur: F0 }), paketS(`${'d'.repeat(30)}-${'r'.repeat(30)}`));
@@ -1270,9 +1278,9 @@ const SOLL_INTERAKTION_ATTRAPPE: Aufzeichnung = {
     't:ContainerSync:["u",7,18]:25:f681633f71bd01d2',
     't:ContainerSync:["u",7,19]:26:bf42688d67219593',
   ],
-  aufrufe: { setInt:  3,  setString:  44,  reviseData:  3,  sendeTruheInhalt:  5,  zdosVon:  13,  kappeLeben:  11,  sichereSpielerSofort:  13,  inventarSync:  8 },
+  aufrufe: { setInt:  3,  setString:  52,  reviseData:  3,  sendeTruheInhalt:  5,  zdosVon:  15,  kappeLeben:  13,  sichereSpielerSofort:  15,  inventarSync:  8 },
   konsole: { log: 2, warn: 4 },
-  zustand: [151, 5, 1, 0, 1],
+  zustand: [151, 5, 1, 0, 1, 1, 3],
   ausnahmen: ['RangeError', 'RangeError'],
   notizen: [
     'setInt looted=1',
@@ -1394,6 +1402,22 @@ const SOLL_INTERAKTION_ATTRAPPE: Aufzeichnung = {
     'log 39:4f872ef66ff94e77:[WoV] "f" spielt jetzt als "wikingerin"',
     'peer f frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikingerin" position={"x":3,"y":7,"z":5} inventar=[]',
     'peer f frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call zdosVon ak',
+    'setString frisur=H_01',
+    'setString haarfarbe=kastanie',
+    'setString augenfarbe=fjordblau',
+    'setString ruestung=|',
+    'call kappeLeben ak',
+    'call sichereSpielerSofort 2|ak|ausruestung|undefined',
+    'peer ak frisur="H_01" haarfarbe="kastanie" augenfarbe="fjordblau" ruestung="|" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call zdosVon wf',
+    'setString frisur=H_01',
+    'setString haarfarbe=mittelbraun',
+    'setString augenfarbe=fjordblau',
+    'setString ruestung=31:6b0366cc',
+    'call kappeLeben wf',
+    'call sichereSpielerSofort 2|wf|ausruestung|undefined',
+    'peer wf frisur="H_01" haarfarbe="mittelbraun" augenfarbe="fjordblau" ruestung="wildwarden_vest|wildwarden_robe" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[["wildwarden_crown",false],["wildwarden_vest",true],["wildwarden_robe",true],["wildwarden_mantle",false],["wildwarden_bracers",false],["wildwarden_gloves",false],["wildwarden_boots",false],["Club",true]]',
     'warn 184:215405cd3007b748:[WoV] SetAussehen von "lg" abgelehnt: frisur="ff',
     'peer lg frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
     'warn 120:7cd61824dfbf9d40:[WoV] SetFigur von "lf" abgelehnt: "dddddddddddd',

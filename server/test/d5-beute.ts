@@ -14,6 +14,8 @@
  *  [11] The owner key is not sent to any client (wire probe on the stranger).
  *  [13] Harvest, refund of a torn-down piece, craft and cooking at a full inventory: what cannot be handed over lies on the
  *       ground (harvest, refund) or the action is refused and nothing is taken (craft, cooking).
+ *  [14] The room question `passtNachEntnahme` equals the real remove + addItem on 3,000 random inventories.
+ *  [15] Every creature and item of the loot tables has a name key in both catalogues.
  *  [12] Damage rules: overkill does not count, the tie goes to the first to hit, the killing blow counts, the tally goes at death /
  *       despawn / after 10 min.
  *
@@ -23,14 +25,14 @@
  * Run: npx tsx server/test/d5-beute.ts   (from the repo root)
  */
 import WebSocket from 'ws';
-import { rmSync } from 'fs';
+import { readFileSync, rmSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { HEALTH_MEMBER, PIECES, findItem, getStableHash, maxLeben, PacketType, type Vector3 } from '@wov/shared';
+import { HEALTH_MEMBER, Inventory, PIECES, findItem, getStableHash, maxLeben, PacketType, type Vector3 } from '@wov/shared';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer, type WovServer } from '../src/WovServer.js';
-import { BEUTE_EXKLUSIV_MS as EXKLUSIV_IM_CODE, BEUTE_LEBEN_MS as LEBEN_IM_CODE, BEUTE_BESITZER, BEUTE_ITEM, BEUTE_MENGE, BEUTE_FREI_AB, BEUTE_ABLAUF, SERVER_MELDUNG_BEUTE_FREMD } from '../src/spiel/BeuteAmBoden.js';
-import { wuerfleDrop } from '../src/spiel/Beute.js';
+import { BEUTE_EXKLUSIV_MS as EXKLUSIV_IM_CODE, BEUTE_LEBEN_MS as LEBEN_IM_CODE, BEUTE_BESITZER, BEUTE_ITEM, BEUTE_MENGE, BEUTE_FREI_AB, BEUTE_ABLAUF, SERVER_MELDUNG_BEUTE_FREMD, passtNachEntnahme } from '../src/spiel/BeuteAmBoden.js';
+import { ZWEIT_DROPS, wuerfleDrop } from '../src/spiel/Beute.js';
 import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
@@ -202,6 +204,7 @@ async function main(): Promise<void> {
     await schlage(alice, 'AxeFlint');
     await schlage(alice, 'AxeFlint');
     check('cow (30 HP) dead after 2 axe hits (15 each)', kuh1.destroyed);
+    check('the kill message names the creature (catalogue key with the parameter kreatur)', alice.meldungen.some((m) => m.ok && m.text === '@beute.besiegt|{"kreatur":"Kuh"}'), JSON.stringify(alice.meldungen));
     const beute1 = lootZDOs();
     check('exactly one loot ZDO (cow: RawMeat, always)', beute1.length === 1, `${beute1.length} loot ZDO(s)`);
     const b1 = beute1[0];
@@ -339,7 +342,7 @@ async function main(): Promise<void> {
     await hebeAuf(alice, voll);
     check('full: the loot stays on the ground with amount 3', !voll.destroyed && voll.getInt(BEUTE_MENGE) === 3, `destroyed ${voll.destroyed}, amount ${voll.getInt(BEUTE_MENGE)}`);
     check('full: inventory has no RawMeat', fleisch(alice) === 0, `${fleisch(alice)}`);
-    check('full: the player gets the catalogue key "inventory full", no success', alice.meldungen.some((m) => !m.ok && m.text === '@inventory.full') && !hatMeldung(alice, '@beute.aufgesammelt'), JSON.stringify(alice.meldungen));
+    check('full: the player gets the catalogue key "inventory full", no success', alice.meldungen.some((m) => !m.ok && m.text === '@inventory.full') && !alice.meldungen.some((m) => m.text.startsWith('@beute.aufgesammelt')), JSON.stringify(alice.meldungen));
     server.zdos.destroyZDO(voll.zdoid); // the next cases must not find this piece first
 
     leere(alice);
@@ -349,7 +352,7 @@ async function main(): Promise<void> {
     await hebeAuf(alice, teil);
     check(`partial (room for 1 of 3): inventory RawMeat ${FLEISCH.maxStackSize - 1} -> ${FLEISCH.maxStackSize}`, fleisch(alice) === FLEISCH.maxStackSize, `${fleisch(alice)}`);
     check('partial: the loot stays with the remaining amount 2', !teil.destroyed && teil.getInt(BEUTE_MENGE) === 2, `destroyed ${teil.destroyed}, amount ${teil.getInt(BEUTE_MENGE)}`);
-    check('partial: success message, the stack is full now', alice.meldungen.some((m) => m.ok && m.text === '@beute.aufgesammelt'), JSON.stringify(alice.meldungen));
+    check('partial: the message says what was taken and what stayed lying there (1 taken, 2 left)', alice.meldungen.some((m) => m.ok && m.text === '@beute.aufgesammelt_teil|{"item":"RawMeat","menge":1,"rest":2}'), JSON.stringify(alice.meldungen));
     await hebeAuf(alice, teil);
     check('second try with nothing fitting: still 2 lying there, "inventory full"', !teil.destroyed && teil.getInt(BEUTE_MENGE) === 2 && fleisch(alice) === FLEISCH.maxStackSize && alice.meldungen.some((m) => !m.ok && m.text === '@inventory.full'));
     leere(alice);
@@ -359,7 +362,7 @@ async function main(): Promise<void> {
     leere(alice);
     const leer = legeBeute(alice, 'RawMeat', 3, 100.5, 98);
     await hebeAuf(alice, leer);
-    check('empty inventory: all 3 picked up, ZDO gone', leer.destroyed && fleisch(alice) === 3 && alice.meldungen.some((m) => m.ok && m.text === '@beute.aufgesammelt'), `${fleisch(alice)}`);
+    check('empty inventory: all 3 picked up, ZDO gone', leer.destroyed && fleisch(alice) === 3 && alice.meldungen.some((m) => m.ok && m.text === '@beute.aufgesammelt|{"item":"RawMeat","menge":3}'), `${fleisch(alice)} ${JSON.stringify(alice.meldungen)}`);
 
     // The same code path serves the world pick-ups (a boss trophy lying around): it must not vanish either.
     leere(alice);
@@ -554,7 +557,7 @@ async function main(): Promise<void> {
       check('the tree is felled', baum.destroyed);
       check('the Wood yield (6-10) lies on the ground as one piece without an owner', holz.length === 1 && menge >= 6 && menge <= 10 && holz[0]!.getString(BEUTE_BESITZER) === '', `${holz.length} piece(s), ${menge}×`);
       check('the piece lies at the player (< 1 m)', !!holz[0] && Math.hypot(holz[0].position.x - alice.peer.position.x, holz[0].position.z - alice.peer.position.z) < 1);
-      check('the inventory got no Wood, the player is told "inventory full"', alice.peer.inventar.countOf('Wood') === 0 && hatMeldung(alice, '@inventory.full'), JSON.stringify(alice.meldungen));
+      check('the inventory got no Wood, the player is told "inventory full, N × Wood left behind"', alice.peer.inventar.countOf('Wood') === 0 && hatMeldung(alice, `@inventory.full_rest|{"item":"Wood","rest":${menge}}`), JSON.stringify(alice.meldungen));
       const holzBob = bob.peer.inventar.countOf('Wood');
       await hebeAuf(bob, holz[0]!);
       check('anybody can pick it up at once (Bob, a stranger)', holz[0]!.destroyed && bob.peer.inventar.countOf('Wood') === holzBob + menge, `${holzBob} -> ${bob.peer.inventar.countOf('Wood')}`);
@@ -584,7 +587,7 @@ async function main(): Promise<void> {
         check(`refund ${r.menge}× ${r.item} lies on the ground, free (none of it vanished)`, summe(r.item) === r.menge, `${summe(r.item)}`);
       }
       check('every refund piece has no owner', gelegt.length > 0 && gelegt.every((l) => l.getString(BEUTE_BESITZER) === ''));
-      check('the inventory did not grow, the player is told "inventory full"', alice.peer.inventar.countOf('Stone') === stein0 && hatMeldung(alice, '@inventory.full'), JSON.stringify(alice.meldungen));
+      check('the inventory did not grow, the player is told "inventory full"', alice.peer.inventar.countOf('Stone') === stein0 && alice.meldungen.some((m) => m.text.startsWith('@inventory.full_rest|')), JSON.stringify(alice.meldungen));
       leere(alice);
       boden.vorspulen(BEUTE_LEBEN_MS + 1000);
       await warte(1200);
@@ -619,6 +622,70 @@ async function main(): Promise<void> {
       check('the last raw meat frees its slot: it is cooked', fleisch(alice) === 0 && alice.peer.inventar.countOf('CookedMeat') === 1, `raw ${fleisch(alice)}, cooked ${alice.peer.inventar.countOf('CookedMeat')}`);
       leere(alice);
       server.zdos.destroyZDO(feuer.zdoid);
+    }
+
+    // ── [14] N1-b: the room question (`passtNachEntnahme`) against the real remove + addItem ──
+    console.log('\n[14] passtNachEntnahme against the real removeByName + addItem on 3,000 random inventories');
+    {
+      let s = 987654321;
+      const zufall = (): number => {
+        s = (s + 0x6d2b79f5) | 0;
+        let t = Math.imul(s ^ (s >>> 15), 1 | s);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+      const ganz = (n: number): number => Math.floor(zufall() * n);
+      const NAMEN = ['Stone', 'Wood', 'RawMeat', 'CookedMeat', 'AxeFlint', 'Club', 'TrophyEikthyr', 'Flint'];
+      // the same inventory twice from one recipe: one for the function (which copies), one for the real sequence
+      const baue = (rezept: Array<[string, number, number]>): Inventory => {
+        const inv = new Inventory();
+        for (const [n, menge, qualitaet] of rezept) inv.addItem(findItem(n)!, menge, qualitaet);
+        return inv;
+      };
+      let passt = 0;
+      let passtNicht = 0;
+      let abweichungen = 0;
+      let erstes = '';
+      for (let i = 0; i < 3000; i++) {
+        const rezept: Array<[string, number, number]> = [];
+        const dichte = zufall();
+        for (let k = 0; k < 4 + ganz(Math.round(40 * dichte) + 1); k++) rezept.push([NAMEN[ganz(NAMEN.length)]!, 1 + ganz(60), 1 + ganz(2)]);
+        const entfernen = Array.from({ length: ganz(4) }, () => ({ item: NAMEN[ganz(NAMEN.length)]!, menge: 1 + ganz(30) }));
+        const ergebnis = NAMEN[ganz(NAMEN.length)]!;
+        const menge = 1 + ganz(6);
+        const antwort = passtNachEntnahme(baue(rezept), entfernen, ergebnis, menge);
+        const echt = baue(rezept);
+        for (const z of entfernen) echt.removeByName(z.item, z.menge);
+        const wirklich = echt.addItem(findItem(ergebnis)!, menge) === 0;
+        if (antwort !== wirklich) {
+          abweichungen++;
+          if (!erstes) erstes = JSON.stringify({ rezept, entfernen, ergebnis, menge, antwort, wirklich });
+        }
+        if (wirklich) passt++;
+        else passtNicht++;
+      }
+      check(`3000 inventories: the answer equals the real addItem in every case`, abweichungen === 0, `${abweichungen} deviation(s) ${erstes}`);
+      check('both outcomes occurred (the comparison is not one-sided)', passt > 300 && passtNicht > 300, `fits ${passt}, does not fit ${passtNicht}`);
+    }
+
+    // ── [15] Names in the messages: every creature and item of the drop tables has a name in both catalogues ──
+    console.log('\n[15] Name keys of the creatures and items in the loot tables (de and en)');
+    {
+      const katalog = (sprache: string): Record<string, string> => JSON.parse(readFileSync(resolve(__dirname, `../../client/src/i18n/katalog/${sprache}.json`), 'utf8'));
+      const de = katalog('de');
+      const en = katalog('en');
+      const kreaturen = ['Eikthyr', 'Greyling', 'Greydwarf', 'Boar', 'Deer', 'Kuh', 'Wolf', 'Huhn', 'Neck', 'Skeleton', 'Draugr'];
+      const dinge = new Set<string>(['CookedMeat', 'Amber', 'Flint', 'Mushroom', 'Blueberries', 'Raspberry', 'Thistle', 'Dandelion', 'Carrot']);
+      for (const k of kreaturen) {
+        for (let i = 0; i < 300; i++) {
+          const d = wuerfleDrop(k);
+          if (d) dinge.add(d.name);
+        }
+        const z = ZWEIT_DROPS[k];
+        if (z) dinge.add(z[0]);
+      }
+      const fehlt = [...kreaturen, ...dinge].filter((n) => !de[`beute.name.${n}`] || !en[`beute.name.${n}`]);
+      check(`${kreaturen.length} creatures and ${dinge.size} items all have beute.name.* in de and en`, fehlt.length === 0, `missing: ${fehlt.join(', ')}`);
     }
 
     // ── [6] Restart: no loot back, the saved chest is ────────────

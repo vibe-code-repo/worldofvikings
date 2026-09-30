@@ -333,7 +333,7 @@ async function main(): Promise<void> {
     sendAttack(ws, mitte, 'AxeFlint', YAW_MINUS_Z);
     await warte(450);
     check('Krieger stirbt am Axtschlag (ZDO zerstoert)', krieger.destroyed);
-    check('Sieg-Meldung an den Spieler', meldungen.some((m) => m === '@beute.besiegt'), meldungen.slice(-2).join(' | '));
+    check('Sieg-Meldung an den Spieler', meldungen.some((m) => m === '@beute.besiegt|{"kreatur":"FurlocKrieger"}'), meldungen.slice(-2).join(' | '));
     await warte(400);
     // `zustand` ist privat; gelesen wird nur seine Groesse.
     const zustaende = (server.aggro as unknown as { zustand: Map<string, unknown> }).zustand.size;

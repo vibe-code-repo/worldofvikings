@@ -10,7 +10,7 @@
 
 import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
-import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_AUFGESAMMELT, SERVER_MELDUNG_BESIEGT, SERVER_MELDUNG_BETT_VERLOREN, SERVER_MELDUNG_BEUTE_FREMD, SERVER_MELDUNG_INVENTAR_VOLL, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
+import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, SERVER_MELDUNG_BEUTE_FREMD, SERVER_MELDUNG_INVENTAR_VOLL, serverMeldungAufgesammelt, serverMeldungBesiegt, serverMeldungVollRest, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 import {
   EVENT_CHANCE,
@@ -167,7 +167,7 @@ import {
   AUSDAUER_REGEL,
 } from '@wov/shared/src/bewegung/ausdauer.js';
 import { pickableItem, ZWEIT_DROPS, wuerfleDrop, wuerfleTruhe } from './spiel/Beute.js';
-import { BEUTE_BESITZER, BeuteAmBoden } from './spiel/BeuteAmBoden.js';
+import { BEUTE_BESITZER, BeuteAmBoden, passtNachEntnahme } from './spiel/BeuteAmBoden.js';
 import { waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
 import { EIKTHYR_HASH, BOSS_ENTRY, NPC_ENTRY } from './spiel/Sondereintraege.js';
 import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
@@ -3406,14 +3406,14 @@ export class WovServer {
 
   /**
    * What did not fit (`rest` of `gebeItem`) lies on the ground at the player, free for anybody, and the player
-   * is told "inventory full": nothing that a harvest or a refund hands over may vanish silently.
+   * is told "inventory full, N × item left behind": nothing that a harvest or a refund hands over may vanish silently.
    */
   private legeRestAb(peer: Peer, name: string, rest: number): void {
     if (rest <= 0) return;
     this.beuteAmBoden.legeHin(this.zdosVon(peer), peer.position, [{ name, amount: rest }]);
     peer.sendPacketWith(PacketType.InteractResult, (w) => {
       w.writeBool(false);
-      w.writeString(SERVER_MELDUNG_INVENTAR_VOLL);
+      w.writeString(serverMeldungVollRest(name, rest));
       w.writeString('');
       w.writeInt32(0);
     });
@@ -3424,12 +3424,7 @@ export class WovServer {
    * so a craft or a cooking can be refused BEFORE anything is taken; `true` for an unknown item, which gives nothing.)
    */
   private passtNach(peer: Peer, entfernen: ReadonlyArray<{ item: string; menge: number }>, name: string, amount: number): boolean {
-    const def = findItem(name);
-    if (!def) return true;
-    const probe = new Inventory(peer.inventar.width, peer.inventar.height);
-    probe.load(peer.inventar.serialize());
-    for (const z of entfernen) probe.removeByName(z.item, z.menge);
-    return probe.addItem(def, amount) === 0;
+    return passtNachEntnahme(peer.inventar, entfernen, name, amount);
   }
 
   private handleEat(peer: Peer, reader: Reader): void {
@@ -3859,7 +3854,7 @@ export class WovServer {
       this.beuteAmBoden.legeAb(this.zdosVon(peer), ziel, [beute, zweit ? { name: zweit[0], amount: zweit[1] } : null]);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(true);
-        w.writeString(SERVER_MELDUNG_BESIEGT);
+        w.writeString(serverMeldungBesiegt(name));
         w.writeString('');
         w.writeInt32(0);
       });
@@ -4261,7 +4256,7 @@ export class WovServer {
       if (menge > 0 && rest >= menge) return senden(false, SERVER_MELDUNG_INVENTAR_VOLL);
       if (rest > 0 && boden) this.beuteAmBoden.behalteRest(ziel, rest);
       else this.zdosVon(peer).destroyZDO(ziel.zdoid);
-      return senden(true, SERVER_MELDUNG_AUFGESAMMELT, item?.name ?? '', menge - rest);
+      return senden(true, serverMeldungAufgesammelt(item?.name ?? def?.name ?? '?', menge - rest, rest), item?.name ?? '', menge - rest);
     }
 
     if ((flags & F.DOOR) !== 0n) {

@@ -27,7 +27,7 @@
  */
 import type { ZDO } from '../zdo/ZDO.js';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
-import { BEUTE_EXKLUSIV_MS, BEUTE_LEBEN_MS, SERVER_MELDUNG_BEUTE_FREMD } from '@wov/shared';
+import { BEUTE_EXKLUSIV_MS, BEUTE_LEBEN_MS, Inventory, SERVER_MELDUNG_BEUTE_FREMD, findItem } from '@wov/shared';
 import { getStableHash } from '../util/Hash.js';
 
 // The windows and the message keys live in `shared/src/beute.ts` (the client may need them); re-exported for the server.
@@ -57,6 +57,21 @@ interface Stueck {
 export interface BeuteStueck {
   name: string;
   amount: number;
+}
+
+/**
+ * Would `amount` of the item `name` fit into `inv` after `entfernen` was taken out of it? Asked on a copy, so that a craft or a
+ * cooking can be refused BEFORE anything is taken. `true` for an unknown item (it gives nothing). The copy goes through
+ * `serialize`/`load`: a fact of the inventory that these two do not carry is invisible here, and the test `d5-beute` [14]
+ * compares this answer with the real `removeByName` + `addItem` on random inventories.
+ */
+export function passtNachEntnahme(inv: Inventory, entfernen: ReadonlyArray<{ item: string; menge: number }>, name: string, amount: number): boolean {
+  const def = findItem(name);
+  if (!def) return true;
+  const probe = new Inventory(inv.width, inv.height);
+  probe.load(inv.serialize());
+  for (const z of entfernen) probe.removeByName(z.item, z.menge);
+  return probe.addItem(def, amount) === 0;
 }
 
 export class BeuteAmBoden {

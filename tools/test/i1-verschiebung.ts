@@ -588,6 +588,23 @@ console.log('── Grenzen: N3 (falsch rot bei Einzelschnitt ohne this.) ──
     faelle++;
     if (schlecht.status === 1 && /ABWEICHUNG GEFUNDEN/.test(schlecht.out) && /EINGESCHRÄNKT: Exit 0 ist noch kein Verschiebebeweis/.test(schlecht.out)) console.log('ok   CLI: gefälschter Lauf endet mit 1');
     else { rot++; console.log(`ROT  CLI: gefälschter Lauf endet nicht mit 1\n${schlecht.out}`); }
+    // M2 (N3): jede Ausgabe trägt den Satz EINGESCHRÄNKT; --help sagt nicht „Beweis erbracht“; --json --liste <fehlt> endet geordnet
+    const satz = /EINGESCHRÄNKT: Exit 0 ist noch kein Verschiebebeweis/;
+    for (const [name, args, code, json] of [
+      ['--help', ['--help'], 0, false],
+      ['unbekannter Schalter', ['--gibtsnicht'], 2, false],
+      ['fehlender Wert', ['--alt'], 2, false],
+      ['--json ohne Argumente', ['--json'], 2, true],
+      ['--json --liste auf fehlende Datei', ['--json', '--alt', 'a', '--rest', 'b', '--ziel', 'c', '--liste', join(tmp, 'gibt-es-nicht.txt')], 2, true],
+      ['--liste auf fehlende Datei ohne --json', ['--alt', 'a', '--rest', 'b', '--ziel', 'c', '--liste', join(tmp, 'gibt-es-nicht.txt')], 2, false],
+    ] as const) {
+      faelle++;
+      const r = spawnSync(process.execPath, [werkzeug, ...args], { encoding: 'utf-8' });
+      const aus = r.stdout + r.stderr;
+      const ok = r.status === code && satz.test(aus) && !/Beweis erbracht/i.test(aus) && !/\n\s+at /.test(aus) && (!json || /"eingeschraenkt"/.test(r.stdout));
+      if (ok) console.log(`ok   CLI M2: ${name}: Satz vorhanden, Exit ${code}, keine Stapelspur`);
+      else { rot++; console.log(`ROT  CLI M2: ${name}: Exit ${r.status}\n${aus.slice(0, 400)}`); }
+    }
     const falsch = spawnSync(process.execPath, [werkzeug, '--alt'], { encoding: 'utf-8' });
     faelle++;
     if (falsch.status === 2) console.log('ok   CLI: falscher Aufruf endet mit 2');

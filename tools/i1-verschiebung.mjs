@@ -7,7 +7,7 @@
  * i1-verschiebung.mjs — check for a purely mechanical move (I1 step 0 + N1, plan section 5.1).
  * Verschiebebeweis: belegt, dass ein Schnitt nur verschoben und sonst NICHTS verändert hat.
  *
- * Leitsatz (N1): Der Beweis zeigt „außer den erlaubten Ersetzungen ist nichts anders“. Verglichen wird deshalb
+ * Leitsatz (N1): Die Prüfung soll zeigen „außer den erlaubten Ersetzungen ist nichts anders“. Verglichen wird deshalb
  * der GANZE Rest der Quelldatei und die GANZE Zieldatei, nicht nur Funktionsrümpfe. Was das Werkzeug nicht
  * beweisen kann, meldet es ROT; der Nutzer gibt es mit `--freigabe SCHLÜSSEL` ausdrücklich frei, und die
  * Freigabe erscheint in der Ausgabe (FREIGEGEBEN) und gehört in den PR-Text. Lieber ein falsches Rot als ein
@@ -34,9 +34,9 @@
  *        [--json]                                             # Ausgabe als JSON
  *   Der Selbsttest mit den Fixtures (echt, gefälscht, unvollständig je Form) ist `tools/test/i1-verschiebung.ts`.
  *
- * Exit 0 = Beweis erbracht; 1 = mindestens ein Befund; 2 = Aufruf falsch.
+ * Exit 0 = keine Abweichung gefunden (EINGESCHRÄNKT, kein Beweis); 1 = mindestens ein Befund; 2 = Aufruf falsch.
  *
- * Was bewiesen wird:
+ * Was geprüft werden soll (Absicht; was davon noch nicht hält, steht im Satz oben und im Nachangriff):
  *   H1 Weiterleitung. Nur in der exakten Form `return <modul>.<gleicher Name>(this, <Parameter unverändert>)`
  *      (freie Funktionen: `(<umgebung>(), …)`), mit `return` auch bei void; `<modul>` ist ein Import auf genau die
  *      genannte Zieldatei (oder `import { name }` aus ihr). Kontextargument genau `this`, kein `?.`, keine Zusatzanweisung.
@@ -877,24 +877,41 @@ function tabelleAus(a) {
   return t;
 }
 
+/** Aufruffehler: geordnete Meldung mit dem Satz „EINGESCHRÄNKT“, bei --json als JSON. */
+function aufrufFehler(meldung, json) {
+  if (json) console.log(JSON.stringify({ eingeschraenkt: EINGESCHRAENKT, fehler: meldung }, null, 2));
+  else {
+    console.error(meldung);
+    console.error(EINGESCHRAENKT);
+  }
+  return 2;
+}
+
 function haupt(argv) {
+  const json = argv.includes('--json');
   let a;
   try {
     a = argumente(argv);
   } catch (e) {
-    console.error(String(e.message ?? e));
-    return 2;
+    return aufrufFehler(String(e.message ?? e), json);
   }
   if (!a.json && !a.hilfe) console.log(`${EINGESCHRAENKT}\n`);
   if (a.hilfe) {
+    console.log(`${EINGESCHRAENKT}\n`);
     console.log(readFileSync(fileURLToPath(import.meta.url), 'utf-8').split('*/')[0]);
+    console.log(`\n${EINGESCHRAENKT}`);
     return 0;
   }
   if (!a.alt || !a.rest || a.ziele.length === 0) {
-    console.error('benötigt: --alt, --rest, mindestens ein --ziel und --namen/--woertlich-namen/--liste (siehe --help)');
-    return 2;
+    return aufrufFehler('benötigt: --alt, --rest, mindestens ein --ziel und --namen/--woertlich-namen/--liste (siehe --help)', a.json);
   }
-  if (a.liste) for (const l of readFileSync(a.liste, 'utf-8').split('\n')) { const s = l.replace(/#.*$/, '').trim(); if (s) a.namen.push(s); }
+  if (a.liste) {
+    try {
+      for (const l of readFileSync(a.liste, 'utf-8').split('\n')) { const s = l.replace(/#.*$/, '').trim(); if (s) a.namen.push(s); }
+    } catch (e) {
+      return aufrufFehler(`--liste ${a.liste} nicht lesbar: ${e.code ?? e.message}`, a.json);
+    }
+  }
   if (a.woertlich) { a.woertlichNamen.push(...a.namen); a.namen = []; }
   let erg;
   try {
@@ -914,8 +931,7 @@ function haupt(argv) {
       aliase,
     });
   } catch (e) {
-    console.error(`Lesefehler: ${e.message ?? e}`);
-    return 2;
+    return aufrufFehler(`Lesefehler: ${e.message ?? e}`, a.json);
   }
   if (a.json) console.log(JSON.stringify({ eingeschraenkt: EINGESCHRAENKT, ...erg }, null, 2));
   else {

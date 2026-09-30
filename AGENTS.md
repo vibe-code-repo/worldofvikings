@@ -450,11 +450,11 @@ falls to 1,500 lines or fewer, or that no longer exists, must leave the list.
 The checker has a memory: it compares the list with the pull request's base
 (`git merge-base HEAD origin/main`; `WOV_GROESSEN_BASIS` names another git ref;
 in CI it fetches `GITHUB_BASE_REF`). In a pull request a cap or ceiling may only
-go down (an increase needs a `"grund"` text in the entry, for example
+go down (an increase needs a `"grund"` text in the entry: at least 10 letters or digits, at least 4 different ones, no control characters, no fill characters; for example
 `{ "grenze": 3550, "grund": "…" }`; the checker prints it loudly and it belongs in
 the pull request text), and a new entry is only allowed for a file that already had
 more than 1,500 lines on the base, so a rename without a matching entry is red.
-Without git or a base it runs as before and says so. Never add a large new file to
+Without git or a base it runs as before and says so, except in CI on `pull_request`, `pull_request_target` and `merge_group`, where "no base" is red. All git calls of the guard run with a cleaned environment (no `GIT_*`), so the guard is safe to run from a git hook (`tools/test/pruefe-groessen-hook.ts` proves it). Never add a large new file to
 the list: split the file. The checker proves itself on a throwaway tree first,
 every rule in both directions. Known limits: source folders next to `src`
 (for example `server/spiel/`), a file without a final newline (counts like

@@ -404,6 +404,14 @@ export default [
     Text, ~0.1 s.
   */
   ['tools/test', 'npm-weiterleitung-vikings-vorlage.ts'],
+  /*
+    I1 step 0 (N3): the size guard must not touch the surrounding repository when it runs from a git hook. Runs
+    `scripts/pruefe-groessen.mjs` from a pre-commit hook in a linked worktree (GIT_DIR and GIT_INDEX_FILE set), from
+    `git rebase --exec` and with GIT_DIR set by hand, in a throwaway clone under /var/tmp, and compares HEAD, refs, index and
+    the shallow file of the real repo before and after. Red on the guard of `feeccea6` (WOV_GUARD_SKRIPT). ~3 s.
+    Der Größenwächter darf aus einem Git-Hook heraus das Repo nicht verändern.
+  */
+  ['tools', 'test/pruefe-groessen-hook.ts'],
   // G10 (Modul-Generierung 2.0): der BEGEHUNGSPLAN fuer die Spielprobe.
   // Prueft rein rechnerisch, dass die Route aus `tools/raster-begehungsplan.ts`
   // wirklich eine Begehung ist: jeder Schritt eine echte Zellkante, jede

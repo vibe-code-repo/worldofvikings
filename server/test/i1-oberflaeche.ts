@@ -39,6 +39,17 @@
  * replaces the packet handlers on the instance and thereby freezes their NAMES. Also not covered (N2, M7 limits): text readers whose
  * path is assembled at run time (`'WovServer' + '.ts'`, `` `…/WovServer${endung}` ``, `readdirSync('server/src')` and reading each file),
  * and names in template text with a substitution in the middle of the name.
+ *
+ * Further limits found by the follow-up attack on N2 (M3), not caught on purpose or because catching them does not stay small:
+ *  - an object literal that is NOT written inside `Object.assign(…)`: `const attrappen = { name() {} }; Object.assign(server, attrappen)`,
+ *    `{ ...server, name() {} }`, `Object.assign(server, fabrik())`, `Object.assign(server, { ...{ name() {} } })`, and
+ *    `const { assign } = Object; assign(server, { … })` (the call is recognised only as `Object.assign`); object literals elsewhere
+ *    would hit harmless keys such as `running` or `update` all over the tests;
+ *  - a class WITHOUT `extends` hung onto the server with `Object.setPrototypeOf`;
+ *  - a text reader that reads `server/dist/WovServer.js` (the built file), and text readers in `.sh` or `.py` files under `tools/`
+ *    (the scan parses TypeScript/JavaScript only);
+ *  - files with other endings than `.ts .tsx .mts .cts .mjs .cjs .js .jsx`. (Directories `build`, `dist` and dot-names are scanned since N3.)
+ * The subclass catcher fires on EVERY class with `extends`, whatever the base; a harmless hit goes into FEHLTREFFER.
  */
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -328,10 +339,10 @@ function dateien(d: string, aus: string[] = []): string[] {
     return aus;
   }
   for (const e of namen) {
-    if (e === 'node_modules' || e === 'build' || e === 'dist' || e.startsWith('.')) continue;
+    if (e === 'node_modules' || e === '.git') continue;
     const p = join(d, e);
     if (statSync(p).isDirectory()) dateien(p, aus);
-    else if (/\.(ts|tsx|mts|cts|mjs|cjs|js)$/.test(e)) aus.push(p);
+    else if (/\.(ts|tsx|mts|cts|mjs|cjs|js|jsx)$/.test(e)) aus.push(p);
   }
   return aus;
 }

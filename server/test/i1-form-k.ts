@@ -915,8 +915,11 @@ function chatPeer(a: Aufzeichnung3, name: string, id: number, x: number, welt: s
     name, userId: id, worldId: welt, position: { x, y: 0, z: 0 }, nurEditor: false,
     sendPacket(type: PacketType, payload: Buffer): void {
       const r = new Reader(payload);
-      r.readString();
-      a.paket.push(`${name}:${PacketType[type]}:${JSON.stringify([r.readString(), r.readInt32(), r.readString().slice(0, 14)])}`);
+      const erstes = r.readString();
+      const absender = r.readString();
+      const typ = r.readInt32();
+      const text = r.readString();
+      a.paket.push(`${name}:${PacketType[type]}:${JSON.stringify([erstes, absender, typ, text.slice(0, 14), text.length])}`);
     },
     ...o,
   };
@@ -1117,27 +1120,27 @@ const SOLL_INTERAKTION_ECHT: Aufzeichnung3 = {
 };
 const SOLL_CHAT_ATTRAPPE: Aufzeichnung3 = {
   paket: [
-    'ich:ChatMessage:["ich",1,"Hallo Welt"]',
-    'nah:ChatMessage:["ich",1,"Hallo Welt"]',
-    'mittel:ChatMessage:["ich",1,"Hallo Welt"]',
-    'ich:ChatMessage:["ich",0,"Hallo Welt"]',
-    'nah:ChatMessage:["ich",0,"Hallo Welt"]',
-    'ich:ChatMessage:["ich",2,"Hallo Welt"]',
-    'nah:ChatMessage:["ich",2,"Hallo Welt"]',
-    'mittel:ChatMessage:["ich",2,"Hallo Welt"]',
-    'fern:ChatMessage:["ich",2,"Hallo Welt"]',
-    'ich:ChatMessage:["ich",99,"Hallo Welt"]',
-    'nah:ChatMessage:["ich",99,"Hallo Welt"]',
-    'mittel:ChatMessage:["ich",99,"Hallo Welt"]',
-    'ich:ChatMessage:["ich",1,"Grüße aus Ägir"]',
-    'nah:ChatMessage:["ich",1,"Grüße aus Ägir"]',
-    'mittel:ChatMessage:["ich",1,"Grüße aus Ägir"]',
-    'ich:ChatMessage:["ich",1,"xxxxxxxxxxxxxx"]',
-    'nah:ChatMessage:["ich",1,"xxxxxxxxxxxxxx"]',
-    'mittel:ChatMessage:["ich",1,"xxxxxxxxxxxxxx"]',
-    'ich:ChatMessage:["ich",1,""]',
-    'nah:ChatMessage:["ich",1,""]',
-    'mittel:ChatMessage:["ich",1,""]',
+    'ich:ChatMessage:["0","ich",1,"Hallo Welt",10]',
+    'nah:ChatMessage:["0","ich",1,"Hallo Welt",10]',
+    'mittel:ChatMessage:["0","ich",1,"Hallo Welt",10]',
+    'ich:ChatMessage:["0","ich",0,"Hallo Welt",10]',
+    'nah:ChatMessage:["0","ich",0,"Hallo Welt",10]',
+    'ich:ChatMessage:["0","ich",2,"Hallo Welt",10]',
+    'nah:ChatMessage:["0","ich",2,"Hallo Welt",10]',
+    'mittel:ChatMessage:["0","ich",2,"Hallo Welt",10]',
+    'fern:ChatMessage:["0","ich",2,"Hallo Welt",10]',
+    'ich:ChatMessage:["0","ich",99,"Hallo Welt",10]',
+    'nah:ChatMessage:["0","ich",99,"Hallo Welt",10]',
+    'mittel:ChatMessage:["0","ich",99,"Hallo Welt",10]',
+    'ich:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]',
+    'nah:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]',
+    'mittel:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]',
+    'ich:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]',
+    'nah:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]',
+    'mittel:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]',
+    'ich:ChatMessage:["0","ich",1,"",0]',
+    'nah:ChatMessage:["0","ich",1,"",0]',
+    'mittel:ChatMessage:["0","ich",1,"",0]',
   ],
   aufrufe: { getPeers:  9 },
   konsole: { log: 9, warn: 0 },
@@ -1148,12 +1151,12 @@ const SOLL_CHAT_ATTRAPPE: Aufzeichnung3 = {
 };
 const SOLL_CHAT_ECHT: Aufzeichnung3 = {
   paket: [
-    'a:ChatMessage:["a",1,"Hallo Ägir"]',
-    'b:ChatMessage:["a",1,"Hallo Ägir"]',
-    'a:ChatMessage:["a",0,"Hallo Ägir"]',
-    'a:ChatMessage:["a",2,"Hallo Ägir"]',
-    'b:ChatMessage:["a",2,"Hallo Ägir"]',
-    'd:ChatMessage:["a",2,"Hallo Ägir"]',
+    'a:ChatMessage:["0","a",1,"Hallo Ägir",10]',
+    'b:ChatMessage:["0","a",1,"Hallo Ägir",10]',
+    'a:ChatMessage:["0","a",0,"Hallo Ägir",10]',
+    'a:ChatMessage:["0","a",2,"Hallo Ägir",10]',
+    'b:ChatMessage:["0","a",2,"Hallo Ägir",10]',
+    'd:ChatMessage:["0","a",2,"Hallo Ägir",10]',
   ],
   aufrufe: { getPeers:  3 },
   konsole: { log: 7, warn: 0 },

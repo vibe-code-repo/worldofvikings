@@ -394,11 +394,8 @@ export function kiSchritt(
       const t = waehleZiel(z, w);
       if (!t) return befehl('frei', 0, 0, Infinity, 0, 0, Infinity);
       z.ziel = t.ziel.key;
-      // Jenseits der Leine nimmt sie niemanden mehr auf und ruft niemanden.
-      if (heimD > s.leine) {
-        wechsle(z, 'heimkehren');
-        continue;
-      }
+      // Jenseits der Leine folgt gleich der Übergang nach `heimkehren` (oben in
+      // der Schleife); `darfRufen` ist dann falsch, der Ruf an die Nachbarn entfällt.
       neuBemerkt = true;
       wechsle(z, 'bemerkt');
       continue;

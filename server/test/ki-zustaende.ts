@@ -398,6 +398,23 @@ console.log('\n[9] Drei Wölfe: jenseits der Leine zieht ein Wolf die anderen ni
   check('Ausgangslage: alle drei unbemerkt (Spieler hinter ihnen)', innen.vorher.every((p) => p === 'wandern'), innen.vorher.join(','));
   check('Wolf A innerhalb seiner Leine getroffen: B und C werden mitgezogen', innen.b !== 'wandern' && innen.c !== 'wandern', `A ${innen.a}, B ${innen.b}, C ${innen.c}`);
 
+  // Dasselbe ohne Treffer: Wolf A bemerkt den Spieler selbst (er blickt auf ihn).
+  function szenarioSicht(aJenseitsLeine: boolean) {
+    const { zdos, spawns } = baue([stehend], 9);
+    const a = setzeWolf(zdos, 8, aJenseitsLeine ? 20 : 6, -Math.PI / 2); // blickt −x, auf den Spieler
+    const b = setzeWolf(zdos, 8, 0, weg);
+    const c = setzeWolf(zdos, 8, -3, weg);
+    spawns.adoptPersisted();
+    if (aJenseitsLeine) zdos.updateZDOZone(a, { x: 8, y: BODEN_Y, z: 6 });
+    // A blickt −x, der Spieler liegt bei (0,0): A sieht ihn aus rund 10 m.
+    for (let i = 0; i < 20; i++) spawns.update(0.1, [spieler], [spieler], info);
+    return { a: spawns.kiPhase(a), b: spawns.kiPhase(b), c: spawns.kiPhase(c) };
+  }
+  const sichtInnen = szenarioSicht(false);
+  check('Wolf A sieht den Spieler selbst (innerhalb der Leine): B und C werden mitgezogen', sichtInnen.a !== 'wandern' && sichtInnen.b !== 'wandern' && sichtInnen.c !== 'wandern', `A ${sichtInnen.a}, B ${sichtInnen.b}, C ${sichtInnen.c}`);
+  const sichtAussen = szenarioSicht(true);
+  check('Wolf A sieht den Spieler, steht aber jenseits der Leine: er kehrt heim, B und C bleiben unbemerkt', sichtAussen.a === 'heimkehren' && sichtAussen.b === 'wandern' && sichtAussen.c === 'wandern', `A ${sichtAussen.a}, B ${sichtAussen.b}, C ${sichtAussen.c}`);
+
   const aussen = szenario(true);
   check(`Wolf A ${f(aussen.abstandAHeim, 0)} m von seinem Anker (Leine ${WOLF_KI.leine} m): er kehrt heim`, aussen.a === 'heimkehren', `A ${aussen.a}`);
   check('Wolf A jenseits der Leine getroffen: B und C bleiben unbemerkt', aussen.b === 'wandern' && aussen.c === 'wandern', `B ${aussen.b}, C ${aussen.c}`);

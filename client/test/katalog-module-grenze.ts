@@ -918,10 +918,13 @@ console.log('\n── [6] Step G2: pruefen.ts and kontext.ts declare only, and i
       describeImports(intoEngine) === expected,
       describeImports(intoEngine),
     );
+    // Both ends of an edge are the stem of the file (path without extension): the importer as well as the
+    // target, so that the walk below finds the target's own edges again.
+    const stemOf = (path: string): string => rel(path.replace(SOURCE_EXT, ''));
     for (const i of importsOf(file)) {
       if (i.typeOnly) continue;
       const target = resolveSpecifier(file, i.specifier)?.replace(SOURCE_EXT, '');
-      if (target && isInside(KATALOG_DIR, target)) edges.push(`${rel(file)} -> ${rel(target)}`);
+      if (target && isInside(KATALOG_DIR, target)) edges.push(`${stemOf(file)} -> ${stemOf(target)}`);
     }
   }
   const adjacency = new Map<string, string[]>();
@@ -939,10 +942,24 @@ console.log('\n── [6] Step G2: pruefen.ts and kontext.ts declare only, and i
       return;
     }
     visiting.add(node);
-    for (const next of adjacency.get(node) ?? []) visit(next.replace(SOURCE_EXT, ''));
+    for (const next of adjacency.get(node) ?? []) visit(next);
     visiting.delete(node);
     done.add(node);
   };
+  // The walk can turn red: a synthetic graph with one cycle among stems.
+  {
+    const probe = new Map<string, string[]>([['a', ['b']], ['b', ['c']], ['c', ['a']], ['d', ['a']]]);
+    const seen: string[] = [];
+    const walk = (node: string, trail: readonly string[]): void => {
+      if (trail.includes(node)) {
+        seen.push(node);
+        return;
+      }
+      for (const next of probe.get(node) ?? []) walk(next, [...trail, node]);
+    };
+    for (const node of probe.keys()) walk(node, []);
+    check('the cycle walk itself finds a synthetic cycle a -> b -> c -> a', seen.length > 0, `on a cycle: ${[...new Set(seen)].join(', ')}`);
+  }
   for (const node of adjacency.keys()) visit(node);
   check(
     'no import cycle among the modules under katalog/ (value imports)',

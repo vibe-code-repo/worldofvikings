@@ -173,6 +173,11 @@ export default [
   // der Inhalt uebersteht Speichern/Laden. Drei gestartete Server + ein
   // init()-only Reload, ~5s.
   ['server', 'test/f1-truhe.ts'],
+  // F10: Serverstopp kuendigt den Neustart an (Paket ServerNeustart, Grund
+  // "restart", <= 1 s vor dem Trennen), Anna verbindet mit dem Backoff des
+  // Client-Moduls neu und steht <= 1 m an der gesicherten Position; Befund:
+  // anderes Geheimnis = neue Figur. Drei echte Serverprozesse, rund 30 s.
+  ['server/test', 'f10-neustart-ansage.ts'],
   // F12 (Roadmap): Zonenbudget je Spieler statt einer globalen Schlange nach
   // Abstand: Spieler mit wenigen offenen Zonen kommt in <= 2 Ticks dran
   // (simulierte Uhr), keine O(Q×P)-Sortierung, dieselbe Menge Zonen/ZDOs wie
@@ -236,6 +241,13 @@ export default [
   // Original), und die einzige verdrahtete Anwendung: Eikthyr besiegen
   // setzt defeated_eikthyr, ein Reh NICHT (Regressionswache). ~2s.
   ['server', 'test/f5-weltmarken.ts'],
+  // F6: the far part of the sync window (beyond ring 1) is checked only every 2nd tick. Real client parser over the
+  // private syncZDOs (fake socket): ring 0 change arrives the next tick (100 runs), ring 3/4 changes within 2 ticks
+  // and at most every 2nd tick carries ring-3 records, destroys in ring 2 and 4 the next tick, idle checks between
+  // 45 % and 65 % of the full window (fixed numbers, so "far never" and "far every tick" both turn it red), the
+  // first transfer after zone/world change is full in all groups, per-peer byte counter equals the socket bytes;
+  // prints bytes per peer and tickSyncMs with 25 peers, 48,000 ZDOs. ~15 s.
+  ['server', 'test/f6-aoi-ringe.ts'],
   /*
     F8 N2 (2026-09-29): Truhen und Bauten im selben Schreibvorgang wie der
     Spielerzustand. Echte Serverprozesse mit SIGKILL, ein echter WebSocket-

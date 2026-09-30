@@ -101,6 +101,7 @@ import { EntityManager } from './entities/EntityManager';
 import { BaumImpostor } from './engine/BaumImpostor';
 import { PlayerController } from './player/PlayerController';
 import { GameSocket } from './net/GameSocket';
+import { WiederverbindenSteuerung } from './net/Wiederverbinden';
 import { ladeModulRegistrierung } from './net/ModuleRegistryLoad';
 import { ladeHochgeladeneRegistrierung } from './net/UploadedModelRegistryLoad';
 import { Abgleicher } from './net/Positionsverlauf';
@@ -723,8 +724,25 @@ async function main() {
   let spawnEditorOffen: () => boolean = () => false;
   /** Routen-Editor des Testflugs offen? (dito — Liste/Regler brauchen den Zeiger) */
   let routenEditorOffen: () => boolean = () => false;
-  /** Auto-Reconnect-Zähler (Review-Punkt 9) — Reset bei erfolgreicher Verbindung. */
-  let reconnectVersuch = 0;
+  /** Way back to the website sign-in; the only exit after a kick and after the last reconnect attempt (F10). */
+  const zurueckZurAnmeldung = (reason?: string): void => {
+    document.body.classList.remove('ui-versteckt');
+    const message = reason ? `Getrennt: ${reason}` : 'Verbindung zum Server verloren';
+    hud.meldeFehler(`${message} — zurück zur Anmeldung …`, 'schwer');
+    // The game no longer owns an account or character picker. Once all
+    // reconnect attempts are exhausted, the only honest recovery path is
+    // the website that issued the session. Keeping a second login here
+    // would recreate the legacy layer this flow removes.
+    window.setTimeout(() => window.location.replace(websiteLoginUrl(Boolean(reason))), 1_200);
+  };
+  /** Auto-Reconnect (Review-Punkt 9, F10): Zähler, Backoff, Ansage — Reset bei erfolgreicher Verbindung. */
+  const wiederverbinden = new WiederverbindenSteuerung({
+    aufgegeben: () => zurueckZurAnmeldung(),
+    verbinde: () => connectOnline(playerName, `${wsProto}://${location.host}/ws`),
+    zeige: (text) => hud.stehendeMeldung('netz', text),
+    uebersetze: (schluessel, vars) => i18n.t(schluessel, vars),
+    sperre: input,
+  });
   /**
    * `?dungeon=<id>`: nach dem Anmelden EINMAL in diese Instanz springen.
    *
@@ -2821,34 +2839,21 @@ async function main() {
           selectedHairColor, selectedEyeColor
         );
       }
-      reconnectVersuch = 0;
+      wiederverbinden.beiVerbunden();
     };
     socket.onDisconnected = (reason) => {
       netStatus = `getrennt${reason ? `: ${reason}` : ''}`;
       kampfToene.dispose();
-      // Auto-Reconnect (Review-Punkt 9): drei Versuche mit wachsendem
-      // Abstand, erst danach zur Anmeldung auf der Webseite. Ein Kick durch
-      // den Server (reason gesetzt) wird NICHT automatisch wiederholt.
-      if (!reason && reconnectVersuch < 3) {
-        reconnectVersuch++;
-        const wartezeit = 1000 * 2 ** (reconnectVersuch - 1);
-        hud.meldung(`Verbindung verloren — Wiederaufbau in ${wartezeit / 1000}s (Versuch ${reconnectVersuch}/3)`);
-        window.setTimeout(() => connectOnline(name, url), wartezeit);
-        return;
-      }
-      document.body.classList.remove('ui-versteckt');
-      const message = reason ? `Getrennt: ${reason}` : 'Verbindung zum Server verloren';
-      hud.meldeFehler(`${message} — zurück zur Anmeldung …`, 'schwer');
-
-      // The game no longer owns an account or character picker. Once all
-      // reconnect attempts are exhausted, the only honest recovery path is
-      // the website that issued the session. Keeping a second login here
-      // would recreate the legacy layer this flow removes.
-      window.setTimeout(
-        () => window.location.replace(websiteLoginUrl(Boolean(reason))),
-        1_200,
-      );
+      // F10: erwartete Trennung (Netz weg, Neustart) -> geduldig neu verbinden,
+      // Kick mit Grund -> zurueck zur Webseite (Logik in net/Wiederverbinden.ts).
+      if (wiederverbinden.beiGetrennt(reason)) return;
+      zurueckZurAnmeldung(reason);
     };
+    socket.on(PacketType.PeerInfo, () => wiederverbinden.beiAngenommen());
+    socket.on(PacketType.ServerNeustart, (r) => {
+      r.readString(); // Schluessel: der Client kennt den Text, dem Server wird kein Schluessel geglaubt
+      wiederverbinden.ansage(r.readInt32());
+    });
     socket.connect();
     netStatus = 'verbinde…';
   }

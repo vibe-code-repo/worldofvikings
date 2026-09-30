@@ -59,6 +59,7 @@ import {
   AUGENFARBE_VORGABE,
 } from '@wov/shared';
 import type { Vector3, ZoneID } from '@wov/shared';
+import { NEUSTART_RETRY_SEC } from '@wov/shared';
 import {
   BAU_PREFABS,
   ESSEN,
@@ -1771,6 +1772,19 @@ export class WovServer {
       strukturLog('world_save_failed_on_stop', { fehler: String(err) });
     }
 
+    // F10: Ansage NACH dem Speichern und nur, wenn der Endstand auf der Platte liegt: Sie
+    // verspricht "du wirst wieder verbunden" und der Client macht weiter, wo der Server ihn
+    // gesichert hat. Ist das Speichern gescheitert, stammt der Stand aus der letzten
+    // periodischen Sicherung; dann bleibt die Ansage aus (der Trenngrund `restart` und das
+    // Wiederverbinden bleiben, der Spieler sieht nur den neutralen Verbindungszaehler).
+    if (gespeichert) {
+      try {
+        this.net.kuendigeNeustartAn(NEUSTART_RETRY_SEC);
+      } catch (err) {
+        console.error(`[WoV] Neustart-Ansage fehlgeschlagen: ${err}`);
+      }
+    }
+
     try {
       this.net.stop();
     } catch (err) {
@@ -2050,7 +2064,10 @@ export class WovServer {
       const nahEnde = Math.min(peer.fenster.nahEnde, fenster.length);
       let ferneStart = nahEnde + peer.fenster.cursor;
       if (ferneStart >= fenster.length) ferneStart = nahEnde;
-      const ende = Math.min(fenster.length, ferneStart + SYNC_PRUEFUNGEN_MAX);
+      // F6: Der ferne Teil läuft nur in jedem 2. Tick (s. ZonenFenster.ferneDran).
+      const ferne = peer.fenster.ferneDran();
+      const ende = ferne ? Math.min(fenster.length, ferneStart + SYNC_PRUEFUNGEN_MAX) : nahEnde;
+      let budgetGebrochen = false;
       // Cursor für den nächsten Tick: Deckel (ende) oder Fensterende (0).
       let naechsterCursor = ende >= fenster.length ? 0 : ende - nahEnde;
       for (let i = 0; i < ende; i++) {
@@ -2073,6 +2090,7 @@ export class WovServer {
         // vor F2 — die Pakete sind byte-gleich; die Stelle steht hier, weil
         // der Cursor den Index des ersten ungeschriebenen ZDOs braucht.)
         if (anzahl > 0 && writer.geschrieben >= budget) {
+          budgetGebrochen = true;
           // Im nahen Teil bleibt der Cursor stehen (der nahe Teil wird ohnehin
           // nächsten Tick wieder von vorn geprüft). Im fernen Teil: steht das
           // ZDO noch im vorderen Teil, lieber von vorn (nah zuerst); liegt es
@@ -2087,6 +2105,7 @@ export class WovServer {
         gesendet.push(zdo);
       }
       peer.fenster.cursor = naechsterCursor;
+      if (ferne) peer.fenster.ferneAktiv = budgetGebrochen;
 
       if (anzahl === 0 && zerstoerungen.length === 0) continue;
       writer.patchInt32(zaehlerStelle, anzahl);

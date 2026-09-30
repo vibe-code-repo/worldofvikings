@@ -1,0 +1,407 @@
+/**
+ * F10 — Wiederverbinden nach Serverneustart: die DOM-freie Logik
+ * (client/src/net/Wiederverbinden.ts). Rot auf main, weil das Modul dort fehlt.
+ *
+ * Geprueft mit Zahlen:
+ *  - Wartezeiten 1, 2, 4, 8, 16, 32, 60, 60, 60 s (Tabelle),
+ *  - erwartete Trennungen ('' , 'restart', 'Server shutting down') wiederholen,
+ *    jeder andere Grund (Kick, Bann, Abloesung, falsches Passwort) gibt auf,
+ *  - die Ansage verzoegert nur den ERSTEN Versuch, und nur nach oben,
+ *  - das Zeitlimit greift (10 min), davor nicht,
+ *  - die Steuerung: Sperre an waehrend der Serie, Zaehler im Text laeuft
+ *    herunter (8, 7, …), `verbinde` genau einmal je Versuch, Reset bei Erfolg,
+ *    Kick bricht ab und gibt die Figur frei.
+ *
+ * Lauf: npx tsx client/test/f10-wiederverbinden.ts   (aus der Repo-Wurzel)
+ */
+import {
+  HALTEZEIT_MS,
+  WARTE_MAX_MS,
+  ZEITLIMIT_MS,
+  WiederverbindenSteuerung,
+  istErwarteteTrennung,
+  naechsterVersuch,
+  wartezeitMs,
+  type WiederverbindenText,
+} from '../src/net/Wiederverbinden';
+
+let fehler = 0;
+function pruefe(ok: boolean, text: string): void {
+  if (!ok) {
+    fehler++;
+    console.error(`FEHLER: ${text}`);
+  } else console.log(`ok: ${text}`);
+}
+
+// ── 1. Tabelle der Wartezeiten ──────────────────────────────────────
+const erwartet = [1, 2, 4, 8, 16, 32, 60, 60, 60].map((s) => s * 1000);
+const tatsaechlich = erwartet.map((_, i) => wartezeitMs(i));
+pruefe(JSON.stringify(tatsaechlich) === JSON.stringify(erwartet), `Wartezeiten ${tatsaechlich.map((m) => m / 1000).join(',')} s`);
+pruefe(WARTE_MAX_MS === 60_000, 'Obergrenze 60 s');
+pruefe(wartezeitMs(1000) === 60_000, 'auch der 1000. Versuch wartet nur 60 s');
+
+// ── 2. Grund ────────────────────────────────────────────────────────
+for (const g of ['', undefined, 'restart', 'Server shutting down']) {
+  pruefe(istErwarteteTrennung(g), `Grund ${JSON.stringify(g)} wird wiederholt`);
+  const e = naechsterVersuch(g, 0);
+  pruefe(!e.aufgeben && e.warteMs === 1000, `Grund ${JSON.stringify(g)}: erster Versuch nach 1000 ms`);
+}
+for (const g of ['Wrong password', 'Von einer neuen Verbindung abgelöst', 'Kicked by admin', 'Name already in use', 'Handshake fehlgeschlagen']) {
+  const e = naechsterVersuch(g, 0);
+  pruefe(e.aufgeben && e.warteMs === 0, `Kick "${g}" gibt auf`);
+}
+
+// ── 3. Ansage ───────────────────────────────────────────────────────
+pruefe(naechsterVersuch('restart', 0, 0, 5000).warteMs === 5000, 'Ansage 5 s verzoegert den ersten Versuch auf 5000 ms');
+pruefe(naechsterVersuch('restart', 0, 0, 200).warteMs === 1000, 'Ansage kuerzer als 1 s verkuerzt nie');
+pruefe(naechsterVersuch('restart', 1, 0, 5000).warteMs === 2000, 'Ansage gilt nur fuer den ersten Versuch');
+
+// ── 4. Zeitlimit ────────────────────────────────────────────────────
+pruefe(ZEITLIMIT_MS === 600_000, 'Zeitlimit 600000 ms');
+pruefe(!naechsterVersuch('', 9, ZEITLIMIT_MS - 60_000).aufgeben, 'genau am Limit (Versuch reicht noch hinein): weiter');
+pruefe(naechsterVersuch('', 9, ZEITLIMIT_MS - 59_999).aufgeben, 'eine Millisekunde ueber dem Limit: aufgeben');
+pruefe(naechsterVersuch('', 0, ZEITLIMIT_MS).aufgeben, 'nach dem Limit aufgeben, auch beim ersten Versuch');
+
+// ── 5. Steuerung ────────────────────────────────────────────────────
+interface Geplant { ab: number; fn: () => void; id: number }
+function baue(verbindeFn?: () => void, aufgegeben?: () => void) {
+  let jetzt = 1_000_000;
+  let nr = 0;
+  let geplant: Geplant[] = [];
+  const log = { verbinde: 0, texte: [] as (string | null)[], sperre: { netzGesperrt: false } };
+  const s = new WiederverbindenSteuerung({
+    verbinde: () => { log.verbinde++; verbindeFn?.(); },
+    aufgegeben,
+    zeige: (t) => void log.texte.push(t),
+    uebersetze: (k: WiederverbindenText, v) => `${k}|${v?.sekunden ?? ''}|${v?.versuch ?? ''}`,
+    sperre: log.sperre,
+    jetzt: () => jetzt,
+    setzeTimer: (fn, ms) => { const id = ++nr; geplant.push({ ab: jetzt + ms, fn, id }); return id; },
+    loescheTimer: (h) => { geplant = geplant.filter((g) => g.id !== h); },
+  });
+  /** Laesst die Uhr `ms` weiterlaufen und feuert dabei faellige Timer der Reihe nach. */
+  const laufe = (ms: number): void => {
+    const ziel = jetzt + ms;
+    for (;;) {
+      geplant.sort((a, b) => a.ab - b.ab);
+      const n = geplant[0];
+      if (!n || n.ab > ziel) break;
+      geplant.shift();
+      jetzt = Math.max(jetzt, n.ab);
+      n.fn();
+    }
+    jetzt = ziel;
+  };
+  /** Nur die Uhr laeuft, kein Timer feuert (eingefrorener oder gedrosselter Tab). */
+  const friere = (ms: number): void => { jetzt += ms; };
+  /** Alle inzwischen faelligen Timer feuern (der Tab kommt zurueck). */
+  const taue = (): number => {
+    let n = 0;
+    for (;;) {
+      geplant.sort((a, b) => a.ab - b.ab);
+      const f = geplant[0];
+      if (!f || f.ab > jetzt) break;
+      geplant.shift(); n++; f.fn();
+    }
+    return n;
+  };
+  return { s, log, laufe, friere, taue, offeneTimer: () => geplant.length };
+}
+
+{
+  const { s, log, laufe } = baue();
+  s.ansage(3);
+  pruefe(log.texte.at(-1) === 'netz.neustart.ansage||', 'Ansage zeigt den Ansagetext');
+  pruefe(s.beiGetrennt('restart') === true, 'Neustart-Trennung: es wird neu verbunden');
+  pruefe(log.sperre.netzGesperrt === true, 'Figur ist gesperrt (steht still)');
+  pruefe(log.texte.at(-1) === 'netz.verloren.versuch|3|1', `erster Zaehler nach Ansage: ${log.texte.at(-1)} (3 s, Versuch 1)`);
+  laufe(1000);
+  pruefe(log.texte.at(-1) === 'netz.verloren.versuch|2|1', `nach 1 s: ${log.texte.at(-1)}`);
+  laufe(1999);
+  pruefe(log.verbinde === 0, 'nach 2,999 s noch kein Versuch');
+  laufe(1);
+  pruefe(log.verbinde === 1, 'nach 3 s genau ein Verbindungsversuch');
+  // Versuch scheitert (Server noch aus): zweiter Versuch nach 2 s
+  pruefe(s.beiGetrennt('') === true && log.texte.at(-1) === 'netz.verloren.versuch|2|2', `zweite Trennung: ${log.texte.at(-1)}`);
+  laufe(2000);
+  pruefe(log.verbinde === 2, 'zweiter Versuch nach 2 s');
+  pruefe(s.anzahlVersuche === 2, 'Zaehler 2');
+  s.beiVerbunden();
+  pruefe(s.anzahlVersuche === 2, 'Transport steht, Server hat noch nicht angenommen: Zaehler bleibt (F1)');
+  s.beiAngenommen();
+  pruefe(log.sperre.netzGesperrt === false, 'Annahme: Figur sofort frei');
+  laufe(HALTEZEIT_MS);
+  pruefe(s.anzahlVersuche === 0, 'Erfolg (PeerInfo + 10 s gehalten): Zaehler 0');
+  pruefe(log.texte.at(-1) === null, 'Annahme: Meldung weg');
+  // neue Serie beginnt wieder bei 1 s
+  s.beiGetrennt('');
+  pruefe(log.texte.at(-1) === 'netz.verloren.versuch|1|1', 'neue Serie beginnt wieder bei 1 s');
+}
+{
+  const { s, log, laufe, offeneTimer } = baue();
+  pruefe(s.beiGetrennt('Kicked by admin') === false, 'Kick: kein neuer Versuch');
+  pruefe(log.sperre.netzGesperrt === false && offeneTimer() === 0 && log.verbinde === 0, 'Kick: nichts gesperrt, kein Timer, kein Versuch');
+  laufe(120_000);
+  pruefe(log.verbinde === 0, 'Kick: auch nach 2 min kein Versuch');
+}
+{
+  // ganze Serie durchspielen: alle Versuche scheitern, bis das Zeitlimit greift
+  const { s, log, laufe } = baue();
+  let zuletzt = true;
+  let versuche = 0;
+  let vergangen = 0;
+  while (zuletzt && versuche < 100) {
+    zuletzt = s.beiGetrennt('');
+    if (!zuletzt) break;
+    versuche++;
+    const vorher = log.verbinde;
+    let schritt = 0;
+    while (log.verbinde === vorher && schritt < 70_000) { laufe(1000); schritt += 1000; vergangen += 1000; }
+  }
+  pruefe(!zuletzt, `Serie endet von selbst nach ${versuche} Versuchen`);
+  pruefe(vergangen <= ZEITLIMIT_MS, `Gesamtdauer ${vergangen / 1000} s <= 600 s`);
+  // 1+2+4+8+16+32 = 63 s nach 6 Versuchen, jeder weitere 60 s: Versuch k passt, solange 63 + 60*(k-6) <= 600, also k <= 14.
+  pruefe(versuche === 14, `Versuche bis zum Limit: ${versuche} (erwartet 14)`);
+  pruefe(log.sperre.netzGesperrt === false, 'nach dem Aufgeben ist die Sperre weg');
+}
+
+
+// ── 6. Nachbesserung N1 ─────────────────────────────────────────────
+// F1: Server nimmt den Handshake an (Transport steht: beiVerbunden) und schliesst ohne Grund,
+// ohne je PeerInfo zu schicken (beiAngenommen fehlt). Auf 3c6bceb3 setzte beiVerbunden die Serie
+// zurueck: 2000 Versuche in 2000 s, nie aufgegeben.
+{
+  const { s, log, laufe } = baue();
+  const warten: number[] = [];
+  let weiter = true;
+  let zyklen = 0;
+  let vergangen = 0;
+  while (weiter && zyklen < 200 && vergangen < 2 * ZEITLIMIT_MS) {
+    weiter = s.beiGetrennt('');
+    if (!weiter) break;
+    zyklen++;
+    warten.push(Number(/\|(\d+)\|/.exec(log.texte.at(-1) ?? '')?.[1]));
+    const vorher = log.verbinde;
+    while (log.verbinde === vorher) { laufe(1000); vergangen += 1000; }
+    s.beiVerbunden(); // Anmeldepaket raus, aber kein PeerInfo
+  }
+  pruefe(!weiter, `F1: nach Handshake ohne Annahme gibt der Client auf (nach ${zyklen} Versuchen, ${vergangen / 1000} s)`);
+  pruefe(vergangen <= ZEITLIMIT_MS, `F1: Gesamtdauer ${vergangen / 1000} s <= 600 s`);
+  pruefe(JSON.stringify(warten.slice(0, 8)) === JSON.stringify([1, 2, 4, 8, 16, 32, 60, 60]), `F1: der Backoff waechst trotz Verbindungen: ${warten.slice(0, 8).join(',')} s`);
+  pruefe(zyklen === 14, `F1: genau 14 Versuche wie ohne Handshake (${zyklen})`);
+}
+
+// F2: verbinde() wirft im Timer.
+{
+  let aufgegebenZaehler = 0;
+  const { s, log, laufe } = baue(() => { throw new Error('WebSocket: ungueltige Adresse'); }, () => void aufgegebenZaehler++);
+  const echtesError = console.error;
+  console.error = () => undefined; // die erwartete Fehlerzeile nicht ins Protokoll kippen
+  pruefe(s.beiGetrennt('') === true, 'F2: erste Trennung: Versuch laeuft');
+  laufe(1000);
+  pruefe(log.verbinde === 1 && s.anzahlVersuche === 2, `F2: Ausnahme gefangen, Versuch zaehlt als gescheitert (Versuche ${s.anzahlVersuche})`);
+  pruefe(log.sperre.netzGesperrt === true && log.texte.at(-1) === 'netz.verloren.versuch|2|2', `F2: naechster Zaehler laeuft (${log.texte.at(-1)})`);
+  for (let i = 0; i < 700 && aufgegebenZaehler === 0; i++) laufe(1000);
+  pruefe(aufgegebenZaehler === 1, 'F2: nach dem Zeitlimit wird genau einmal aufgegeben (Weg zur Webseite)');
+  pruefe(log.sperre.netzGesperrt === false, 'F2: Sperre haengt nicht');
+  console.error = echtesError;
+  pruefe(log.verbinde === 14, `F2: 14 Versuche bis zum Limit (${log.verbinde})`);
+}
+
+// F3: Systemuhr springt um +-1 h; die Standarduhr ist monoton (performance.now).
+{
+  const echteDatum = Date.now;
+  let offset = 0;
+  Date.now = () => echteDatum() + offset;
+  let geplant: (() => void) | null = null;
+  let verbunden = 0;
+  const texte: (string | null)[] = [];
+  const s = new WiederverbindenSteuerung({
+    verbinde: () => void verbunden++,
+    zeige: (x) => void texte.push(x),
+    uebersetze: (k: WiederverbindenText, v) => `${k}|${v?.sekunden ?? ''}|${v?.versuch ?? ''}`,
+    sperre: { netzGesperrt: false },
+    setzeTimer: (fn) => { geplant = fn; return 1; },
+  });
+  s.beiGetrennt('');
+  offset = -3_600_000; // Uhr eine Stunde zurueck
+  await new Promise((r) => setTimeout(r, 1050));
+  (geplant as (() => void) | null)?.();
+  pruefe(verbunden === 1, `F3: Uhr -1 h: der Versuch kommt trotzdem nach 1 s (verbunden ${verbunden})`);
+  s.beiAngenommen();
+  offset = 0;
+  s.beiGetrennt('');
+  offset = 3_600_000; // Uhr eine Stunde vor: darf kein sofortiges Aufgeben bewirken
+  const weiter = s.beiGetrennt('');
+  pruefe(weiter === true, 'F3: Uhr +1 h: Serie laeuft weiter statt aufzugeben');
+  Date.now = echteDatum;
+}
+
+// F4: Tod (InputManager.gesperrt) und Wiederverbindung (netzGesperrt) gleichzeitig, am echten InputManager.
+{
+  type Handler = (e: Record<string, unknown>) => void;
+  const fenster = new Map<string, Handler>();
+  const g = globalThis as Record<string, unknown>;
+  g.window = { addEventListener: (x: string, f: Handler) => fenster.set(x, f), setTimeout, clearTimeout };
+  g.document = { addEventListener: () => undefined, pointerLockElement: null };
+  Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'test' }, configurable: true });
+  const leinwand = { addEventListener: () => undefined, requestPointerLock: () => undefined };
+  const { InputManager } = await import('../src/engine/InputManager');
+  const input = new InputManager(leinwand as unknown as HTMLCanvasElement);
+  input.pointerLocked = true;
+  fenster.get('keydown')!({ code: 'KeyW', repeat: false, preventDefault: () => undefined });
+  pruefe(input.isDown('KeyW'), 'F4: frei: W gilt');
+  input.gesperrt = true; // TodTreffer: tot
+  const { s } = (() => {
+    const log = { verbinde: 0, texte: [] as (string | null)[] };
+    const s = new WiederverbindenSteuerung({
+      verbinde: () => void log.verbinde++,
+      zeige: (x) => void log.texte.push(x),
+      uebersetze: (k) => k,
+      sperre: input,
+    });
+    return { s };
+  })();
+  s.beiGetrennt('');
+  pruefe(!input.isDown('KeyW') && input.gesperrt && input.netzGesperrt, 'F4: tot + getrennt: beide Sperren gesetzt, W gilt nicht');
+  s.beiAngenommen();
+  pruefe(input.gesperrt === true && input.netzGesperrt === false && !input.isDown('KeyW'), 'F4: nach der Annahme bleibt die Tod-Sperre (W gilt nicht)');
+  input.gesperrt = false;
+  pruefe(input.isDown('KeyW'), 'F4: nach der Wiederbelebung gilt W wieder');
+  s.beiGetrennt('');
+  pruefe(!input.isDown('KeyW') && input.netzGesperrt, 'F4: nur getrennt: W gilt nicht');
+  s.beiAngenommen();
+  pruefe(input.isDown('KeyW') && !input.netzGesperrt, 'F4: nach der Annahme ist die eigene Sperre frei');
+}
+
+
+// ── 7. Nachbesserung N2 (Kurzpruefung R1 + Haertung) ────────────────
+// R1: Der Server schickt PeerInfo und schliesst sofort ohne Grund (Beitrittsweg wirft). Auf 7f887abb
+// setzte beiAngenommen die Serie zurueck: 2000 Versuche in 2000 s.
+{
+  const { s, log, laufe } = baue();
+  const warten: number[] = [];
+  let weiter = true;
+  let zyklen = 0;
+  let vergangen = 0;
+  while (weiter && zyklen < 200 && vergangen < 2 * ZEITLIMIT_MS) {
+    weiter = s.beiGetrennt('');
+    if (!weiter) break;
+    zyklen++;
+    warten.push(Number(/\|(\d+)\|/.exec(log.texte.at(-1) ?? '')?.[1]));
+    const vorher = log.verbinde;
+    while (log.verbinde === vorher) { laufe(1000); vergangen += 1000; }
+    s.beiVerbunden();
+    s.beiAngenommen(); // PeerInfo kommt an ...
+    pruefe(log.sperre.netzGesperrt === false, 'R1: bei PeerInfo ist die Figur sofort frei') ;
+    laufe(10); vergangen += 10; // ... und der Server schliesst nach 10 ms
+  }
+  pruefe(!weiter, `R1: PeerInfo + sofort Schliessen gibt auf (nach ${zyklen} Versuchen, ${Math.round(vergangen / 1000)} s)`);
+  pruefe(vergangen <= ZEITLIMIT_MS + 14 * 10, `R1: Gesamtdauer ${Math.round(vergangen / 1000)} s <= 600 s (+ 14 x 10 ms)`);
+  pruefe(JSON.stringify(warten.slice(0, 8)) === JSON.stringify([1, 2, 4, 8, 16, 32, 60, 60]), `R1: Backoff waechst: ${warten.slice(0, 8).join(',')} s`);
+  pruefe(zyklen === 14, `R1: 14 Versuche (${zyklen})`);
+}
+{
+  // gehalten: PeerInfo + 10 s => Reset wie bisher; 1 ms weniger => noch nicht
+  const { s, laufe } = baue();
+  s.beiGetrennt(''); laufe(1000); s.beiGetrennt(''); laufe(2000);
+  pruefe(s.anzahlVersuche === 2, 'Haltezeit: Serie mit 2 Versuchen');
+  s.beiAngenommen();
+  laufe(HALTEZEIT_MS - 1);
+  pruefe(s.anzahlVersuche === 2, 'Haltezeit: nach 9,999 s noch nicht zurueckgesetzt');
+  laufe(1);
+  pruefe(s.anzahlVersuche === 0, 'Haltezeit: nach 10 s zurueckgesetzt');
+  // nicht gehalten: Trennung bei 5 s => Serie laeuft weiter, der Haltetimer feuert nicht nachtraeglich
+  s.beiGetrennt(''); laufe(1000); s.beiAngenommen(); laufe(5000);
+  pruefe(s.beiGetrennt('') === true && s.anzahlVersuche === 2, `Haltezeit: Trennung nach 5 s => Versuch 2 (${s.anzahlVersuche}), Backoff waechst`);
+  laufe(HALTEZEIT_MS * 3);
+  pruefe(s.anzahlVersuche === 2, 'Haltezeit: der gestoppte Haltetimer setzt spaeter nichts zurueck');
+}
+{
+  // Haertung: doppeltes beiGetrennt => nur ein Zaehler, nur ein Verbindungsversuch
+  const { s, log, laufe, offeneTimer } = baue();
+  s.beiGetrennt(''); s.beiGetrennt('');
+  pruefe(offeneTimer() === 1, `Haertung: nach zwei beiGetrennt genau ein offener Timer (${offeneTimer()})`);
+  laufe(1000);
+  pruefe(log.verbinde === 0, 'Haertung: der alte 1-s-Zaehler feuert nicht (kein Versuch nach 1 s)');
+  laufe(1000);
+  pruefe(log.verbinde === 1, `Haertung: genau ein Versuch nach 2 s (${log.verbinde})`);
+}
+
+
+// ── 8. Nachbesserung N3 (Nachpruefung B1/B3): Haltezeit nach der Uhr, nicht nur nach dem Timer ──
+{
+  // B1: Tab eingefroren: PeerInfo, 30 min nur Uhr, close kommt VOR dem nachgeholten Haltetimer.
+  const { s, log, friere, taue, offeneTimer } = baue();
+  s.beiGetrennt(''); // Versuch 1
+  pruefe(s.anzahlVersuche === 1, 'B1: Serie mit 1 Versuch');
+  s.beiAngenommen();
+  friere(30 * 60_000);
+  const r = s.beiGetrennt('');
+  pruefe(r === true, `B1: 30 min gehalten (Timer eingefroren): Trennung verbindet neu statt aufzugeben (${r})`);
+  pruefe(s.anzahlVersuche === 1 && log.texte.at(-1) === 'netz.verloren.versuch|1|1', `B1: neue Serie, Backoff wieder 1 s (${log.texte.at(-1)})`);
+  pruefe(taue() === 0 && offeneTimer() === 1 && s.anzahlVersuche === 1, `B1: nichts Faelliges (taue 0), nur der neue Zaehler offen (${offeneTimer()}), Versuche bleiben 1`);
+}
+{
+  // B3: Drosselung: Serie 9 min 20 s alt, PeerInfo, Haltetimer kommt zu spaet, close davor.
+  const { s, log, laufe, friere, taue } = baue();
+  s.beiGetrennt(''); laufe(1000); s.beiVerbunden(); // Versuch 1
+  s.beiGetrennt(''); // Versuch 2, Zaehler 2 s
+  friere(9 * 60_000 + 15_000); // Uhr springt, Timer gedrosselt
+  taue();
+  pruefe(log.verbinde === 2, `B3: Versuch 2 ausgeloest (${log.verbinde})`);
+  s.beiVerbunden(); s.beiAngenommen();
+  friere(55_000);
+  const r = s.beiGetrennt('');
+  pruefe(r === true, `B3: 55 s gehaltene Verbindung fuehrt nicht zur Aufgabe, obwohl die Serie 10:11 alt ist (${r})`);
+  pruefe(s.anzahlVersuche === 1, `B3: neue Serie (Versuche ${s.anzahlVersuche})`);
+}
+{
+  // Grenze: 9,999 s nach der Uhr gehalten (Timer eingefroren) zaehlt NICHT als gehalten.
+  const { s, friere } = baue();
+  s.beiGetrennt(''); s.beiGetrennt(''); s.beiAngenommen();
+  friere(HALTEZEIT_MS - 1);
+  pruefe(s.beiGetrennt('') === true && s.anzahlVersuche === 3, `B1-Grenze: 9,999 s nach der Uhr: Serie laeuft weiter (Versuch ${s.anzahlVersuche})`);
+}
+
+
+// ── 9. N4 (Nachpruefung N3, nur Test): Mutanten fangen ─────────────────
+{
+  // A1: PeerInfo, Trennung nach 3 s, danach nur Fehlversuche ohne PeerInfo. Ein nie geloeschtes
+  // `angenommenAb` wuerde bei jedem Fehlversuch (Uhr > 10 s nach dem alten PeerInfo) die Serie
+  // zuruecksetzen: nie aufgegeben.
+  const { s, log, laufe } = baue();
+  s.beiGetrennt(''); laufe(1000); s.beiVerbunden(); s.beiAngenommen();
+  laufe(3000);
+  let weiter = s.beiGetrennt('');
+  pruefe(weiter && s.anzahlVersuche === 2, `A1: Trennung 3 s nach PeerInfo: Versuch 2 (${s.anzahlVersuche})`);
+  let zyklen = 1;
+  let t = 4000;
+  while (weiter && zyklen < 200 && t < 2 * ZEITLIMIT_MS) {
+    const vorher = log.verbinde;
+    while (log.verbinde === vorher) { laufe(1000); t += 1000; }
+    s.beiVerbunden(); // Anmeldepaket raus, nie PeerInfo
+    weiter = s.beiGetrennt('');
+    if (weiter) zyklen++;
+  }
+  pruefe(!weiter, `A1: nach dem einen PeerInfo nur noch Fehlversuche: Aufgabe nach ${zyklen + 1} Trennungen, ${Math.round(t / 1000)} s`);
+  pruefe(t <= ZEITLIMIT_MS, `A1: Gesamtdauer ${Math.round(t / 1000)} s <= 600 s`);
+  pruefe(zyklen >= 13 && zyklen <= 15, `A1: rund 14 Zyklen (${zyklen})`);
+}
+{
+  // A2: Grenze der Uhr: genau HALTEZEIT_MS gehalten, close vor dem Timer => Reset (>=, nicht >).
+  const { s, log, friere, taue, offeneTimer } = baue();
+  s.beiGetrennt(''); s.beiGetrennt('');
+  pruefe(s.anzahlVersuche === 2, 'A2: Serie mit 2 Versuchen');
+  s.beiAngenommen();
+  friere(HALTEZEIT_MS);
+  pruefe(s.beiGetrennt('') === true && s.anzahlVersuche === 1, `A2: genau 10 s nach der Uhr, close vor dem Timer: Reset, Versuch 1 (${s.anzahlVersuche})`);
+  pruefe(log.texte.at(-1) === 'netz.verloren.versuch|1|1', `A2: Backoff wieder 1 s (${log.texte.at(-1)})`);
+  pruefe(taue() === 0 && offeneTimer() === 1 && s.anzahlVersuche === 1, 'A2: kein zweiter Reset durch den gestoppten Haltetimer');
+}
+
+if (fehler) {
+  console.error(`${fehler} Fehler`);
+  process.exit(1);
+}
+console.log('F10-Wiederverbinden: alles gruen');

@@ -615,7 +615,7 @@ export class WovServer {
   /** Kennung DIESER Welt (steht in der Weltdatei; die Zustandszeilen tragen sie als `welt_id`), s. bestimmeWeltKennung(). */
   private zustandWeltId = '';
   /** F8 N3: gemeinsamer monotoner Stempel fuer Spielerzeilen, ZDO-Zeilen und Spielerstaende im Weltspeicher. */
-  private readonly stempel = new Stempel();
+  private stempel: Stempel | undefined = new Stempel();
   /** F8 N3: die Weltdatei traegt (noch) keine Kennung: beim Start einmal speichern, damit sie sie bekommt. */
   private kennungNochNichtGespeichert = false;
   private zdoSyncAccumulator: number;
@@ -1190,7 +1190,7 @@ export class WovServer {
     // F8 N3: Die Kennung der Welt steht in der Weltdatei (s. bestimmeWeltKennung, beim Laden); bis dahin leer.
     // Zeilen einer anderen Kennung werden nie geloescht, nur ignoriert; geloescht wird ausschliesslich beim
     // ausdruecklichen "Welt zuruecksetzen" (admin/src/routen/weltZuruecksetzen.ts).
-    this.spielerSicherung = new SpielerSicherung(this.kontenDb, this.zustandWeltId, this.stempel);
+    this.spielerSicherung = new SpielerSicherung(this.kontenDb, this.zustandWeltId, this.stempelZaehler());
     this.weltZdoSicherung = new WeltZdoSicherung(
       this.zustandWeltId,
       (hash) => this.weltZdoRelevant(hash),
@@ -5722,7 +5722,7 @@ export class WovServer {
           // Neustart die aeltere Zeile mit dem Stempel vom Abmelden (oder der
           // Eingriff fehlt nach einem Kill bis zum naechsten Weltspeichern).
           record![1].inventar = staged.serialize();
-          record![1].gespeichertAm = this.stempel.naechster();
+          record![1].gespeichertAm = this.stempelZaehler().naechster();
           this.spielerSicherung?.sichere([record![1]], 'admin');
         }
         void this.saveWorldAsync();
@@ -6501,6 +6501,16 @@ export class WovServer {
   }
 
   /**
+   * F8 N4d: der gemeinsame Stempel-Zaehler. Das Feld wird beim Bau des Servers angelegt; Tests, die den Server ohne
+   * Konstruktor bauen (`Object.create(WovServer.prototype)`, ohne init()/start()), haben es nicht. Dort legt der erste Zugriff
+   * einen frischen Zaehler an. Im echten Start aendert das nichts: `bestimmeWeltKennung` hebt den vorhandenen Zaehler aus
+   * Weltdatei und Tabellen (`hebeAuf`), genau wie vorher.
+   */
+  private stempelZaehler(): Stempel {
+    return (this.stempel ??= new Stempel());
+  }
+
+  /**
    * F8: Der Spielerstand eines verbundenen Peers — EINE Stelle fuer
    * Abmelden, Weltspeichern und die laufende Sicherung, damit sich die
    * drei nie auseinanderentwickeln.
@@ -6526,7 +6536,7 @@ export class WovServer {
       ruestung: peer.ruestung,
       waffe: peer.waffe || undefined,
       inventar: peer.inventar.serialize(),
-      gespeichertAm: this.stempel.naechster(),
+      gespeichertAm: this.stempelZaehler().naechster(),
     };
   }
 
@@ -6584,10 +6594,10 @@ export class WovServer {
     this.spielerSicherung?.setzeWeltId(id);
     this.weltZdoSicherung?.setzeWeltId(id);
     // Der Zaehler laeuft ab dem Hoechsten weiter, was auf der Platte steht (beide Tabellen, Kopf der Datei, Spielerstaende darin).
-    this.stempel.hebeAuf(data?.meta.stempel);
-    for (const p of data?.players ?? []) this.stempel.hebeAuf(p.gespeichertAm);
+    this.stempelZaehler().hebeAuf(data?.meta.stempel);
+    for (const p of data?.players ?? []) this.stempelZaehler().hebeAuf(p.gespeichertAm);
     try {
-      this.stempel.hebeAuf(this.kontenDb.hoechsterZustandsStand());
+      this.stempelZaehler().hebeAuf(this.kontenDb.hoechsterZustandsStand());
     } catch (err) {
       console.error(`[Weltzustand] hoechster Stempel nicht lesbar: ${err}`);
     }
@@ -6751,7 +6761,7 @@ export class WovServer {
   saveWorld(): void {
     if (!this.worldManager) return; // init() not run (unit tests)
 
-    const vorStand = this.stempel.aktuell();
+    const vorStand = this.stempelZaehler().aktuell();
     this.worldManager.speicherStempel = vorStand;
     const aufnahme = this.momentaufnahme();
     const t0 = Date.now();
@@ -6808,7 +6818,7 @@ export class WovServer {
     this.speichertGerade = true;
     const t0 = Date.now();
     try {
-      const vorStand = this.stempel.aktuell();
+      const vorStand = this.stempelZaehler().aktuell();
       this.worldManager.speicherStempel = vorStand;
       const aufnahme = this.momentaufnahme();
       let uebersprungen = 0;

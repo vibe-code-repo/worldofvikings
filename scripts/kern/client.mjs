@@ -205,6 +205,11 @@ export default [
   */
   ['client', 'test/entity-grundskala.ts'],
   ['client', 'test/entity-index.ts'],
+  // Refactor N1: what stood before and behind the class in EntityManager.ts lives in seven modules next to it.
+  // The 13 names other files import are still exported there (values: the same object), each of the eight
+  // module-level state holders is declared once under client/src, no module imports EntityManager.ts, and the
+  // pure functions give the numbers measured before the move. Syntax tree and plain imports, DOM-free, ~2 s.
+  ['client', 'test/entity-module-oberflaeche.ts'],
   // Draft store: two tabs, one localStorage key; undo stack, evicted ring.
   ['client', 'test/entwurfs-speicher.ts'],
   // F6 (Roadmap): seq-Verwerfungsregel für Client-Vorhersage-

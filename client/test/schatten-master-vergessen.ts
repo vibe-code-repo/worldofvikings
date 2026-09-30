@@ -35,7 +35,7 @@
  *
  * Lauf: npx tsx client/test/schatten-master-vergessen.ts
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
@@ -138,10 +138,17 @@ function matrizen(n: number): Float32Array {
 // vertauschtes true/false. Deshalb hier als Textnachweis: billig, aber
 // er wird rot, wenn jemand die beiden Faelle wieder zusammenlegt.
 {
-  const em = readFileSync(new URL('../src/entities/EntityManager.ts', import.meta.url), 'utf-8');
+  // Scope: every .ts file directly under src/entities/, not EntityManager.ts alone. The modules next to it work on
+  // the same masters (refactor N1); one more notification there would otherwise go uncounted. The numbers hold
+  // for the sum over these files.
+  const entitiesDir = new URL('../src/entities/', import.meta.url);
+  const entityTexts = readdirSync(entitiesDir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.ts'))
+    .map((e) => readFileSync(new URL(e.name, entitiesDir), 'utf-8'));
+  const count = (pattern: RegExp): number => entityTexts.reduce((sum, text) => sum + (text.match(pattern)?.length ?? 0), 0);
   const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf-8');
-  const entsorgt = em.match(/onMasterEntsorgt\?\.\(mesh, true\)/g)?.length ?? 0;
-  const gepoolt = em.match(/onMasterEntsorgt\?\.\(mesh, false\)/g)?.length ?? 0;
+  const entsorgt = count(/onMasterEntsorgt\?\.\(mesh, true\)/g);
+  const gepoolt = count(/onMasterEntsorgt\?\.\(mesh, false\)/g);
   pruefe(entsorgt === 1, `genau EIN Entsorgungspfad erwartet, gefunden ${entsorgt}`);
   pruefe(gepoolt === 2, `zwei Poolpfade erwartet, gefunden ${gepoolt}`);
   pruefe(

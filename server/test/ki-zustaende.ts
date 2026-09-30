@@ -200,10 +200,13 @@ console.log('\n[4] Leine: die Verfolgung bricht ab, der Wolf kehrt heim');
   const phasen: string[] = [];
   let maxHeim = 0;
   let heimPhaseBeiAbstand = -1;
+  const modus = (): string => (spawns as unknown as { creatures: Map<string, { mode: string }> }).creatures.values().next().value!.mode;
+  const modiImAnrennen = new Set<string>();
   for (let i = 0; i < 200; i++) {
     spieler.x += 4.5 * 0.1; // der Spieler läuft mit Gehtempo davon
     spawns.update(0.1, [spieler], [spieler], info);
     const ph = spawns.kiPhase(zdo) ?? '?';
+    if (ph === 'anrennen') modiImAnrennen.add(modus());
     if (phasen[phasen.length - 1] !== ph) {
       phasen.push(ph);
       if (ph === 'heimkehren') heimPhaseBeiAbstand = abstand(zdo.position, { x: 0, z: 0 });
@@ -211,6 +214,7 @@ console.log('\n[4] Leine: die Verfolgung bricht ab, der Wolf kehrt heim');
     maxHeim = Math.max(maxHeim, abstand(zdo.position, { x: 0, z: 0 }));
   }
   check('Phasenfolge: bemerkt → anrennen → heimkehren → wandern (das Bemerken geschieht im ersten Schritt)', phasen.join('>') === 'bemerkt>anrennen>heimkehren>wandern', phasen.join('>'));
+  check("während des Anrennens steht der Modus des Wolfs auf 'chase' (D2 liest daraus das Tempo)", modiImAnrennen.size === 1 && modiImAnrennen.has('chase'), [...modiImAnrennen].join(','));
   check(`der Wolf überschreitet die Leine ${WOLF_KI.leine} m nicht um mehr als einen Schritt`, maxHeim <= WOLF_KI.leine + 0.6, `max ${f(maxHeim)} m`);
   check('der Abbruch geschieht an der Leine, nicht früher', heimPhaseBeiAbstand > WOLF_KI.leine - 0.6, `bei ${f(heimPhaseBeiAbstand)} m`);
   check('nach 20 s steht der Wolf wieder am Anker (< 0,6 m)', abstand(zdo.position, { x: 0, z: 0 }) < 0.6, `${f(abstand(zdo.position, { x: 0, z: 0 }))} m`);

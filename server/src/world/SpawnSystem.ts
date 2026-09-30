@@ -745,6 +745,8 @@ export class SpawnSystem {
       }
       return false;
     }
+    // Der Modus bleibt lesbar (D2 liest daraus das Tempo): laufend = chase, sonst steht sie.
+    c.mode = befehl.bewegung === 'laeuft' ? 'chase' : 'idle';
     if (befehl.bewegung === 'laeuft') {
       // Anrennen ohne Kappung (wie vor der Zustandsmaschine); nur der Heimweg endet genau am Ziel.
       const step = befehl.phase === 'heimkehren' ? Math.min(c.entry.runSpeed * deltaSec, befehl.maxWeg) : c.entry.runSpeed * deltaSec;

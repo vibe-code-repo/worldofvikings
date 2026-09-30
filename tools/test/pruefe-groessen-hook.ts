@@ -29,9 +29,18 @@ function pruefe(ok: boolean, name: string, detail = ''): void {
 }
 
 /** Git ohne geerbte GIT_*-Variablen (dieser Test selbst darf nicht von einem äußeren Hook beeinflusst werden). */
-function git(cwd: string, args: string[], extraEnv: Record<string, string> = {}, ok = false): string {
+/**
+ * Umgebung ohne GIT_*, und ohne die CI-Variablen (GITHUB_*, WOV_GROESSEN_BASIS): In der CI läuft dieser Test unter `pull_request`, der
+ * Probe-Klon hat aber keine Basis; ein geerbtes GITHUB_EVENT_NAME machte den Wächter dort zu Recht rot (Lauf 36660174118).
+ */
+function saubereUmgebung(): Record<string, string> {
   const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith('GIT_')) env[k] = v;
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith('GIT_') && !k.startsWith('GITHUB_') && k !== 'WOV_GROESSEN_BASIS' && k !== 'CI') env[k] = v;
+  return env;
+}
+
+function git(cwd: string, args: string[], extraEnv: Record<string, string> = {}, ok = false): string {
+  const env = saubereUmgebung();
   Object.assign(env, extraEnv);
   try {
     return execFileSync('git', ['-C', cwd, '-c', 'user.name=probe', '-c', 'user.email=probe@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf-8', env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -110,7 +119,7 @@ try {
 
   console.log('3. Wächter mit von Hand gesetztem GIT_DIR/GIT_INDEX_FILE');
   const gitDir = join(klon, '.git/worktrees/baum');
-  const lauf = execFileSync(process.execPath, [join(baum, 'scripts/pruefe-groessen.mjs')], { cwd: baum, encoding: 'utf-8', env: { ...process.env, GIT_DIR: gitDir, GIT_INDEX_FILE: join(gitDir, 'index') }, stdio: ['ignore', 'pipe', 'pipe'] }).length;
+  const lauf = execFileSync(process.execPath, [join(baum, 'scripts/pruefe-groessen.mjs')], { cwd: baum, encoding: 'utf-8', env: { ...saubereUmgebung(), GIT_DIR: gitDir, GIT_INDEX_FILE: join(gitDir, 'index') }, stdio: ['ignore', 'pipe', 'pipe'] }).length;
   pruefe(lauf > 0, 'der Wächter läuft');
   const nach3 = zustand();
   gleichBisAufZweig(nach3, 'mit gesetztem GIT_DIR');

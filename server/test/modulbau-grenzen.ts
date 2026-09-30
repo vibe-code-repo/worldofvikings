@@ -397,13 +397,24 @@ check(
 );
 
 const wovServer = readFileSync(resolve(WURZEL, 'server/src/WovServer.ts'), 'utf8');
+// Seit I1 Schritt 2 steht der Handler als Funktion mit Kontext in `spiel/DungeonEditPakete.ts`; die Klasse behält den
+// Zweig und die Weiterleitung. Der Weg Zweig → Weiterleitung → Funktion → baueModul wird deshalb an drei Stellen gelesen.
+const dungeonEditPakete = readFileSync(resolve(WURZEL, 'server/src/spiel/DungeonEditPakete.ts'), 'utf8');
 check(
   wovServer.includes('case PacketType.DungeonModulBau:'),
   'WovServer hat einen Zweig für PacketType.DungeonModulBau'
 );
 check(
-  /baueModul\(/.test(wovServer),
-  'und der Zweig führt zu baueModul (nicht zu einer zweiten Klemmenliste)'
+  /case PacketType\.DungeonModulBau:\s*this\.handleDungeonModulBau\(peer, reader\);\s*break;/.test(wovServer),
+  'der Zweig ruft this.handleDungeonModulBau(peer, reader)'
+);
+check(
+  /private handleDungeonModulBau\(peer: Peer, reader: Reader\): void \{\s*return handleDungeonModulBau\(this, peer, reader\);\s*\}/.test(wovServer),
+  'die Weiterleitung in WovServer reicht die Instanz an die Funktion weiter'
+);
+check(
+  /function handleDungeonModulBau\(k: [A-Za-z]+, peer: Peer, reader: Reader\): void \{[^]*?\bbaueModul\(/.test(dungeonEditPakete),
+  'und die Funktion führt zu baueModul (nicht zu einer zweiten Klemmenliste)'
 );
 
 console.log(

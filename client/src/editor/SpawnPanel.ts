@@ -46,6 +46,16 @@ import type { Fraktion, NpcDef, NpcRolle, QuestZustand } from '@wov/shared';
 import { MODELL_ALIAS } from '../engine/AssetManager';
 import { SKALA_MAX, SKALA_MIN } from './testflug/vorschauZeichnen';
 import { ladeSerie, speichereSerie } from './testflug/greifen';
+import {
+  klemmeRadius,
+  RADIUS_MAX,
+  RADIUS_MIN,
+  RADIUS_START,
+  STAERKE_MAX,
+  STAERKE_MIN,
+  STAERKE_START,
+  type Werkzeug,
+} from './testflug/gelaendePinsel';
 import { t } from './i18n';
 import type { TranslationKey } from '../i18n';
 
@@ -60,6 +70,13 @@ export interface SpawnEinstellung {
   einebnen: boolean;
   /** Series: place mode stays on after a placement (Esc or right click ends it). */
   serie: boolean;
+}
+
+/** Settings of the terrain tab (brush tool, radius in m, strength in cm per stamp). */
+export interface GelaendeEinstellung {
+  werkzeug: Werkzeug;
+  radius: number;
+  staerke: number;
 }
 
 export interface SpawnPanelCallbacks {
@@ -91,6 +108,8 @@ export interface SpawnPanelCallbacks {
    * wieder (alles steht auf Prefab-Vorgabe).
    */
   setzeNpc?: (npc: NpcDef | undefined) => void;
+  /** Button „In Welt speichern“ of the terrain tab: publish the draft (same way as the route editor). */
+  speichernGelaende?: () => void;
 }
 
 /** Anzeigetexte der Listen aus shared/npc.ts (unbekanntes zeigt sich roh). */
@@ -247,6 +266,17 @@ function vorauswahl(): string {
 export class SpawnPanel {
   /** Wird bei jeder Änderung von Wahl/Modus gerufen — main.ts gleicht den Geist ab. */
   aufWahl: (() => void) | null = null;
+  /** Called when the terrain tool turns on or off (tab change, panel closed, `beendeGelaendeModus`). */
+  aufGelaende: (() => void) | null = null;
+  /** Brush settings of the terrain tab. */
+  readonly gelaendeEinstellung: GelaendeEinstellung = { werkzeug: 'anheben', radius: RADIUS_START, staerke: STAERKE_START };
+  private tab: 'objekte' | 'gelaende' = 'objekte';
+  private objekteBlock!: HTMLDivElement;
+  private gelaendeBlock!: HTMLDivElement;
+  private tabKnoepfe: Record<'objekte' | 'gelaende', HTMLButtonElement> | null = null;
+  private werkzeugKnoepfe = new Map<Werkzeug, HTMLButtonElement>();
+  private radiusRegler: HTMLInputElement | null = null;
+  private radiusWert: HTMLSpanElement | null = null;
   /**
    * Platzier-Modus: erst der BEWUSSTE Klick auf einen Listeneintrag schaltet
    * ihn scharf. Ohne ihn ist `einstellung.prefab` reine Vorauswahl (aus
@@ -316,6 +346,16 @@ export class SpawnPanel {
     titel.textContent = t('testflug.spawn.titel');
     titel.style.cssText = 'font-size:15px;color:#e8d48a;margin-bottom:6px;';
     this.root.appendChild(titel);
+
+    // Tabs: the object list (everything below, moved into `objekteBlock` at the end
+    // of this constructor) and the terrain brush.
+    const tabs = document.createElement('div');
+    tabs.style.cssText = 'display:flex;gap:6px;margin-bottom:6px;';
+    const tabObjekte = this.knopf(t('testflug.gelaende.reiter_objekte'), () => this.setzeTab('objekte'));
+    const tabGelaende = this.knopf(t('testflug.gelaende.reiter_gelaende'), () => this.setzeTab('gelaende'));
+    this.tabKnoepfe = { objekte: tabObjekte, gelaende: tabGelaende };
+    tabs.append(tabObjekte, tabGelaende);
+    this.root.appendChild(tabs);
 
     // Kategorie + Suche
     const kat = document.createElement('select');
@@ -535,8 +575,124 @@ export class SpawnPanel {
     tip.textContent = t('testflug.spawn.tip');
     this.root.appendChild(tip);
 
+    // Everything built so far except title and tabs belongs to the object tab.
+    this.objekteBlock = document.createElement('div');
+    for (const kind of [...this.root.children]) {
+      if (kind !== titel && kind !== tabs) this.objekteBlock.appendChild(kind);
+    }
+    this.root.appendChild(this.objekteBlock);
+    this.gelaendeBlock = this.baueGelaendeBlock();
+    this.root.appendChild(this.gelaendeBlock);
+    this.tabMarkieren();
+
     document.body.appendChild(this.root);
     this.listeFuellen();
+  }
+
+  /** The terrain tab: tools, radius, strength, save button, hint. */
+  private baueGelaendeBlock(): HTMLDivElement {
+    const block = document.createElement('div');
+    block.style.cssText = 'display:none;';
+    const werkzeuge: ReadonlyArray<readonly [Werkzeug, TranslationKey]> = [
+      ['anheben', 'testflug.gelaende.werkzeug.anheben'],
+      ['absenken', 'testflug.gelaende.werkzeug.absenken'],
+      ['glaetten', 'testflug.gelaende.werkzeug.glaetten'],
+    ];
+    const zeile = document.createElement('div');
+    zeile.style.cssText = 'display:flex;gap:6px;margin-bottom:4px;';
+    for (const [werkzeug, schluessel] of werkzeuge) {
+      const k = this.knopf(t(schluessel), () => {
+        this.gelaendeEinstellung.werkzeug = werkzeug;
+        this.werkzeugMarkieren();
+        this.aufGelaende?.();
+      });
+      this.werkzeugKnoepfe.set(werkzeug, k);
+      zeile.appendChild(k);
+    }
+    block.appendChild(zeile);
+    this.werkzeugMarkieren();
+
+    // Radius: also set from the keys (`setzeRadius`), so the slider is built by hand.
+    block.appendChild(this.label(t('testflug.gelaende.radius_m')));
+    const radiusZeile = document.createElement('div');
+    radiusZeile.style.cssText = 'display:flex;gap:6px;align-items:center;';
+    const regler = document.createElement('input');
+    regler.type = 'range';
+    regler.min = String(RADIUS_MIN);
+    regler.max = String(RADIUS_MAX);
+    regler.step = '1';
+    regler.value = String(this.gelaendeEinstellung.radius);
+    regler.style.cssText = 'flex:1;';
+    const wert = document.createElement('span');
+    wert.textContent = String(this.gelaendeEinstellung.radius);
+    wert.style.cssText = 'width:36px;font-size:11px;';
+    regler.oninput = () => this.setzeRadius(Number(regler.value));
+    radiusZeile.append(regler, wert);
+    block.appendChild(radiusZeile);
+    this.radiusRegler = regler;
+    this.radiusWert = wert;
+
+    block.appendChild(
+      this.schieber(t('testflug.gelaende.staerke_cm'), STAERKE_MIN, STAERKE_MAX, this.gelaendeEinstellung.staerke, 1, (v) => (this.gelaendeEinstellung.staerke = v))
+    );
+
+    const speichern = document.createElement('div');
+    speichern.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
+    speichern.appendChild(this.knopf(t('testflug.gelaende.speichern'), () => this.cb.speichernGelaende?.()));
+    block.appendChild(speichern);
+
+    const tip = document.createElement('div');
+    tip.style.cssText = 'font-size:10px;color:#9a8f6a;margin-top:6px;';
+    tip.textContent = t('testflug.gelaende.tip');
+    block.appendChild(tip);
+    return block;
+  }
+
+  private werkzeugMarkieren(): void {
+    for (const [w, k] of this.werkzeugKnoepfe) {
+      const aktiv = w === this.gelaendeEinstellung.werkzeug;
+      k.style.background = aktiv ? '#243044' : '#1d2431';
+      k.style.color = aktiv ? '#e8d48a' : '#d8cfa8';
+    }
+  }
+
+  private tabMarkieren(): void {
+    if (!this.tabKnoepfe) return;
+    for (const [name, k] of Object.entries(this.tabKnoepfe)) {
+      const aktiv = name === this.tab;
+      k.style.background = aktiv ? '#243044' : '#1d2431';
+      k.style.color = aktiv ? '#e8d48a' : '#d8cfa8';
+    }
+    this.objekteBlock.style.display = this.tab === 'objekte' ? 'block' : 'none';
+    this.gelaendeBlock.style.display = this.tab === 'gelaende' ? 'block' : 'none';
+  }
+
+  private setzeTab(tab: 'objekte' | 'gelaende'): void {
+    if (tab === this.tab) return;
+    this.tab = tab;
+    // Placing and the brush exclude each other: a prefab ghost must not hang on the mouse under the brush.
+    if (tab === 'gelaende') this.beendePlatzierModus();
+    this.tabMarkieren();
+    this.aufGelaende?.();
+  }
+
+  /** Terrain tool on: the panel is open and its terrain tab is showing. */
+  get istGelaendeModus(): boolean {
+    return this.istOffen && this.tab === 'gelaende';
+  }
+
+  /** Terrain tool off (Esc, right click): back to the object tab. */
+  beendeGelaendeModus(): void {
+    if (this.tab === 'objekte') return;
+    this.setzeTab('objekte');
+  }
+
+  /** Radius in whole metres, clamped; keeps the slider in step. */
+  setzeRadius(r: number): void {
+    const radius = klemmeRadius(r);
+    this.gelaendeEinstellung.radius = radius;
+    if (this.radiusRegler) this.radiusRegler.value = String(radius);
+    if (this.radiusWert) this.radiusWert.textContent = String(radius);
   }
 
   private feldStil(): string {
@@ -799,6 +955,12 @@ export class SpawnPanel {
     const sichtbar = this.root.style.display === 'none';
     this.root.style.display = sichtbar ? 'block' : 'none';
     if (sichtbar) this.aktualisiere();
+    // A closed panel leaves the terrain tool: opening it again starts on the object tab.
+    else if (this.tab === 'gelaende') {
+      this.tab = 'objekte';
+      this.tabMarkieren();
+      this.aufGelaende?.();
+    }
     return sichtbar;
   }
 

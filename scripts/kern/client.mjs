@@ -25,6 +25,9 @@ export default [
   // NullEngine: `play()` nimmt das pausierte Bild wieder auf statt bei 0
   // neu zu beginnen. NullEngine, keine GPU, <1 s.
   ['client', 'test/animations-lod.ts'],
+  // Der Anmeldedialog kennt die Antwort 409 `conflict` (gleichzeitiger
+  // Passwortwechsel) und zeigt dafuer einen eigenen, uebersetzten Satz.
+  ['client', 'test/anmeldung-konflikt.ts'],
   ['client/test', 'appearance-visibility.ts'],
   // AudibleRadius -- Rueckwaertsprobe der Umkehrformel des 'inverse'-
   // Abstandsmodells (Radius bei 2 % Lautstaerke), nicht gemessen. Pure.
@@ -243,6 +246,11 @@ export default [
     stehen als Konstanten im Test. NullEngine, Sekundenbruchteile.
   */
   ['client', 'test/figur-toenung.ts'],
+  // Gelaende T2: Pinsel im Testflug (Reiter Gelaende) - Kern (Stempel, Randabfall, Glaetten), Sperre unter Sockel/Gebaeude, Grenzen
+  // (Strich wird abgelehnt statt gekuerzt), ein Strich = ein Vorgang, Umkehr, Anbindung an eine echte RegionGeo und Bitgleichheit mit
+  // der frisch kompilierten Welt (Server-Weg), Tasten (deutsche Tastatur), Takt, Texte de/en. DOM-frei.
+  // N1: Bauteil-Sperre (PIECE/sm-bld-), Wirkradius, Flug folgt dem Entwurf (fremder Tab), enthaelt() mit heightDeltas, Zonennaht, Wertgrenze.
+  ['client', 'test/gelaende-pinsel.ts'],
   /*
     E7: Ein Modul mit `Gen_`-Praefix kommt aus `assets/generiert/`, alles
     andere aus `assets/models/` — und der Dev-Server liefert beides aus.

@@ -406,6 +406,18 @@ export default [
   // The client address is the trusted hop's (rightmost X-Forwarded-For), never a visitor-supplied prefix (F3).
   ['server', 'test/herkunft-xff.ts'],
   /*
+    Refactoring I1, from step 2: the guard of Form k, the modules under server/src/spiel/ that hold methods of WovServer
+    as functions with a context (`k` is the server itself). Per module: loading does nothing, the functions and the
+    export list are the listed ones, the context type names exactly the members read as `k.<member>`, the value imports
+    are a fixed list (`import { type X }` counts as a value import), `k` is never cast, passed on or shadowed. In the
+    class: one forwarding per function with the frozen head and the one statement `return f(this, …);`, `onPacket`
+    still calls it, and the list of the non-private members is frozen (a relaxation must be listed). A fixed sequence of
+    calls (stand-in and real instance) gives the numbers measured before the move. Starts a server without binding a port.
+    Section [0] shows each check can turn red. Seconds.
+    Refactoring I1 ab Schritt 2: der Wächter der Form k für die Module unter spiel/.
+  */
+  ['server', 'test/i1-form-k.ts'],
+  /*
     I1 step 0 (N1): the surface of WovServer that the cuts of steps 1-10 must not lose: the 20 `case PacketType` labels of
     `onPacket`, the 13 admin command names, the 33 private methods and 11 fields that tests reach by name, the 19
     methods tests replace on the instance, the text tests that read WovServer.ts, and a scan of all test folders that

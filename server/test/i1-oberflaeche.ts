@@ -11,7 +11,7 @@
  *                        stays in `WovServer` (block F, distributor); a case that moves out is a finding.
  *   2. BEFEHLE           the names in the admin command registry after construction (13). The
  *                        registration code moves to `spiel/befehle/*` in step 1; the names stay.
- *   3. METHODEN          38 private methods that tests reach by name (`as unknown as { … }`, `as any`,
+ *   3. METHODEN          39 private methods that tests reach by name (`as unknown as { … }`, `as any`,
  *                        `Object.create(WovServer.prototype)`). After a move each must still be a real
  *                        PROTOTYPE method of the class with the same name (a one-line forwarding).
  *                        Not a field with an arrow function: `Object.create(WovServer.prototype)` (see
@@ -113,7 +113,7 @@ export const BEFEHLE = [
   'zone',
 ] as const;
 
-/** Private methods that tests reach by name (21 of step 0, 11 found by the broadened scan of N1: `tod-treffer-n1.ts` replaces the 11 packet handlers, and `zaehleEigeneBauten` of #153; step 2 adds 5: the forwardings of the moved handlers that `i1-form-k.ts` calls by name, `handleAdminCommand` was on the list already). Each stays a prototype method of `WovServer`. */
+/** Private methods that tests reach by name (21 of step 0, 11 found by the broadened scan of N1: `tod-treffer-n1.ts` replaces the 11 packet handlers, and `zaehleEigeneBauten` of #153; step 2 adds 5: the forwardings of the moved handlers that `i1-form-k.ts` calls by name, `handleAdminCommand` was on the list already; #146 added `sichereSpielerSofort`). Each stays a prototype method of `WovServer`. */
 export const METHODEN = [
   'applyCreatureAttack',
   'darfBenutzen',

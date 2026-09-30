@@ -2273,6 +2273,7 @@ async function runInfofeldSequence(calls: InfofeldCalls, deps: InfofeldDeps): Pr
     await run('S5 symbol without an image size', {}, (k) => calls.speicherInfoSchreiben(k, entry({ art: 'Symbole', gruppe: 'Symbole', bounds: null }), 'x'));
     await run('S6 sound with a duration and an origin', { duration: 1.18 }, (k) => calls.speicherInfoSchreiben(k, entry({ art: 'Ton', gruppe: 'Toene', bounds: null, herkunft: '1.18 s, mono, 48 kHz, 16 bit, wav, tool chain a, b' }), null));
     await run('S7 sound without a duration and without an origin', { duration: Number.NaN }, (k) => calls.speicherInfoSchreiben(k, entry({ art: 'Ton', gruppe: 'Toene', bounds: null, herkunft: null, prefabName: 'Probe_Sound' }), null));
+    await run('S8 bounds exactly at the limit: min y = -0.001 shows no lower-edge line', {}, (k) => calls.speicherInfoSchreiben(k, entry({ bounds: { min: [0, -0.001, 0], max: [1, 1, 1] } }), null));
     // the context lacks a member: the TypeError names the expression (rule 6a: `this.x` became `kat.x`, normalized above)
     await run('E1 context without schliesse: click on the placer', { placer: 'function', without: ['schliesse'] }, (k) => calls.infoSchreiben(k, N.eigen, prefabDef(), null, null));
     await run('E2 context without grundskalaZeileBauen', { placer: 'function', without: ['grundskalaZeileBauen'] }, (k) => calls.infoSchreiben(k, N.upload, prefabDef(), null, null));
@@ -2310,6 +2311,7 @@ const EXPECTED_INFOFELD: ReadonlyArray<readonly [scene: string, lines: number, s
   ["S5 symbol without an image size", 135, 'c2c71fe9db26cc8d'],
   ["S6 sound with a duration and an origin", 144, 'a02e60b57305cb13'],
   ["S7 sound without a duration and without an origin", 143, '5fc66bde2ba2b95f'],
+  ["S8 bounds exactly at the limit: min y = -0.001 shows no lower-edge line", 129, 'c279a9228c0e5fc8'],
   ["E1 context without schliesse: click on the placer", 108, 'e2c6494ae4d12e88'],
   ["E2 context without grundskalaZeileBauen", 118, '578f01ed7bf69f72'],
   ["E3 context without hochgeladenesModellEntfernen: click on remove", 117, '299f89d6f8b1aa70'],

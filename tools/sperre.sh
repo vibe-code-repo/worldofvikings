@@ -44,8 +44,8 @@
 #     servers or watchers under the lock.
 #   * `kill -9` on sperre.sh ends the wrapper, not the child; the orphaned child keeps
 #     the place until it ends.
-#   * Nesting on a name you hold: see above. NEVER take one lock under the other (build under
-#     test, test under build): two of each, crossed, wait on each other forever. The tool does
+#   * Nesting on a name you hold: see above. NEVER take one lock under another (build, test,
+#     einzeltest in any combination): two of each, crossed, wait on each other forever. The tool does
 #     not refuse it, because the commit hook (build) must still work under a caller.
 #   * The lock files are part of the contract: deleting one lifts the lock.
 #   * Exit status is the command's. Exit 64 is also this tool's usage error; every usage

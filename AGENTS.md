@@ -191,7 +191,7 @@ red) is repeated alone.
 
 The name must fit the work: `typecheck`, `build` and `npm ci` always under `build`, full
 test runs and the rollout under `test`, single test files and short probes under
-`einzeltest`. Mutant and probe series take the lock per run, not for the whole series. The tool binds the number of places per name, not which work
+`einzeltest`. Mutant and probe series take the lock per run, not for the whole series. Worktrees whose `tools/sperre.sh` does not know `einzeltest` yet (branched before this change) use `test` until they merge main. The tool binds the number of places per name, not which work
 goes under which name (`sperre.sh test -- npm run typecheck` works and would sneak
 past the build limit), so that part is a promise of the caller.
 

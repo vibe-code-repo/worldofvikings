@@ -28,7 +28,7 @@ The world lives at run time as a working copy outside Git. On DEV and live the u
    6. `admin/test/welt-arbeitskopie.ts` (`dienstStarten`, nach `WOV_ADMIN_PORT`): dieselben zwei Schlüssel.
    7. `scripts/run-tests.mjs` wird automatisch zusammengeführt.
    Danach prüfen: `tools/sperre.sh build -- npm run typecheck` (0 `error TS`), `node
-   scripts/pruefe-runner-liste.mjs` (OK), die betroffenen Tests einzeln (unter `tools/sperre.sh einzeltest`), dann der Volltest unter `tools/sperre.sh
+   scripts/pruefe-runner-liste.mjs` (OK), die betroffenen Tests einzeln (unter `tools/sperre.sh einzeltest`; Worktrees, deren `tools/sperre.sh` den Namen noch nicht kennt, nehmen `test`, bis sie main eingemischt haben), dann der Volltest unter `tools/sperre.sh
    test`. Ein älterer Plan in dieser Datei nannte statt Schritt 4–6 eine Umstellung von
    `admin/test/weltops-quittung.ts`; im gegengelesenen Merge-Stand war die Datei **ohne** Änderung grün — Schritt 4–6
    oben sind die tatsächlich nötigen.

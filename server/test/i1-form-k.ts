@@ -36,6 +36,9 @@
  *     forwarding methods), gives the numbers that were measured before the move (`SOLL_*`; measured with
  *     `--messen-basis` on the stand before the move, see below). Recorded are the packets sent, the calls into the
  *     context, the state changes and the exceptions.
+ *  The packets are held completely (length and hash over all bytes, next to a readable head), the arguments of the calls into the
+ *  context are held (`sendTimeSync(p)`, `enterDungeon(peer, id)`, `upsertDokument2(raw)`), the save sequence has cases without checksum
+ *  (an old client) and exactly at the size limit, and `onPacket` maps every packet type to its forwarding (attack on step 2, I12-B1).
  *  Not applicable in steps 2 and 3: the identity of returned objects of the stock (K9-5), no function returns a value.
  *
  * Section [0] shows first that each check can turn red: the same checks run over small invented sources, one fault
@@ -93,6 +96,8 @@ interface FunktionSpec {
   readonly aufrufer: { readonly methode: string; readonly args: string };
   /** `Function.length` of the method on the prototype: the number of parameters of the forwarding. */
   readonly laenge: number;
+  /** The packet type whose `case` in `onPacket` calls `this.<name>(peer, reader)` (the name of the method without `handle`); none when no packet leads here. */
+  readonly paketTyp?: string;
 }
 interface ModulSpec {
   /** Path from the repository root. */
@@ -108,7 +113,7 @@ interface ModulSpec {
 
 const KOPF = (name: string): string => `private ${name}(peer: Peer, reader: Reader): void`;
 /** A packet handler: private forwarding `(peer, reader)`, called by `onPacket`. */
-const PAKET = (name: string): FunktionSpec => ({ name, kopf: KOPF(name), aufrufer: { methode: 'onPacket', args: 'peer, reader' }, laenge: 2 });
+const PAKET = (name: string): FunktionSpec => ({ name, kopf: KOPF(name), aufrufer: { methode: 'onPacket', args: 'peer, reader' }, laenge: 2, paketTyp: name.replace(/^handle/, '') });
 const MODULE: readonly ModulSpec[] = [
   {
     datei: 'server/src/spiel/AdminPakete.ts',
@@ -345,6 +350,16 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       };
       if (aufrufer) gehe(aufrufer);
       if (!ruft) f.push(`${fn.name}: ${fn.aufrufer.methode} does not call this.${fn.name}(${fn.aufrufer.args})`);
+      // the packet type leads to its forwarding: `case PacketType.<Type>:` in `onPacket` calls it (swapped cases stay green otherwise)
+      if (fn.paketTyp !== undefined) {
+        let fall = false;
+        const suche = (n: ts.Node): void => {
+          if (ts.isCaseClause(n) && n.expression.getText(sf) === `PacketType.${fn.paketTyp}` && n.statements.map((x) => x.getText(sf)).join(' ').replace(/\s+/g, '').includes(`this.${fn.name}(peer,reader)`)) fall = true;
+          ts.forEachChild(n, suche);
+        };
+        if (aufrufer) suche(aufrufer);
+        if (!fall) f.push(`${fn.name}: \`case PacketType.${fn.paketTyp}:\` of ${fn.aufrufer.methode} does not call this.${fn.name}(peer, reader)`);
+      }
     }
   }
   // 6. the non-private members
@@ -444,10 +459,10 @@ console.log('\n[0] Self-test of the checks on invented sources');
       `  ${oeff}`,
       '  private onPacket(peer: Peer, type: number, reader: Reader): void {',
       '    switch (type) {',
-      '      case 1:',
+      '      case PacketType.fa:',
       '        this.fa(peer, reader);',
       '        break;',
-      '      case 2:',
+      '      case PacketType.fb:',
       '        this.fb(peer, reader);',
       '        break;',
       '    }',
@@ -487,6 +502,7 @@ console.log('\n[0] Self-test of the checks on invented sources');
     ['the import from another module', gut.replace('./spiel/Test.js', './spiel/Anders.js'), OEFF],
     ['the name bound a second time at module level', gut.replace('export class', 'const fa = 1;\nexport class'), OEFF],
     ['onPacket calls another method', gut.replace('this.fb(peer, reader);', 'this.fa(peer, reader);'), OEFF],
+    ['the cases of two packet types swapped', gut.replace('case PacketType.fa:', 'case PacketType.XX:').replace('case PacketType.fb:', 'case PacketType.fa:').replace('case PacketType.XX:', 'case PacketType.fb:'), OEFF],
     ['onPacket without the call', gut.replace('        this.fb(peer, reader);\n', '        void 0;\n'), OEFF],
     ['a new public field (a relaxation nobody listed)', gutesGebaeude('', 'readonly net = 1;\n  saveTimer = 0;'), OEFF],
     ['a public member the list does not know', gutesGebaeude('', 'readonly net = 1;'), OEFF.filter((x) => x !== 'config')],
@@ -592,15 +608,20 @@ const leser = (fn: (w: Writer) => void): Reader => {
 };
 
 interface Aufzeichnung {
+  /** peer:type:[readable head]:length:hash over ALL bytes of the packet (a changed byte anywhere changes the hash). */
   paket: string[];
   aufrufe: Record<string, number>;
   konsole: { log: number; warn: number };
   zustand: number[];
   ausnahmen: string[];
+  /** The arguments of the calls into the context, the writes to the ZDOs, the reasons of the immediate saves. */
+  notizen: string[];
 }
-const neueAufzeichnung = (): Aufzeichnung => ({ paket: [], aufrufe: {}, konsole: { log: 0, warn: 0 }, zustand: [], ausnahmen: [] });
+const neueAufzeichnung = (): Aufzeichnung => ({ paket: [], aufrufe: {}, konsole: { log: 0, warn: 0 }, zustand: [], ausnahmen: [], notizen: [] });
+/** Length and the start of the SHA-256 over all bytes: what a packet or a text really contained, not a shortened head. */
+const kennung = (b: Buffer): string => `${b.length}:${createHash('sha256').update(b).digest('hex').slice(0, 16)}`;
 const zaehle = (a: Aufzeichnung, name: string): void => { a.aufrufe[name] = (a.aufrufe[name] ?? 0) + 1; };
-/** A peer that records what it is sent: the type, the decoded first two fields and, for the time packet, nothing more. */
+/** A peer that records what it is sent: the type, a readable head (first two fields, shortened) and the identifier over all bytes. */
 function peer(a: Aufzeichnung, name: string, isAdmin: boolean, dungeonId = ''): Record<string, unknown> {
   return {
     name, isAdmin, dungeonId,
@@ -609,7 +630,7 @@ function peer(a: Aufzeichnung, name: string, isAdmin: boolean, dungeonId = ''): 
       fn(w);
       const r = new Reader(w.toBuffer());
       const d = type === PacketType.AdminEvent ? [r.readString(), r.readBool(), r.readString().slice(0, 22)] : dekodiere(w.toBuffer()).slice(0, 2).map((x) => (typeof x === 'string' ? x.slice(0, 22) : x));
-      a.paket.push(`${name}:${PacketType[type]}:${JSON.stringify(d)}`);
+      a.paket.push(`${name}:${PacketType[type]}:${JSON.stringify(d)}:${kennung(w.toBuffer())}`);
     },
   };
 }
@@ -641,18 +662,18 @@ function messeAttrappe(): Aufzeichnung {
   let welt = 0;
   const k: Record<string, unknown> = {
     dungeons: {
-      getDokument2: (id: string) => { zaehle(a, 'getDokument2'); return id === 'd2' ? doc2 : undefined; },
-      getDocument: (id: string) => { zaehle(a, 'getDocument'); return id === 'd1' ? doc1 : undefined; },
-      upsertDokument2: () => { zaehle(a, 'upsertDokument2'); return modus2 === 'null' ? null : { doc: doc2, instanzErhalten: modus2 === 'erhalten' }; },
-      upsertDocument: () => { zaehle(a, 'upsertDocument'); return modus1 === 'null' ? null : { doc: doc1, instanzErhalten: modus1 === 'erhalten' }; },
+      getDokument2: (id: string) => { zaehle(a, 'getDokument2'); a.notizen.push(`getDokument2 ${id}`); return id === 'd2' ? doc2 : undefined; },
+      getDocument: (id: string) => { zaehle(a, 'getDocument'); a.notizen.push(`getDocument ${id}`); return id === 'd1' ? doc1 : undefined; },
+      upsertDokument2: (raw: unknown) => { zaehle(a, 'upsertDokument2'); a.notizen.push(`upsertDokument2 ${kennung(Buffer.from(JSON.stringify(raw)))}`); return modus2 === 'null' ? null : { doc: doc2, instanzErhalten: modus2 === 'erhalten' }; },
+      upsertDocument: (raw: unknown) => { zaehle(a, 'upsertDocument'); a.notizen.push(`upsertDocument ${kennung(Buffer.from(JSON.stringify(raw)))}`); return modus1 === 'null' ? null : { doc: doc1, instanzErhalten: modus1 === 'erhalten' }; },
     },
     config: { dungeonsModulbau: true, generiertDir: gen, worldsDir: welten, worldName: 'i1-form-k' },
-    enterDungeon: (): { ok: boolean } => { zaehle(a, 'enterDungeon'); return { ok: true }; },
+    enterDungeon: (p: unknown, id: unknown): { ok: boolean } => { zaehle(a, 'enterDungeon'); a.notizen.push(`enterDungeon ${String((p as { name: string }).name)} ${String(id)}`); return { ok: true }; },
     dungeonsWurzel(this: unknown): string { zaehle(a, 'dungeonsWurzel'); return proto['dungeonsWurzel']!.call(this) as string; },
     getTimeOfDay(this: unknown): number { return proto['getTimeOfDay']!.call(this) as number; },
     getDay(this: unknown): number { return proto['getDay']!.call(this) as number; },
-    sendTimeSync: (): void => { zaehle(a, 'sendTimeSync'); },
-    adminCommands: { execute: (p: unknown, line: unknown): { active: boolean; message: string } => { zaehle(a, 'execute'); return { active: String(line).includes('on'), message: `ran:${String(line).trim()}` }; } },
+    sendTimeSync: (p: unknown): void => { zaehle(a, 'sendTimeSync'); a.notizen.push(`sendTimeSync ${String((p as { name: string }).name)}`); },
+    adminCommands: { execute: (p: unknown, line: unknown): { active: boolean; message: string } => { zaehle(a, 'execute'); a.notizen.push(`execute ${String((p as { name: string }).name)} ${JSON.stringify(line)}`); return { active: String(line).includes('on'), message: `ran:${String(line).trim()}` }; } },
     net: { getPeers: (): unknown[] => { zaehle(a, 'getPeers'); return [peer(a, 'p1', false), peer(a, 'p2', true)]; } },
     get worldTime(): number { return welt; },
     set worldTime(v: number) { welt = v; },
@@ -685,6 +706,10 @@ function messeAttrappe(): Aufzeichnung {
     lauf('handleDungeonEditSave', admin(), speichern('x'.repeat(2_000_001)));
     lauf('handleDungeonEditSave', admin(), speichern(doc1Json, 'veraltet'));
     lauf('handleDungeonEditSave', admin(), speichern('kein json'));
+    lauf('handleDungeonEditSave', admin(), speichern('x'.repeat(2_000_000))); // exactly at the limit: passes the size check, is no JSON
+    // an old client sends no checksum: accepted while the registry is empty, refused once a hall exists (below)
+    lauf('handleDungeonEditSave', admin(), speichern(doc1Json, null));
+    lauf('handleDungeonEditSave', admin(), speichern(doc2Json, null));
     for (const [m, wo] of [['neu', 'd2'], ['neu', 'x'], ['erhalten', 'd2'], ['null', 'd2']] as const) { modus2 = m; lauf('handleDungeonEditSave', admin(wo), speichern(doc2Json)); }
     for (const [m, wo] of [['neu', 'd1'], ['neu', 'x'], ['erhalten', 'd1'], ['null', 'd1']] as const) { modus1 = m; lauf('handleDungeonEditSave', admin(wo), speichern(doc1Json)); }
     // the hall: build and delete, on a real folder
@@ -692,6 +717,9 @@ function messeAttrappe(): Aufzeichnung {
     lauf('handleDungeonModulBau', admin(), bau(1, 1, 4, 0.5));
     lauf('handleDungeonModulBau', admin(), bau(4, 3, 4, 0.5));
     lauf('handleDungeonModulBau', admin(), bau(4, 3, 4, 0.5));
+    // with a hall in the registry the empty checksum of an old client no longer matches
+    lauf('handleDungeonEditSave', admin(), speichern(doc1Json, null));
+    lauf('handleDungeonEditSave', admin(), speichern(doc2Json, null));
     a.zustand.push(readdirSync(gen).length);
     const gebaut = readdirSync(gen).filter((f) => f.endsWith('.glb')).map((f) => f.slice(0, -4));
     lauf('handleDungeonModulLoeschen', nichtAdmin(), s(gebaut[0] ?? 'fehlt'));
@@ -723,15 +751,15 @@ function messeEcht(): Aufzeichnung {
     } as never) as unknown as Record<string, unknown> & { worldTime: number };
     mkdirSync(join(tmp, 'generiert'), { recursive: true });
     // stand-ins on the instance, as the tests do: what the handlers call through the context
-    server['enterDungeon'] = (): { ok: boolean } => { zaehle(a, 'enterDungeon'); return { ok: true }; };
-    server['sendTimeSync'] = (): void => { zaehle(a, 'sendTimeSync'); };
+    server['enterDungeon'] = (p: unknown, id: unknown): { ok: boolean } => { zaehle(a, 'enterDungeon'); a.notizen.push(`enterDungeon ${String((p as { name: string }).name)} ${String(id)}`); return { ok: true }; };
+    server['sendTimeSync'] = (p: unknown): void => { zaehle(a, 'sendTimeSync'); a.notizen.push(`sendTimeSync ${String((p as { name: string }).name)}`); };
     (server['net'] as Record<string, unknown>)['getPeers'] = (): unknown[] => { zaehle(a, 'getPeers'); return [peer(a, 'p1', false), peer(a, 'p2', true)]; };
     const rufe = (name: string, p: unknown, r: Reader): void => versuche(a, () => (server[name] as (x: unknown, y: unknown) => unknown).call(server, p, r));
     const admin = (dungeonId = ''): unknown => peer(a, 'e', true, dungeonId);
     const nichtAdmin = (): unknown => peer(a, 'n', false);
     const summe = registryChecksum();
     const doc = (id: string): unknown => ({ version: dungeon2.DUNGEON_DOKUMENT_VERSION_2, id, name: 'K9', modus: 'erzeugt', thema: 'steingrab', seeds: { architektur: 4242, material: dungeon2.mische(4242, 1), deko: dungeon2.mische(4242, 2) }, pruefsumme: '', layoutVersion: dungeon2.LAYOUT_VERSION });
-    const speichern = (json: string, pruefsumme = summe): Reader => leser((w) => { w.writeString(json); w.writeString(pruefsumme); });
+    const speichern = (json: string, pruefsumme: string | null = summe): Reader => leser((w) => { w.writeString(json); if (pruefsumme !== null) w.writeString(pruefsumme); });
     const s = (t: string): Reader => leser((w) => w.writeString(t));
     const bau = (x: number, z: number, r: number, g: number): Reader => leser((w) => { w.writeInt32(x); w.writeInt32(z); w.writeInt32(r); w.writeFloat32(g); });
     for (const [v, ok] of [[100, true], [-50, true], [WORLD_TIME_LENGTH * 2 + 5, true], [0, true], [Number.NaN, true], [55, false]] as const) {
@@ -746,8 +774,10 @@ function messeEcht(): Aufzeichnung {
     rufe('handleDungeonEditSave', admin('k9-doc'), speichern(JSON.stringify(doc('k9-doc'))));
     rufe('handleDungeonEditSave', admin(), speichern(JSON.stringify(doc('k9-doc')), 'veraltet'));
     rufe('handleDungeonEditSave', admin(), speichern(JSON.stringify({ version: 1, id: 'alt' })));
+    rufe('handleDungeonEditSave', admin(), speichern(JSON.stringify(doc('k9-doc')), null)); // an old client without checksum, registry still empty
     rufe('handleDungeonEditRequest', admin(), s('k9-doc'));
     rufe('handleDungeonModulBau', admin(), bau(4, 3, 4, 0.5));
+    rufe('handleDungeonEditSave', admin(), speichern(JSON.stringify(doc('k9-doc')), null)); // the same after a hall was built: refused
     a.zustand.push(readdirSync(join(tmp, 'generiert')).length);
     const gebaut = readdirSync(join(tmp, 'generiert')).filter((f) => f.endsWith('.glb')).map((f) => f.slice(0, -4));
     rufe('handleDungeonModulLoeschen', admin(), s(gebaut[0] ?? 'fehlt'));
@@ -763,10 +793,8 @@ function messeEcht(): Aufzeichnung {
 
 // ── [2b] Behaviour of step 3: chest, appearance, figure, chat ──────────
 
-interface Aufzeichnung3 extends Aufzeichnung {
-  notizen: string[];
-}
-const neueAufzeichnung3 = (): Aufzeichnung3 => ({ ...neueAufzeichnung(), notizen: [] });
+type Aufzeichnung3 = Aufzeichnung;
+const neueAufzeichnung3 = (): Aufzeichnung3 => neueAufzeichnung();
 /** Math.random with a fixed sequence for the length of one call: `wuerfleTruhe` draws from it. */
 function mitZufall<T>(seed: number, fn: () => T): T {
   const orig = Math.random;
@@ -774,7 +802,6 @@ function mitZufall<T>(seed: number, fn: () => T): T {
   Math.random = (): number => { x = (x + 0x6d2b79f5) | 0; let t = Math.imul(x ^ (x >>> 15), 1 | x); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
   try { return fn(); } finally { Math.random = orig; }
 }
-const kurz = (b: Buffer): string => `${b.length}:${createHash('sha256').update(b).digest('hex').slice(0, 10)}`;
 function peerI(a: Aufzeichnung3, name: string, o: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     name, figur: 'wikinger', frisur: FRISUR_VORGABE, haarfarbe: HAARFARBE_VORGABE, augenfarbe: AUGENFARBE_VORGABE, ruestung: '|', characterID: 'c1', inventar: new Inventory(),
@@ -782,8 +809,8 @@ function peerI(a: Aufzeichnung3, name: string, o: Record<string, unknown> = {}):
       const w = new Writer();
       fn(w);
       const r = new Reader(w.toBuffer());
-      const d = type === PacketType.InteractResult ? [r.readBool(), r.readString()] : type === PacketType.ContainerSync ? [r.readString(), r.readInt32(), r.readString().length] : [kurz(w.toBuffer())];
-      a.paket.push(`${name}:${PacketType[type]}:${JSON.stringify(d)}`);
+      const d = type === PacketType.InteractResult ? [r.readBool(), r.readString()] : type === PacketType.ContainerSync ? [r.readString(), r.readInt32(), r.readString().length] : [];
+      a.paket.push(`${name}:${PacketType[type]}:${JSON.stringify(d)}:${kennung(w.toBuffer())}`);
     },
     ...o,
   };
@@ -921,7 +948,7 @@ function chatPeer(a: Aufzeichnung3, name: string, id: number, x: number, welt: s
       const absender = r.readString();
       const typ = r.readInt32();
       const text = r.readString();
-      a.paket.push(`${name}:${PacketType[type]}:${JSON.stringify([erstes, absender, typ, text.slice(0, 14), text.length])}`);
+      a.paket.push(`${name}:${PacketType[type]}:${JSON.stringify([erstes, absender, typ, text.slice(0, 14), text.length])}:${kennung(payload)}`);
     },
     ...o,
   };
@@ -983,78 +1010,129 @@ function messeChatEcht(): Aufzeichnung3 {
 /** Measured on the stand before the move (`--messen-basis`); the packets: peer:type:[ok, first 22 characters of the message]. */
 const SOLL_ATTRAPPE: Aufzeichnung = {
   paket: [
-    'n:InteractResult:[false,"Keine Berechtigung, di"]',
-    'a:AdminEvent:["fly",false,"ran:fly"]',
-    'a:AdminEvent:["fly",true,"ran:Fly  on"]',
-    'a:AdminEvent:["",false,"ran:"]',
-    'a:DungeonEditData:[true,"d2"]',
-    'a:DungeonEditData:[true,"d1"]',
-    'a:DungeonEditData:[false,"Unbekannter Dungeon: z"]',
-    'a:DungeonEditData:[false,"Unbekannter Dungeon: ("]',
-    'a:DungeonEditData:[true,"d1"]',
-    'n:DungeonEditData:[false,"Keine Berechtigung"]',
-    'n:DungeonEditData:[false,"Keine Berechtigung"]',
-    'a:DungeonEditData:[false,"Dokument zu groß (max "]',
-    'a:DungeonEditData:[false,"Registry veraltet — Se"]',
-    'a:DungeonEditData:[false,"Ungültiges JSON"]',
-    'a:DungeonEditData:[true,"Gespeichert: d2 (2.0, "]',
-    'a:DungeonEditData:[true,"Gespeichert: d2 (2.0, "]',
-    'a:DungeonEditData:[true,"Gespeichert: d2 (2.0, "]',
-    'a:DungeonEditData:[false,"Dokument 2.0 abgelehnt"]',
-    'a:DungeonEditData:[true,"Gespeichert: d1 (3 Räu"]',
-    'a:DungeonEditData:[true,"Gespeichert: d1 (3 Räu"]',
-    'a:DungeonEditData:[true,"Gespeichert: d1 (3 Räu"]',
-    'a:DungeonEditData:[false,"Dokument abgelehnt (Ba"]',
-    'n:DungeonModulBauErgebnis:[false,"Keine Berechtigung"]',
-    'a:DungeonModulBauErgebnis:[false,"Zellzahl x = 1 liegt a"]',
-    'a:DungeonModulBauErgebnis:[true,"Gebaut: Gen_StoneVault"]',
-    'a:DungeonModulBauErgebnis:[false,"Der Saal \'Gen_StoneVau"]',
-    'n:DungeonModulLoeschErgebnis:[false,"Keine Berechtigung"]',
-    'a:DungeonModulLoeschErgebnis:[false,"Modulname \'../x\' enthä"]',
-    'a:DungeonModulLoeschErgebnis:[true,"Entfernt: Gen_StoneVau"]',
-    'a:DungeonModulLoeschErgebnis:[false,"Die Registry kennt \'Ge"]',
-    'a:DungeonModulBauErgebnis:[false,"Modulbau ist ausgescha"]',
-    'a:DungeonModulLoeschErgebnis:[false,"Modulbau ist ausgescha"]',
+    'n:InteractResult:[false,"Keine Berechtigung, di"]:50:42c4741f2c31e281',
+    'a:AdminEvent:["fly",false,"ran:fly"]:13:be3cdcc1b19a5b64',
+    'a:AdminEvent:["fly",true,"ran:Fly  on"]:17:3ba296420bde1020',
+    'a:AdminEvent:["",false,"ran:"]:7:4e8685525db3f750',
+    'a:DungeonEditData:[true,"d2"]:54:29569aca1cb25843',
+    'a:DungeonEditData:[true,"d1"]:57:f9c143e1b30306cb',
+    'a:DungeonEditData:[false,"Unbekannter Dungeon: z"]:26:d63b3f14a085c1eb',
+    'a:DungeonEditData:[false,"Unbekannter Dungeon: ("]:32:4f1067847981e84b',
+    'a:DungeonEditData:[true,"d1"]:57:f9c143e1b30306cb',
+    'n:DungeonEditData:[false,"Keine Berechtigung"]:21:2880eeb48c868530',
+    'n:DungeonEditData:[false,"Keine Berechtigung"]:21:2880eeb48c868530',
+    'a:DungeonEditData:[false,"Dokument zu groß (max "]:31:d4c9dda2519a05c7',
+    'a:DungeonEditData:[false,"Registry veraltet — Se"]:76:71c8c48b9f29b153',
+    'a:DungeonEditData:[false,"Ungültiges JSON"]:19:299f1c07f1839860',
+    'a:DungeonEditData:[false,"Ungültiges JSON"]:19:299f1c07f1839860',
+    'a:DungeonEditData:[true,"Gespeichert: d1 (3 Räu"]:89:2edaa330a01f0ffe',
+    'a:DungeonEditData:[true,"Gespeichert: d2 (2.0, "]:105:813ad6f75f356bbd',
+    'a:DungeonEditData:[true,"Gespeichert: d2 (2.0, "]:105:813ad6f75f356bbd',
+    'a:DungeonEditData:[true,"Gespeichert: d2 (2.0, "]:105:813ad6f75f356bbd',
+    'a:DungeonEditData:[true,"Gespeichert: d2 (2.0, "]:105:813ad6f75f356bbd',
+    'a:DungeonEditData:[false,"Dokument 2.0 abgelehnt"]:52:f0c4a2f78980677b',
+    'a:DungeonEditData:[true,"Gespeichert: d1 (3 Räu"]:89:2edaa330a01f0ffe',
+    'a:DungeonEditData:[true,"Gespeichert: d1 (3 Räu"]:89:2edaa330a01f0ffe',
+    'a:DungeonEditData:[true,"Gespeichert: d1 (3 Räu"]:89:2edaa330a01f0ffe',
+    'a:DungeonEditData:[false,"Dokument abgelehnt (Ba"]:49:28accf45467d20da',
+    'n:DungeonModulBauErgebnis:[false,"Keine Berechtigung"]:21:2880eeb48c868530',
+    'a:DungeonModulBauErgebnis:[false,"Zellzahl x = 1 liegt a"]:58:5f8211779cf394a5',
+    'a:DungeonModulBauErgebnis:[true,"Gebaut: Gen_StoneVault"]:264:3eb4b7886aaba11b',
+    'a:DungeonModulBauErgebnis:[false,"Der Saal \'Gen_StoneVau"]:157:c6913d6b8ab2f848',
+    'a:DungeonEditData:[false,"Registry veraltet — Se"]:76:f5dfd9e0bb3dc108',
+    'a:DungeonEditData:[false,"Registry veraltet — Se"]:76:f5dfd9e0bb3dc108',
+    'n:DungeonModulLoeschErgebnis:[false,"Keine Berechtigung"]:21:2880eeb48c868530',
+    'a:DungeonModulLoeschErgebnis:[false,"Modulname \'../x\' enthä"]:124:b8a4ada818f5db26',
+    'a:DungeonModulLoeschErgebnis:[true,"Entfernt: Gen_StoneVau"]:196:2b00f8890606c5ef',
+    'a:DungeonModulLoeschErgebnis:[false,"Die Registry kennt \'Ge"]:86:61f222ce82bd96f8',
+    'a:DungeonModulBauErgebnis:[false,"Modulbau ist ausgescha"]:62:15aba8687e622bd3',
+    'a:DungeonModulLoeschErgebnis:[false,"Modulbau ist ausgescha"]:62:15aba8687e622bd3',
   ],
-  aufrufe: { getPeers: 4, sendTimeSync: 8, execute: 3, getDokument2: 4, getDocument: 3, upsertDokument2: 4, enterDungeon: 2, upsertDocument: 4, dungeonsWurzel: 5 },
-  konsole: { log: 24, warn: 1 },
+  aufrufe: { getPeers:  4,  sendTimeSync:  8,  execute:  3,  getDokument2:  4,  getDocument:  3,  upsertDocument:  5,  upsertDokument2:  5,  enterDungeon:  2,  dungeonsWurzel:  5 },
+  konsole: { log: 26, warn: 3 },
   zustand: [100, 1750, 5, 0, 0, 0, 0, 2, 1, 1],
   ausnahmen: ['RangeError'],
+  notizen: [
+    'sendTimeSync p1',
+    'sendTimeSync p2',
+    'sendTimeSync p1',
+    'sendTimeSync p2',
+    'sendTimeSync p1',
+    'sendTimeSync p2',
+    'sendTimeSync p1',
+    'sendTimeSync p2',
+    'execute a "fly"',
+    'execute a "  Fly  on "',
+    'execute a ""',
+    'getDokument2 d2',
+    'getDokument2 d1',
+    'getDocument d1',
+    'getDokument2 zz',
+    'getDocument zz',
+    'getDokument2 d1',
+    'getDocument d1',
+    'upsertDocument 23:9ef74ce4b338647a',
+    'upsertDokument2 24:e60d7c728299f75c',
+    'upsertDokument2 24:e60d7c728299f75c',
+    'enterDungeon a d2',
+    'upsertDokument2 24:e60d7c728299f75c',
+    'upsertDokument2 24:e60d7c728299f75c',
+    'upsertDokument2 24:e60d7c728299f75c',
+    'upsertDocument 23:9ef74ce4b338647a',
+    'enterDungeon a d1',
+    'upsertDocument 23:9ef74ce4b338647a',
+    'upsertDocument 23:9ef74ce4b338647a',
+    'upsertDocument 23:9ef74ce4b338647a',
+  ],
 };
 const SOLL_ECHT: Aufzeichnung = {
   paket: [
-    'n:InteractResult:[false,"Keine Berechtigung, di"]',
-    'e:AdminEvent:["unbekanntes-kommando",false,"Unknown admin command:"]',
-    'e:AdminEvent:["",false,"Empty admin command"]',
-    'n:AdminEvent:["fly",false,"Admin commands are not"]',
-    'e:DungeonEditData:[false,"Unbekannter Dungeon: k"]',
-    'n:DungeonEditData:[false,"Keine Berechtigung"]',
-    'e:DungeonEditData:[true,"Gespeichert: k9-doc (2"]',
-    'e:DungeonEditData:[true,"Gespeichert: k9-doc (2"]',
-    'e:DungeonEditData:[false,"Registry veraltet — Se"]',
-    'e:DungeonEditData:[false,"Dokument abgelehnt (Ba"]',
-    'e:DungeonEditData:[true,"k9-doc"]',
-    'e:DungeonModulBauErgebnis:[true,"Gebaut: Gen_StoneVault"]',
-    'e:DungeonModulLoeschErgebnis:[true,"Entfernt: Gen_StoneVau"]',
+    'n:InteractResult:[false,"Keine Berechtigung, di"]:50:42c4741f2c31e281',
+    'e:AdminEvent:["unbekanntes-kommando",false,"Unknown admin command:"]:66:2edbe8b6351863a1',
+    'e:AdminEvent:["",false,"Empty admin command"]:22:b1b1f31f9371c433',
+    'n:AdminEvent:["fly",false,"Admin commands are not"]:52:b5036c13d55fb7fd',
+    'e:DungeonEditData:[false,"Unbekannter Dungeon: k"]:30:ab91d052b8361147',
+    'n:DungeonEditData:[false,"Keine Berechtigung"]:21:2880eeb48c868530',
+    'e:DungeonEditData:[true,"Gespeichert: k9-doc (2"]:256:bbd20983c470657b',
+    'e:DungeonEditData:[true,"Gespeichert: k9-doc (2"]:256:bbd20983c470657b',
+    'e:DungeonEditData:[false,"Registry veraltet — Se"]:76:71c8c48b9f29b153',
+    'e:DungeonEditData:[false,"Dokument abgelehnt (Ba"]:49:28accf45467d20da',
+    'e:DungeonEditData:[true,"Gespeichert: k9-doc (2"]:256:bbd20983c470657b',
+    'e:DungeonEditData:[true,"k9-doc"]:199:a999d46b223f2d55',
+    'e:DungeonModulBauErgebnis:[true,"Gebaut: Gen_StoneVault"]:264:3eb4b7886aaba11b',
+    'e:DungeonEditData:[false,"Registry veraltet — Se"]:76:f5dfd9e0bb3dc108',
+    'e:DungeonModulLoeschErgebnis:[true,"Entfernt: Gen_StoneVau"]:196:2b00f8890606c5ef',
   ],
-  aufrufe: { getPeers: 4, sendTimeSync: 8, enterDungeon: 2 },
-  konsole: { log: 16, warn: 1 },
+  aufrufe: { getPeers:  4,  sendTimeSync:  8,  enterDungeon:  2 },
+  konsole: { log: 17, warn: 2 },
   zustand: [100, 1750, 5, 0, 0, 0, 2, 1],
   ausnahmen: [],
+  notizen: [
+    'sendTimeSync p1',
+    'sendTimeSync p2',
+    'sendTimeSync p1',
+    'sendTimeSync p2',
+    'sendTimeSync p1',
+    'sendTimeSync p2',
+    'sendTimeSync p1',
+    'sendTimeSync p2',
+    'enterDungeon e k9-doc',
+    'enterDungeon e k9-doc',
+  ],
 };
 
 /** Step 3, measured on the stand before the move: chest/appearance/figure (stand-in, real instance) and chat (stand-in, real instance). */
-const SOLL_INTERAKTION_ATTRAPPE: Aufzeichnung3 = {
+const SOLL_INTERAKTION_ATTRAPPE: Aufzeichnung = {
   paket: [
-    't:InteractResult:[true,"Truhe geöffnet"]',
-    't:ContainerSync:["u",7,19]',
-    't:InteractResult:[true,"Truhe geöffnet"]',
-    't:ContainerSync:["u",7,0]',
-    't:InteractResult:[true,"Truhe geöffnet"]',
-    't:ContainerSync:["u",7,19]',
-    't:InteractResult:[true,"Truhe geöffnet"]',
-    't:ContainerSync:["u",7,18]',
-    't:ContainerSync:["u",7,19]',
+    't:InteractResult:[true,"Truhe geöffnet"]:22:7c62c134c97a6d14',
+    't:ContainerSync:["u",7,19]:26:4376afbcca29916d',
+    't:InteractResult:[true,"Truhe geöffnet"]:22:7c62c134c97a6d14',
+    't:ContainerSync:["u",7,0]:7:b0cf0ca9c4e0eb10',
+    't:InteractResult:[true,"Truhe geöffnet"]:22:7c62c134c97a6d14',
+    't:ContainerSync:["u",7,19]:26:bf42688d67219593',
+    't:InteractResult:[true,"Truhe geöffnet"]:22:7c62c134c97a6d14',
+    't:ContainerSync:["u",7,18]:25:f681633f71bd01d2',
+    't:ContainerSync:["u",7,19]:26:bf42688d67219593',
   ],
   aufrufe: { setInt:  3,  setString:  35,  reviseData:  2,  sendeTruheInhalt:  4,  zdosVon:  11,  kappeLeben:  9,  sichereSpielerSofort:  11,  inventarSync:  6 },
   konsole: { log: 2, warn: 2 },
@@ -1112,13 +1190,13 @@ const SOLL_INTERAKTION_ATTRAPPE: Aufzeichnung3 = {
     'sofort:figur',
   ],
 };
-const SOLL_INTERAKTION_ECHT: Aufzeichnung3 = {
+const SOLL_INTERAKTION_ECHT: Aufzeichnung = {
   paket: [
-    'e:InteractResult:[true,"Truhe geöffnet"]',
-    'e:ContainerSync:["1",1,19]',
-    'e:InteractResult:[true,"Truhe geöffnet"]',
-    'e:ContainerSync:["1",1,19]',
-    'e:ContainerSync:["1",1,19]',
+    'e:InteractResult:[true,"Truhe geöffnet"]:22:7c62c134c97a6d14',
+    'e:ContainerSync:["1",1,19]:26:483cc7c64faf72d7',
+    'e:InteractResult:[true,"Truhe geöffnet"]:22:7c62c134c97a6d14',
+    'e:ContainerSync:["1",1,19]:26:483cc7c64faf72d7',
+    'e:ContainerSync:["1",1,19]:26:483cc7c64faf72d7',
   ],
   aufrufe: { kappeLeben:  2,  sichereSpielerSofort:  3,  inventarSync:  2 },
   konsole: { log: 5, warn: 2 },
@@ -1130,29 +1208,29 @@ const SOLL_INTERAKTION_ECHT: Aufzeichnung3 = {
     'sofort:figur',
   ],
 };
-const SOLL_CHAT_ATTRAPPE: Aufzeichnung3 = {
+const SOLL_CHAT_ATTRAPPE: Aufzeichnung = {
   paket: [
-    'ich:ChatMessage:["0","ich",1,"Hallo Welt",10]',
-    'nah:ChatMessage:["0","ich",1,"Hallo Welt",10]',
-    'mittel:ChatMessage:["0","ich",1,"Hallo Welt",10]',
-    'ich:ChatMessage:["0","ich",0,"Hallo Welt",10]',
-    'nah:ChatMessage:["0","ich",0,"Hallo Welt",10]',
-    'ich:ChatMessage:["0","ich",2,"Hallo Welt",10]',
-    'nah:ChatMessage:["0","ich",2,"Hallo Welt",10]',
-    'mittel:ChatMessage:["0","ich",2,"Hallo Welt",10]',
-    'fern:ChatMessage:["0","ich",2,"Hallo Welt",10]',
-    'ich:ChatMessage:["0","ich",99,"Hallo Welt",10]',
-    'nah:ChatMessage:["0","ich",99,"Hallo Welt",10]',
-    'mittel:ChatMessage:["0","ich",99,"Hallo Welt",10]',
-    'ich:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]',
-    'nah:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]',
-    'mittel:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]',
-    'ich:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]',
-    'nah:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]',
-    'mittel:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]',
-    'ich:ChatMessage:["0","ich",1,"",0]',
-    'nah:ChatMessage:["0","ich",1,"",0]',
-    'mittel:ChatMessage:["0","ich",1,"",0]',
+    'ich:ChatMessage:["0","ich",1,"Hallo Welt",10]:33:a0f1115d71701ce4',
+    'nah:ChatMessage:["0","ich",1,"Hallo Welt",10]:33:a0f1115d71701ce4',
+    'mittel:ChatMessage:["0","ich",1,"Hallo Welt",10]:33:a0f1115d71701ce4',
+    'ich:ChatMessage:["0","ich",0,"Hallo Welt",10]:33:a5bc9d1471ad6f00',
+    'nah:ChatMessage:["0","ich",0,"Hallo Welt",10]:33:a5bc9d1471ad6f00',
+    'ich:ChatMessage:["0","ich",2,"Hallo Welt",10]:33:9026b2815fe0e326',
+    'nah:ChatMessage:["0","ich",2,"Hallo Welt",10]:33:9026b2815fe0e326',
+    'mittel:ChatMessage:["0","ich",2,"Hallo Welt",10]:33:9026b2815fe0e326',
+    'fern:ChatMessage:["0","ich",2,"Hallo Welt",10]:33:9026b2815fe0e326',
+    'ich:ChatMessage:["0","ich",99,"Hallo Welt",10]:33:71477e5feea8f1be',
+    'nah:ChatMessage:["0","ich",99,"Hallo Welt",10]:33:71477e5feea8f1be',
+    'mittel:ChatMessage:["0","ich",99,"Hallo Welt",10]:33:71477e5feea8f1be',
+    'ich:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]:47:a6eb5e1dca444ca7',
+    'nah:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]:47:a6eb5e1dca444ca7',
+    'mittel:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]:47:a6eb5e1dca444ca7',
+    'ich:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]:280:1b15d333c3eab3a3',
+    'nah:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]:280:1b15d333c3eab3a3',
+    'mittel:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]:280:1b15d333c3eab3a3',
+    'ich:ChatMessage:["0","ich",1,"",0]:23:1ddae5bbf873fecf',
+    'nah:ChatMessage:["0","ich",1,"",0]:23:1ddae5bbf873fecf',
+    'mittel:ChatMessage:["0","ich",1,"",0]:23:1ddae5bbf873fecf',
   ],
   aufrufe: { getPeers:  9 },
   konsole: { log: 9, warn: 0 },
@@ -1161,14 +1239,14 @@ const SOLL_CHAT_ATTRAPPE: Aufzeichnung3 = {
   notizen: [
   ],
 };
-const SOLL_CHAT_ECHT: Aufzeichnung3 = {
+const SOLL_CHAT_ECHT: Aufzeichnung = {
   paket: [
-    'a:ChatMessage:["0","a",1,"Hallo Ägir",10]',
-    'b:ChatMessage:["0","a",1,"Hallo Ägir",10]',
-    'a:ChatMessage:["0","a",0,"Hallo Ägir",10]',
-    'a:ChatMessage:["0","a",2,"Hallo Ägir",10]',
-    'b:ChatMessage:["0","a",2,"Hallo Ägir",10]',
-    'd:ChatMessage:["0","a",2,"Hallo Ägir",10]',
+    'a:ChatMessage:["0","a",1,"Hallo Ägir",10]:32:e71f7f64d5448a31',
+    'b:ChatMessage:["0","a",1,"Hallo Ägir",10]:32:e71f7f64d5448a31',
+    'a:ChatMessage:["0","a",0,"Hallo Ägir",10]:32:e1e911cdd2282aca',
+    'a:ChatMessage:["0","a",2,"Hallo Ägir",10]:32:805ad08ab68de0c9',
+    'b:ChatMessage:["0","a",2,"Hallo Ägir",10]:32:805ad08ab68de0c9',
+    'd:ChatMessage:["0","a",2,"Hallo Ägir",10]:32:805ad08ab68de0c9',
   ],
   aufrufe: { getPeers:  3 },
   konsole: { log: 7, warn: 0 },

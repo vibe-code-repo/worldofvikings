@@ -73,11 +73,17 @@ export function istDatum(x: unknown): x is string {
  *   - Latin letters (Basic Latin, Latin-1 Supplement, Latin Extended-A and -B,
  *     so umlauts and ß), without × and ÷. No other script, no IPA or
  *     phonetic letters, no combining marks (write precomposed letters).
+ *     Left out of the Latin block: the letters that look like punctuation or
+ *     digits (U+013F U+0140 U+0149 U+01A7 U+01A8 U+01B7-U+01BE U+01C0-U+01C3
+ *     U+021C U+021D U+0241 U+0242).
  *   - Digits 0-9 and the space U+0020 (no other space, no tab, no line break).
  *   - Punctuation: . , ! ? : ; ' " „ “ ” ‚ ‘ ’ ( ) - – — % + & €
- *   - Emoji (Extended_Pictographic), optionally followed by U+FE0F, skin-tone
- *     modifiers and regional indicators (flags). No zero-width joiner, so
- *     joined emoji sequences such as a farmer are rejected.
+ *   - Emoji (Extended_Pictographic, assigned code points only) as a sequence:
+ *     an emoji may be followed by one U+FE0F and by one skin-tone modifier;
+ *     U+FE0F and skin-tone modifiers are rejected anywhere else. Regional
+ *     indicators are accepted in pairs only (a flag); a single one is
+ *     rejected. No zero-width joiner, so joined emoji such as a farmer are
+ *     rejected. U+2122, U+2139 and U+24C2 are rejected (they fold to letters).
  *
  * Rejected on purpose: / \ # @ _ = < > ~ ` | * [ ] { } $ ^, all Cc and Cf
  * characters (zero-width joiner, bidi marks, soft hyphen), other dashes and
@@ -86,24 +92,60 @@ export function istDatum(x: unknown): x is string {
  * "Platz #1", no chat commands such as "/heim".
  *
  * On top of the list the tool rejects a few patterns on the normalised text
- * (NFKC, diacritics and dotless i folded, lower case, – and — as -): hashes
- * (7+ hex characters with at least three digit/letter changes, or 10+
- * characters from a-f only), "pr|pull request|issue|commit|gh" followed by a
- * number of 3+ digits, domains (`word.tld` or `word . tld` or `word dot tld`
- * for common TLDs, `localhost`, `www.`, `github`), IPv4 addresses (four parts
- * 0-255 without leading zeros; "Update 1.2.3.4" is rejected, versions have at
- * most three parts), IPv6 (two or more colons with hex groups), server names
- * (`wov` + any separator + dev|host|lab|live), `port` + number, file
- * endings, and every line of the blocklist file kept outside the repository.
+ * (NFKC, diacritics removed, dotless i and the letters ø ł đ ħ ŧ ƀ ð ĸ æ œ þ ß
+ * folded to o l d h t b d k ae oe th ss, lower case, – and — as -):
+ * hashes (7+ hex characters that contain digits and letters, except the form
+ * word + year such as Facade2026; "abc1234" and "Bad1234" are rejected on
+ * purpose; or 10+ characters from a-f only), "pr|pull request|issue|commit|gh"
+ * followed by a number of 3+ digits, domains (`word.tld` or `word . tld` or
+ * `word dot tld` for common TLDs, `localhost`, `www.`, `github`), IPv4
+ * addresses (four parts of 1-3 digits with value 0-255, leading zeros
+ * included, so "192.168.001.001" is rejected; "Update 1.2.3.4" and
+ * "10.000.000.000 Gold" are rejected on purpose, write big numbers in words;
+ * "127.1", "2130706433" and "0177.0.0.1" stay free because they are not the
+ * four-part form and are hopeless to tell from versions and gold amounts),
+ * IPv6 (a `::` with at least one hex group that has a digit, such as "fe80::1"
+ * or "::1"; or 6 to 8 hex groups of 1-4 characters; times such as 20:00:30
+ * and words such as "Bad::" stay free), server names (`wov` + any separator
+ * + dev|host|lab|live), `port` + number, file endings, and every line of the
+ * blocklist file kept outside the repository.
  */
-const ERLAUBT_ZEICHEN =
-  /^(?:[A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F0-9 .,!?:;'"\u201E\u201C\u201D\u201A\u2018\u2019()\u002D\u2013\u2014%+&\u20AC\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}]|\uFE0F)$/u;
+const BASIS =
+  /^[A-Za-z0-9 .,!?:;'"\u201E\u201C\u201D\u201A\u2018\u2019()\u002D\u2013\u2014%+&\u20AC]$/u;
+const LATEIN = /^[\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F]$/u;
+const LATEIN_RAUS =
+  /^[\u013F\u0140\u0149\u01A7\u01A8\u01B7-\u01BE\u01C0-\u01C3\u021C\u021D\u0241\u0242]$/u;
+const PIKTO = /^\p{Extended_Pictographic}$/u;
+const PIKTO_RAUS = /^[\u2122\u2139\u24C2]$/u;
+const UNBELEGT = /^\p{Cn}$/u;
+const HAUTTON = /^\p{Emoji_Modifier}$/u;
+const FLAGGE = /^\p{Regional_Indicator}$/u;
+const VARIANTE = '\uFE0F';
+
+function istPikto(z: string | undefined): boolean {
+  return z !== undefined && PIKTO.test(z) && !PIKTO_RAUS.test(z) && !UNBELEGT.test(z);
+}
 
 /** Characters of `text` outside the allowed list, each once, as `U+XXXX` (in order of first use). */
 export function unerlaubteZeichen(text: string): string[] {
   const aus: string[] = [];
-  for (const z of text) {
-    if (ERLAUBT_ZEICHEN.test(z)) continue;
+  const zs = [...text];
+  for (let i = 0; i < zs.length; i++) {
+    const z = zs[i];
+    let ok: boolean;
+    if (BASIS.test(z)) ok = true;
+    else if (LATEIN.test(z)) ok = !LATEIN_RAUS.test(z);
+    else if (istPikto(z)) ok = true;
+    else if (z === VARIANTE || HAUTTON.test(z)) ok = istPikto(zs[i - 1]);
+    else if (FLAGGE.test(z)) {
+      // Nur paarweise: Länge der Folge und Stelle in ihr bestimmen, ein Rest am Ende fällt raus.
+      let von = i;
+      while (von > 0 && FLAGGE.test(zs[von - 1])) von--;
+      let bis = i;
+      while (bis + 1 < zs.length && FLAGGE.test(zs[bis + 1])) bis++;
+      ok = (bis - von + 1) % 2 === 0 || i < bis;
+    } else ok = false;
+    if (ok) continue;
     const code = `U+${(z.codePointAt(0) as number).toString(16).toUpperCase().padStart(4, '0')}`;
     if (!aus.includes(code)) aus.push(code);
   }

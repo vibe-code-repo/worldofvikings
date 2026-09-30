@@ -16,8 +16,9 @@
  * (`unerlaubteZeichen` in `wov-web/src/lib/devlog.ts`, dort als Block „Allowed
  * text“ beschrieben). Jedes andere Zeichen lehnt das Werkzeug ab und nennt es
  * als `U+XXXX`. Darüber hinaus gibt es wenige Muster auf dem normalisierten
- * Text (NFKC, Akzente und punktloses i gefaltet, klein geschrieben, – und —
- * als -): Hash, PR-/Issue-Nummer, Domain, IPv4, IPv6, Serverkürzel, Port,
+ * Text (NFKC, Akzente und punktloses i gefaltet, Strichbuchstaben und Ligaturen
+ * wie ø ł đ ħ ŧ ƀ ð ĸ æ œ þ ß zu o l d h t b d k ae oe th ss, klein geschrieben,
+ * – und — als -): Hash, PR-/Issue-Nummer, Domain, IPv4, IPv6, Serverkürzel, Port,
  * Dateiendung. Wörter über 40 Zeichen werden beim Eintragen abgelehnt.
  *
  * Schreiben: temporäre Datei im selben Ordner, dann `rename` — ein Abbruch
@@ -87,10 +88,14 @@ export function glaette(text) {
     .replace(/\s+/gu, " ");
 }
 
+/** Buchstaben, die keine Akzente tragen und sich nicht zerlegen lassen; sie werden auf ihr Grundzeichen gefaltet. */
+const FALTUNG = { "ø": "o", "ł": "l", "đ": "d", "ħ": "h", "ŧ": "t", "ƀ": "b", "ð": "d", "ĸ": "k", "æ": "ae", "œ": "oe", "þ": "th", "ß": "ss" };
+
 /**
  * Normalisierte Fassung für alle Muster und die Sperrliste: geglättet, Akzente
- * abgelöst (NFD ohne Mn: „ä“ wird „a“), punktloses „ı“ wird „i“, klein, und
- * Halbgeviert- und Geviertstrich werden zu „-“.
+ * abgelöst (NFD ohne Mn: „ä“ wird „a“), punktloses „ı“ wird „i“, klein,
+ * Strichbuchstaben und Ligaturen gefaltet (`FALTUNG`: „ø“ wird „o“, „ß“ wird
+ * „ss“), und Halbgeviert- und Geviertstrich werden zu „-“.
  */
 export function normalisiert(text) {
   return glaette(text)
@@ -98,6 +103,7 @@ export function normalisiert(text) {
     .replace(/\p{Mn}/gu, "")
     .replace(/\u0131/g, "i")
     .toLowerCase()
+    .replace(/[øłđħŧƀðĸæœþß]/gu, (z) => FALTUNG[z])
     .replace(/[\u2013\u2014]/g, "-");
 }
 
@@ -139,11 +145,13 @@ function endungTreffer(glatt) {
 /**
  * Hash-Kandidat auf dem normalisierten Text: eine Folge von 7 bis 40 Hexzeichen
  * (0-9, a-f) zwischen Nicht-Wortzeichen. Sie gilt als Hash, wenn sie Ziffern
- * UND Buchstaben enthält und mindestens dreimal zwischen Ziffer und Buchstabe
- * wechselt („a1c7232d“), oder wenn sie ab 10 Zeichen nur aus a-f besteht
- * („deadbeefcafe“). „Facade2026“ (ein Wechsel) und „defaced“ (7 Buchstaben)
- * bleiben frei, reine Zahlen auch.
+ * UND Buchstaben enthält („abc1234“, „a1c7232d“), oder wenn sie ab 10 Zeichen
+ * nur aus a-f besteht („deadbeefcafe“). Ausnahme: genau die Form Wort plus
+ * Jahreszahl (`^[a-f]+(19|20)\d\d$`, „Facade2026“, „Decade1999“). „defaced“
+ * (7 Buchstaben) und reine Zahlen bleiben frei; „Bad1234“ wird bewusst
+ * abgelehnt (Kürzel wie „abc1234“ lassen sich davon nicht trennen).
  */
+const JAHRESFORM = /^[a-f]+(?:19|20)\d\d$/;
 function hashTreffer(n) {
   for (const m of n.matchAll(/(?<![\p{L}\p{N}_])[0-9a-f]{7,40}(?![\p{L}\p{N}_])/gu)) {
     const hex = m[0];
@@ -155,16 +163,16 @@ function hashTreffer(n) {
       continue;
     }
     if (!buchstabe) continue;
-    const wechsel = hex.replace(/\d+/g, "0").replace(/[a-f]+/g, "a").length - 1;
-    if (wechsel >= 3) return hex;
+    if (JAHRESFORM.test(hex)) continue;
+    return hex;
   }
   return undefined;
 }
 
 /** Häufige Endungen von Domainnamen; „wort.de“ oder „wort . de“ ist eine Adresse. */
 const TLD = "(?:com|de|org|net|io|dev|app|gg|eu|info|xyz|me|co|uk|us|ru|cn|tv)";
-/** Ein IPv4-Teil: 0-255 ohne führende Null. */
-const OKTETT = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
+/** Ein IPv4-Teil: 1-3 Ziffern, Wert 0-255, führende Nullen erlaubt („001“). */
+const OKTETT = "(?:25[0-5]|2[0-4]\\d|[01]?\\d?\\d)";
 const IPV4 = new RegExp(`(?<!\\d)(?:${OKTETT}\\s*\\.\\s*){3}${OKTETT}(?!\\d)`);
 const DOMAIN = new RegExp(
   `(?<![a-z0-9])www\\s*\\.|` +
@@ -176,10 +184,19 @@ const DOMAIN = new RegExp(
   "u",
 );
 
-/** IPv6: ab zwei Doppelpunkten mit Hexgruppen („fe80::1“, „::1“). „20:00“ hat einen und bleibt frei. */
+/**
+ * IPv6 auf dem normalisierten Text: Kandidat ist eine Folge von Hexgruppen mit
+ * mindestens zwei Doppelpunkten. Gesperrt wird sie nur, wenn sie `::` enthält
+ * und mindestens eine Gruppe eine Ziffer hat („fe80::1“, „::1“, „2001:db8::1“),
+ * oder wenn sie aus 6 bis 8 Gruppen mit je 1-4 Zeichen besteht
+ * („2001:db8:0:0:0:0:0:1“). „20:00:30“, „Bad::“ und „Face:Dead:Fed“ bleiben frei.
+ */
 function ipv6Treffer(n) {
   for (const m of n.matchAll(/(?<![a-z0-9:])[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,}(?![a-z0-9:])/g)) {
-    if (/[0-9a-f]/.test(m[0])) return m[0];
+    const t = m[0];
+    const gruppen = t.split(":");
+    if (t.includes("::") && gruppen.some((g) => /\d/.test(g))) return t;
+    if (gruppen.length >= 6 && gruppen.length <= 8 && gruppen.every((g) => g.length >= 1)) return t;
   }
   return undefined;
 }

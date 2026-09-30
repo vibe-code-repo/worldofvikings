@@ -292,6 +292,12 @@ try {
       ["127.0.0.1:2713", v4],
       ["10.0.0.1:8080", v4],
       ["192.168.0.1", v4],
+      ["192.168.001.001", v4], // N4: führende Nullen
+      ["010.000.000.001", v4],
+      ["255.255.255.255", v4], // Oktett an der Grenze 255
+      ["1.2.3.255", v4],
+      ["255.1.2.3", v4],
+      ["10.000.000.000 Gold", v4], // N4: bewusste Ablehnung, große Zahlen mit vier Gruppen in Worten schreiben
       ["127 . 0 . 0 . 1", v4],
       ["127．0．0．1", zeichen],
       ["Update 1.2.3.4", v4], // dokumentiert: Versionen haben höchstens drei Teile
@@ -299,6 +305,9 @@ try {
       ["::1", v6],
       ["fe80::1", v6],
       ["2001:db8::1", v6],
+      ["2001:db8:0:0:0:0:0:1", v6],
+      ["1:2:3:4:5:6", v6], // 6 Gruppen
+      ["a:b:c:d:e:f:1:2", v6], // 8 Gruppen
       ["::ffff:127.0.0.1", v6],
       ["0x7f000001", hex],
       ["wov-dev", kuerzel],
@@ -320,6 +329,15 @@ try {
       ["A1B2C3D4", hash],
       ["a1c7232d", hash],
       ["deadbeefcafe", hash],
+      ["deadbeefcafe123", hash],
+      ["abc1234", hash], // N4: bewusste Ablehnung (Kürzel nicht von Wort plus Zahl zu trennen)
+      ["Bad1234", hash], // N4: bewusste Ablehnung
+      ["1facade2026", hash], // Jahres-Ausnahme gilt nur ab Wortanfang
+      ["Facade202", hash], // Jahres-Ausnahme: nur vier Ziffern (3 Ziffern: gesperrt)
+      ["Facade20266", hash], // 5 Ziffern: gesperrt
+      ["Facade1899", hash], // Jahr nur 19xx oder 20xx
+      ["a1b2c3d", hash], // genau 7 Zeichen: gesperrt
+      ["de09eeb", hash], // echtes Kürzel mit einem Wechsel
       [`Stand ${"0123456789abcdef".repeat(2)}01234567 erreicht`, hash],
       // Pfade
       ["server\\src", zeichen],
@@ -438,7 +456,21 @@ try {
       "ABC-DEF-12345",
       "Facade2026",
       "Decade2026",
-      "Bad1234",
+      "Decade1999",
+      "Feb2026",
+      "Fade2026",
+      "Bad123",
+      "a1b2c3", // 6 Zeichen: frei
+      "Facade2026 und Fade1999",
+      "256.256.256.256 Gold", // Oktett 256: kein IPv4
+      "1.2.3.256",
+      "1.2.3",
+      "20:00:30",
+      "12:30:45",
+      "um 5:30:00",
+      "Bad::",
+      "Face:Dead:Fed",
+      "1:2:3:4:5", // 5 Gruppen
       "Pull 3 Gegner",
       "Pull 10 enemies",
       "issue 2 wichtig",
@@ -459,7 +491,6 @@ try {
       "am 10.5.2026",
       "10.000 Gold",
       "1.000.000 Gold",
-      "10.000.000.000 Gold",
       "999.999.999.999 Gold",
       "Preis 9.99",
       "Mo, Di; Mi: frei!",
@@ -495,7 +526,6 @@ try {
       ["Patch 2.0.1.3", v4],
       ["Sektor 12.34.56.78", v4],
       ["Commit 100 Gold", nummer],
-      ["Uhrzeit 20:00:30", v6],
       ["Fertig.go", endung],
       ["Kap.h", endung],
     ];
@@ -512,7 +542,6 @@ try {
     const restluecken = [
       "deadbeef-1234567",
       "a1b2-c3d4e5",
-      "deadbeefcafe123",
       "127.1",
       "2130706433",
       "0177.0.0.1",
@@ -521,6 +550,73 @@ try {
     for (const text of restluecken) {
       const funde = findeSpuren({ de: { titel: "T", punkte: [text] } }, sperr);
       pruefe(`Restlücke bleibt frei (dokumentiert): ${JSON.stringify(text)}`, funde.length === 0, funde.join("|"));
+    }
+    // N4/F4: Faltung der Strichbuchstaben und Ligaturen für die Sperrlisten-Prüfung (Liste mit dem Wort „foobar“ usw.).
+    const faltung: [string, string, string][] = [
+      ["føøbar", "foobar", "ø"],
+      ["FØØBAR", "foobar", "Ø"],
+      ["Łoewe", "loewe", "ł"],
+      ["Đrache", "drache", "đ"],
+      ["Ħalle", "halle", "ħ"],
+      ["Ŧeufel", "teufel", "ŧ"],
+      ["ƀaum", "baum", "ƀ"],
+      ["ðrache", "drache", "ð"],
+      ["ĸaiser", "kaiser", "ĸ"],
+      ["Æther", "aether", "æ"],
+      ["Lœwe", "loewe", "œ"],
+      ["Þorn", "thorn", "þ"],
+      ["Straße", "strasse", "ß"],
+    ];
+    for (const [text, wort, z] of faltung) {
+      const funde = findeSpuren({ de: { titel: "T", punkte: [text] } }, [wort]).join("|");
+      pruefe(`Faltung ${z}: ${JSON.stringify(text)} trifft Sperrwort`, funde.includes("Sperrwort"), funde || "keine");
+    }
+    // Gegenprobe: ohne Sperrwort lässt die Faltung harmlose Wörter durch.
+    for (const text of ["Łódź ist weit", "Þorn und Æther", "Straße und Öl", "Größe ß"]) {
+      const funde = findeSpuren({ de: { titel: "T", punkte: [text] } }, []);
+      pruefe(`Faltung: ${JSON.stringify(text)} ohne Sperrwort frei`, funde.length === 0, funde.join("|"));
+    }
+    // N4/F1: Grenzen der Hash-Regel (Länge 6/7, Jahres-Ausnahme mit 3/4 Ziffern) und F6: Oktett 255/256, je einzeln.
+    const grenzen: [string, boolean][] = [
+      ["a1b2c3", false],
+      ["a1b2c3d", true],
+      ["abcdef1", true],
+      ["abcdef", false],
+      ["abcdefabcd", true], // 10 Buchstaben a-f
+      ["abcdefabc", false], // 9 Buchstaben a-f
+      ["Facade2026", false],
+      ["Facade1999", false],
+      ["Facade2999", true],
+      ["Facade202", true],
+      ["Facade20", true],
+      ["Facade20261", true],
+      ["Decade2026x", false], // kein Hexzeichen x: die Folge ist kein Kandidat
+      ["255.255.255.255", true],
+      ["256.255.255.255", false],
+      ["255.256.255.255", false],
+      ["255.255.255.256", false],
+      ["1.2.3.255", true],
+      ["1.2.3.256", false],
+      ["199.199.199.199", true],
+      ["200.249.250.251", true],
+      ["200.260.250.251", false],
+      ["1.2.3.4", true],
+      ["001.002.003.004", true],
+      ["0000.1.1.1", false],
+      ["6:5:4:3:2:1", true],
+      ["5:4:3:2:1", false],
+      ["1:2:3:4:5:6:7:8", true],
+      ["1:2:3:4:5:6:7:8:9", false], // 9 Gruppen: kein IPv6
+      ["fe80::1", true],
+      ["bad::", false],
+      ["::1", true],
+      ["::", false],
+      ["dead::beef", false],
+      ["dead::be1f", true],
+    ];
+    for (const [text, gesperrtSoll] of grenzen) {
+      const funde = findeSpuren({ de: { titel: "T", punkte: [text] } }, []).filter((f) => !/Zeichen nicht erlaubt/.test(f));
+      pruefe(`Grenze ${JSON.stringify(text)}: ${gesperrtSoll ? "gesperrt" : "frei"}`, (funde.length > 0) === gesperrtSoll, funde.join("|"));
     }
     const leer = findeSpuren({ de: { titel: "T", punkte: ["Ein ganz normaler Satz"] } }, ["", "  ", "\u200b"]);
     pruefe("Sperrliste: Zeile, die nach dem Glätten leer ist, sperrt nichts", leer.length === 0, leer.join());

@@ -253,6 +253,83 @@ describe('devlog: Zeichen-Positivliste (Allowed text)', () => {
     ];
     for (const [t, code] of abgelehnt) expect(unerlaubteZeichen(t)).toEqual([code]);
   });
+
+  it('lässt Emoji-Zusätze nur in einer Emoji-Sequenz zu', () => {
+    const ok = [
+      '\u2764\uFE0F',
+      '\u{1F44D}\u{1F3FD}',
+      '\u{1F1E9}\u{1F1EA}',
+      '\u{1F1E9}\u{1F1EA}\u{1F1EB}\u{1F1F7}',
+    ];
+    for (const t of ok) expect(unerlaubteZeichen(t)).toEqual([]);
+    const abgelehnt: [string, string][] = [
+      ['a\uFE0Fb', 'U+FE0F'], // unsichtbar nach einem Buchstaben
+      ['1\uFE0F', 'U+FE0F'],
+      ['\u2764\uFE0F\uFE0F', 'U+FE0F'], // zweites FE0F
+      ['a\u{1F3FD}', 'U+1F3FD'], // Hautton nach Buchstaben
+      ['\u{1F3FD}', 'U+1F3FD'], // Hautton allein
+      ['\u{1F44D}\u{1F3FD}\u{1F3FD}', 'U+1F3FD'], // zweiter Hautton
+      ['\u{1F1E9}', 'U+1F1E9'], // einzelner Flaggen-Indikator
+      ['a\u{1F1E9}b', 'U+1F1E9'],
+      ['\u{1F1E9}\u{1F1EA}\u{1F1EB}', 'U+1F1EB'], // dritter bleibt ohne Partner
+      ['\u{1F02C}', 'U+1F02C'], // unbelegter Codepunkt
+      ['\u2139', 'U+2139'], // faltet zu i
+      ['\u24C2', 'U+24C2'], // faltet zu M
+      ['\u2122', 'U+2122'], // faltet zu TM
+    ];
+    for (const [t, code] of abgelehnt) expect(unerlaubteZeichen(t)).toEqual([code]);
+    expect(/\p{Cn}/u.test('\u{1F02C}')).toBe(true);
+  });
+
+  it('lässt im Lateinblock nur Buchstaben zu, die nicht wie Satzzeichen oder Ziffern aussehen', () => {
+    for (const t of ['ł ø đ ħ ŧ ƀ ð ĸ æ œ þ ß', 'ǅ ǲ Ǆ'])
+      expect(unerlaubteZeichen(t.replaceAll(' ', ''))).toEqual([]);
+    const raus = [
+      0x13f, 0x140, 0x149, 0x1a7, 0x1a8, 0x1b7, 0x1bb, 0x1be, 0x1c0, 0x1c1, 0x1c2, 0x1c3, 0x21c,
+      0x21d, 0x241, 0x242,
+    ];
+    for (const c of raus) {
+      const z = String.fromCodePoint(c);
+      expect(unerlaubteZeichen(z)).toEqual([`U+${c.toString(16).toUpperCase().padStart(4, '0')}`]);
+    }
+  });
+
+  it('Dokumentation „Allowed text“ und Code stimmen überein', () => {
+    const quelle = readFileSync(join(HIER, 'devlog.ts'), 'utf8');
+    const block = quelle.slice(quelle.indexOf('Allowed text'), quelle.indexOf('const BASIS'));
+    const text = block.replace(/\n \* ?/g, ' ').replace(/\s+/g, ' ');
+    // Satzzeichenliste: genau diese ASCII- und Typografie-Zeichen sind neben Buchstaben, Ziffern und Leerzeichen erlaubt.
+    const liste = /Punctuation: (.+?) - Emoji/.exec(text)?.[1].trim().split(' ') ?? [];
+    expect(liste.length).toBeGreaterThan(10);
+    for (const z of liste) expect(unerlaubteZeichen(z), `Satzzeichen ${z}`).toEqual([]);
+    for (let c = 0x21; c <= 0x7e; c++) {
+      const z = String.fromCharCode(c);
+      const erlaubt = /[A-Za-z0-9]/.test(z) || liste.includes(z);
+      expect(unerlaubteZeichen(z).length === 0, `U+${c.toString(16)} ${z}`).toBe(erlaubt);
+    }
+    // „Rejected on purpose“: jedes genannte ASCII-Zeichen wird abgelehnt.
+    const abgelehnt = /Rejected on purpose: (.+?), all Cc/.exec(text)?.[1].trim().split(' ') ?? [];
+    expect(abgelehnt.length).toBeGreaterThan(10);
+    for (const z of abgelehnt)
+      expect(unerlaubteZeichen(z), `abgelehnt ${z}`).toEqual([
+        `U+${z.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`,
+      ]);
+    // Lateinblock: die genannten Ausnahmen sind genau die abgelehnten Buchstaben zwischen U+00C0 und U+024F (ohne × ÷).
+    const raus = new Set<number>();
+    const teil = /Left out of the Latin block: .*?\((.+?)\)\./.exec(text)?.[1] ?? '';
+    for (const m of teil.matchAll(/U\+([0-9A-F]{4})(?:-U\+([0-9A-F]{4}))?/g)) {
+      const von = parseInt(m[1], 16);
+      const bis = m[2] ? parseInt(m[2], 16) : von;
+      for (let c = von; c <= bis; c++) raus.add(c);
+    }
+    expect(raus.size).toBeGreaterThan(10);
+    for (let c = 0xc0; c <= 0x24f; c++) {
+      if (c === 0xd7 || c === 0xf7) continue;
+      expect(unerlaubteZeichen(String.fromCodePoint(c)).length === 0, `U+${c.toString(16)}`).toBe(
+        !raus.has(c),
+      );
+    }
+  });
 });
 
 describe('devlog: Navigation', () => {

@@ -104,6 +104,8 @@ export default [
   // Namen, die andere Dateien per Zeichenkette suchen (Himmelskuppel, Refraktion,
   // Dungeon-Atmosphäre): Erzeuger und Verbraucher nennen denselben Namen.
   ['client', 'test/bild-namen.ts'],
+  // D2: swing fields, AttackAck, combo follow-up and round trip on the client.
+  ['client', 'test/d2-quittung.ts'],
   // Account hand-off from wov-web: the legacy connection panel must be
   // absent from the static HTML, online entry requires a session, and
   // failures return to the one remaining login on the public website.
@@ -756,6 +758,8 @@ export default [
   // operations, zone reset.
   // Tool registry: the editor's tools behind one interface (start, abort, keys, bar).
   ['client', 'test/werkzeug-registry.ts'],
+  // F9: Wetter vom Server im Client (DOM-frei): Paket lesen, Übergabe an den WeatherManager, Verdrahtung in main.ts.
+  ['client', 'test/wetter-annahme.ts'],
   // Wildwarden clientseitig: Slot-Vertrag, Speicher-Rundlauf, Inventarersatz,
   // Körper-Wiederherstellung. NullEngine.
   ['client', 'test/wildwarden.ts'],

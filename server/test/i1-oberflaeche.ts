@@ -110,6 +110,7 @@ export const BEFEHLE = [
   'spawn',
   'spieler',
   'teleport',
+  'wetter',
   'zone',
 ] as const;
 

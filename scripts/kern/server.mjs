@@ -138,6 +138,8 @@ export default [
   ['server', 'test/beute-daten.ts'],
   ['server', 'test/bewuchs-freiraum-huellen.ts'],
   ['server', 'test/bewuchs-freiraum.ts'],
+  // D2: server decides hits from geometry and time (hit sphere, swing window, combo ack, cooldown).
+  ['server', 'test/d2-treffer.ts'],
   // G1-Durchsicht (verwaiste Tests, 20.08.2026): init() ohne start() —
   // kein Port, kein Socket. Haelt getGroundHeight(0,0) gegen den
   // D1-verifizierten Wert UND die Fallphysik-Konvergenz fest, damit ein
@@ -787,6 +789,10 @@ export default [
     Fake-Request für ForumApi, kein assets/, keine GPU.
   */
   ['server/test', 'website-urspruenge.ts'],
+  // F9 (Wetter serverautoritativ): Definitionsdatei, Würfel (bitgleich zum alten, Verteilung, Dauer, Tageszeit),
+  // Wetterdienst und Admin-Befehl rein; dann echter Server mit echten Clients: Fensterwechsel, zwei Biome,
+  // Biomwechsel, Override, Editor/Dungeonband ohne Paket. Zwei Server auf ephemeren Ports, ~25 s.
+  ['server', 'test/wetter-server.ts'],
   // Wiedereinstieg nach Neustart mit Layout-Abgleich: das Bett wandert mit dem Gelände (der
   // Punkt zieht mit), ein versetztes oder gelöschtes Bett wird gemeldet. Echte Clients.
   ['server', 'test/wiedereinstieg-bett-wandert.ts'],

@@ -64,23 +64,28 @@ export function loeseBausaetzeAuf(
       unbekannt.push({ instanz: i.id, bausatz: i.bausatz });
       continue;
     }
+    // Every input field is read exactly once into a constant; only the constants are checked and used, so a getter
+    // that answers differently the second time cannot smuggle a NaN past the check.
+    const { x: ix, z: iz, kennungen } = i;
     const yaw = i.yaw ?? 0;
-    if (!endlich(i.x) || !endlich(i.z) || !endlich(yaw)) {
+    if (!endlich(ix) || !endlich(iz) || !endlich(yaw)) {
       fehler.push(`Bausatz-Instanz "${i.id}": x, z oder yaw ist keine endliche Zahl — Instanz ausgelassen`);
       continue;
     }
     const c = Math.cos(yaw);
     const s = Math.sin(yaw);
     for (const t of bausatz.teile) {
-      const adresse = i.kennungen !== undefined && Object.hasOwn(i.kennungen, t.id) ? i.kennungen[t.id] : undefined;
-      const id = typeof adresse === 'string' ? adresse : `${i.id}#${t.id}`;
-      const teilYaw = t.yaw;
-      if (!endlich(t.dx) || !endlich(t.dz) || !endlich(teilYaw) || !skalaEndlich(t.scale) || [t.dy, t.pitch, t.roll].some((w) => w !== undefined && !endlich(w))) {
-        fehler.push(`Bausatz-Teil "${t.id}" der Instanz "${i.id}": dx, dz, dy, yaw, pitch, roll oder scale ist keine endliche Zahl — Teil ausgelassen`);
+      const { id: teilId, prefab, dx, dz, dy, yaw: teilYaw, pitch, roll, scale: skalaRoh, einebnen, gruppe } = t;
+      // the scale triple is copied once as well, the copy is checked and passed on
+      const skala = Array.isArray(skalaRoh) && skalaRoh.length === 3 ? ([skalaRoh[0], skalaRoh[1], skalaRoh[2]] as BausatzSkala) : skalaRoh;
+      const adresse = kennungen !== undefined && Object.hasOwn(kennungen, teilId) ? kennungen[teilId] : undefined;
+      const id = typeof adresse === 'string' ? adresse : `${i.id}#${teilId}`;
+      if (!endlich(dx) || !endlich(dz) || !endlich(teilYaw) || !skalaEndlich(skala) || [dy, pitch, roll].some((w) => w !== undefined && !endlich(w))) {
+        fehler.push(`Bausatz-Teil "${teilId}" der Instanz "${i.id}": dx, dz, dy, yaw, pitch, roll oder scale ist keine endliche Zahl — Teil ausgelassen`);
         continue;
       }
       if (ids.has(id) || platzierungsIds.has(id)) {
-        fehler.push(`Bausatz-Teil "${t.id}" der Instanz "${i.id}": id "${id}" ist schon vergeben — Teil ausgelassen`);
+        fehler.push(`Bausatz-Teil "${teilId}" der Instanz "${i.id}": id "${id}" ist schon vergeben — Teil ausgelassen`);
         continue;
       }
       ids.add(id);
@@ -88,17 +93,17 @@ export function loeseBausaetzeAuf(
         id,
         instanz: i.id,
         bausatz: i.bausatz,
-        teilId: t.id,
-        prefab: t.prefab,
-        x: rundePosition(i.x + t.dx * c + t.dz * s),
-        z: rundePosition(i.z - t.dx * s + t.dz * c),
-        ...(t.dy !== undefined ? { dy: t.dy } : {}),
+        teilId,
+        prefab,
+        x: rundePosition(ix + dx * c + dz * s),
+        z: rundePosition(iz - dx * s + dz * c),
+        ...(dy !== undefined ? { dy } : {}),
         yaw: yaw + teilYaw + 0,
-        ...(t.pitch !== undefined ? { pitch: t.pitch } : {}),
-        ...(t.roll !== undefined ? { roll: t.roll } : {}),
-        scale: typeof t.scale === 'number' ? t.scale : [t.scale[0], t.scale[1], t.scale[2]],
-        ...(t.einebnen !== undefined ? { einebnen: t.einebnen } : {}),
-        ...(t.gruppe !== undefined ? { gruppe: t.gruppe } : {}),
+        ...(pitch !== undefined ? { pitch } : {}),
+        ...(roll !== undefined ? { roll } : {}),
+        scale: skala,
+        ...(einebnen !== undefined ? { einebnen } : {}),
+        ...(gruppe !== undefined ? { gruppe } : {}),
       });
     }
   }

@@ -106,6 +106,12 @@ export interface BausatzInstanzDef {
  * `roll` through unchanged. That is only right if the consumer composes a part's rotation as
  * `R_y(yaw) · R_x(pitch) · R_z(roll)`, yaw outermost (like `Quaternion.RotationYawPitchRoll`). Kit files must be
  * loaded through `sanitizeBausatz` before they reach the resolver.
+ *
+ * Resolved parts follow their own ranges, not the placement rules: the angle sum `yaw_instanz + yaw_teil` reaches
+ * ±4π, and a part's scale (triple, negative for a mirror, 0.05–20) lies outside the placement range (yaw ±2π, scale
+ * 0.2–5). So a resolved part must NEVER run through `klemm` or the placement rules of `sanitizeWorldLayout`: that
+ * would clamp a rotation by up to 5.7 rad and change a scale. C4a treats an angle beyond ±2π as a rotation, not as
+ * a value to clamp. (Only the rounding — millimetres, no rounding for angle and scale — is shared with placements.)
  */
 
 /** A part after resolving: world position and angle, final id. */

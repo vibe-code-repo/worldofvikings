@@ -132,6 +132,49 @@ const katalog = (...k: Bausatz[]): Map<string, Bausatz> => new Map(k.map((b) => 
   const ri = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'n', x: NaN, z: 0 }, { id: 'j', bausatz: 'n', x: 0, z: 0, yaw: Infinity }, { id: 'k', bausatz: 'n', x: 1, z: 1 }] }, katalog(basis));
   pruefe('N3 Instanz mit NaN-x / Infinity-yaw: ausgelassen mit Fehler, Rest bleibt', ri.fehler.length === 2 && ri.teile.length === 2 && ri.teile.every((t) => t.instanz === 'k'), ri.fehler.join());
 }
+// N2 A1: jedes Eingabefeld wird genau einmal gelesen (Getter, der beim zweiten Zugriff NaN/Infinity liefert)
+{
+  const basis = kit('g', [teil('a'), teil('b')]);
+  const einmalEndlich = (o: Record<string, unknown>, feld: string, erst: number, danach: number): Record<string, unknown> => {
+    let n = 0;
+    Object.defineProperty(o, feld, { enumerable: true, get: () => (n++ === 0 ? erst : danach) });
+    return o;
+  };
+  const alleEndlich = (r: ReturnType<typeof loeseBausaetzeAuf>): boolean =>
+    r.teile.every((t) => [t.x, t.z, t.yaw, t.dy, t.pitch, t.roll].every((v) => v === undefined || Number.isFinite(v)) && (typeof t.scale === 'number' ? Number.isFinite(t.scale) : t.scale.every(Number.isFinite)));
+  for (const feld of ['dx', 'dz', 'dy', 'yaw', 'pitch', 'roll', 'scale']) for (const danach of [NaN, Infinity]) {
+    const schlecht = einmalEndlich({ ...basis.teile[0]! }, feld, 1, danach);
+    const r = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'g', x: 0, z: 0 }] }, katalog({ ...basis, teile: [schlecht as never, basis.teile[1]!] }));
+    pruefe(`A1 Teil-Getter ${feld} (1, dann ${danach}): nie NaN/Infinity im Ergebnis`, alleEndlich(r) && r.teile.length >= 1, JSON.stringify(r.teile.map((t) => [t.x, t.z, t.yaw])));
+  }
+  for (const feld of ['x', 'z', 'yaw']) for (const danach of [NaN, Infinity]) {
+    const schlecht = einmalEndlich({ id: 'i', bausatz: 'g', x: 0, z: 0 }, feld, 2, danach);
+    const r = loeseBausaetzeAuf({ bausaetze: [schlecht as never, { id: 'j', bausatz: 'g', x: 1, z: 1 }] }, katalog(basis));
+    pruefe(`A1 Instanz-Getter ${feld} (2, dann ${danach}): nie NaN/Infinity im Ergebnis`, alleEndlich(r) && r.fehler.length === 0 && r.teile.length === 4, JSON.stringify(r.teile.map((t) => [t.x, t.z, t.yaw])));
+  }
+  // erster Zugriff schlecht: benannter Fehler, Teil bzw. Instanz ausgelassen
+  const erstSchlecht = einmalEndlich({ ...basis.teile[0]! }, 'dx', NaN, 1);
+  const r1 = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'g', x: 0, z: 0 }] }, katalog({ ...basis, teile: [erstSchlecht as never, basis.teile[1]!] }));
+  pruefe('A1 Teil-Getter dx (NaN, dann 1): fehler, Teil ausgelassen', r1.fehler.length === 1 && r1.teile.length === 1 && r1.teile[0]!.teilId === 'b');
+  const erstInst = einmalEndlich({ id: 'i', bausatz: 'g', x: 0, z: 0 }, 'x', Infinity, 1);
+  const r2 = loeseBausaetzeAuf({ bausaetze: [erstInst as never] }, katalog(basis));
+  pruefe('A1 Instanz-Getter x (Infinity, dann 1): fehler, Instanz ausgelassen', r2.fehler.length === 1 && r2.teile.length === 0);
+}
+// N2 A2/X8: dy, pitch und roll werden im Auflöser geprüft
+{
+  const basis = kit('w', [teil('a'), teil('b')]);
+  for (const feld of ['dy', 'pitch', 'roll']) for (const wert of [NaN, Infinity]) {
+    const r = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'w', x: 0, z: 0 }] }, katalog({ ...basis, teile: [{ ...basis.teile[0]!, [feld]: wert } as never, basis.teile[1]!] }));
+    pruefe(`X8 ${feld} ${wert}: fehler, Teil ausgelassen`, r.fehler.length === 1 && /keine endliche Zahl/.test(r.fehler[0]!) && r.teile.length === 1 && r.teile[0]!.teilId === 'b', r.fehler.join());
+  }
+}
+// N2 A2/X9: ein geerbter String in kennungen (Object.create, am Sanitizer vorbei) ist keine Adresse
+{
+  const k = kit('e', [teil('a'), teil('b')]);
+  const geerbt = Object.create({ a: 'geerbt-a' }) as Record<string, string>;
+  const r = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'e', x: 0, z: 0, kennungen: geerbt }] }, katalog(k));
+  pruefe('X9 geerbter String in kennungen: id i#a, nicht geerbt-a', r.teile.some((t) => t.id === 'i#a') && !r.teile.some((t) => t.id === 'geerbt-a'), r.teile.map((t) => t.id).join());
+}
 // M3: jede Platzierung des echten dev.json als Teil, Anker mm-Koordinate mit yaw 0 — byte-gleich zum Vergleichsschlüssel
 {
   const dev = sanitizeWorldLayout(JSON.parse(readFileSync(fileURLToPath(new URL('../../server/data/welten/dev.json', import.meta.url)), 'utf8')))!;

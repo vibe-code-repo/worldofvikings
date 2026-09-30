@@ -498,9 +498,6 @@ export function wende(layout: WorldLayout, eingabe: unknown, san: LayoutSanitize
   // The sanitizer cuts and drops without a word; a Vorgang must not lose an entry that way.
   for (const [sammlung, l] of arbeit) {
     const behalten = eintraegeVon(neu, sammlung).length;
-    if (sammlung === 'bausaetze' && behalten === l.length && JSON.stringify(eintraegeVon(neu, sammlung)) !== JSON.stringify([...l].sort((p, q) => (p.id < q.id ? -1 : p.id > q.id ? 1 : 0)))) {
-      return { ok: false, art: 'ungueltig', message: 'bausaetze: der Sanitizer würde Inhalt einer Instanz ändern; nichts geändert' };
-    }
     if (behalten !== l.length) {
       return {
         ok: false,

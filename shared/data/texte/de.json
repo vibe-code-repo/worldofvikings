@@ -61,5 +61,18 @@
   "inhalt.set.ironward": "Ironward",
   "inhalt.set.plainhide": "Schlichtleder",
   "inhalt.set.seidraven": "Seidraven",
-  "inhalt.set.wildwarden": "Waldhüter"
+  "inhalt.set.wildwarden": "Waldhüter",
+  "inhalt.wetter.clear": "Klar",
+  "inhalt.wetter.deepforest_mist": "Waldnebel",
+  "inhalt.wetter.heath_clear": "Klar (Heide)",
+  "inhalt.wetter.lightrain": "Leichter Regen",
+  "inhalt.wetter.misty": "Nebel",
+  "inhalt.wetter.rain": "Regen",
+  "inhalt.wetter.snow": "Schnee",
+  "inhalt.wetter.snowstorm": "Schneesturm",
+  "inhalt.wetter.swamprain": "Sumpfregen",
+  "inhalt.wetter.thunderstorm": "Gewitter (Starkregen und Sturm)",
+  "inhalt.wetter.twilight_clear": "Dämmerlicht, klar",
+  "inhalt.wetter.twilight_snow": "Dämmerlicht, Schnee",
+  "inhalt.wetter.twilight_snowstorm": "Dämmerlicht, Schneesturm"
 }

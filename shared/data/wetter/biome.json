@@ -1,0 +1,245 @@
+{
+  "version": 1,
+  "zustaende": [
+    {
+      "id": "Clear",
+      "umgebung": "Clear",
+      "textKey": "inhalt.wetter.clear"
+    },
+    {
+      "id": "DeepForest Mist",
+      "umgebung": "DeepForest Mist",
+      "textKey": "inhalt.wetter.deepforest_mist"
+    },
+    {
+      "id": "Heath clear",
+      "umgebung": "Heath clear",
+      "textKey": "inhalt.wetter.heath_clear"
+    },
+    {
+      "id": "LightRain",
+      "umgebung": "LightRain",
+      "textKey": "inhalt.wetter.lightrain"
+    },
+    {
+      "id": "Misty",
+      "umgebung": "Misty",
+      "textKey": "inhalt.wetter.misty"
+    },
+    {
+      "id": "Rain",
+      "umgebung": "Rain",
+      "textKey": "inhalt.wetter.rain"
+    },
+    {
+      "id": "Snow",
+      "umgebung": "Snow",
+      "textKey": "inhalt.wetter.snow"
+    },
+    {
+      "id": "SnowStorm",
+      "umgebung": "SnowStorm",
+      "textKey": "inhalt.wetter.snowstorm"
+    },
+    {
+      "id": "SwampRain",
+      "umgebung": "SwampRain",
+      "textKey": "inhalt.wetter.swamprain"
+    },
+    {
+      "id": "ThunderStorm",
+      "umgebung": "ThunderStorm",
+      "textKey": "inhalt.wetter.thunderstorm"
+    },
+    {
+      "id": "Twilight_Clear",
+      "umgebung": "Twilight_Clear",
+      "textKey": "inhalt.wetter.twilight_clear"
+    },
+    {
+      "id": "Twilight_Snow",
+      "umgebung": "Twilight_Snow",
+      "textKey": "inhalt.wetter.twilight_snow"
+    },
+    {
+      "id": "Twilight_SnowStorm",
+      "umgebung": "Twilight_SnowStorm",
+      "textKey": "inhalt.wetter.twilight_snowstorm"
+    }
+  ],
+  "biome": [
+    {
+      "biom": "Meadows",
+      "zustaende": [
+        {
+          "zustand": "Clear",
+          "gewicht": 5,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "Rain",
+          "gewicht": 0.20000000298023224,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "Misty",
+          "gewicht": 0.20000000298023224,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "ThunderStorm",
+          "gewicht": 0.20000000298023224,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "LightRain",
+          "gewicht": 0.20000000298023224,
+          "fensterMin": 1,
+          "fensterMax": 1
+        }
+      ]
+    },
+    {
+      "biom": "BlackForest",
+      "zustaende": [
+        {
+          "zustand": "DeepForest Mist",
+          "gewicht": 2,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "Rain",
+          "gewicht": 0.10000000149011612,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "Misty",
+          "gewicht": 0.10000000149011612,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "ThunderStorm",
+          "gewicht": 0.10000000149011612,
+          "fensterMin": 1,
+          "fensterMax": 1
+        }
+      ]
+    },
+    {
+      "biom": "Swamp",
+      "zustaende": [
+        {
+          "zustand": "SwampRain",
+          "gewicht": 1,
+          "fensterMin": 1,
+          "fensterMax": 1
+        }
+      ]
+    },
+    {
+      "biom": "Mountain",
+      "zustaende": [
+        {
+          "zustand": "SnowStorm",
+          "gewicht": 1,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "Snow",
+          "gewicht": 5,
+          "fensterMin": 1,
+          "fensterMax": 1
+        }
+      ]
+    },
+    {
+      "biom": "DeepNorth",
+      "zustaende": [
+        {
+          "zustand": "Twilight_SnowStorm",
+          "gewicht": 0.5,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "Twilight_Snow",
+          "gewicht": 1,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "Twilight_Clear",
+          "gewicht": 1,
+          "fensterMin": 1,
+          "fensterMax": 1
+        }
+      ]
+    },
+    {
+      "biom": "Plains",
+      "zustaende": [
+        {
+          "zustand": "Heath clear",
+          "gewicht": 2,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "Misty",
+          "gewicht": 0.4000000059604645,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "LightRain",
+          "gewicht": 0.4000000059604645,
+          "fensterMin": 1,
+          "fensterMax": 1
+        }
+      ]
+    },
+    {
+      "biom": "Ocean",
+      "zustaende": [
+        {
+          "zustand": "Rain",
+          "gewicht": 0.10000000149011612,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "LightRain",
+          "gewicht": 0.10000000149011612,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "Misty",
+          "gewicht": 0.10000000149011612,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "Clear",
+          "gewicht": 1,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "ThunderStorm",
+          "gewicht": 0.10000000149011612,
+          "fensterMin": 1,
+          "fensterMax": 1
+        }
+      ]
+    }
+  ]
+}

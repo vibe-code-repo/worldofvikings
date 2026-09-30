@@ -8,6 +8,14 @@
  *  [5] Uncollected loot vanishes after the life time (5 min).
  *  [6] After a restart there is no loot on the ground (the save leaves it out), while a chest saved next to it is back.
  *  [7] 1,000 rolls through the real ground path stay within ±3 % of the table probability (seeded dice).
+ *  [8] A full / nearly full / empty inventory: the loot (and a world item) is only taken for the part that was given.
+ *  [9] Foreign loot nearer than own loot does not block the pick-up of the own piece.
+ *  [10] A guest without token who reconnects (new identity): the rule is the key of the buildings; exclusive time ends after 2 min.
+ *  [11] The owner key is not sent to any client (wire probe on the stranger).
+ *  [13] Harvest, refund of a torn-down piece, craft and cooking at a full inventory: what cannot be handed over lies on the
+ *       ground (harvest, refund) or the action is refused and nothing is taken (craft, cooking).
+ *  [12] Damage rules: overkill does not count, the tie goes to the first to hit, the killing blow counts, the tally goes at death /
+ *       despawn / after 10 min.
  *
  * The time of the 2 min / 5 min windows is wound forward through the test hook `beuteAmBoden.vorspulen`.
  * Ports are ephemeral (`portVon`, scripts/testport.mjs).
@@ -18,7 +26,7 @@ import WebSocket from 'ws';
 import { rmSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { HEALTH_MEMBER, getStableHash, maxLeben, PacketType, type Vector3 } from '@wov/shared';
+import { HEALTH_MEMBER, PIECES, findItem, getStableHash, maxLeben, PacketType, type Vector3 } from '@wov/shared';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer, type WovServer } from '../src/WovServer.js';
 import { BEUTE_EXKLUSIV_MS as EXKLUSIV_IM_CODE, BEUTE_LEBEN_MS as LEBEN_IM_CODE, BEUTE_BESITZER, BEUTE_ITEM, BEUTE_MENGE, BEUTE_FREI_AB, BEUTE_ABLAUF, SERVER_MELDUNG_BEUTE_FREMD } from '../src/spiel/BeuteAmBoden.js';
@@ -116,19 +124,23 @@ interface Spieler {
   ws: WebSocket;
   peer: ReturnType<WovServer['net']['getPeers']>[number];
   meldungen: Array<{ ok: boolean; text: string }>;
+  /** every packet this client received (for the wire probe of the owner key) */
+  roh: Buffer[];
 }
 
 async function neuerSpieler(server: WovServer, port: number, name: string): Promise<Spieler> {
   const ws = await verbinde(port, name);
   const meldungen: Spieler['meldungen'] = [];
+  const roh: Buffer[] = [];
   ws.on('message', (data: Buffer) => {
+    roh.push(Buffer.from(data));
     if (data.readUInt8(0) !== P.InteractResult) return;
     const r = new Reader(Buffer.from(data.subarray(1)));
     meldungen.push({ ok: r.readBool(), text: r.readString() });
   });
   const peer = server.net.getPeers().find((p) => p.name === name);
   if (!peer) throw new Error(`peer ${name} not found`);
-  return { name, ws, peer, meldungen };
+  return { name, ws, peer, meldungen, roh };
 }
 
 async function main(): Promise<void> {
@@ -197,7 +209,7 @@ async function main(): Promise<void> {
     check('loot is RawMeat, amount 2-3 (table), prefab = the item prefab', b1?.getString(BEUTE_ITEM) === 'RawMeat' && menge1 >= 2 && menge1 <= 3 && b1.prefabHash === getStableHash('RawMeat'), `${b1?.getString(BEUTE_ITEM)} x${menge1}`);
     check('loot lies at the position of the cow (< 0.01 m)', !!b1 && Math.hypot(b1.position.x - kuhPos.x, b1.position.z - kuhPos.z) < 0.01, b1 ? `${b1.position.x.toFixed(2)},${b1.position.z.toFixed(2)} vs ${kuhPos.x.toFixed(2)},${kuhPos.z.toFixed(2)}` : 'none');
     check('inventory RawMeat did not rise by the kill', fleisch(alice) === fleischVorher, `${fleischVorher} -> ${fleisch(alice)}`);
-    check('owner member = Alice (the only attacker)', b1?.getString(BEUTE_BESITZER) === alice.peer.spielerId && alice.peer.spielerId !== '', `"${b1?.getString(BEUTE_BESITZER)}"`);
+    check('owner member = Alice (the only attacker)', b1?.getString(BEUTE_BESITZER) === alice.peer.userId.toString() && alice.peer.userId.toString() !== '', `"${b1?.getString(BEUTE_BESITZER)}"`);
     const jetzt0 = boden.jetzt();
     const freiAb = Number(b1?.getLong(BEUTE_FREI_AB) ?? 0n);
     const ablauf = Number(b1?.getLong(BEUTE_ABLAUF) ?? 0n);
@@ -239,7 +251,7 @@ async function main(): Promise<void> {
     await schlage(bob, ''); // kills (counts 3, not 4)
     const b3 = lootZDOs()[0];
     check('cow dead, killed by Bob', kuh3.destroyed && !!b3);
-    check('owner = Alice (19 > 11), although Bob landed the killing blow', b3?.getString(BEUTE_BESITZER) === alice.peer.spielerId, `owner "${b3?.getString(BEUTE_BESITZER)}", Alice "${alice.peer.spielerId}", Bob "${bob.peer.spielerId}"`);
+    check('owner = Alice (19 > 11), although Bob landed the killing blow', b3?.getString(BEUTE_BESITZER) === alice.peer.userId.toString(), `owner "${b3?.getString(BEUTE_BESITZER)}", Alice "${alice.peer.userId.toString()}", Bob "${bob.peer.userId.toString()}"`);
     await hebeAuf(bob, b3!);
     check('the killer Bob cannot pick it up yet', bob.meldungen.some((m) => !m.ok && m.text === SERVER_MELDUNG_BEUTE_FREMD) && !b3!.destroyed);
     check('no damage tally left after the kill', boden.anzahlAnteile === 0, `${boden.anzahlAnteile}`);
@@ -294,10 +306,326 @@ async function main(): Promise<void> {
       check(`${vorher} pieces laid, all gone after the life time`, vorher > 1500 && lootZDOs().length === 0, `${vorher} -> ${lootZDOs().length}`);
     }
 
+    // ── [8] F1: a full inventory does not destroy the loot ───────
+    console.log('\n[8] Pick-up with a full / a nearly full / an empty inventory');
+    const STEIN = findItem('Stone')!;
+    const FLEISCH = findItem('RawMeat')!;
+    const leere = (s: Spieler): void => {
+      for (const it of [...s.peer.inventar.all]) s.peer.inventar.removeItem(it, it.stack);
+    };
+    const fuelleMitStein = (s: Spieler): void => {
+      while (s.peer.inventar.addItem(STEIN, 50) === 0) {
+        /* until nothing fits any more */
+      }
+    };
+    const legeBeute = (besitzer: Spieler | null, item: string, menge: number, x: number, z: number): ZDO => {
+      const vorher = new Set(lootZDOs());
+      const tot = server.zdos.createZDO(KUH, { x, y: server.heightmaps.getGroundHeight(x, z), z });
+      if (besitzer) boden.schaden(tot, besitzer.peer.userId.toString(), 5);
+      boden.legeAb(server.zdos, tot, [{ name: item, amount: menge }]);
+      server.zdos.destroyZDO(tot.zdoid);
+      const neu = lootZDOs().find((l) => !vorher.has(l));
+      if (!neu) throw new Error('loot was not laid');
+      return neu;
+    };
+    const hatMeldung = (s: Spieler, text: string): boolean => s.meldungen.some((m) => m.text === text);
+    await platz(alice, 100, 100);
+    await platz(bob, 140, 140);
+
+    leere(alice);
+    fuelleMitStein(alice);
+    const voll = legeBeute(alice, 'RawMeat', 3, 100.5, 98);
+    check('full inventory: no RawMeat fits', alice.peer.inventar.addItem(FLEISCH, 1) === 1 && fleisch(alice) === 0);
+    await hebeAuf(alice, voll);
+    check('full: the loot stays on the ground with amount 3', !voll.destroyed && voll.getInt(BEUTE_MENGE) === 3, `destroyed ${voll.destroyed}, amount ${voll.getInt(BEUTE_MENGE)}`);
+    check('full: inventory has no RawMeat', fleisch(alice) === 0, `${fleisch(alice)}`);
+    check('full: the player gets the catalogue key "inventory full", no success', alice.meldungen.some((m) => !m.ok && m.text === '@inventory.full') && !hatMeldung(alice, '@beute.aufgesammelt'), JSON.stringify(alice.meldungen));
+    server.zdos.destroyZDO(voll.zdoid); // the next cases must not find this piece first
+
+    leere(alice);
+    alice.peer.inventar.addItem(FLEISCH, FLEISCH.maxStackSize - 1);
+    fuelleMitStein(alice);
+    const teil = legeBeute(alice, 'RawMeat', 3, 100.5, 98);
+    await hebeAuf(alice, teil);
+    check(`partial (room for 1 of 3): inventory RawMeat ${FLEISCH.maxStackSize - 1} -> ${FLEISCH.maxStackSize}`, fleisch(alice) === FLEISCH.maxStackSize, `${fleisch(alice)}`);
+    check('partial: the loot stays with the remaining amount 2', !teil.destroyed && teil.getInt(BEUTE_MENGE) === 2, `destroyed ${teil.destroyed}, amount ${teil.getInt(BEUTE_MENGE)}`);
+    check('partial: success message, the stack is full now', alice.meldungen.some((m) => m.ok && m.text === '@beute.aufgesammelt'), JSON.stringify(alice.meldungen));
+    await hebeAuf(alice, teil);
+    check('second try with nothing fitting: still 2 lying there, "inventory full"', !teil.destroyed && teil.getInt(BEUTE_MENGE) === 2 && fleisch(alice) === FLEISCH.maxStackSize && alice.meldungen.some((m) => !m.ok && m.text === '@inventory.full'));
+    leere(alice);
+    await hebeAuf(alice, teil);
+    check('with room again the rest 2 is picked up, the ZDO is gone', teil.destroyed && fleisch(alice) === 2, `${fleisch(alice)}`);
+
+    leere(alice);
+    const leer = legeBeute(alice, 'RawMeat', 3, 100.5, 98);
+    await hebeAuf(alice, leer);
+    check('empty inventory: all 3 picked up, ZDO gone', leer.destroyed && fleisch(alice) === 3 && alice.meldungen.some((m) => m.ok && m.text === '@beute.aufgesammelt'), `${fleisch(alice)}`);
+
+    // The same code path serves the world pick-ups (a boss trophy lying around): it must not vanish either.
+    leere(alice);
+    fuelleMitStein(alice);
+    const troph = server.zdos.createZDO(getStableHash('TrophyEikthyr'), { x: 100.5, y: server.heightmaps.getGroundHeight(100.5, 98), z: 98 });
+    await hebeAuf(alice, troph);
+    check('TrophyEikthyr (world item) with a full inventory stays on the ground', !troph.destroyed && alice.peer.inventar.countOf('TrophyEikthyr') === 0 && alice.meldungen.some((m) => !m.ok && m.text === '@inventory.full'), `destroyed ${troph.destroyed}`);
+    leere(alice);
+    await hebeAuf(alice, troph);
+    check('TrophyEikthyr with room is picked up', troph.destroyed && alice.peer.inventar.countOf('TrophyEikthyr') === 1);
+    leere(alice);
+    boden.vorspulen(BEUTE_LEBEN_MS + 1000);
+    await warte(1200);
+    check('clean up: the loot that stayed lying around is gone', lootZDOs().length === 0, `${lootZDOs().length}`);
+
+    // ── [9] F6: foreign loot does not block the next piece ───────
+    console.log('\n[9] Foreign loot 1 m away, own loot 2 m away');
+    await platz(alice, 100, 100);
+    const fremdNah = legeBeute(bob, 'RawMeat', 2, 101, 100);
+    const eigenFern = legeBeute(alice, 'RawMeat', 3, 102, 100);
+    await hebeAuf(alice, { position: { x: 100, y: fremdNah.position.y, z: 100 }, prefabHash: fremdNah.prefabHash } as ZDO);
+    check('Alice gets her own piece (3), the nearer foreign one is skipped', eigenFern.destroyed && fleisch(alice) === 3 && !fremdNah.destroyed, `own destroyed ${eigenFern.destroyed}, RawMeat ${fleisch(alice)}, foreign destroyed ${fremdNah.destroyed}`);
+    await hebeAuf(alice, { position: { x: 100, y: fremdNah.position.y, z: 100 }, prefabHash: fremdNah.prefabHash } as ZDO);
+    check('only the foreign piece is left: refused with the "foreign" key, not "nothing there"', hatMeldung(alice, SERVER_MELDUNG_BEUTE_FREMD) && !fremdNah.destroyed && fleisch(alice) === 3, JSON.stringify(alice.meldungen));
+    boden.vorspulen(BEUTE_EXKLUSIV_MS + 1000);
+    await hebeAuf(alice, { position: { x: 100, y: fremdNah.position.y, z: 100 }, prefabHash: fremdNah.prefabHash } as ZDO);
+    check('after the 2 minutes the foreign piece is hers too', fremdNah.destroyed && fleisch(alice) === 5, `${fleisch(alice)}`);
+    leere(alice);
+
+    // ── [10] F3: a guest without token who reconnects ────────────
+    console.log('\n[10] Guest without token reconnects (new identity): rule = same key as the buildings, exclusive time ends after 2 min');
+    {
+      const gast1 = await neuerSpieler(server, PORT, 'Gast');
+      await platz(gast1, 120, 120);
+      const alteKennung = gast1.peer.userId.toString();
+      const gbeute = legeBeute(gast1, 'RawMeat', 2, 120, 118);
+      check('the loot carries the owner key = userId (the key of `besitzer`)', gbeute.getString(BEUTE_BESITZER) === alteKennung, `"${gbeute.getString(BEUTE_BESITZER)}"`);
+      gast1.ws.close();
+      await warte(600);
+      const gast2 = await neuerSpieler(server, PORT, 'Gast');
+      await platz(gast2, 120, 120);
+      check('premise: the reconnected guest has a NEW userId', gast2.peer.userId.toString() !== alteKennung, `${alteKennung} -> ${gast2.peer.userId}`);
+      await hebeAuf(gast2, gbeute);
+      check('after the reconnect the old loot is foreign: refused, stays', hatMeldung(gast2, SERVER_MELDUNG_BEUTE_FREMD) && !gbeute.destroyed && fleisch(gast2) === 0);
+      boden.vorspulen(BEUTE_EXKLUSIV_MS + 1000);
+      await hebeAuf(gast2, gbeute);
+      check('after the exclusive time the same guest (new identity) picks it up', gbeute.destroyed && fleisch(gast2) === 2, `${fleisch(gast2)}`);
+      gast2.ws.close();
+      await warte(300);
+    }
+
+    // ── [11] F2: the owner key does not go to any client ─────────
+    console.log('\n[11] The owner key is not sent to clients');
+    {
+      await platz(alice, 100, 100);
+      await platz(bob, 101, 100);
+      const geheim = legeBeute(alice, 'RawMeat', 2, 100.5, 98);
+      const besitzerKennung = geheim.getString(BEUTE_BESITZER);
+      const hash = getStableHash(BEUTE_BESITZER);
+      check('the member exists on the ZDO (the server still decides by it)', geheim.hasMember(hash) && besitzerKennung === alice.peer.userId.toString());
+      // On the wire: everything Bob and Alice receive during the next seconds must not contain the key.
+      bob.roh.length = 0;
+      alice.roh.length = 0;
+      geheim.setInt(BEUTE_MENGE, 3);
+      geheim.revision.reviseData();
+      geheim.dirty = true;
+      for (let t = 0; t < 1500; t += 100) {
+        sendInput(bob.ws, 0);
+        sendInput(alice.ws, 0);
+        await warte(100);
+      }
+      const bytes = Buffer.from(besitzerKennung, 'utf8');
+      check('wire: Bob received packets (the sync ran)', bob.roh.length > 5, `${bob.roh.length} packets`);
+      check('wire: no packet to Bob contains the owner key', !Buffer.concat(bob.roh).includes(bytes));
+      // (Alice's own packets legitimately carry her userId as the owner of her figure, so the wire probe is Bob's.)
+      check('wire: the sync did carry this loot ZDO to Bob (its item name "RawMeat" is in the packets)', Buffer.concat(bob.roh).includes(Buffer.from('RawMeat', 'utf8')));
+      boden.vorspulen(BEUTE_LEBEN_MS + 1000);
+      await warte(1200);
+    }
+
+    // ── [12] F4: the damage rules (overkill, tie, killing blow, tally cleanup, decay) ──
+    console.log('\n[12] Damage rules');
+    {
+      // Overkill and tie: Alice 15 (axe), Bob 4+4+4 (hp 3 left) and an axe that kills (15, but only 3 count): 15 each.
+      await platz(alice, 100, 100);
+      await platz(bob, 101, 100);
+      for (const s of [alice, bob]) s.peer.inventar.addItem(findItem('AxeFlint')!, 1); // the weapon must be in the inventory
+      const zKuh = setzeKuh();
+      await schlage(alice, 'AxeFlint');
+      await schlage(bob, '');
+      await schlage(bob, '');
+      await schlage(bob, '');
+      check('cow at 3 HP', zKuh.getInt(HEALTH_MEMBER) === 3, `HP ${zKuh.getInt(HEALTH_MEMBER)}`);
+      await schlage(bob, 'AxeFlint');
+      const bGleich = lootZDOs()[0];
+      check('cow dead', zKuh.destroyed && !!bGleich);
+      check('overkill does not count and the tie goes to the first to hit: owner = Alice (15 : 15, not 15 : 27)', bGleich?.getString(BEUTE_BESITZER) === alice.peer.userId.toString(), `owner "${bGleich?.getString(BEUTE_BESITZER)}", Alice "${alice.peer.userId}", Bob "${bob.peer.userId}"`);
+      boden.vorspulen(BEUTE_LEBEN_MS + 1000);
+      await warte(1200);
+
+      // Killing blow counts: Alice 12 (3 fists), Bob 8 (2 fists) + the killing axe blow (10 left) = 18.
+      const zKuh2 = setzeKuh();
+      await schlage(alice, '');
+      await schlage(alice, '');
+      await schlage(alice, '');
+      await schlage(bob, '');
+      await schlage(bob, '');
+      check('cow at 10 HP', zKuh2.getInt(HEALTH_MEMBER) === 10, `HP ${zKuh2.getInt(HEALTH_MEMBER)}`);
+      await schlage(bob, 'AxeFlint');
+      const bTod = lootZDOs()[0];
+      check('the killing blow counts: owner = Bob (8 + 10 = 18 against 12)', zKuh2.destroyed && bTod?.getString(BEUTE_BESITZER) === bob.peer.userId.toString(), `owner "${bTod?.getString(BEUTE_BESITZER)}", Bob "${bob.peer.userId}"`);
+      boden.vorspulen(BEUTE_LEBEN_MS + 1000);
+      await warte(1200);
+    }
+    {
+      // The tie rule is "first to hit", not the order of the keys and not the last to hit (unit level, both orders).
+      const basis = boden.anzahlAnteile;
+      const z1 = server.zdos.createZDO(KUH, { x: 30, y: 0, z: 30 });
+      boden.schaden(z1, '111', 10);
+      boden.schaden(z1, '222', 10);
+      check('tie 10 : 10, "111" hit first: owner 111', boden.besitzer(z1) === '111');
+      const z2 = server.zdos.createZDO(KUH, { x: 30, y: 0, z: 30 });
+      boden.schaden(z2, '222', 10);
+      boden.schaden(z2, '111', 10);
+      boden.schaden(z2, '222', 0);
+      check('tie 10 : 10, "222" hit first: owner 222 (first to hit, not key order)', boden.besitzer(z2) === '222');
+
+      // The tally is gone right after the death (synchronously, before any tick can clean it).
+      const vor = basis + 2;
+      const z3 = server.zdos.createZDO(KUH, { x: 30, y: 0, z: 30 });
+      boden.schaden(z3, '111', 5);
+      check('a hit makes a tally', boden.anzahlAnteile === vor + 1, `${vor} -> ${boden.anzahlAnteile}`);
+      server.zdos.destroyZDO(z1.zdoid);
+      server.zdos.destroyZDO(z2.zdoid);
+      boden.legeAb(server.zdos, z3, [{ name: 'RawMeat', amount: 1 }]);
+      check('the death (legeAb) removes the tally at once, not with some later tick', boden.anzahlAnteile === vor, `${boden.anzahlAnteile}`);
+
+      // A creature despawned without dying: the tick removes the tally.
+      const z4 = server.zdos.createZDO(KUH, { x: 30, y: 0, z: 30 });
+      boden.schaden(z4, '111', 5);
+      server.zdos.destroyZDO(z4.zdoid);
+      boden.vorspulen(1500);
+      await warte(1200);
+      check('despawn without death: the tick removes the tally (and those of the destroyed test creatures)', boden.anzahlAnteile === basis, `${boden.anzahlAnteile} (basis ${basis})`);
+
+      // Decay: a living creature that got no more hits for 10 min loses its tally (the number is written out).
+      const z5 = server.zdos.createZDO(KUH, { x: 30, y: 0, z: 30 });
+      const vorDecay = basis;
+      boden.schaden(z5, '111', 5);
+      boden.vorspulen(590_000);
+      await warte(1200);
+      check('after 590 s without a hit the tally is still there', boden.anzahlAnteile === vorDecay + 1, `${boden.anzahlAnteile - vorDecay}`);
+      boden.vorspulen(20_000);
+      await warte(1200);
+      check('after 610 s without a hit the tally is gone (the creature is alive)', !z5.destroyed && boden.anzahlAnteile === vorDecay, `${boden.anzahlAnteile - vorDecay}`);
+      check('a hit again renews the clock: the tally of z5 is back and owner-able', (boden.schaden(z5, '333', 5), boden.besitzer(z5) === '333'));
+      server.zdos.destroyZDO(z5.zdoid);
+      boden.vorspulen(1500);
+      await warte(1200);
+    }
+
+    // ── [13] Harvest, refund, craft, cooking: nothing vanishes at a full inventory ──
+    const sendCraft = (s: Spieler, ergebnis: string): void => {
+      const w = new Writer();
+      w.writeString(ergebnis);
+      s.ws.send(Buffer.concat([Buffer.from([PacketType.Craft]), w.toBuffer()]));
+    };
+    const sendAbriss = (s: Spieler, pos: Vector3): void => {
+      const w = new Writer();
+      w.writeVector3(pos);
+      s.ws.send(Buffer.concat([Buffer.from([PacketType.RemovePiece]), w.toBuffer()]));
+    };
+    const fuelleVoll = (s: Spieler, vorweg: Array<[string, number]> = []): void => {
+      leere(s);
+      for (const [n, m] of vorweg) s.peer.inventar.addItem(findItem(n)!, m);
+      fuelleMitStein(s);
+    };
+    const neueBeute = (vorher: Set<ZDO>): ZDO[] => lootZDOs().filter((l) => !vorher.has(l));
+
+    console.log('\n[13a] Harvest with a full inventory: the yield lies on the ground, free for anybody');
+    {
+      await platz(alice, 100, 100);
+      await platz(bob, 101, 100);
+      fuelleVoll(alice, [['AxeFlint', 1]]);
+      const baum = server.zdos.createZDO(getStableHash('Beech_small1'), { x: 102, y: server.heightmaps.getGroundHeight(102, 100), z: 100 });
+      baum.setInt(HEALTH_MEMBER, 1);
+      const vorher = new Set(lootZDOs());
+      alice.meldungen.length = 0;
+      await schlage(alice, 'AxeFlint');
+      const holz = neueBeute(vorher).filter((l) => l.getString(BEUTE_ITEM) === 'Wood');
+      const menge = holz[0]?.getInt(BEUTE_MENGE) ?? 0;
+      check('the tree is felled', baum.destroyed);
+      check('the Wood yield (6-10) lies on the ground as one piece without an owner', holz.length === 1 && menge >= 6 && menge <= 10 && holz[0]!.getString(BEUTE_BESITZER) === '', `${holz.length} piece(s), ${menge}×`);
+      check('the piece lies at the player (< 1 m)', !!holz[0] && Math.hypot(holz[0].position.x - alice.peer.position.x, holz[0].position.z - alice.peer.position.z) < 1);
+      check('the inventory got no Wood, the player is told "inventory full"', alice.peer.inventar.countOf('Wood') === 0 && hatMeldung(alice, '@inventory.full'), JSON.stringify(alice.meldungen));
+      const holzBob = bob.peer.inventar.countOf('Wood');
+      await hebeAuf(bob, holz[0]!);
+      check('anybody can pick it up at once (Bob, a stranger)', holz[0]!.destroyed && bob.peer.inventar.countOf('Wood') === holzBob + menge, `${holzBob} -> ${bob.peer.inventar.countOf('Wood')}`);
+      leere(alice);
+      leere(bob);
+    }
+
+    console.log('\n[13b] Refund of a torn-down building piece at a full inventory');
+    {
+      await platz(alice, 100, 100);
+      const teilDef = Object.values(PIECES).find((p) => p.bauPrefab && (p.resources ?? []).some((r) => Math.floor(r.amount / 2) > 0))!;
+      const erwartet = (teilDef.resources ?? []).map((r) => ({ item: r.item, menge: Math.floor(r.amount / 2) })).filter((r) => r.menge > 0);
+      fuelleVoll(alice);
+      const stein0 = alice.peer.inventar.countOf('Stone');
+      const stueck = server.zdos.createZDO(getStableHash(teilDef.bauPrefab!), { x: 102, y: server.heightmaps.getGroundHeight(102, 100), z: 100 });
+      stueck.setInt('spieler', 1);
+      stueck.setString('besitzer', alice.peer.userId.toString());
+      const vorher = new Set(lootZDOs());
+      alice.meldungen.length = 0;
+      sendAbriss(alice, stueck.position);
+      await warte(400);
+      const gelegt = neueBeute(vorher);
+      const summe = (item: string): number => gelegt.filter((l) => l.getString(BEUTE_ITEM) === item).reduce((a, l) => a + l.getInt(BEUTE_MENGE), 0);
+      check(`the piece "${teilDef.name}" is torn down`, stueck.destroyed);
+      for (const r of erwartet) {
+        // the inventory is full of full Stone stacks: nothing of any refund item fits
+        check(`refund ${r.menge}× ${r.item} lies on the ground, free (none of it vanished)`, summe(r.item) === r.menge, `${summe(r.item)}`);
+      }
+      check('every refund piece has no owner', gelegt.length > 0 && gelegt.every((l) => l.getString(BEUTE_BESITZER) === ''));
+      check('the inventory did not grow, the player is told "inventory full"', alice.peer.inventar.countOf('Stone') === stein0 && hatMeldung(alice, '@inventory.full'), JSON.stringify(alice.meldungen));
+      leere(alice);
+      boden.vorspulen(BEUTE_LEBEN_MS + 1000);
+      await warte(1200);
+    }
+
+    console.log('\n[13c] Craft with a full inventory: refused, the ingredients stay; when the ingredients free the room, it is made');
+    {
+      fuelleVoll(alice, [['Wood', 12]]);
+      alice.meldungen.length = 0;
+      sendCraft(alice, 'Club'); // 6 Wood -> Club (1 slot); Wood 12 leaves a stack behind, so no slot is free
+      await warte(300);
+      check('craft refused with "inventory full"', alice.meldungen.some((m) => !m.ok && m.text === '@inventory.full'), JSON.stringify(alice.meldungen));
+      check('the ingredients stay (Wood 12), no Club', alice.peer.inventar.countOf('Wood') === 12 && alice.peer.inventar.countOf('Club') === 0, `Wood ${alice.peer.inventar.countOf('Wood')}, Club ${alice.peer.inventar.countOf('Club')}`);
+      fuelleVoll(alice, [['Wood', 6]]);
+      alice.meldungen.length = 0;
+      sendCraft(alice, 'Club'); // the 6 Wood are a whole stack: taking them out frees the slot for the Club
+      await warte(300);
+      check('when the ingredients free a slot the Club is made', alice.peer.inventar.countOf('Club') === 1 && alice.peer.inventar.countOf('Wood') === 0 && alice.meldungen.some((m) => m.ok && /Hergestellt/.test(m.text)), `Club ${alice.peer.inventar.countOf('Club')}, Wood ${alice.peer.inventar.countOf('Wood')}`);
+      leere(alice);
+    }
+
+    console.log('\n[13d] Cooking with a full inventory: refused, the raw meat stays');
+    {
+      await platz(alice, 100, 100);
+      const feuer = server.zdos.createZDO(getStableHash('fire_pit'), { x: 101, y: server.heightmaps.getGroundHeight(101, 100), z: 100 });
+      fuelleVoll(alice, [['RawMeat', 5]]);
+      await hebeAuf(alice, feuer);
+      check('cooking refused with "inventory full"', alice.meldungen.some((m) => !m.ok && m.text === '@inventory.full'), JSON.stringify(alice.meldungen));
+      check('the raw meat stays (5), no cooked meat', fleisch(alice) === 5 && alice.peer.inventar.countOf('CookedMeat') === 0, `raw ${fleisch(alice)}, cooked ${alice.peer.inventar.countOf('CookedMeat')}`);
+      fuelleVoll(alice, [['RawMeat', 1]]);
+      await hebeAuf(alice, feuer);
+      check('the last raw meat frees its slot: it is cooked', fleisch(alice) === 0 && alice.peer.inventar.countOf('CookedMeat') === 1, `raw ${fleisch(alice)}, cooked ${alice.peer.inventar.countOf('CookedMeat')}`);
+      leere(alice);
+      server.zdos.destroyZDO(feuer.zdoid);
+    }
+
     // ── [6] Restart: no loot back, the saved chest is ────────────
     console.log('\n[6] Restart: loot is not saved (no doubling), a chest is');
     const truhe = server.zdos.createZDO(getStableHash('piece_chest_wood'), { x: 60, y: 0, z: 60 });
     truhe.setInt('kontrolle', 7);
+    alice.peer.inventar.addItem(findItem('AxeFlint')!, 1); // [8]-[13] emptied her inventory
     const kuh4 = setzeKuh();
     await schlage(alice, 'AxeFlint');
     await schlage(alice, 'AxeFlint');

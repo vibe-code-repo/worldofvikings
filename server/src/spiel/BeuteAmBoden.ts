@@ -12,7 +12,9 @@
  *   beute          int 1     marker: this ZDO is loot (what `istBeute` tests)
  *   beute_item     string    item name to give on pick-up (itemDefs name)
  *   beute_menge    int       amount
- *   beute_besitzer string    `spielerId` of the owner ('' = free for all)
+ *   beute_besitzer string    owner key = the `userId` of the owning peer, the same key as the `besitzer` member of
+ *                            buildings ('' = free for all). NEVER sent to clients (`verdeckteMember` in WovServer.ts):
+ *                            it is a player's identifier, and no client reads it.
  *   beute_frei_ab  long      epoch ms from which anybody may pick it up
  *   beute_ablauf   long      epoch ms at which the server destroys it
  * The world save (`momentaufnahme`) leaves marked ZDOs out, and `WeltZdoSicherung` only takes containers
@@ -25,16 +27,11 @@
  */
 import type { ZDO } from '../zdo/ZDO.js';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
+import { BEUTE_EXKLUSIV_MS, BEUTE_LEBEN_MS, SERVER_MELDUNG_BEUTE_FREMD } from '@wov/shared';
 import { getStableHash } from '../util/Hash.js';
 
-/** Only the owner can pick the loot up for this long (Roadmap D5: 2 min). */
-export const BEUTE_EXKLUSIV_MS = 120_000;
-/**
- * Uncollected loot is destroyed after this long (counted from the kill). 5 min: 2 min for the owner plus
- * 3 min free for everybody, long enough to walk back to a corpse, short enough that the ZDO count stays
- * bounded (kills per minute × 5 at most; nothing of it is saved).
- */
-export const BEUTE_LEBEN_MS = 300_000;
+// The windows and the message keys live in `shared/src/beute.ts` (the client may need them); re-exported for the server.
+export { BEUTE_EXKLUSIV_MS, BEUTE_LEBEN_MS, SERVER_MELDUNG_BEUTE_FREMD };
 /** A damage tally of a creature that got no more hits for this long is dropped (the creature left or was despawned). */
 const SCHADEN_VERFALL_MS = 600_000;
 
@@ -45,12 +42,9 @@ export const BEUTE_BESITZER = 'beute_besitzer';
 export const BEUTE_FREI_AB = 'beute_frei_ab';
 export const BEUTE_ABLAUF = 'beute_ablauf';
 
-/** Catalogue key `beute.fremd` (client/src/i18n/katalog), sent as `@` + key. */
-export const SERVER_MELDUNG_BEUTE_FREMD = '@beute.fremd';
-
 interface Anteile {
   zdo: ZDO;
-  /** spielerId -> damage dealt (insertion order = first hit first, decides a tie). */
+  /** owner key (`userId`) -> damage dealt (insertion order = first hit first, decides a tie). */
   schaden: Map<string, number>;
   zuletzt: number;
 }
@@ -82,8 +76,8 @@ export class BeuteAmBoden {
     this.versatzMs += ms;
   }
 
-  /** Count the damage `spielerId` did to `ziel` (the part that really took life off, not the overkill). */
-  schaden(ziel: ZDO, spielerId: string, betrag: number): void {
+  /** Count the damage the owner key `kennung` did to `ziel` (the part that really took life off, not the overkill). */
+  schaden(ziel: ZDO, kennung: string, betrag: number): void {
     if (betrag <= 0) return;
     const id = ziel.zdoid.toString();
     let a = this.anteile.get(id);
@@ -91,7 +85,7 @@ export class BeuteAmBoden {
       a = { zdo: ziel, schaden: new Map(), zuletzt: 0 };
       this.anteile.set(id, a);
     }
-    a.schaden.set(spielerId, (a.schaden.get(spielerId) ?? 0) + betrag);
+    a.schaden.set(kennung, (a.schaden.get(kennung) ?? 0) + betrag);
     a.zuletzt = this.jetzt();
   }
 
@@ -116,11 +110,23 @@ export class BeuteAmBoden {
   legeAb(raum: ZDOManager, ziel: ZDO, beute: Array<BeuteStueck | null | undefined>): BeuteStueck[] {
     const besitzer = this.besitzer(ziel);
     this.anteile.delete(ziel.zdoid.toString());
+    return this.lege(raum, ziel.position, besitzer, beute);
+  }
+
+  /**
+   * Lay pieces on the ground at `position` WITHOUT an owner (anybody may pick them up at once): what a harvest or a
+   * refund could not hand over because the inventory was full. Same ZDOs, same life time, same pick-up path as loot.
+   */
+  legeHin(raum: ZDOManager, position: { x: number; y: number; z: number }, stuecke: BeuteStueck[]): BeuteStueck[] {
+    return this.lege(raum, position, '', stuecke);
+  }
+
+  private lege(raum: ZDOManager, position: { x: number; y: number; z: number }, besitzer: string, beute: Array<BeuteStueck | null | undefined>): BeuteStueck[] {
     const jetzt = this.jetzt();
     const gelegt: BeuteStueck[] = [];
     for (const s of beute) {
       if (!s || s.amount <= 0) continue;
-      const zdo = raum.createZDO(getStableHash(s.name), { ...ziel.position });
+      const zdo = raum.createZDO(getStableHash(s.name), { ...position });
       zdo.setInt(BEUTE_MARKE, 1);
       zdo.setString(BEUTE_ITEM, s.name);
       zdo.setInt(BEUTE_MENGE, s.amount);
@@ -141,14 +147,30 @@ export class BeuteAmBoden {
   }
 
   /**
-   * `spielerId` wants to pick `zdo` up. `null`: not loot (the normal pick-up path goes on); `'fremd'`:
-   * it is somebody else's and still exclusive; else what the ZDO gives (the caller destroys it).
+   * May the owner key `kennung` pick `zdo` up? Anything that is not loot: yes (the normal pick-up path decides).
+   * Loot: the owner, anybody when it has no owner, anybody after the exclusive time.
    */
-  aufheben(zdo: ZDO, spielerId: string): BeuteStueck | 'fremd' | null {
-    if (!this.istBeute(zdo)) return null;
+  darfAufheben(zdo: ZDO, kennung: string): boolean {
+    if (!this.istBeute(zdo)) return true;
     const besitzer = zdo.getString(BEUTE_BESITZER);
-    if (besitzer !== '' && besitzer !== spielerId && this.jetzt() < Number(zdo.getLong(BEUTE_FREI_AB))) return 'fremd';
+    return besitzer === '' || besitzer === kennung || this.jetzt() >= Number(zdo.getLong(BEUTE_FREI_AB));
+  }
+
+  /**
+   * What the loot ZDO `zdo` gives on pick-up, or `null` if it is not loot (the normal pick-up path goes on).
+   * The caller has asked `darfAufheben` before, and takes the ZDO away only for the part that was really given
+   * (`behalteRest` for the rest).
+   */
+  aufheben(zdo: ZDO): BeuteStueck | null {
+    if (!this.istBeute(zdo)) return null;
     return { name: zdo.getString(BEUTE_ITEM), amount: zdo.getInt(BEUTE_MENGE) };
+  }
+
+  /** Only part of the loot fitted into the inventory: the ZDO stays on the ground with the rest. */
+  behalteRest(zdo: ZDO, rest: number): void {
+    zdo.setInt(BEUTE_MENGE, rest);
+    zdo.revision.reviseData();
+    zdo.dirty = true;
   }
 
   /** Once a second: destroy loot past its life, forget picked-up loot and stale damage tallies. */

@@ -526,7 +526,7 @@ async function main(): Promise<void> {
     const beuteMsg = interactLog.at(-1);
     check(
       'letzte InteractResult meldet den Tod (ohne Item: die Beute liegt am Boden)',
-      !!beuteMsg && beuteMsg.ok && beuteMsg.message === 'Boar besiegt' && beuteMsg.itemName === '' && beuteMsg.amount === 0,
+      !!beuteMsg && beuteMsg.ok && beuteMsg.message === '@beute.besiegt' && beuteMsg.itemName === '' && beuteMsg.amount === 0,
       JSON.stringify(beuteMsg)
     );
 

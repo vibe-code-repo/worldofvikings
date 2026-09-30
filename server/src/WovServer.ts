@@ -10,7 +10,7 @@
 
 import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
-import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
+import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_AUFGESAMMELT, SERVER_MELDUNG_BESIEGT, SERVER_MELDUNG_BETT_VERLOREN, SERVER_MELDUNG_BEUTE_FREMD, SERVER_MELDUNG_INVENTAR_VOLL, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 import {
   EVENT_CHANCE,
@@ -166,7 +166,7 @@ import {
   AUSDAUER_REGEL,
 } from '@wov/shared/src/bewegung/ausdauer.js';
 import { pickableItem, ZWEIT_DROPS, wuerfleDrop, wuerfleTruhe } from './spiel/Beute.js';
-import { BeuteAmBoden, SERVER_MELDUNG_BEUTE_FREMD } from './spiel/BeuteAmBoden.js';
+import { BEUTE_BESITZER, BeuteAmBoden } from './spiel/BeuteAmBoden.js';
 import { waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
 import { EIKTHYR_HASH, BOSS_ENTRY, NPC_ENTRY } from './spiel/Sondereintraege.js';
 import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
@@ -2208,6 +2208,7 @@ export class WovServer {
 
   private static readonly TRUHE_INHALT_HASH = getStableHash(TRUHE_INHALT_MEMBER);
   private static readonly BESITZER_HASH = getStableHash('besitzer');
+  private static readonly BEUTE_BESITZER_HASH = getStableHash(BEUTE_BESITZER);
 
   /**
    * Ist `peer` selbst der ZDO-Owner (Satzkopf-Feld, heute nur beim
@@ -2226,16 +2227,22 @@ export class WovServer {
    * Hashes der Member, die `peer` von diesem ZDO NICHT bekommt (sonst
    * `undefined`). Heute der Truheninhalt und die Konto-Kennung des
    * Erbauers (`besitzer`) fremder Bauten; die Regel ist `darfBenutzen`,
-   * keine zweite daneben.
+   * keine zweite daneben. Dazu (D5) der Besitzer einer Beute am Boden
+   * (`beute_besitzer`, die userId): der geht an KEINEN Client, auch nicht
+   * an den Besitzer selbst, denn kein Client liest ihn, und fuer die
+   * Entscheidung "darf aufheben" ist allein der Server zustaendig.
    */
   private verdeckteMember(zdo: ZDO, peer: Peer): ReadonlySet<number> | undefined {
     const hatTruheInhalt = zdo.hasMember(WovServer.TRUHE_INHALT_HASH);
     const hatBesitzerMember = zdo.hasMember(WovServer.BESITZER_HASH);
-    if (!hatTruheInhalt && !hatBesitzerMember) return undefined;
-    if (this.darfBenutzen(zdo, peer)) return undefined;
+    const hatBeuteBesitzer = zdo.hasMember(WovServer.BEUTE_BESITZER_HASH);
+    if (!hatTruheInhalt && !hatBesitzerMember && !hatBeuteBesitzer) return undefined;
     const verdeckt = new Set<number>();
-    if (hatTruheInhalt) verdeckt.add(WovServer.TRUHE_INHALT_HASH);
-    if (hatBesitzerMember) verdeckt.add(WovServer.BESITZER_HASH);
+    if (hatBeuteBesitzer) verdeckt.add(WovServer.BEUTE_BESITZER_HASH);
+    if ((hatTruheInhalt || hatBesitzerMember) && !this.darfBenutzen(zdo, peer)) {
+      if (hatTruheInhalt) verdeckt.add(WovServer.TRUHE_INHALT_HASH);
+      if (hatBesitzerMember) verdeckt.add(WovServer.BESITZER_HASH);
+    }
     return verdeckt;
   }
 
@@ -3003,13 +3010,14 @@ export class WovServer {
     for (const r of piece?.resources ?? []) {
       const menge = Math.floor(r.amount / 2);
       if (menge <= 0) continue;
-      this.gebeItem(peer, r.item, menge);
+      const rest = this.gebeItem(peer, r.item, menge);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(true);
         w.writeString(`Abgerissen — ${menge}× ${r.item} zurueck`);
         w.writeString(r.item);
         w.writeInt32(menge);
       });
+      this.legeRestAb(peer, r.item, rest);
     }
     this.sichereSpielerSofort(peer, 'abreissen', [ziel]);
   }
@@ -3262,6 +3270,8 @@ export class WovServer {
         return antwort(false, `Zutat fehlt: ${z.menge}× ${z.item}`);
       }
     }
+    // The result must fit once the ingredients are out: otherwise refuse and leave the ingredients where they are.
+    if (!this.passtNach(peer, rezept.zutaten, rezept.ergebnis, rezept.menge)) return antwort(false, SERVER_MELDUNG_INVENTAR_VOLL);
     for (const z of rezept.zutaten) peer.inventar.removeByName(z.item, z.menge);
     const def = findItem(rezept.ergebnis);
     if (def) peer.inventar.addItem(def, rezept.menge);
@@ -3362,13 +3372,45 @@ export class WovServer {
    * Items vergeben — der EINZIGE Weg, auf dem Beute/Refunds ins Spiel
    * kommen (Review-Punkt 8): erst ins Server-Inventar, dann Sync. Der
    * Client addiert selbst nichts mehr.
+   *
+   * Liefert die Menge, die NICHT ins Inventar passte (wie `addItem`; 0 bei
+   * voller Vergabe, bei unbekanntem Item und bei `amount <= 0`).
    */
-  private gebeItem(peer: Peer, name: string, amount: number): void {
-    if (amount <= 0) return;
+  private gebeItem(peer: Peer, name: string, amount: number): number {
+    if (amount <= 0) return 0;
     const def = findItem(name);
-    if (!def) return;
-    peer.inventar.addItem(def, amount);
+    if (!def) return 0;
+    const rest = peer.inventar.addItem(def, amount);
     this.inventarSync(peer);
+    return rest;
+  }
+
+  /**
+   * What did not fit (`rest` of `gebeItem`) lies on the ground at the player, free for anybody, and the player
+   * is told "inventory full": nothing that a harvest or a refund hands over may vanish silently.
+   */
+  private legeRestAb(peer: Peer, name: string, rest: number): void {
+    if (rest <= 0) return;
+    this.beuteAmBoden.legeHin(this.zdosVon(peer), peer.position, [{ name, amount: rest }]);
+    peer.sendPacketWith(PacketType.InteractResult, (w) => {
+      w.writeBool(false);
+      w.writeString(SERVER_MELDUNG_INVENTAR_VOLL);
+      w.writeString('');
+      w.writeInt32(0);
+    });
+  }
+
+  /**
+   * Would `name` × `amount` fit into the inventory of `peer` after `entfernen` was taken out of it? (asked on a copy,
+   * so a craft or a cooking can be refused BEFORE anything is taken; `true` for an unknown item, which gives nothing.)
+   */
+  private passtNach(peer: Peer, entfernen: ReadonlyArray<{ item: string; menge: number }>, name: string, amount: number): boolean {
+    const def = findItem(name);
+    if (!def) return true;
+    const probe = new Inventory(peer.inventar.width, peer.inventar.height);
+    probe.load(peer.inventar.serialize());
+    for (const z of entfernen) probe.removeByName(z.item, z.menge);
+    return probe.addItem(def, amount) === 0;
   }
 
   private handleEat(peer: Peer, reader: Reader): void {
@@ -3780,7 +3822,7 @@ export class WovServer {
     // vom Spawn mit, und `adoptPersisted` trägt sie den alten nach.
     const hpVorher = ziel.getInt(HEALTH_MEMBER) || maxLeben(name);
     const hp = hpVorher - schaden;
-    this.beuteAmBoden.schaden(ziel, peer.spielerId, Math.min(schaden, hpVorher)); // D5: the owner of the loot
+    this.beuteAmBoden.schaden(ziel, peer.userId.toString(), Math.min(schaden, hpVorher)); // D5: the owner of the loot (same key as the building owner)
     if (hp <= 0) {
       // Mit Todesclip bleibt der Koerper, bis der Clip gespielt ist — das
       // Spawnsystem raeumt ihn dann selbst weg. Ohne Clip wie bisher sofort.
@@ -3798,7 +3840,7 @@ export class WovServer {
       this.beuteAmBoden.legeAb(this.zdosVon(peer), ziel, [beute, zweit ? { name: zweit[0], amount: zweit[1] } : null]);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(true);
-        w.writeString(`${name} besiegt`);
+        w.writeString(SERVER_MELDUNG_BESIEGT);
         w.writeString('');
         w.writeInt32(0);
       });
@@ -3820,13 +3862,14 @@ export class WovServer {
    */
   private handleHarvest(peer: Peer, pos: Vector3, waffe: string): void {
     const antwort = (message: string, itemName = '', amount = 0) => {
-      this.gebeItem(peer, itemName, amount);
+      const rest = this.gebeItem(peer, itemName, amount);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(true);
         w.writeString(message);
         w.writeString(itemName);
         w.writeInt32(amount);
       });
+      this.legeRestAb(peer, itemName, rest); // what did not fit lies on the ground, nothing vanishes
     };
     const F = PrefabFlag;
     let ziel: ZDO | null = null;
@@ -4147,14 +4190,18 @@ export class WovServer {
   private handleInteract(peer: Peer, reader: Reader): void {
     const pos = reader.readVector3();
     const prefabHash = reader.readInt32();
-    const antwort = (ok: boolean, message: string, itemName = '', amount = 0) => {
-      if (ok) this.gebeItem(peer, itemName, amount);
+    const senden = (ok: boolean, message: string, itemName = '', amount = 0) => {
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(ok);
         w.writeString(message);
         w.writeString(itemName);
         w.writeInt32(amount);
       });
+    };
+    const antwort = (ok: boolean, message: string, itemName = '', amount = 0) => {
+      const rest = ok ? this.gebeItem(peer, itemName, amount) : 0;
+      senden(ok, message, itemName, amount);
+      this.legeRestAb(peer, itemName, rest); // (the callers that hand over an item check the room first; this is the net below)
     };
 
     // Reichweiten-Check gegen die Serverposition des Spielers (Anti-Cheat light).
@@ -4164,8 +4211,14 @@ export class WovServer {
 
     let ziel = null as import('./zdo/ZDO.js').ZDO | null;
     let best = 2.5 * 2.5;
+    let fremdeBeute = false;
     for (const zdo of this.zdosVon(peer).getZDOsInRadius(pos, 3)) {
       if (zdo.prefabHash !== prefabHash) continue;
+      // D5: loot the player may not pick up yet does not block the next piece (but is told apart from "nothing there").
+      if (!this.beuteAmBoden.darfAufheben(zdo, peer.userId.toString())) {
+        fremdeBeute = true;
+        continue;
+      }
       const ddx = zdo.position.x - pos.x;
       const ddz = zdo.position.z - pos.z;
       const d = ddx * ddx + ddz * ddz;
@@ -4174,18 +4227,22 @@ export class WovServer {
         ziel = zdo;
       }
     }
-    if (!ziel) return antwort(false, 'Nichts in Reichweite');
+    if (!ziel) return antwort(false, fremdeBeute ? SERVER_MELDUNG_BEUTE_FREMD : 'Nichts in Reichweite');
 
     const def = this.prefabs.getByHash(ziel.prefabHash);
     const flags = def?.flags ?? 0n;
     const F = PrefabFlag;
 
     if ((flags & (F.PICKABLE | F.PICKABLE_ITEM | F.ITEM_DROP)) !== 0n) {
-      const boden = this.beuteAmBoden.aufheben(ziel, peer.spielerId); // D5: loot of a dead creature has an owner
-      if (boden === 'fremd') return antwort(false, SERVER_MELDUNG_BEUTE_FREMD);
-      this.zdosVon(peer).destroyZDO(ziel.zdoid);
+      const boden = this.beuteAmBoden.aufheben(ziel); // D5: loot of a dead creature has an owner (asked above)
       const item = boden ?? pickableItem(def?.name ?? '');
-      return antwort(true, `Aufgesammelt: ${item?.name ?? def?.name ?? '?'}`, item?.name ?? '', item?.amount ?? 0);
+      const menge = item?.amount ?? 0;
+      // Give first, take from the ZDO only what was really given: a full inventory leaves the piece lying there.
+      const rest = item ? this.gebeItem(peer, item.name, menge) : 0;
+      if (menge > 0 && rest >= menge) return senden(false, SERVER_MELDUNG_INVENTAR_VOLL);
+      if (rest > 0 && boden) this.beuteAmBoden.behalteRest(ziel, rest);
+      else this.zdosVon(peer).destroyZDO(ziel.zdoid);
+      return senden(true, SERVER_MELDUNG_AUFGESAMMELT, item?.name ?? '', menge - rest);
     }
 
     if ((flags & F.DOOR) !== 0n) {
@@ -4268,9 +4325,12 @@ export class WovServer {
     // Feuerstelle brät: 1× RawMeat → 1× CookedMeat (server-autoritativ —
     // vorher tauschte der Client lokal, Review-Punkt 8).
     if ((flags & F.FIREPLACE) !== 0n) {
-      if (!peer.inventar.removeByName('RawMeat', 1)) {
+      if (peer.inventar.countOf('RawMeat') < 1) {
         return antwort(false, 'Kein rohes Fleisch dabei');
       }
+      // The cooked meat must fit once the raw meat is out, else nothing is taken (a full inventory with a stack of raw meat).
+      if (!this.passtNach(peer, [{ item: 'RawMeat', menge: 1 }], 'CookedMeat', 1)) return antwort(false, SERVER_MELDUNG_INVENTAR_VOLL);
+      peer.inventar.removeByName('RawMeat', 1);
       this.inventarSync(peer);
       return antwort(true, 'Fleisch gebraten — 1× CookedMeat', 'CookedMeat', 1);
     }

@@ -1,4 +1,6 @@
 {
+  "beute.aufgesammelt": "Picked up",
+  "beute.besiegt": "Defeated",
   "beute.fremd": "This loot belongs to another player",
   "build.active": "Mode: {mode} · Radius {radius} m (mouse wheel)",
   "build.hint": "Keys 1–5 select · Mouse wheel cycles · Left click/Tab/Esc closes",
@@ -120,6 +122,7 @@
   "editor.upload.zielgroesse_titel": "Target size in metres — empty means \"as in the file\" (base scale 1). The suggestion fills in after name and file.",
   "hud.controls": "Click for mouse control — WASD to move, Shift to run",
   "hud.inspector": ", F9 Inspector",
+  "inventory.full": "Inventory full",
   "inventory.hint": "Drag to rearrange · Click to equip · I/Esc closes",
   "inventory.title": "Inventory",
   "inventory.weight": "Weight {weight}",

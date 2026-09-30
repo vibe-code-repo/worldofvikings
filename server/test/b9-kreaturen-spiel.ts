@@ -510,7 +510,7 @@ async function main(): Promise<void> {
       const r = await erschlage(kuh, mitte, waffe, true);
       const soll = Math.ceil(30 / schaden);
       check(`cow, ${waffe === '' ? 'fist' : waffe} (${schaden}): dead after ${soll} hits`, r.schlaege === soll && kuh.destroyed, `hits ${r.schlaege}, HP ${r.hpReihe.join(' -> ')}`);
-      check(`cow, ${waffe === '' ? 'fist' : waffe}: loot 2-3 RawMeat on the ground (not in the inventory) and the kill message`, r.fleisch >= 2 && r.fleisch <= 3 && r.meldung === 'Kuh besiegt' && peer.inventar.countOf('RawMeat') === 0, `${r.fleisch}× / "${r.meldung}"`);
+      check(`cow, ${waffe === '' ? 'fist' : waffe}: loot 2-3 RawMeat on the ground (not in the inventory) and the kill message`, r.fleisch >= 2 && r.fleisch <= 3 && r.meldung === '@beute.besiegt' && peer.inventar.countOf('RawMeat') === 0, `${r.fleisch}× / "${r.meldung}"`);
     }
 
     // [3c] Wolf: strikes back, dies, drops.
@@ -538,7 +538,7 @@ async function main(): Promise<void> {
     check('wolf anim member on the real server: run then attack', animSicht.has('run') && animSicht.has('attack'), [...animSicht].join(','));
     const gegen = await erschlage(wolf, mitte, 'AxeFlint');
     check('wolf, flint axe: dead after 2 hits', gegen.schlaege === 2 && wolf.destroyed, `hits ${gegen.schlaege}, HP ${gegen.hpReihe.join(' -> ')}`);
-    check('wolf: loot 1-2 RawMeat on the ground', gegen.fleisch >= 1 && gegen.fleisch <= 2 && gegen.meldung === 'Wolf besiegt' && peer.inventar.countOf('RawMeat') === 0, `${gegen.fleisch}× / "${gegen.meldung}"`);
+    check('wolf: loot 1-2 RawMeat on the ground', gegen.fleisch >= 1 && gegen.fleisch <= 2 && gegen.meldung === '@beute.besiegt' && peer.inventar.countOf('RawMeat') === 0, `${gegen.fleisch}× / "${gegen.meldung}"`);
 
     mitte = await neuerPlatz(geoAnker.wald);
     const wolf2 = setze('Wolf', vorn(mitte, 3));

@@ -370,6 +370,7 @@ console.log('\n[6] Eikthyr-Kill setzt die Marke:');
   function makePeer(pos: Vector3): Peer {
     return {
       name: 'Jaeger',
+      userId: 1n, // the loot owner key (D5) is the userId of a real peer
       isAdmin: true,
       flying: false,
       position: pos,

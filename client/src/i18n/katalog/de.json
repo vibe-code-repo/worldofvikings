@@ -1,4 +1,6 @@
 {
+  "beute.aufgesammelt": "Aufgesammelt",
+  "beute.besiegt": "Besiegt",
   "beute.fremd": "Diese Beute gehört einem anderen Spieler",
   "build.active": "Modus: {mode} · Radius {radius} m (Mausrad)",
   "build.hint": "Tasten 1–5 wählen · Mausrad blättert · Linksklick/Tab/Esc schließt",
@@ -120,6 +122,7 @@
   "editor.upload.zielgroesse_titel": "Zielgröße in Metern — leer heisst „wie Datei\" (Grundskala 1). Vorschlag füllt sich nach Namen und Datei.",
   "hud.controls": "Klicken für Maussteuerung — WASD laufen, Shift rennen",
   "hud.inspector": ", F9 Inspector",
+  "inventory.full": "Inventar voll",
   "inventory.hint": "Ziehen zum Umsortieren · Klick zum Ausrüsten · I/Esc schließt",
   "inventory.title": "Inventar",
   "inventory.weight": "Gewicht {weight}",

@@ -684,7 +684,7 @@ async function main(): Promise<void> {
       const r = await erschlage(huhn, mitte, waffe);
       const soll = Math.ceil(10 / schaden);
       check(`hen, ${waffe === '' ? 'fist' : waffe} (${schaden}): dead after ${soll} hit(s)`, r.schlaege === soll && huhn.destroyed, `hits ${r.schlaege}, HP ${r.hpReihe.join(' -> ')}`);
-      check(`hen, ${waffe === '' ? 'fist' : waffe}: loot exactly 1 RawMeat on the ground (not in the inventory) and the kill message`, r.fleisch === 1 && r.meldung === 'Huhn besiegt' && peer.inventar.countOf('RawMeat') === 0, `${r.fleisch}× / "${r.meldung}"`);
+      check(`hen, ${waffe === '' ? 'fist' : waffe}: loot exactly 1 RawMeat on the ground (not in the inventory) and the kill message`, r.fleisch === 1 && r.meldung === '@beute.besiegt' && peer.inventar.countOf('RawMeat') === 0, `${r.fleisch}× / "${r.meldung}"`);
     }
     // T1 (Pruefung 2026-09-28): removed an always-true check here
     // (`Math.ceil(10/15)===1`, two literals with no code under test). The

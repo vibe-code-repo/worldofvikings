@@ -60,6 +60,8 @@
  *         under `spiel/` (2a) and in a helper reached by value imports (2b). Attack on step 2,
  *         finding I12-B2: `"imports": { "#lader": "./src/lader.cjs" }` loaded a second server
  *         instance while the test stayed green.
+ *         Pattern keys (`#a/*`) are resolved like Node and TypeScript do: the longest matching
+ *         prefix wins, not the first key in the order of the file (attack on step 3, finding I13-B2).
  *     2d. No `node_modules` folder anywhere under `server/src`. A bare specifier
  *         (`import lade from 'lader'`) resolves into `spiel/node_modules/lader` first, and the
  *         scanner neither reads nor follows it (finding I12-B2, second way; the folder is
@@ -282,15 +284,18 @@ function subpathTargets(specifier: string, imports: Readonly<Record<string, unkn
   let star = '';
   if (Object.prototype.hasOwnProperty.call(imports, raw)) value = imports[raw];
   else {
+    // like Node (PATTERN_KEY_COMPARE): of all pattern keys that match, the one with the LONGEST part before the `*` wins, then the longer key (I13-B2);
+    // the first match in the order of the object would resolve `#a/l/lader` by `#a/*` where Node and TypeScript take `#a/l/*`
+    let best: { key: string; head: string } | null = null;
     for (const [key, v] of Object.entries(imports)) {
       const i = key.indexOf('*');
-      if (i < 0) continue;
+      if (i < 0 || i !== key.lastIndexOf('*')) continue;
       const head = key.slice(0, i);
       const tail = key.slice(i + 1);
-      if (raw.length >= key.length - 1 && raw.startsWith(head) && raw.endsWith(tail)) {
+      if (raw.length >= key.length && raw.startsWith(head) && raw.endsWith(tail) && (best === null || head.length > best.head.length || (head.length === best.head.length && key.length > best.key.length))) {
+        best = { key, head };
         value = v;
         star = raw.slice(head.length, raw.length - tail.length);
-        break;
       }
     }
   }
@@ -643,13 +648,16 @@ console.log('\n[0] Self-test of the scanner on invented sources');
     ['a computed require() helper from a sub-folder of spiel/', { 'src/spiel/befehle/Y.ts': "import { l } from '../../lader.js';\nexport const w = l;", 'src/lader.ts': 'export const l = (p: string): unknown => require(p);' }, '2b'],
   ];
   // subpath imports (I12-B2): `imports` of server/package.json is resolved; what cannot be resolved is a violation
-  const IMPORTS_PROBE: Record<string, unknown> = { '#lader': './src/lader.cjs', '#hilf': './src/hilf.ts', '#klasse': './src/WovServer.ts', '#paket': 'some-package', '#bedingt': { node: './src/lader.cjs', default: './src/hilf.ts' }, '#w/*': './src/w/*.ts' };
+  const IMPORTS_PROBE: Record<string, unknown> = { '#lader': './src/lader.cjs', '#hilf': './src/hilf.ts', '#klasse': './src/WovServer.ts', '#paket': 'some-package', '#bedingt': { node: './src/lader.cjs', default: './src/hilf.ts' }, '#w/*': './src/w/*.ts', '#a/*': './src/spiel/*.ts', '#a/l/*': './src/*.cjs', '#a/k/*': './src/*.ts' };
   const redImports: [string, Record<string, string>, '2a' | '2b', Record<string, unknown> | undefined][] = [
     ['subpath import of a .cjs helper that requires by a computed path (X8)', { [X]: "import lade from '#lader';\nexport const w = (): unknown => lade('./WovServer.ts');", 'src/lader.cjs': 'module.exports = (p) => require(p);' }, '2b', IMPORTS_PROBE],
     ['subpath import that maps to the class file', { [X]: "import { WovServer } from '#klasse';" }, '2a', IMPORTS_PROBE],
     ['subpath import of a .ts helper that imports the class', { [X]: "import { h } from '#hilf';", 'src/hilf.ts': "import { Wov } from './WovServer.js';\nexport const h = Wov;" }, '2b', IMPORTS_PROBE],
     ['subpath import with conditions, one of them a .cjs helper', { [X]: "import { h } from '#bedingt';", 'src/lader.cjs': 'module.exports = { h: 1 };', 'src/hilf.ts': 'export const h = 1;' }, '2b', IMPORTS_PROBE],
     ['subpath import by a wildcard to a helper that imports the class', { [X]: "import { h } from '#w/eins';", 'src/w/eins.ts': "import './../WovServer.js';\nexport const h = 1;" }, '2b', IMPORTS_PROBE],
+    // the longest pattern key wins, as in Node (I13-B2): `#a/l/*` (a .cjs helper) and `#a/k/*` (the class file) come AFTER the shorter `#a/*` in the object
+    ['the longest pattern key leads to a .cjs helper (X30)', { [X]: "import lade from '#a/l/lader';\nexport const w = (): unknown => lade('./WovServer.ts');", 'src/lader.cjs': 'module.exports = (p) => require(p);' }, '2b', IMPORTS_PROBE],
+    ['the longest pattern key leads to the class file (X32)', { [X]: "import { WovServer } from '#a/k/WovServer';\nexport const w = WovServer;" }, '2a', IMPORTS_PROBE],
     ['subpath import that maps to another package', { [X]: "import p from '#paket';\nexport const q = p;" }, '2a', IMPORTS_PROBE],
     ['subpath import that is not in imports', { [X]: "import p from '#unbekannt';\nexport const q = p;" }, '2a', IMPORTS_PROBE],
     ['subpath import while server/package.json has an empty imports field', { [X]: "import p from '#lader';\nexport const q = p;" }, '2a', {}],
@@ -663,13 +671,14 @@ console.log('\n[0] Self-test of the scanner on invented sources');
   const greenImports: [string, Record<string, string>][] = [
     ['subpath import of a harmless .ts helper', { [X]: "import { h } from '#hilf';\nexport const q = h;", 'src/hilf.ts': 'export const h = 1;' }],
     ['subpath import by a wildcard to a harmless .ts helper', { [X]: "import { h } from '#w/eins';\nexport const q = h;", 'src/w/eins.ts': 'export const h = 1;' }],
+    ['the shorter pattern key for a name the longer one does not match', { [X]: "import { h } from '#a/eins';\nexport const q = h;", 'src/spiel/eins.ts': 'export const h = 1;' }],
     ['a subpath import over a type import only', { [X]: "import type { H } from '#lader';\nexport type Q = H;", 'src/lader.cjs': 'module.exports = 1;' }],
   ];
   for (const [name, files] of greenImports) {
     const f = direction(set(files), IMPORTS_PROBE);
     check(`green: ${name}`, f.length === 0, show(f));
   }
-  check('subpathTargets: exact, wildcard, conditions, another package and an unknown key', JSON.stringify([subpathTargets('#hilf', IMPORTS_PROBE), subpathTargets('#w/eins', IMPORTS_PROBE), subpathTargets('#bedingt', IMPORTS_PROBE), subpathTargets('#paket', IMPORTS_PROBE), subpathTargets('#nein', IMPORTS_PROBE)]) === '[["src/hilf.ts"],["src/w/eins.ts"],["src/lader.cjs","src/hilf.ts"],null,null]');
+  check('subpathTargets: exact, wildcard, conditions, another package and an unknown key', JSON.stringify([subpathTargets('#hilf', IMPORTS_PROBE), subpathTargets('#w/eins', IMPORTS_PROBE), subpathTargets('#bedingt', IMPORTS_PROBE), subpathTargets('#paket', IMPORTS_PROBE), subpathTargets('#nein', IMPORTS_PROBE), subpathTargets('#a/l/lader', IMPORTS_PROBE), subpathTargets('#a/eins', IMPORTS_PROBE), subpathTargets('#a/k/WovServer', IMPORTS_PROBE), subpathTargets('#w/', IMPORTS_PROBE)]) === '[["src/hilf.ts"],["src/w/eins.ts"],["src/lader.cjs","src/hilf.ts"],null,null,["src/lader.cjs"],["src/spiel/eins.ts"],["src/WovServer.ts"],null]');
   for (const [name, files, rule] of red) {
     const f = direction(set(files));
     check(`red: ${name}`, f.some((x) => x.rule === rule) && f.every((x) => x.rule === '2a' || x.rule === '2b') && (rule === '2b' || f.every((x) => x.rule === '2a')), show(f) || 'no finding');

@@ -103,7 +103,8 @@
  *
  * Run (from server/): npx tsx test/i1t-beute-waffe.ts
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
@@ -830,6 +831,21 @@ console.log('\n[2] Direction: no module under server/src/spiel/ names or reaches
   check('2b: no file under spiel/ reaches WovServer.ts, the module system, a non-.ts file or a computed import()/require() through value imports', chains.length === 0, show(chains));
   check('2c: no package.json under server/src', packageJsonFindings(packageJsons).length === 0, show(packageJsonFindings(packageJsons)));
   check('2d: no node_modules folder under server/src', nodeModulesFindings(nodeModulesDirs).length === 0, show(nodeModulesFindings(nodeModulesDirs)));
+  {
+    // the reader itself (I12-B2): it collects a node_modules folder and does not read the files in it, so 2d has something to judge
+    const tmp = mkdtempSync(resolve(tmpdir(), 'i1t-nm-'));
+    try {
+      mkdirSync(resolve(tmp, 'spiel/node_modules/paket'), { recursive: true });
+      writeFileSync(resolve(tmp, 'spiel/node_modules/paket/index.js'), 'module.exports = 1;\n');
+      writeFileSync(resolve(tmp, 'spiel/a.ts'), 'export const a = 1;\n');
+      const vorher = nodeModulesDirs.length;
+      const gelesen = readSources(tmp);
+      const neu = nodeModulesDirs.splice(vorher); // no residue in the list the real check reads
+      check('the reader collects a node_modules folder and does not read into it', neu.length === 1 && neu[0]!.endsWith('/spiel/node_modules') && gelesen.size === 1 && [...gelesen.keys()].every((k) => !k.includes('node_modules')), `${neu.join(', ')}; ${[...gelesen.keys()].join(', ')}`);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  }
   for (const a of ALLOWED) {
     const used = sources.has(a.file) && references(a.file, sources.get(a.file)!).some((r) => r.specifier !== null && candidates(a.file, r.specifier).includes(CLASS_FILE));
     console.log(`  note: exception ${a.file} (${a.form}; ${a.reason}): ${sources.has(a.file) ? (used ? 'in use' : 'file exists, names no class file') : 'file does not exist'}`);

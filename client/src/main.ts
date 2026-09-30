@@ -725,7 +725,16 @@ async function main() {
   /** Routen-Editor des Testflugs offen? (dito — Liste/Regler brauchen den Zeiger) */
   let routenEditorOffen: () => boolean = () => false;
   /** Auto-Reconnect (Review-Punkt 9, F10): Zähler, Backoff, Ansage — Reset bei erfolgreicher Verbindung. */
+  const zurueckZurAnmeldung = (reason?: string): void => {
+    document.body.classList.remove('ui-versteckt');
+    const message = reason ? `Getrennt: ${reason}` : 'Verbindung zum Server verloren';
+    hud.meldeFehler(`${message} — zurück zur Anmeldung …`, 'schwer');
+    // Das Spiel hat keine eigene Anmeldung mehr: Nach dem letzten Versuch ist die Webseite,
+    // die die Sitzung ausgestellt hat, der einzige ehrliche Weg.
+    window.setTimeout(() => window.location.replace(websiteLoginUrl(Boolean(reason))), 1_200);
+  };
   const wiederverbinden = new WiederverbindenSteuerung({
+    aufgegeben: () => zurueckZurAnmeldung(),
     verbinde: () => connectOnline(playerName, `${wsProto}://${location.host}/ws`),
     zeige: (text) => hud.stehendeMeldung('netz', text),
     uebersetze: (schluessel, vars) => i18n.t(schluessel, vars),
@@ -2835,19 +2844,9 @@ async function main() {
       // F10: erwartete Trennung (Netz weg, Neustart) -> geduldig neu verbinden,
       // Kick mit Grund -> zurueck zur Webseite (Logik in net/Wiederverbinden.ts).
       if (wiederverbinden.beiGetrennt(reason)) return;
-      document.body.classList.remove('ui-versteckt');
-      const message = reason ? `Getrennt: ${reason}` : 'Verbindung zum Server verloren';
-      hud.meldeFehler(`${message} — zurück zur Anmeldung …`, 'schwer');
-
-      // The game no longer owns an account or character picker. Once all
-      // reconnect attempts are exhausted, the only honest recovery path is
-      // the website that issued the session. Keeping a second login here
-      // would recreate the legacy layer this flow removes.
-      window.setTimeout(
-        () => window.location.replace(websiteLoginUrl(Boolean(reason))),
-        1_200,
-      );
+      zurueckZurAnmeldung(reason);
     };
+    socket.on(PacketType.PeerInfo, () => wiederverbinden.beiAngenommen());
     socket.on(PacketType.ServerNeustart, (r) => {
       r.readString(); // Schluessel: der Client kennt den Text, dem Server wird kein Schluessel geglaubt
       wiederverbinden.ansage(r.readInt32());

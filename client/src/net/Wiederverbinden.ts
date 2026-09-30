@@ -72,8 +72,15 @@ export interface WiederverbindenOptionen {
   /** Stehende Bildschirmmeldung setzen; `null` nimmt sie weg. */
   zeige: (text: string | null) => void;
   uebersetze: (schluessel: WiederverbindenText, vars?: Record<string, string | number>) => string;
-  /** Eingabesperre der Spielfigur (`InputManager.gesperrt`): die Figur steht waehrenddessen still. */
-  sperre: { gesperrt: boolean };
+  /**
+   * Eigene Eingabesperre der Wiederverbindung (`InputManager.netzGesperrt`): die Figur steht
+   * waehrenddessen still. Bewusst NICHT `InputManager.gesperrt`: Die gehoert `TodTreffer`
+   * (tot bis zur Wiederbelebung); zwei Besitzer einer Variablen loeschten sich gegenseitig
+   * die Sperre. So gibt die Wiederverbindung nur ihre eigene frei.
+   */
+  sperre: { netzGesperrt: boolean };
+  /** Wird gerufen, wenn die Serie OHNE eine Trennung von aussen endet (Zeitlimit nach einem Fehler beim Verbinden). */
+  aufgegeben?: () => void;
   jetzt?: () => number;
   setzeTimer?: (fn: () => void, ms: number) => unknown;
   loescheTimer?: (handle: unknown) => void;
@@ -82,6 +89,7 @@ export interface WiederverbindenOptionen {
 /** Zustand einer Wiederverbindungsserie; `main.ts` ruft nur diese drei Methoden. */
 export class WiederverbindenSteuerung {
   private versuche = 0;
+  /** Startzeit der Serie (monotone Uhr: ein Uhrsprung aendert Wartezeit und Zeitlimit nicht). */
   private start = 0;
   private ansageMs = 0;
   private timer: unknown = null;
@@ -90,7 +98,7 @@ export class WiederverbindenSteuerung {
   private readonly loescheTimer: (handle: unknown) => void;
 
   constructor(private readonly opt: WiederverbindenOptionen) {
-    this.jetzt = opt.jetzt ?? (() => Date.now());
+    this.jetzt = opt.jetzt ?? (() => performance.now());
     this.setzeTimer = opt.setzeTimer ?? ((fn, ms) => setTimeout(fn, ms));
     this.loescheTimer = opt.loescheTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
   }
@@ -119,13 +127,23 @@ export class WiederverbindenSteuerung {
     }
     this.versuche++;
     this.ansageMs = 0;
-    this.opt.sperre.gesperrt = true;
+    this.opt.sperre.netzGesperrt = true;
     this.zaehle(this.jetzt() + e.warteMs);
     return true;
   }
 
-  /** Verbindung steht wieder (oder erstmals): Serie zuruecksetzen, Figur freigeben. */
+  /**
+   * Der Transport steht (Anmeldepaket ist raus). Bewusst KEIN Zuruecksetzen: Ein Server, der den
+   * Handshake annimmt und danach ohne Grund schliesst, wuerde sonst jede Serie auf 1 s
+   * zuruecksetzen und nie aufgegeben werden (Angriff F1). Zurueck auf Null geht es erst
+   * in `beiAngenommen()`.
+   */
   beiVerbunden(): void {
+    // nichts: die Serie laeuft weiter, bis der Server den Spieler angenommen hat
+  }
+
+  /** Der Server hat den Spieler angenommen (`PeerInfo`): Serie zuruecksetzen, Figur freigeben. */
+  beiAngenommen(): void {
     this.beende();
   }
 
@@ -134,7 +152,14 @@ export class WiederverbindenSteuerung {
     if (rest <= 0) {
       this.opt.zeige(this.opt.uebersetze('netz.verloren.verbinde'));
       this.timer = null;
-      this.opt.verbinde();
+      try {
+        this.opt.verbinde();
+      } catch (fehler) {
+        // F2: Wirft das Verbinden (ungueltige Adresse, Browser verweigert), zaehlt der Versuch
+        // als gescheitert; sonst bliebe die Sperre ohne Ausweg stehen.
+        console.error('[Wiederverbinden] Verbinden fehlgeschlagen:', fehler);
+        if (!this.beiGetrennt('')) this.opt.aufgegeben?.();
+      }
       return;
     }
     this.opt.zeige(
@@ -150,7 +175,7 @@ export class WiederverbindenSteuerung {
     this.versuche = 0;
     this.ansageMs = 0;
     if (warGetrennt) {
-      this.opt.sperre.gesperrt = false;
+      this.opt.sperre.netzGesperrt = false;
       this.opt.zeige(null);
     }
   }

@@ -12,6 +12,9 @@
  *     wuerfelt jeder Start ein neues), ist das alte Token ungueltig und die Figur beginnt neu.
  *     Das ist der Ist-Zustand und wird hier festgehalten, nicht geloest.
  *
+ *  D. Scheitert das Speichern im stop(), kommt KEINE Ansage (sie verspraeche einen gesicherten Stand),
+ *     der Trenngrund bleibt `restart` (Angriff F6).
+ *
  * Lauf: npx tsx server/test/f10-neustart-ansage.ts   (aus der Repo-Wurzel)
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -252,6 +255,20 @@ async function haupt(): Promise<void> {
       const endeC = await c.beende();
       check('Server C endet mit Exit-Code 0', endeC.code === 0, `Code ${endeC.code}`);
     }
+
+    console.log('\n[D] F6: Speichern scheitert (Verzeichnis an der Stelle der Weltdatei) — keine Ansage, Trennung "restart" bleibt:');
+    const dirD = resolve(WURZEL, 'd');
+    mkdirSync(resolve(dirD, 'world.db.zst'), { recursive: true });
+    const portD = await freierPort();
+    const d = await starteKind(dirD, portD, GEHEIMNIS);
+    kinder.push(d.proc);
+    const dora = await verbinde('Dora', portD, '');
+    offene.push(dora);
+    const endeD = await d.beende();
+    await warte(300);
+    check('F6: keine Ansage bei gescheitertem Speichern', dora.ereignisse.filter((e) => e.art === 'ansage').length === 0);
+    check('F6: Trenngrund bleibt "restart"', dora.ereignisse.find((e) => e.art === 'disconnect')?.text === 'restart');
+    check('F6: Exit-Code 74, Kennzeile SAVE_FAILED_ON_STOP', endeD.code === 74 && d.out().includes('SAVE_FAILED_ON_STOP'), `Code ${endeD.code}`);
   } finally {
     for (const c of offene) try { c.ws.terminate(); } catch { /* */ }
     for (const k of kinder) {

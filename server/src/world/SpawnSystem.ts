@@ -734,7 +734,8 @@ export class SpawnSystem {
       () => this.rng.nextFloat()
     );
     c.gelaufen = 0;
-    if (befehl.neuBemerkt && befehl.darfRufen && befehl.ziel) this.ruf(c, befehl.ziel);
+    // Jenseits der Leine ist `ziel` schon null (sie kehrt heim): dann gibt es nichts zu rufen.
+    if (befehl.neuBemerkt && befehl.ziel) this.ruf(c, befehl.ziel);
     if (befehl.phase === 'wandern') {
       if (vorher !== 'wandern') {
         // Heimgekehrt oder das Ziel los: Pause, dann wieder wandern.

@@ -24,7 +24,8 @@
  *
  * Kettenaggro: Wer eine Kreatur reizt, reizt damit auch ihre Nachbarn —
  * aber nur, wenn die rufende Kreatur innerhalb ihrer Leine steht
- * (`darfRufen`). Die Nachbarn entscheiden das für sich selbst noch einmal.
+ * (`kiDarfRufen`; bemerkt sie jemanden jenseits davon, kehrt sie heim und
+ * hat kein Ziel mehr). Die Nachbarn entscheiden das für sich selbst noch einmal.
  */
 
 import type { NpcKampf } from './npc.js';
@@ -159,10 +160,12 @@ export interface KiBefehl {
   /** Schlüssel des Ziels, oder null. */
   readonly ziel: string | null;
   readonly abstand: number;
-  /** Sie wurde in diesem Schritt neu aufmerksam (Anlass für den Ruf an Nachbarn). */
+  /**
+   * Sie wurde in diesem Schritt neu aufmerksam (Anlass für den Ruf an Nachbarn).
+   * Steht sie jenseits ihrer Leine, ist sie im selben Schritt schon nach
+   * `heimkehren` gewechselt und `ziel` ist null: Es gibt nichts zu rufen.
+   */
   readonly neuBemerkt: boolean;
-  /** Sie darf Nachbarn rufen (steht innerhalb ihrer Leine). */
-  readonly darfRufen: boolean;
   /** In diesem Schritt wurde der Rückzug gewürfelt: Ergebnis, sonst null. */
   readonly rueckzugWurf: boolean | null;
 }
@@ -348,7 +351,6 @@ export function kiSchritt(
   }
 
   const heimD = Math.sqrt((w.x - w.homeX) ** 2 + (w.z - w.homeZ) ** 2);
-  const darfRufen = heimD <= s.leine;
   let neuBemerkt = false;
   let rueckzugWurf: boolean | null = null;
   let schlag = false;
@@ -373,7 +375,6 @@ export function kiSchritt(
     ziel: z.ziel,
     abstand,
     neuBemerkt,
-    darfRufen,
     rueckzugWurf,
   });
 
@@ -395,7 +396,7 @@ export function kiSchritt(
       if (!t) return befehl('frei', 0, 0, Infinity, 0, 0, Infinity);
       z.ziel = t.ziel.key;
       // Jenseits der Leine folgt gleich der Übergang nach `heimkehren` (oben in
-      // der Schleife); `darfRufen` ist dann falsch, der Ruf an die Nachbarn entfällt.
+      // der Schleife); `ziel` ist dann null, der Ruf an die Nachbarn entfällt.
       neuBemerkt = true;
       wechsle(z, 'bemerkt');
       continue;

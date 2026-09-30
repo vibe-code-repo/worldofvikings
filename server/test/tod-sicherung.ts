@@ -33,7 +33,10 @@ import type { Peer } from '../src/net/Peer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-tod-sicherung');
+// `dungeon create` (phase [6]) writes its document next to the worlds folder, under the world name.
+const DUNGEONS_DIR = resolve(WORLDS_DIR, '..', 'dungeons', 'tod-sicherung');
 rmSync(WORLDS_DIR, { recursive: true, force: true });
+rmSync(DUNGEONS_DIR, { recursive: true, force: true });
 let PORT = 0;
 
 const P = { VersionCheck: 1, PasswordAuth: 2, PeerInfo: 3, AdminCommand: 53, AdminEvent: 54, AuthChallenge: 68 };
@@ -237,6 +240,7 @@ main()
   .catch((e) => { console.error(e); failures++; })
   .finally(() => {
     rmSync(WORLDS_DIR, { recursive: true, force: true });
+    rmSync(DUNGEONS_DIR, { recursive: true, force: true });
     console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAILED`);
     process.exit(failures === 0 ? 0 : 1);
   });

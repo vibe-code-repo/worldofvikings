@@ -281,7 +281,8 @@ export function verschiebe(altText: string, auftrag: Auftrag): Schnitt {
     const glieder = [...klasse.members];
     const innen = ausdehnungen(altText, glieder, altText.indexOf('\n', klasse.members.pos) + 1, klasse.end - 1, sf);
     glieder.forEach((m, i) => {
-      if (!ts.isMethodDeclaration(m) || !ts.isIdentifier(m.name)) return;
+      // An overload signature has no body: it stays in the class, the implementation moves.
+      if (!ts.isMethodDeclaration(m) || !ts.isIdentifier(m.name) || !m.body) return;
       const z = methodeVon.get(m.name.text);
       if (!z) return;
       const name = m.name.text;

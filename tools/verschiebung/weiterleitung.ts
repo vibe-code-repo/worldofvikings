@@ -73,7 +73,12 @@ export function pruefeWeiterleitung(paar: FormkPaar, alt: Datei, rest: Datei, p:
     vergleicheListe(m.typeParameters ?? [], w.typeParameters ?? [], alt, rest, opt, aus.paare, 'number of type parameters') ??
     vergleicheListe(m.parameters, w.parameters, alt, rest, opt, aus.paare, 'number of parameters') ??
     vergleicheWahlweise(m.type, w.type, alt, rest, opt, aus.paare, 'return type');
-  if (u) melde('signatur', u.neu ?? w, `signature is not that of the method: ${u.grund}`);
+  if (u) {
+    melde('signatur', u.neu ?? w, `signature is not that of the method: ${u.grund}`);
+    // The pairs of a signature that differs would only add follow-up findings of rule B7: the
+    // parameters of the old method keep their partners in the function of the target file.
+    aus.bezeichner.length = 1;
+  }
 
   // Body: exactly `return <name>(this, <parameters>);`
   if (!w.body) {

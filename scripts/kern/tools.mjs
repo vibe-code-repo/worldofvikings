@@ -499,11 +499,16 @@ export default [
   // Dateien darin, wird der Test rot. Begruendung bei der Funktion.
   ['tools', 'test/terrain-schichten.ts', brauchtBodenQuellen()],
   /*
-    Move proof (tools/verschiebung/), self-test part 1: every rule bites. For each rule B1 to
-    B13 at least one green and one red fixture, and every red fixture names exactly the rules
-    that must report. Small source texts in memory: no git history, no assets, no installed
-    packages, so it runs in the CI checkout. ~10 s.
+    Move proof (tools/verschiebung/), three self-tests. Small source texts in memory: no git
+    history, no assets, no installed packages, so they run in the CI checkout. ~10 s each.
+     - altbestand: the 151 fixtures of the earlier proof tool, transferred, each with the
+       expectation it had there and a reason where the result differs.
+     - nachangriff: the forgeries of both attacks on the earlier tool, each in its smallest form.
+     - regeln: every rule bites. For each rule B1 to B13 at least one green and one red fixture,
+       and every red fixture names exactly the rules that must report.
   */
+  ['tools/test', 'verschiebung-altbestand.ts'],
+  ['tools/test', 'verschiebung-nachangriff.ts'],
   ['tools/test', 'verschiebung-regeln.ts'],
   ['tools', 'test/vorschau-buendeln-typpruefung.ts'],
   // Preview bundle stays untracked; the update script's dirty-tree warning is run for real,

@@ -67,7 +67,7 @@ export interface FreigegebenerBefund {
 }
 
 /** Kinds of release keys this tool knows. A key has the form `<art>:<stelle>`. */
-export const FREIGABE_ARTEN = ['laden', 'ort', 'vorgabe', 'bindung', 'reihenfolge'] as const;
+export const FREIGABE_ARTEN = ['laden', 'lesen', 'ort', 'vorgabe', 'bindung', 'reihenfolge'] as const;
 export type FreigabeArt = (typeof FREIGABE_ARTEN)[number];
 
 export interface KontextAngabe {

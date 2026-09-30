@@ -24,7 +24,7 @@ export function alsText(e: Ergebnis): string {
   for (const r of REGELN) {
     const offen = e.befunde.filter((b) => b.regel === r).length;
     const frei = e.freigegeben.filter((f) => f.befund.regel === r).length;
-    z.push(`  ${r.padEnd(4)} ${String(e.zaehler[r]).padStart(7)} ${String(offen).padStart(4)} ${String(frei).padStart(4)}   ${REGEL_TITEL[r]}`);
+    z.push(`  ${r.padEnd(4)} ${String(e.zaehler[r]).padStart(7)} ${String(offen).padStart(4)} ${String(frei).padStart(4)}   ${REGEL_TITEL[r]}${e.zaehler[r] === 0 ? '   [0 places checked: this rule did not apply to this step]' : ''}`);
   }
   if (e.gelockert.length > 0) {
     z.push('');

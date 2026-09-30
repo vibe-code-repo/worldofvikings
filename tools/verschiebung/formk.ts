@@ -34,12 +34,30 @@ function teile(m: ts.MethodDeclaration): ts.Node[] {
   return [...(m.typeParameters ?? []), ...m.parameters, ...(m.type ? [m.type] : []), ...(m.body ? [m.body] : [])];
 }
 
-/** Walks the parts of a method without entering nodes that bind `this` anew. */
+/**
+ * Walks the parts of a method without entering nodes that bind `this` anew. What such a node
+ * evaluates in the scope around it (computed names, decorators, `extends`) still belongs to the method.
+ */
 function eigeneKnoten(m: ts.MethodDeclaration, besuch: (n: ts.Node) => void): void {
   const geh = (n: ts.Node): void => {
     besuch(n);
-    if (bindetThisNeu(n)) return;
-    ts.forEachChild(n, geh);
+    if (!bindetThisNeu(n)) {
+      ts.forEachChild(n, geh);
+      return;
+    }
+    // The parts that are evaluated around the binder are walked, the rest is not.
+    if (ts.isClassLike(n)) {
+      for (const h of n.heritageClauses ?? []) if (h.token === K.ExtendsKeyword) geh(h);
+      for (const d of ts.getDecorators(n) ?? []) geh(d);
+      for (const mem of n.members) {
+        for (const d of ts.getDecorators(mem as ts.HasDecorators) ?? []) geh(d);
+        const name = (mem as ts.NamedDeclaration).name;
+        if (name && ts.isComputedPropertyName(name)) geh(name);
+      }
+    } else if (ts.isMethodDeclaration(n) || ts.isGetAccessorDeclaration(n) || ts.isSetAccessorDeclaration(n)) {
+      for (const d of ts.getDecorators(n) ?? []) geh(d);
+      if (ts.isComputedPropertyName(n.name)) geh(n.name);
+    }
   };
   for (const t of teile(m)) geh(t);
 }
@@ -49,22 +67,47 @@ export function istThis(n: ts.Node): boolean {
   return n.kind === K.ThisKeyword || (ts.isIdentifier(n) && n.text === 'this');
 }
 
+/**
+ * True if the node `kind` (a child of `a`) is evaluated in the scope AROUND `a`, not in the one `a` opens:
+ * the computed name of a member, a decorator, the `extends` clause of a class (rule 2.2 of form k).
+ */
+function istAeussererTeil(a: ts.Node, kind: ts.Node): boolean {
+  if (ts.isClassLike(a)) return ts.isDecorator(kind) || (ts.isHeritageClause(kind) && kind.token === K.ExtendsKeyword);
+  if (ts.isMethodDeclaration(a) || ts.isGetAccessorDeclaration(a) || ts.isSetAccessorDeclaration(a) || ts.isPropertyDeclaration(a) || ts.isConstructorDeclaration(a)) {
+    return ts.isDecorator(kind) || (ts.isComputedPropertyName(kind) && (a as ts.NamedDeclaration).name === kind);
+  }
+  return false;
+}
+
+/**
+ * Walks up from a node to the border and answers whether a node that binds `this` anew stands on the
+ * way. A part that is evaluated around a binder (computed name, decorator, `extends`) does not count,
+ * and neither does the class whose member the part belongs to. `aussen` is set when the way led through
+ * such a part of a member: the next class is then not passed as a binder either.
+ */
+function bindetAufDemWeg(n: ts.Node, grenzen: ReadonlySet<ts.Node>): boolean {
+  let aussen = false;
+  for (let k: ts.Node = n, a: ts.Node | undefined = n.parent; a && !grenzen.has(k); k = a, a = a.parent) {
+    if (istAeussererTeil(a, k)) {
+      aussen = ts.isClassElement(a) || ts.isObjectLiteralElement(a);
+      continue;
+    }
+    if (aussen && ts.isClassLike(a)) {
+      aussen = false;
+      continue;
+    }
+    aussen = false;
+    if (bindetThisNeu(a)) return true;
+  }
+  return false;
+}
+
 /** Every `this` that belongs to the method: found by walking UP from each `this` of the text. */
 export function gebundenesThis(m: ts.MethodDeclaration): Set<ts.Node> {
   const aus = new Set<ts.Node>();
   const grenzen = new Set<ts.Node>(teile(m));
   const geh = (n: ts.Node): void => {
-    if (istThis(n)) {
-      let a: ts.Node | undefined = n.parent;
-      let gebunden = true;
-      for (let k: ts.Node = n; a && !grenzen.has(k); k = a, a = a.parent) {
-        if (bindetThisNeu(a)) {
-          gebunden = false;
-          break;
-        }
-      }
-      if (gebunden) aus.add(n);
-    }
+    if (istThis(n) && !bindetAufDemWeg(n, grenzen)) aus.add(n);
     ts.forEachChild(n, geh);
   };
   for (const t of teile(m)) geh(t);
@@ -132,6 +175,52 @@ export function ersteWirkung(ausdruck: ts.Node): { knoten: ts.Node; was: string 
   return fund;
 }
 
+/** What the default value of a parameter does that a forwarder cannot pass on: read `this` or yield `undefined`. `null` if nothing. */
+export function vorgabeProblem(ausdruck: ts.Node): { knoten: ts.Node; was: string } | null {
+  let fund: { knoten: ts.Node; was: string } | null = null;
+  const geh = (n: ts.Node): void => {
+    if (fund || ts.isFunctionLike(n) || ts.isClassLike(n)) return;
+    if (istThis(n)) fund = { knoten: n, was: 'reads `this`' };
+    else ts.forEachChild(n, geh);
+  };
+  geh(ausdruck);
+  if (fund) return fund;
+  const undef = (e: ts.Expression): ts.Node | null => {
+    if (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e) || ts.isNonNullExpression(e) || ts.isTypeAssertionExpression(e)) return undef(e.expression);
+    if (ts.isIdentifier(e) && e.text === 'undefined') return e;
+    if (ts.isVoidExpression(e)) return e;
+    if (ts.isConditionalExpression(e)) return undef(e.whenTrue) ?? undef(e.whenFalse);
+    if (ts.isBinaryExpression(e)) {
+      const t = e.operatorToken.kind;
+      if (t === K.QuestionQuestionToken || t === K.BarBarToken || t === K.AmpersandAmpersandToken) return undef(e.left) ?? undef(e.right);
+      if (t === K.CommaToken) return undef(e.right);
+    }
+    return null;
+  };
+  const u = ausdruck as ts.Expression;
+  const k = undef(u);
+  return k ? { knoten: k, was: 'can yield `undefined`' } : null;
+}
+
+/** True if `this` stands in a part that a nested class or member evaluates around itself (computed name, decorator, `extends`). */
+function thisImAeusserenTeil(n: ts.Node, m: ts.MethodDeclaration): boolean {
+  for (let k: ts.Node = n, a: ts.Node | undefined = n.parent; a && a !== m; k = a, a = a.parent) {
+    if (ts.isComputedPropertyName(k) && (ts.isMethodDeclaration(a) || ts.isGetAccessorDeclaration(a) || ts.isSetAccessorDeclaration(a) || ts.isPropertyDeclaration(a))) return true;
+    if (ts.isHeritageClause(k) && ts.isClassLike(a) && k.token === K.ExtendsKeyword) return true;
+    if (ts.isDecorator(k)) return true;
+  }
+  return false;
+}
+
+/** True if `this` (the keyword) is not the receiver of a member access: `return this`, `f(this)`, `o === this`. */
+function thisAlsWert(n: ts.Node): boolean {
+  if (n.kind !== K.ThisKeyword) return false;
+  let k: ts.Node = n;
+  while (k.parent && (ts.isParenthesizedExpression(k.parent) || ts.isNonNullExpression(k.parent))) k = k.parent;
+  const p = k.parent;
+  return !(p && (ts.isPropertyAccessExpression(p) || ts.isElementAccessExpression(p)) && p.expression === k);
+}
+
 /** Rule B12 for form k: constructs of the old method the form does not support. */
 export function pruefeUnterstuetzt(paar: { name: string; alt: { knoten: ts.Node } }, alt: Datei, klasse: string, kontext: KontextAngabe, p: Protokoll): void {
   const m = paar.alt.knoten;
@@ -162,12 +251,16 @@ export function pruefeUnterstuetzt(paar: { name: string; alt: { knoten: ts.Node 
       const w = ersteWirkung(par.initializer);
       const pn = ts.isIdentifier(par.name) ? par.name.text : '?';
       if (w) melde('vorgabe', w.knoten, `default value of parameter "${pn}" contains ${w.was}: it would be evaluated in the forwarder and in the function`, `vorgabe:${paar.name}.${pn}`);
+      const v = vorgabeProblem(par.initializer);
+      if (v) melde('vorgabe-this-undefined', v.knoten, `default value of parameter "${pn}" ${v.was}: if the forwarder passes \`undefined\` on, the function evaluates its own default value a second time`);
     }
   }
   eigeneKnoten(m, (n) => {
     if (n.kind === K.SuperKeyword) melde('super', n, 'uses `super`: not supported');
     else if (ts.isMetaProperty(n) && n.keywordToken === K.NewKeyword) melde('new-target', n, 'uses `new.target`: not supported');
     else if (ts.isThisTypeNode(n)) melde('this-typ', n, 'uses the type `this`: a function has none');
+    else if (istThis(n) && thisImAeusserenTeil(n, m)) melde('this-im-namen', n, 'uses `this` in a computed name, a decorator or an `extends` clause of a nested class or member: it belongs to the method, and form k does not support it');
+    else if (thisAlsWert(n)) melde('this-wert', n, 'uses `this` as a value (not as the receiver of a member access): the context type cannot stand for it');
     else if (ts.isPrivateIdentifier(n)) melde('privater-name', n, `uses the private name ${n.text}: it cannot be reached from outside the class`);
     else if (ts.isIdentifier(n) && n.text === kontext.parameter) melde('kontextname', n, `the name "${kontext.parameter}" of the context parameter already occurs in the method (as a variable, a member or a label): choose another one in the manifest`);
     else if (ts.isIdentifier(n) && n.text !== 'this' && istVariablenname(n)) {

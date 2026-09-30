@@ -492,6 +492,19 @@ compared for form k, and that other callers of a new function pass the instance 
 not checked. Behaviour is not executed. The full list stands in every output, and
 exit 0 replaces neither `typecheck` nor the tests nor the review of the releases.
 
+Since the attack on version 1.0 the tool also refuses, in form k: a default value of
+a parameter that reads `this` or can yield `undefined` (the forwarder would pass
+`undefined` on and the function would evaluate its own default a second time),
+`this` as a type or as a value, and `this` in a computed name, a decorator or an
+`extends` clause of a nested class or member (that `this` belongs to the method).
+In form 0 it refuses a moved `let`/`var` that the rest assigns to, and it reports
+a read of a moved name by a statement of the rest that runs while the module
+loads, in front of the old place, directly or through a called function (release
+`lesen:<name>`). Import attributes of a target file are compared, names with
+umlauts are valid in the manifest, a release reason needs words (10 letters or
+digits, 4 different ones, besides the 20 visible characters), and the output marks
+a rule that checked 0 places.
+
 A step is delivered with its manifest under `tools/verschiebung/zeugen/` and the
 output of the proof in the pull request. The self-tests `tools/test/verschiebung-*.ts`
 run in the CI; the probe on real files with the git history,

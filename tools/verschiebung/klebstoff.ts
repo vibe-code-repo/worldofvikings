@@ -62,19 +62,22 @@ interface Einfuhr {
   eingefuehrt: string;
   lokal: string;
   nurTyp: boolean;
+  /** Import attributes (`with { type: 'json' }`) without blanks: another attribute is another module to the bundler. */
+  attribute: string;
 }
 
 function einfuhren(s: Stueck, von: string): Einfuhr[] {
   const d = s.knoten as ts.ImportDeclaration;
   const ic = d.importClause;
   const modul = modulKennung(von, specText(d));
+  const attribute = d.attributes ? d.attributes.getText(s.datei.sf).replace(/\s+/g, '') : '';
   if (!ic) return [];
   const aus: Einfuhr[] = [];
   const ganz = !!ic.isTypeOnly;
-  if (ic.name) aus.push({ modul, eingefuehrt: 'default', lokal: ic.name.text, nurTyp: ganz });
+  if (ic.name) aus.push({ modul, eingefuehrt: 'default', lokal: ic.name.text, nurTyp: ganz, attribute });
   if (ic.namedBindings) {
-    if (ts.isNamespaceImport(ic.namedBindings)) aus.push({ modul, eingefuehrt: '*', lokal: ic.namedBindings.name.text, nurTyp: ganz });
-    else for (const e of ic.namedBindings.elements) aus.push({ modul, eingefuehrt: (e.propertyName ?? e.name).text, lokal: e.name.text, nurTyp: ganz || e.isTypeOnly });
+    if (ts.isNamespaceImport(ic.namedBindings)) aus.push({ modul, eingefuehrt: '*', lokal: ic.namedBindings.name.text, nurTyp: ganz, attribute });
+    else for (const e of ic.namedBindings.elements) aus.push({ modul, eingefuehrt: (e.propertyName ?? e.name).text, lokal: e.name.text, nurTyp: ganz || e.isTypeOnly, attribute });
   }
   return aus;
 }
@@ -269,7 +272,7 @@ export function pruefeKlebstoff(manifest: Manifest, z: Zerlegung, p: Protokoll):
           if (!e.nurTyp) melde('kontexttyp-als-wert', d, `"${e.lokal}" serves the context type and is imported as a value: write \`import type\``);
           continue;
         }
-        const herkunft = einfuhrenAlt.filter((a) => a.modul === e.modul && a.eingefuehrt === e.eingefuehrt && a.lokal === e.lokal);
+        const herkunft = einfuhrenAlt.filter((a) => a.modul === e.modul && a.eingefuehrt === e.eingefuehrt && a.lokal === e.lokal && a.attribute === e.attribute);
         if (herkunft.length === 0) {
           melde('import-fremd', d, `"${e.eingefuehrt === e.lokal ? e.lokal : `${e.eingefuehrt} as ${e.lokal}`}" from ${spec} has no origin in the imports of the old source file (same module, same name)`);
         } else if (!e.nurTyp && herkunft.every((a) => a.nurTyp)) {

@@ -180,8 +180,8 @@ lauf.fall({ id: 'A13', name: 'this. in an arrow function (same this, moved right
 lauf.fall({ id: 'A14', name: 'arrow function made a function in the target', soll: ['B3', 'B4'], herkunft: ROT, eingabe: () => mit(bP(), zielKlein(ersetze('(x) => k.config + x', 'function (x: number) { return k.config + x; }'))) });
 lauf.fall({ id: 'A15', name: 'arguments in the body', soll: ['B12'], teile: ['B12/arguments'], herkunft: ROT, eingabe: () => klein('void this.config; if (arguments.length > 1) return; void arguments[0]; void a;') });
 const bV = (): Eingabe => klein('void extra; void this.config; void a;', 'extra = this.config, a: number');
-lauf.fall({ id: 'A16', name: 'default value with this. made k. correctly: green', soll: [], herkunft: GRUEN, eingabe: bV });
-lauf.fall({ id: 'A16b', name: 'default value with this. left in the target', soll: ['B3', 'B4'], herkunft: ROT, eingabe: () => mit(bV(), zielKlein(ersetze('extra = k.config', 'extra = this.config'))) });
+lauf.fall({ id: 'A16', name: 'default value with this. made k. correctly: B12 since V2-A1 (the forwarder reads `this`, and if it yields undefined the function evaluates its own default a second time)', soll: ['B12'], teile: ['B12/vorgabe-this-undefined'], herkunft: { alt: 'gruen', grund: 'V2-A1: a default value that reads `this` is not supported by form k (rule 5)' }, eingabe: bV });
+lauf.fall({ id: 'A16b', name: 'default value with this. left in the target', soll: ['B3', 'B4', 'B12'], herkunft: { alt: 'rot', grund: 'the value that reads `this` is a finding of its own since V2-A1' }, eingabe: () => mit(bV(), zielKlein(ersetze('extra = k.config', 'extra = this.config'))) });
 const bA = (): Eingabe => klein('void this.config; void a;');
 lauf.fall({ id: 'A17', name: 'target: context as "k: any"', soll: ['B3', 'B5'], teile: ['B5/kontexttyp-any'], herkunft: ROT, eingabe: () => mit(bA(), zielKlein(ersetze('(k: Ktx,', '(k: any,'))) });
 lauf.fall({ id: 'A17b', name: 'target: context as "k: unknown"', soll: ['B3', 'B5'], herkunft: ROT, eingabe: () => mit(bA(), zielKlein(ersetze('(k: Ktx,', '(k: unknown,'))) });

@@ -14,7 +14,7 @@ import { syntaxPhase } from './syntaxphase';
 import { Protokoll, type Datei, type Ergebnis, type Manifest, type ReihenfolgeBericht } from './typen';
 
 /** Version of the tool. Printed into every output; raise it with every change of a rule. */
-export const VERSION = 'verschiebung 1.0 (stage 1: form 0 and form k)';
+export const VERSION = 'verschiebung 1.1 (stage 1: form 0 and form k)';
 
 /** What exit 0 does NOT prove. Printed into every output. */
 export const GRENZEN: readonly string[] = [
@@ -24,6 +24,7 @@ export const GRENZEN: readonly string[] = [
   'Imports that remain after compilation are found per file (as the bundler and tsx do it). Installed packages are walked as far as they are ES modules with static imports; CommonJS packages count as one module.',
   'Program files under test folders are left out when the programs for rule B7 are built. A global name that only a test file declares is not seen.',
   'Rule B9 judges the initial value of a moved declaration by its form. It does not run code: whether a released effect is harmless stays the reason of the release.',
+  'Rule B9 (reads in front of the old place) follows calls and direct reads, not a function that is only passed on as a value, and it does not see a local declaration that hides a name: that can give a finding too many, never one too few for a call.',
   'Form k: that the context is the instance is proven by the form of the forwarder (`this` as first argument). What other callers pass to the function is not checked: the function is new and has no other callers in a mechanical step.',
   'Whitespace between tokens outside comments, strings and templates is not compared for form k (form 0 and the rest are byte-identical).',
   'Behaviour is not executed. The proof replaces neither the type check nor the tests nor a review of the releases.',

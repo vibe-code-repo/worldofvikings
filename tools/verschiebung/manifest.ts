@@ -15,7 +15,7 @@ export class ManifestFehler extends Error {
   }
 }
 
-const NAME = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const NAME = /^[\p{ID_Start}_$][\p{ID_Continue}$\u200c\u200d]*$/u;
 const QUELLENDUNG = /\.(ts|tsx|mts|cts)$/;
 /** Shortest reason a release may carry, counted in visible characters. */
 export const BEGRUENDUNG_MINDESTENS = 20;
@@ -84,6 +84,11 @@ function freigabe(w: unknown, wo: string): Freigabe {
     throw new ManifestFehler(
       `${wo}.begruendung: a release needs a reason of at least ${BEGRUENDUNG_MINDESTENS} visible characters (found ${sichtbar.length})`,
     );
+  }
+  // Not a proof that the reason is true, but a floor: letters and digits, of several kinds, no filler.
+  const zeichen = [...sichtbar.matchAll(/[\p{L}\p{N}]/gu)].map((m) => m[0].toLowerCase());
+  if (zeichen.length < 10 || new Set(zeichen).size < 4) {
+    throw new ManifestFehler(`${wo}.begruendung: a release needs a reason in words: at least 10 letters or digits and 4 different ones (found ${zeichen.length} and ${new Set(zeichen).size})`);
   }
   return { schluessel, begruendung: w.begruendung };
 }

@@ -11,7 +11,7 @@ import type { BezeichnerPaar } from './bindung';
 import { gebundenesThis, istThis, pruefeUnterstuetzt, vergleicheFormK, vergleicheWoertlich } from './formk';
 import { pruefeKlebstoff } from './klebstoff';
 import { kommentareIn, pruefeKlebstoffKommentare, pruefeVerschobeneKommentare, type KlebstoffBereich } from './kommentare';
-import { pruefeLaden, type LadeUmgebung } from './laden';
+import { pruefeLaden, pruefeLesenVorDerStelle, pruefeZuweisungAusDemRest, type LadeUmgebung } from './laden';
 import { pruefeOrt } from './ort';
 import { deklarierteNamen, dekoratoren, mitgliedName, modifikatoren, syntaxFehler } from './stuecke';
 import { kurz, ortVon, ortVonKnoten, type Datei, type KnotenBezug, type Manifest, type Protokoll, type Stueck } from './typen';
@@ -126,6 +126,7 @@ export function syntaxPhase(manifest: Manifest, alt: Datei, rest: Datei, ziele: 
     verschoben: new Set(manifest.ziele.flatMap((t) => t.woertlich)),
     bleibt: new Set(z.restAlt.flatMap((s) => deklarierteNamen(s.knoten))),
   };
+  const alleAlt = [...z.restAlt, ...z.form0.map((f) => f.alt)];
   for (const f of z.form0) {
     const neu = f.neu.datei;
     p.zaehle('B3');
@@ -152,6 +153,8 @@ export function syntaxPhase(manifest: Manifest, alt: Datei, rest: Datei, ziele: 
     if (f.vorspann !== '') bereiche.push({ datei: neu, von: f.neu.von, bis: f.neu.von + f.vorspann.length, art: 'kopf', was: `the lines in front of the first declaration of ${neu.pfad}` });
     pruefeOrt(f.name, f.alt.knoten, alt, p);
     pruefeLaden(f.name, f.alt, alt, z.restAlt, ladeUmgebung, p);
+    pruefeLesenVorDerStelle(f.name, f.alt, alt, alleAlt, z.restAlt, p);
+    pruefeZuweisungAusDemRest(f.name, f.alt, alt, z.restAlt, p);
   }
 
   // -- form k --

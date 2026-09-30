@@ -43,18 +43,37 @@ function wendeAn(text: string, schritte: Schritt[]): string {
   return aus;
 }
 
-/** Second, independent search: every `this` of the method, found from the top down. */
+/**
+ * Second, independent search: every `this` of the method, found from the top down. A node that
+ * gives `this` a new meaning is skipped, except for what it evaluates in the scope around it:
+ * the computed names of its members, decorators and the `extends` clause of a class.
+ */
 function thisStellen(m: ts.MethodDeclaration): ts.Node[] {
   const aus: ts.Node[] = [];
   const abwaerts = (n: ts.Node): void => {
     switch (n.kind) {
-      case K.FunctionExpression:
-      case K.FunctionDeclaration:
       case K.ClassExpression:
-      case K.ClassDeclaration:
+      case K.ClassDeclaration: {
+        const k = n as ts.ClassLikeDeclaration;
+        ts.getDecorators(k)?.forEach(abwaerts);
+        k.heritageClauses?.filter((h) => h.token === K.ExtendsKeyword).forEach(abwaerts);
+        for (const mem of k.members) {
+          ts.getDecorators(mem as ts.HasDecorators)?.forEach(abwaerts);
+          const name = (mem as ts.NamedDeclaration).name;
+          if (name?.kind === K.ComputedPropertyName) abwaerts(name);
+        }
+        return;
+      }
       case K.MethodDeclaration:
       case K.GetAccessor:
-      case K.SetAccessor:
+      case K.SetAccessor: {
+        const k = n as ts.MethodDeclaration;
+        ts.getDecorators(k)?.forEach(abwaerts);
+        if (k.name.kind === K.ComputedPropertyName) abwaerts(k.name);
+        return;
+      }
+      case K.FunctionExpression:
+      case K.FunctionDeclaration:
       case K.Constructor:
       case K.ClassStaticBlockDeclaration:
       case K.ModuleDeclaration:

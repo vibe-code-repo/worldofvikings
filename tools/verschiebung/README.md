@@ -75,10 +75,10 @@ exit 2. A name that does not occur in the source, a release that releases nothin
 | B6 | Comments: equal in moved declarations (form k: indentation may drop). Directive comments only where they stood. A forwarder carries no comment. |
 | B7 | Binding: every identifier of the whole old source file points to the same declaration in the new state. Two programs, type checker. |
 | B8 | Location: `import.meta`, `new URL` with a relative path, `import('./x')`, `require('./x')`, `__dirname`, `__filename`, `fileURLToPath`, `new Worker` in a moved declaration are findings. Release per place. |
-| B9 | Loading: a moved declaration whose initial value acts while its module loads is a finding. Release `laden:<name>`. |
+| B9 | Loading: a moved declaration whose initial value acts while its module loads is a finding (release `laden:<name>`), and so is a read of a moved name by a statement of the rest that runs while loading, in front of its old place, directly or through a function it calls (release `lesen:<name>`): the old order failed or saw an unset value there. |
 | B10 | Order of evaluation: from every entry file the modules that existed before are evaluated in the same order. |
 | B11 | Nothing unexplained: every release is printed, every release is used. |
-| B12 | Form: constructs a form does not support (accessor, generator, overload, `super`, `arguments`, `new.target`, `#private`, decorator, static method, reference to the class as a value, context name already in use, default value with an effect). |
+| B12 | Form: constructs a form does not support (accessor, generator, overload, `super`, `arguments`, `new.target`, `#private`, decorator, static method, reference to the class as a value, context name already in use, default value with an effect, a default value that reads `this` or can yield `undefined`, `this` as a type or as a value, `this` in a computed name or an `extends` clause of a nested class or member, a moved `let` or `var` that the rest assigns to). |
 | B13 | Section lines: a line `// ── title ──` with the empty line before it may stay where it stood. |
 
 ## Release keys
@@ -86,6 +86,7 @@ exit 2. A name that does not occur in the source, a release that releases nothin
 | Key | Releases |
 |---|---|
 | `laden:<name>` | rule B9 for one moved declaration |
+| `lesen:<name>` | rule B9, the rest reads this moved name while loading, in front of its old place |
 | `ort:<line>:<column>` | rule B8 for one place of the OLD source file |
 | `vorgabe:<method>.<parameter>` | rule B12, default value with an effect |
 | `bindung:<line>:<column>` | rule B7, an identifier that cannot be resolved in both states |

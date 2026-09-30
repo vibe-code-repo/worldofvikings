@@ -29,12 +29,19 @@ import type { KartenWerkzeug, SeitenHost } from '../src/editor/werkzeuge/typ';
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '../..');
 const EDITOR = resolve(HIER, '../src/editor');
+/**
+ * The modules cut out of `editorMain.ts`, relative to client/src/editor. Their code lay under the boundaries of
+ * `editorMain.ts` before it moved, so a boundary check on `editorMain.ts` as a whole runs on each of them as well, one
+ * file at a time. test/editor-module-grenze.ts holds the list of modules and fails when one is missing here.
+ * Each module adds two checks to SOLL.
+ */
+const CUT_OUT_MODULES = ['biome.ts', 'formen.ts', 'seite/helfer.ts'];
 
 let fehler = 0;
 let gut = 0;
 // Expected number of checks. A crash in the middle (an exception, a section that never ran) prints no ✗ line -- counted
 // as "0 red" it would pass; so the end (and the exit hook) compares ✓ + ✗ with this number.
-const SOLL = 146;
+const SOLL = 152;
 let fertig = false;
 process.on('exit', () => {
   if (fertig) return;
@@ -713,10 +720,19 @@ async function main(): Promise<void> {
     ts.createPrinter({ removeComments: true }).printFile(ts.createSourceFile('x.ts', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)).replace(/"/g, "'"); // independent of line breaks and quote style (prettier)
   const haupt = kanonisch(readFileSync(resolve(EDITOR, 'editorMain.ts'), 'utf-8'));
   const hud = readFileSync(resolve(EDITOR, 'KartenHud.ts'), 'utf-8');
-  const vergleiche = haupt.match(/werkzeug\s*[!=]==\s*'(fluss|see)'/g) ?? [];
+  // Each pattern stands once, directly before its check: the check on editorMain.ts and the checks on the cut-out modules use this one constant.
+  const RIVER_LAKE_BRANCH = /werkzeug\s*[!=]==\s*'(fluss|see)'/g;
+  const vergleiche = haupt.match(RIVER_LAKE_BRANCH) ?? [];
   gleich("editorMain.ts: no `werkzeug === 'fluss'` / `=== 'see'`", vergleiche, []);
-  const zustand = haupt.match(/\b(flussPunkte|flussBreite|flussTiefe|seeRadius|seeTiefe|flussSchliessen)\b/g) ?? [];
+  const RIVER_LAKE_STATE = /\b(flussPunkte|flussBreite|flussTiefe|seeRadius|seeTiefe|flussSchliessen)\b/g;
+  const zustand = haupt.match(RIVER_LAKE_STATE) ?? [];
   gleich('editorMain.ts: no river / lake state or close function left', zustand, []);
+  // The same two boundaries for the modules cut out of editorMain.ts, each file on its own.
+  for (const file of CUT_OUT_MODULES) {
+    const text = kanonisch(readFileSync(resolve(EDITOR, file), 'utf-8'));
+    gleich(`${file}: no \`werkzeug === 'fluss'\` / \`=== 'see'\``, text.match(RIVER_LAKE_BRANCH) ?? [], []);
+    gleich(`${file}: no river / lake state or close function left`, text.match(RIVER_LAKE_STATE) ?? [], []);
+  }
   check('editorMain.ts asks the registry', /from '\.\/werkzeuge'/.test(haupt) && /const registriert = werkzeugMitId\(werkzeug\);/.test(haupt) && /registriert\?\.beiZeigerRunter\(werkzeugKontext/.test(haupt));
   gleich("KartenHud.ts: no 'fluss' / 'see' key", hud.match(/^\s*(fluss|see):/gm) ?? [], []);
   const indexQuelle = (() => {

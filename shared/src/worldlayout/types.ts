@@ -16,6 +16,7 @@
 
 import { Biome } from '../types.js';
 import type { NpcDef } from '../npc.js';
+import type { BausatzInstanzDef } from '../bausatz/types.js';
 
 export const WORLD_LAYOUT_VERSION = 1;
 
@@ -477,6 +478,12 @@ export interface WorldLayout {
    * dieses Feld (`shared/src/worldgen/RegionGeo.ts`, `getBiomeHeight`).
    */
   heightDeltas?: readonly ZoneHeightDelta[];
+  /**
+   * Placed building kits (`shared/src/bausatz`). Each instance names a kit
+   * file, an anchor and a rotation; `loeseBausaetzeAuf` turns them into parts.
+   * Missing or empty = the document behaves exactly as before the field.
+   */
+  bausaetze?: readonly BausatzInstanzDef[];
 }
 
 /**

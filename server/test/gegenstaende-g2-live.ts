@@ -30,7 +30,7 @@ import {
   HEALTH_MEMBER, PacketType, getStableHash, maxLeben, TRUHE_INHALT_MEMBER, findItem, unpackContainer,
   type Vector3,
 } from '@wov/shared';
-import { VERWERF_GRUENDE, leseGegenstandsDatei, schreibeGegenstandsDatei, wendeGegenstandsDatenAn, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
+import { VERWERF_GRUENDE, leseGegenstandsDatei, wendeGegenstandsDatenAn, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { gegenstandsBestaetigenDatei, gegenstandsQuittungsDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 import { bestaetigenAnfrageSchreiben } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import { layoutUnterSperre } from '@wov/shared/src/worldlayout/layoutDatei.js';

@@ -302,7 +302,11 @@ function umlaufRichtung(
   return { x: bx / l, z: bz / l };
 }
 
-const STEHT = { bewegung: 'steht' as KiBewegung, dirX: 0, dirZ: 0 };
+/**
+ * Rundungsspielraum an der Schlaggrenze: Der Schritt wird auf genau
+ * `abstand − angriffReichweite` gekappt und landet sonst um ein Bit davor.
+ */
+const REICHWEITE_TOLERANZ = 1e-6;
 
 /**
  * Ein Schritt der Zustandsmaschine.
@@ -424,7 +428,7 @@ export function kiSchritt(
         continue;
       }
       const r = richtung(w.x, w.z, t.ziel.x, t.ziel.z);
-      if (r.d <= s.angriffReichweite) {
+      if (r.d <= s.angriffReichweite + REICHWEITE_TOLERANZ) {
         wechsle(z, 'kaempfen');
         continue;
       }
@@ -441,7 +445,7 @@ export function kiSchritt(
       }
       z.ziel = t.ziel.key;
       const r = richtung(w.x, w.z, t.ziel.x, t.ziel.z);
-      if (r.d > s.angriffReichweite) {
+      if (r.d > s.angriffReichweite + REICHWEITE_TOLERANZ) {
         wechsle(z, 'anrennen');
         continue;
       }
@@ -451,7 +455,9 @@ export function kiSchritt(
       } else {
         z.takt += dt;
         if (z.takt >= s.taktSec) {
-          z.takt = 0;
+          // Der Rest über die Taktlänge bleibt stehen (gedeckelt auf einen
+          // Takt), damit grobe Prüfschritte den mittleren Takt nicht dehnen.
+          z.takt = Math.min(z.takt - s.taktSec, s.taktSec);
           schlag = true;
           z.schlaege += 1;
           if (s.rueckzugNach > 0 && z.schlaege >= s.rueckzugNach) {

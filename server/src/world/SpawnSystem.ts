@@ -79,6 +79,11 @@ export interface SpawnSystemOptions {
   despawnRadius?: number;
   simRadius?: number;
   syncIntervalSec?: number;
+  /**
+   * Werte des KI-Steckbriefs, die für alle aggressiven Kreaturen dieses Systems
+   * überschrieben werden (Tests: einen Wert isolieren, etwa den Rückzug).
+   */
+  kiUeberschreibung?: Partial<KiSteckbrief>;
 }
 
 type CreatureMode = 'idle' | 'walk' | 'flee' | 'chase';
@@ -195,6 +200,7 @@ export class SpawnSystem {
   private readonly despawnRadius: number;
   private readonly simRadius: number;
   private readonly syncIntervalSec: number;
+  private readonly kiUeberschreibung: Partial<KiSteckbrief> | undefined;
 
   private readonly creatures = new Map<string, CreatureState>();
   /**
@@ -232,6 +238,7 @@ export class SpawnSystem {
     this.despawnRadius = options.despawnRadius ?? SPAWN_DESPAWN_RADIUS;
     this.simRadius = options.simRadius ?? SPAWN_SIM_RADIUS;
     this.syncIntervalSec = options.syncIntervalSec ?? SPAWN_SYNC_INTERVAL_SEC;
+    this.kiUeberschreibung = options.kiUeberschreibung;
     this.spawnAccums = this.table.map(() => 0);
   }
 
@@ -302,19 +309,15 @@ export class SpawnSystem {
 
   /**
    * Schaden zieht Aggro: Der Angreifer kommt in die Tabelle der getroffenen
-   * Kreatur, und der Kampflärm erreicht alle Kreaturen im Hörradius. Die
-   * getroffene Kreatur ruft außerdem ihre Nachbarn — aber nur, wenn sie selbst
-   * noch innerhalb ihrer Leine steht.
+   * Kreatur. Sie ruft außerdem ihre Nachbarn derselben Art — aber nur, wenn sie
+   * selbst noch innerhalb ihrer Leine steht.
    */
   private reizeVon(c: CreatureState, a: SpawnAngreifer): void {
-    if (c.ki && c.steck) {
-      kiReiz(c.ki, a.id, a.schaden);
-      if (kiDarfRufen(c.steck, c.zdo.position.x, c.zdo.position.z, c.home.x, c.home.z)) {
-        this.ruf(c, a.id);
-      }
+    if (!c.ki || !c.steck) return;
+    kiReiz(c.ki, a.id, a.schaden);
+    if (kiDarfRufen(c.steck, c.zdo.position.x, c.zdo.position.z, c.home.x, c.home.z)) {
+      this.ruf(c, a.id);
     }
-    const info = this.zielInfo.findIndex((i) => i.id === a.id);
-    this.laerm(a.id, info >= 0 ? this.letzteZiele[info] : c.zdo.position);
   }
 
   /** Ziele des letzten Ticks (Positionen), parallel zu `zielInfo`. */
@@ -322,14 +325,21 @@ export class SpawnSystem {
 
   /**
    * Ein Lärm an `pos`, verursacht von `id`: Jede aggressive Kreatur im Hörradius
-   * kennt den Verursacher danach (Hören ist an diesen Reiz gebunden; ein
-   * Spieler, der nur im Hörradius steht, macht keinen Lärm).
+   * kennt den Verursacher danach. Hören ist an diesen Reiz gebunden: Ein Spieler,
+   * der nur im Hörradius steht, macht keinen Lärm und bleibt unbemerkt, solange
+   * er außerhalb des Sichtkegels ist. Wer Lärm erzeugt (Schritte, Schläge),
+   * ruft diese Methode; der Server hängt noch keine Quelle ein.
    */
   laerm(id: string, pos: Vector3): void {
     for (const c of this.creatures.values()) {
       if (!c.ki || !c.steck || c.stirbtBis !== undefined) continue;
       if (hoert(c.steck, c.zdo.position.x, c.zdo.position.z, pos.x, pos.z)) kiLaerm(c.ki, id);
     }
+  }
+
+  /** Die Phase der KI einer Kreatur (Diagnose, Tests); null ohne Zustandsmaschine. */
+  kiPhase(zdo: ZDO): KiZustand['phase'] | null {
+    return this.eigene(zdo)?.ki?.phase ?? null;
   }
 
   /** Nachbarn derselben Art im Umkreis der Leine kennen den Reiz danach. */
@@ -390,7 +400,8 @@ export class SpawnSystem {
     // Aggressive Kreaturen (weder fliehend noch friedlich) bekommen die
     // Zustandsmaschine; ohne eigenen Steckbrief gilt das Verhalten von früher.
     if (!c.entry.flees && c.entry.aggro !== false) {
-      c.steck = brief?.ki ?? KI_VORGABE;
+      const basis = brief?.ki ?? KI_VORGABE;
+      c.steck = this.kiUeberschreibung ? { ...basis, ...this.kiUeberschreibung } : basis;
       c.ki = neuerKiZustand();
     }
     this.creatures.set(key, c);
@@ -734,7 +745,8 @@ export class SpawnSystem {
       return false;
     }
     if (befehl.bewegung === 'laeuft') {
-      const step = Math.min(c.entry.runSpeed * deltaSec, befehl.maxWeg);
+      // Anrennen ohne Kappung (wie vor der Zustandsmaschine); nur der Heimweg endet genau am Ziel.
+      const step = befehl.phase === 'heimkehren' ? Math.min(c.entry.runSpeed * deltaSec, befehl.maxWeg) : c.entry.runSpeed * deltaSec;
       const vx = p.x;
       const vz = p.z;
       if (step > 0) this.moveStep(c, befehl.dirX, befehl.dirZ, step);
@@ -878,7 +890,7 @@ export class SpawnSystem {
       const nearest = this.nearestPeer(c.zdo.position, peerPositions);
       if (!nearest) continue;
       const dist = Math.sqrt(nearest.distSqr);
-      if (dist > 1.7) continue;
+      if (dist > 1.7 + 1e-6) continue;
       const idx = peerPositions.indexOf(nearest.pos);
       const liste = kandidatenJeZiel.get(idx) ?? [];
       liste.push({ key, dist });

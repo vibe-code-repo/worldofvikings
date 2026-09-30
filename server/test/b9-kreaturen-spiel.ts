@@ -40,8 +40,10 @@ import {
   istEigenesModell,
   maxLeben,
   type SpawnEntry,
+  yawQuaternion,
   type Vector3,
 } from '@wov/shared';
+import { steckbriefFuer } from '../src/spiel/KreaturenSteckbriefe.js';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
 import { SpawnSystem } from '../src/world/SpawnSystem.js';
@@ -132,7 +134,7 @@ function buildWorld(rngSeed: number, table: readonly SpawnEntry[]) {
   const heightmaps = new HeightmapProvider(geo, { blendSmoothStep: true, bilinearSampling: false });
   const zdos = new ZDOManager(1n);
   const zones = new ZoneManager(geo, heightmaps, zdos, SEED, { worldFeatures: false, worldVegetation: false });
-  const spawns = new SpawnSystem(zdos, geo, heightmaps, zones, { rng: new XorShiftRandom(rngSeed), table });
+  const spawns = new SpawnSystem(zdos, geo, heightmaps, zones, { rng: new XorShiftRandom(rngSeed), table, kiUeberschreibung: { rueckzugNach: 0 } });
   return { geo, heightmaps, zdos, zones, spawns };
 }
 function generateAround(zones: ZoneManager, pos: Vector3): void {
@@ -285,6 +287,11 @@ console.log('\n[2c] The cow does not attack; the wolf does (peer one metre / ten
   // WOLF: 10 m away, chases at run speed, then strikes.
   const peerW = { ...wald };
   const wolf = einzelnes('Wolf', peerW, 10);
+  // D4: a wolf only notices what lies in its 230 degree view cone, and stands
+  // `bemerktSec` before it runs. Face the wolf at the peer (it spawned with a
+  // random heading) and leave the noticing pause out of the running samples.
+  wolf.zdo.rotation = yawQuaternion(Math.atan2(peerW.x - wolf.zdo.position.x, peerW.z - wolf.zdo.position.z));
+  const bemerktPause = (steckbriefFuer('Wolf')!.ki!.bemerktSec) + 0.1;
   const treffer: { t: number; schaden: number; radius: number }[] = [];
   let simT = 0;
   wolf.spawns.onCreatureAttack = (_p, schaden, radius) => {
@@ -301,7 +308,7 @@ console.log('\n[2c] The cow does not attack; the wolf does (peer one metre / ten
     simT += 0.05;
     const d = dist2d(wolf.zdo.position, peerW);
     if (d > 1.7 + 1e-6) {
-      animAufDemWeg.add(wolf.zdo.getString(ANIM_MEMBER));
+      if (simT > bemerktPause) animAufDemWeg.add(wolf.zdo.getString(ANIM_MEMBER));
       if (letzterAbstand - d > 1e-9) schritte.push((letzterAbstand - d) / 0.05);
     } else {
       // The state is written from the distance BEFORE the step, so the first tick
@@ -320,7 +327,8 @@ console.log('\n[2c] The cow does not attack; the wolf does (peer one metre / ten
   check('wolf: plays `attack` once in range', animImAngriff.size === 1 && animImAngriff.has('attack'), [...animImAngriff].join(','));
   check('wolf: strikes with 8 damage in 2.4 m (the creature numbers of the game)', treffer.length > 0 && treffer.every((t) => t.schaden === 8 && t.radius === 2.4), `${treffer.length} strikes`);
   const luecken = treffer.slice(1).map((t, i) => t.t - treffer[i].t);
-  check('wolf: one strike every 2 s', luecken.length >= 4 && luecken.every((l) => Math.abs(l - 2) < 0.11), luecken.map((l) => f(l)).join(', '));
+  const takt = steckbriefFuer('Wolf')!.ki!.taktSec;
+  check(`wolf: one strike every ${takt} s (species profile)`, luecken.length >= 4 && luecken.every((l) => Math.abs(l - takt) < 0.11), luecken.map((l) => f(l)).join(', '));
 }
 
 // ── [3] The real packet path ─────────────────────────────────────

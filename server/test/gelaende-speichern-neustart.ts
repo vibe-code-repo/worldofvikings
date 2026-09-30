@@ -48,7 +48,7 @@ async function boote(pfad: string, name: string) {
     worldsDir: join(dir, 'worlds'), kontenDir: join(dir, 'accounts'), worldMode: 'layout', worldLayoutPath: pfad,
     saveIntervalMs: 3600_000, worldBilinearHeight: true });
   console.log = () => undefined; console.warn = () => undefined; console.error = () => undefined;
-  try { await server.start(); } finally { console.log = previous.log; console.warn = previous.warn; console.error = previous.error; }
+  try { await server.start(); } catch (e) { server.stop(); throw e; } finally { console.log = previous.log; console.warn = previous.warn; console.error = previous.error; }
   return server;
 }
 

@@ -461,6 +461,13 @@ export default [
   // Kartenmodus `radial` und sein Altname: eine Warnung, dieselbe Welt bitgleich.
   ['server', 'test/kartenmodus-alias.ts'],
   /*
+    D4 (30.09.2026): KI-Zustandsmaschine der Kreaturen. Reine Logik und das
+    SpawnSystem mit echten ZDOs auf flachem Gelaende, ohne Netz, ohne Assets:
+    Wanderradius, Sichtkegel 230 Grad, Leine, Verfolgungsende, Verfall,
+    Rueckzugswahrscheinlichkeit, Kettenaggro, Fels, Umlaufen. ~10 s.
+  */
+  ['server', 'test/ki-zustaende.ts'],
+  /*
     Der Kugel-Sweep (11.09.2026): Ecken, Wandenden und die laterale
     Luecke, die die drei versetzten Strahlen davor gelassen haben. Sein
     wichtigster Teil ist ein ZAEHLBEWEIS — ein Scan ueber Winkel und

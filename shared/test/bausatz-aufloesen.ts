@@ -180,7 +180,7 @@ const katalog = (...k: Bausatz[]): Map<string, Bausatz> => new Map(k.map((b) => 
   const flackernd = { ...basis, teile: [{ ...basis.teile[0]!, scale: proxyArray([3, 2]) } as never] };
   const r2 = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'sk', x: 0, z: 0 }] }, katalog(flackernd));
   const s2 = r2.teile[0]?.scale;
-  pruefe('B2 Skala-Proxy (length 3, dann 2, [0] 1, dann NaN): echte Kopie [1,2,3], nie NaN', r2.teile.length === 1 && Array.isArray(s2) && s2.join() === '1,2,3' && s2.join() === '1,2,3', JSON.stringify(s2));
+  pruefe('B2 Skala-Proxy (length 3, dann 2, [0] 1, dann NaN): echte Kopie [1,2,3], nie NaN', r2.teile.length === 1 && Array.isArray(s2) && s2.join() === '1,2,3', JSON.stringify(s2));
 }
 // N2 A2/X8: dy, pitch und roll werden im Auflöser geprüft
 {
@@ -196,6 +196,20 @@ const katalog = (...k: Bausatz[]): Map<string, Bausatz> => new Map(k.map((b) => 
   const geerbt = Object.create({ a: 'geerbt-a' }) as Record<string, string>;
   const r = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'e', x: 0, z: 0, kennungen: geerbt }] }, katalog(k));
   pruefe('X9 geerbter String in kennungen: id i#a, nicht geerbt-a', r.teile.some((t) => t.id === 'i#a') && !r.teile.some((t) => t.id === 'geerbt-a'), r.teile.map((t) => t.id).join());
+}
+// N5 C2: raw kennungen that is no plain object (string, array, null, number, true) is "no kennungen": no address, no throw
+{
+  const k = kit('r', [teil('0'), teil('weg')]);
+  for (const roh of ['ab', ['q'], null, 5, true] as unknown[]) {
+    let ids = '';
+    let geworfen = '';
+    try {
+      ids = loeseBausaetzeAuf({ bausaetze: [{ id: 's', bausatz: 'r', x: 0, z: 0, kennungen: roh } as never] }, katalog(k)).teile.map((t) => t.id).join();
+    } catch (e) {
+      geworfen = String(e);
+    }
+    pruefe(`C2 rohe kennungen ${JSON.stringify(roh)}: keine Adresse, kein Wurf (s#0,s#weg)`, geworfen === '' && ids === 's#0,s#weg', geworfen || ids);
+  }
 }
 // M3: jede Platzierung des echten dev.json als Teil, Anker mm-Koordinate mit yaw 0 — byte-gleich zum Vergleichsschlüssel
 {

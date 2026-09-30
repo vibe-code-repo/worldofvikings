@@ -287,6 +287,17 @@ try {
     pruefe('B1 fünf Schlüssel: alle fünf genannt, kein …, Mehrzahl', ta.includes('5 Teil-ids') && ['a1', 'a2', 'a3', 'a4', 'a5'].every((t) => ta.includes(t)) && !ta.includes('…'), ta);
     pruefe('B1 ein Schlüssel: Einzahl, Adresse genannt', tb.includes('1 Teil-id ') && tb.includes('b1 (Adresse y1)'), tb);
   }
+  // N5 C1: seven orphaned keys: the WHOLE text, the first five in stored key order, then `, …`
+  {
+    const k7 = kitVon([teilMit('p1', eigen)]);
+    const w7 = weltMit([inst({ id: 'sieben', bausatz: 'kit', kennungen: { v1: 'a1', v2: 'a2', v3: 'a3', v4: 'a4', v5: 'a5', v6: 'a6', v7: 'a7' } })]);
+    const b7 = pruefeLayout(w7, new Map([['kit', k7]])).filter((b) => b.text.startsWith('verwaiste Kennung'));
+    pruefe(
+      'C1 sieben Schlüssel: ganzer Text, erste fünf in Schlüsselreihenfolge, dann …',
+      b7.length === 1 && b7[0]!.text === 'verwaiste Kennungen: Instanz sieben, 7 Teil-ids nicht im Bausatz kit: v1 (Adresse a1), v2 (Adresse a2), v3 (Adresse a3), v4 (Adresse a4), v5 (Adresse a5), …',
+      JSON.stringify(b7.map((x) => x.text))
+    );
+  }
   // B4: severity of the orphan finding is 'welt' (client befundSchwere: hint); the unknown kit stays 'bausatz' (error)
   {
     const b = pruefeLayout(weltMit([inst({ id: 'o', bausatz: 'kit', kennungen: { weg: 'adr' } })]), new Map([['kit', kitVon([teilMit('p1', eigen)])]])).filter((x) => x.text.startsWith('verwaiste Kennung'));

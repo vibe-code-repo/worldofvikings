@@ -19,6 +19,7 @@ import { FEATURES } from '../features.js';
 import { SPAWN_TABLE } from '../spawnData.js';
 import { PREFABS_BY_NAME, istEigenesModell } from '../prefabs.js';
 import { istNpcPrefab } from '../npc.js';
+import { rohKennungen } from '../bausatz/aufloesen.js';
 import type { Bausatz } from '../bausatz/types.js';
 import type { PlacementDef, WorldLayout } from './types.js';
 import { gleicherInhalt, zusammengefassteDuplikate } from './platzierungsId.js';
@@ -240,14 +241,14 @@ function platzierungsBefunde(layout: WorldLayout): LayoutBefund[] {
   return befunde;
 }
 
+/** How many orphaned part ids one instance finding names. */
+const VERWAIST_GENANNT = 5;
+
 /**
  * Befunde zu den Bausatz-Instanzen: ein unbekannter Bausatz (Datei fehlt) und unbekannte Teil-Prefabs sowie Teil-Prefabs ohne eigenes Modell und verwaiste `kennungen`; Prefabs je NAME und Bausatz gezählt (eine Zeile „U_Palisade (51 Teile in startdorf)“, nicht 51 Zeilen). Der Server schont
  * die Objekte einer unbekannten Instanz; hier steht nur der Hinweis. Ein unbekannter Bausatz ist absichtlich kein
  * Schreibfehler (422), sonst wäre das Dokument auf einem Rechner ohne die Datei nicht mehr speicherbar.
  */
-/** How many orphaned part ids one instance finding names. */
-const VERWAIST_GENANNT = 5;
-
 function bausatzBefunde(layout: WorldLayout, katalog: ReadonlyMap<string, Bausatz>): LayoutBefund[] {
   const befunde: LayoutBefund[] = [];
   const gezaehlt = new Set<string>();
@@ -261,8 +262,7 @@ function bausatzBefunde(layout: WorldLayout, katalog: ReadonlyMap<string, Bausat
     // Eine Adresse für eine Teil-id, die der Bausatz nicht hat, wird nirgends angewendet, bleibt aber stehen und
     // würde von einem später eingefügten Teil mit dieser id übernommen. Je INSTANZ gemeldet (die Adressen gehören ihr).
     // Raw (unsanitized) `kennungen` that is not a plain object (string, array, null) counts as no `kennungen`.
-    const roh: unknown = i.kennungen;
-    const kennungen = typeof roh === 'object' && roh !== null && !Array.isArray(roh) ? (roh as Readonly<Record<string, unknown>>) : undefined;
+    const kennungen = rohKennungen(i.kennungen);
     const teilIds = new Set(bausatz.teile.map((t) => t.id));
     // ONE finding per instance (count, the first few part ids with their addresses), not one per key: a kit that loses
     // its parts orphans every key of every instance. `art: 'welt'` so the editor shows it as a hint, not an error.

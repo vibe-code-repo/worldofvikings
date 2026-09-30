@@ -11,6 +11,7 @@
  * - rotation is right-handed around +Y (as `yawQuaternion`): `x' = dx·cosθ + dz·sinθ`,
  *   `z' = −dx·sinθ + dz·cosθ`.
  * - the result is sorted by id, so the order of the parts inside a kit file does not matter.
+ * - `kennungen` that is no plain object (raw input: string, array, null, number) counts as none.
  * - `kennungen` is read as own properties only (a part id `constructor` is an ordinary string id).
  * - the resolver checks what it is given: a part or instance with a non-finite number is left out with a named
  *   `fehler`, never a NaN in the result.
@@ -37,6 +38,14 @@ const kopiereSkala = (a: readonly number[]): BausatzSkala => {
   const laenge = a.length;
   return (laenge === 3 ? [a[0]!, a[1]!, a[2]!] : []) as unknown as BausatzSkala;
 };
+/**
+ * The `kennungen` of a RAW (unsanitized) instance: only a plain object counts. A string, array, null, number or boolean
+ * is "no kennungen" (never an address taken from a string's characters, never a TypeError). Shared by this resolver and `pruefeLayout`.
+ */
+export function rohKennungen(roh: unknown): Readonly<Record<string, unknown>> | undefined {
+  return typeof roh === 'object' && roh !== null && !Array.isArray(roh) ? (roh as Readonly<Record<string, unknown>>) : undefined;
+}
+
 const skalaEndlich = (s: BausatzSkala): boolean => (typeof s === 'number' ? endlich(s) : Array.isArray(s) && s.length === 3 && s.every(endlich));
 
 export function loeseBausaetzeAuf(
@@ -71,7 +80,8 @@ export function loeseBausaetzeAuf(
     }
     // Every input field is read exactly once into a constant; only the constants are checked and used, so a getter
     // that answers differently the second time cannot smuggle a NaN past the check.
-    const { x: ix, z: iz, kennungen } = i;
+    const { x: ix, z: iz } = i;
+    const kennungen = rohKennungen(i.kennungen);
     const yaw = i.yaw ?? 0;
     if (!endlich(ix) || !endlich(iz) || !endlich(yaw)) {
       fehler.push(`Bausatz-Instanz "${i.id}": x, z oder yaw ist keine endliche Zahl — Instanz ausgelassen`);

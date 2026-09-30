@@ -160,7 +160,9 @@ type CollisionModule = typeof import('../src/entities/kollisionsEimer');
  * The order in which EntityManager.ts loads its modules: the sources of its value imports and of its `export … from`,
  * in the order of the file (N3-B2). Import lines that took the place of a dropped statement (way C of rule 4.6a) or
  * were added at the end stand where K8 proved them; a moved line changes the order of evaluation and makes [6] red.
- * Carried forward with every step of the form on this class.
+ * Carried forward with every step of the form on this class. `../engine/Physics` stands twice on purpose (rule 4.6b): the
+ * first line is the old import of `StaticColliderSet`, which is only a type in this file since N4 and which the compiler
+ * removes; the second is a bare import that keeps Physics.ts at its old place in the order of evaluation.
  */
 const MANAGER_VALUE_IMPORTS: readonly string[] = [
   '@babylonjs/core/Maths/math.vector',
@@ -175,6 +177,7 @@ const MANAGER_VALUE_IMPORTS: readonly string[] = [
   './steinMaterial',
   '../player/haarfarbe.js',
   '../player/augenfarbe.js',
+  '../engine/Physics',
   '../engine/Physics',
   '../engine/BaumImpostorKern',
   '../engine/RefraktionsAuswahl',
@@ -1174,8 +1177,11 @@ function runCollisionSequence<K extends CollisionState>(calls: CollisionCalls<K>
   rebuildAll();
   stats();
   const before = new Map(k.colliders);
+  const bodyOf = (e: CollisionEntry | undefined): unknown => (e?.set as unknown as { bodies?: unknown[] } | undefined)?.bodies?.[0];
+  const bodiesBefore = new Map([...k.colliders].map(([key, e]) => [key, bodyOf(e)]));
   rebuildAll();
   run.identity += [...k.colliders].filter(([key, e]) => before.get(key) === e).length;
+  run.identity += [...k.colliders].filter(([key, e]) => bodiesBefore.get(key) !== undefined && bodiesBefore.get(key) === bodyOf(e)).length;
   stats();
   k.colliderCenterX = 30;
   k.colliderCenterZ = -20;
@@ -1194,7 +1200,7 @@ function runCollisionSequence<K extends CollisionState>(calls: CollisionCalls<K>
   stats();
   run.carriers = [...k.colliders.keys()].sort().join(' ');
   run.colliderless = [...k.colliderless].sort().join(' ');
-  for (const [key, spec] of k.colliderSpecs) if (spec === (k.colliders.get(key)?.set as unknown as { form: unknown }).form) run.identity++;
+  for (const [key, spec] of k.colliderSpecs) if (spec === (k.colliders.get(key)?.set as unknown as { form: unknown } | undefined)?.form) run.identity++;
   const engine = scene.getPhysicsEngine() as unknown as { raycastToRef(from: Vector3, to: Vector3, out: PhysicsRaycastResult): void };
   const result = new PhysicsRaycastResult();
   for (let gx = -3; gx < 3; gx++) for (let gz = -3; gz < 3; gz++) {
@@ -1219,8 +1225,8 @@ const COLLISION_EXPECTED = {
   physicsEnabled: [true],
   carriers: 'Eiche1 Eiche1#{"moos":1} Grabhuegel Steinkreis raum-probe vegetation-large-bush-1a1',
   colliderless: 'Felsblock1 Ginster2 NichtVorhanden',
-  /** Six entries unchanged by a rebuild with the same signature, six specs that are the form the set holds. */
-  identity: 12,
+  /** Six entries and six first bodies unchanged by a rebuild with the same signature, six specs that are the form the set holds. */
+  identity: 18,
   hits: 36,
   steps: 6,
 };
@@ -1243,8 +1249,9 @@ console.log('\n[9] Collision carriers: the fixed sequence gives the numbers meas
     check(`${label}: the switch marks ${COLLISION_EXPECTED.dirty.join(', ')} buckets dirty (first call, second call, third call after a reset) and stays on`, JSON.stringify(run.dirty) === JSON.stringify(COLLISION_EXPECTED.dirty) && JSON.stringify(run.physicsEnabled) === JSON.stringify(COLLISION_EXPECTED.physicsEnabled), `${run.dirty.join(', ')}; ${run.physicsEnabled.join(', ')}`);
     check(`${label}: carriers ${COLLISION_EXPECTED.carriers}`, run.carriers === COLLISION_EXPECTED.carriers, run.carriers);
     check(`${label}: no shape for ${COLLISION_EXPECTED.colliderless}`, run.colliderless === COLLISION_EXPECTED.colliderless, run.colliderless);
-    check(`${label}: ${COLLISION_EXPECTED.identity} identities (entries stay the same objects, specs are the form of the set)`, run.identity === COLLISION_EXPECTED.identity, String(run.identity));
+    check(`${label}: ${COLLISION_EXPECTED.identity} identities (entries and bodies stay the same objects on the same signature, specs are the form of the set)`, run.identity === COLLISION_EXPECTED.identity, String(run.identity));
     check(`${label}: ${COLLISION_EXPECTED.hits} of 36 rays from above hit a body`, run.hits === COLLISION_EXPECTED.hits, String(run.hits));
+    check(`${label}: the carriers are invisible, not pickable and frozen in place`, entries.length === 6 && entries.every((e) => e.carrier.isVisible === false && e.carrier.isPickable === false && e.carrier.isWorldMatrixFrozen), `${entries.length} carriers`);
     check(
       `${label}: every carrier belongs to the scene of the instance, none to the scene created after it`,
       entries.length === 6 && entries.every((e) => e.carrier.getScene() === scene) && decoy.meshes.length === 0 && scene.meshes.filter((m) => m.name.startsWith('col_') && !m.name.endsWith('_netz')).length === entries.length,

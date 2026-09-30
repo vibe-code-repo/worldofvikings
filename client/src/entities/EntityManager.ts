@@ -54,6 +54,7 @@ import { weiseSteinMaterialZu, setzeDokumentSteinKit, holeSteinMaterial } from '
 import { faerbeHaar } from '../player/haarfarbe.js';
 import { faerbeAugen } from '../player/augenfarbe.js';
 import { StaticColliderSet } from '../engine/Physics';
+import '../engine/Physics';
 
 import {
   IMPOSTOR_GRENZE_M_VORGABE,

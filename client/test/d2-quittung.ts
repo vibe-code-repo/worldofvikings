@@ -122,7 +122,7 @@ console.log('[3] Kettenfenster der Figur nie laenger als das des Servers (F4):')
   check('ein kurzer Schlag (Rest 0,1 s) behaelt sein kuerzeres Fenster (0,7 s)', Math.abs(komboRestS(0.1, 0.6) - 0.7) < 1e-9);
 }
 
-console.log('\n[4] Figur gegen Server bei Latenz und Jitter (N2-1/N2-2): Sprungquote der Figur, Kettenabbruch durch die Quittung, Schadensverlust:');
+console.log('\n[4] Figur gegen Server bei Latenz und Jitter (N2-1/N2-2): Sprungquote der Figur, Kettenabbruch durch die Quittung, Abklingzeit-Verlust:');
 {
   // Deterministic generator (mulberry32); every run gives the same numbers.
   const zufall = (seed: number) => () => {
@@ -139,7 +139,7 @@ console.log('\n[4] Figur gegen Server bei Latenz und Jitter (N2-1/N2-2): Sprungq
     abbruch: number;
     /** Swings the server refused (cooldown), damage lost entirely. */
     verweigert: number;
-    /** Swings the server counted with a lower step than the figure played (a finisher counted as step 1). */
+    /** Swings the server counted with a lower step than the figure played (a finisher counted as step 1; same damage, no loss). */
     niedriger: number;
   }
   /**
@@ -174,8 +174,9 @@ console.log('\n[4] Figur gegen Server bei Latenz und Jitter (N2-1/N2-2): Sprungq
         if (i > 0 && !offenesFenster) lauf.sprung++;
         if (!offenesFenster || figur === 0) figur = 1;
         else if (neu) {
+          // After step 3 the chain starts again anyway: that is no abort.
+          if (figur !== 3) lauf.abbruch++;
           figur = 1;
-          lauf.abbruch++;
         } else figur = (figur % 3) + 1;
         neu = false;
         const seq = buch.neu(klick, figur);
@@ -203,19 +204,23 @@ console.log('\n[4] Figur gegen Server bei Latenz und Jitter (N2-1/N2-2): Sprungq
     const alt = spiel(0.8, lat, jitter, 0.75, 0.08, TRIALS, 7 + lat);
     console.log(
       `      Latenz ${lat} +-${jitter} ms, Klick 0,75 +-0,08 s: Deckel ${SERVER_KETTE_S} s: Figur-Sprung ${pro(l.sprung, l.klicks)}, Kettenabbruch durch Quittung ${pro(l.abbruch, l.klicks)}, ` +
-        `Verlust durch Abklingzeit ${pro(l.verweigert, l.klicks)}, durch Kette (Server zaehlt niedriger) ${pro(l.niedriger, l.klicks)}; Deckel 0,80 s: Figur-Sprung ${pro(alt.sprung, alt.klicks)}`
+        `Verlust durch Abklingzeit ${pro(l.verweigert, l.klicks)}, Server zaehlt niedriger (kein Schadensverlust) ${pro(l.niedriger, l.klicks)}; Deckel 0,80 s: Figur-Sprung ${pro(alt.sprung, alt.klicks)}`
     );
     check(`Latenz ${lat} +-${jitter} ms: Sprungquote der Figur mit dem Deckel ${SERVER_KETTE_S} s hoechstens 1 %`, l.sprung / l.klicks <= 0.01, pro(l.sprung, l.klicks));
     check(`Latenz ${lat} +-${jitter} ms: der Deckel 0,80 s sprang in mehr als 10 % der Klicks (Probe ist empfindlich)`, alt.sprung / alt.klicks > 0.1, pro(alt.sprung, alt.klicks));
-    check(`Latenz ${lat} +-${jitter} ms: sichtbarer Kettenabbruch durch die Quittung hoechstens 15 % der Klicks`, l.abbruch / l.klicks <= 0.15, pro(l.abbruch, l.klicks));
+    // Measured 0.19 / 1.32 / 1.15 %; the margin is small so that a fallback to the cap 0.80 s turns this red, too.
+    const abbruchMax = lat === 40 ? 0.01 : 0.025;
+    check(`Latenz ${lat} +-${jitter} ms: sichtbarer Kettenabbruch durch die Quittung hoechstens ${abbruchMax * 100} % der Klicks`, l.abbruch / l.klicks <= abbruchMax, pro(l.abbruch, l.klicks));
     check(`Latenz ${lat} +-${jitter} ms: Verlust durch die Abklingzeit hoechstens 1 % der Schlaege`, l.verweigert / l.klicks <= 0.01, pro(l.verweigert, l.klicks));
-    check(`Latenz ${lat} +-${jitter} ms: Schadensverlust durch die Kette hoechstens 15 % der Schlaege`, l.niedriger / l.klicks <= 0.15, pro(l.niedriger, l.klicks));
+    // Measured 2.00 / 10.92 / 11.00 %; with the cap 0.80 s it is 15.19 % at 40 ms.
+    const niedrigerMax = lat === 40 ? 0.04 : 0.14;
+    check(`Latenz ${lat} +-${jitter} ms: Server zaehlt niedriger (kein Schadensverlust) hoechstens ${niedrigerMax * 100} % der Schlaege`, l.niedriger / l.klicks <= niedrigerMax, pro(l.niedriger, l.klicks));
   }
-  // A player who clicks fast (0,40 s +- 0,08 s, at least 0,3 s): the cooldown of 350 ms refuses swings whose arrival gap jitter squeezed.
+  // The fastest click the client allows (ANGRIFF_TAKT 0,5 s): 0,55 +- 0,08 s, at least 0,5 s. Reported only: what the cooldown refuses.
   for (const lat of [40, 150, 300]) {
     const jitter = lat === 40 ? 40 : 100;
-    const l = spiel(SERVER_KETTE_S, lat, jitter, 0.4, 0.08, TRIALS, 11 + lat, 0.3);
-    console.log(`      Latenz ${lat} +-${jitter} ms, schneller Klick 0,40 +-0,08 s: Verlust durch Abklingzeit ${pro(l.verweigert, l.klicks)}, durch Kette ${pro(l.niedriger, l.klicks)}, Figur-Sprung ${pro(l.sprung, l.klicks)}`);
+    const l = spiel(SERVER_KETTE_S, lat, jitter, 0.55, 0.08, TRIALS, 11 + lat, 0.5);
+    console.log(`      Latenz ${lat} +-${jitter} ms, schnellster Klick 0,55 +-0,08 s (mind. 0,5 s): Verlust durch Abklingzeit ${pro(l.verweigert, l.klicks)}, Server zaehlt niedriger ${pro(l.niedriger, l.klicks)}, Figur-Sprung ${pro(l.sprung, l.klicks)}`);
   }
 }
 

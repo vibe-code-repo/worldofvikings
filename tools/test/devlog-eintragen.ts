@@ -1,14 +1,15 @@
 /**
  * PRÜFT tools/devlog/eintragen.mjs: Schema, jede Sperrregel, Einfügen,
  * Ersetzen, Kürzen auf 512 KB, Byte-Gleichheit beim zweiten Lauf und
- * atomares Schreiben.
+ * atomares Schreiben, die Kernel-Sperre (Exit 3), den Prüfmodus und die
+ * Rechte der Zieldatei.
  *
  * Die Sperrliste der echten Läufe liegt nicht im Repo; hier steht nur eine
  * Fixture-Sperrliste mit harmlosen Wörtern (`foobar`).
  *
  * Lauf: npx tsx tools/test/devlog-eintragen.ts
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -16,7 +17,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  utimesSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -64,13 +65,13 @@ function ordner(): string {
   return d;
 }
 
-function lauf(dir: string, eintrag: unknown, args: string[] = []) {
+function lauf(dir: string, eintrag: unknown, args: string[] = [], env: NodeJS.ProcessEnv = {}) {
   const eintragDatei = join(dir, "tag.json");
   writeFileSync(eintragDatei, typeof eintrag === "string" ? eintrag : JSON.stringify(eintrag));
   const r = spawnSync(
     process.execPath,
     [WERKZEUG, "--datei", join(dir, "devlog.json"), "--eintrag", eintragDatei, ...args],
-    { encoding: "utf8" },
+    { encoding: "utf8", env: { ...process.env, ...env } },
   );
   return { rc: r.status, aus: r.stdout, err: r.stderr };
 }
@@ -95,6 +96,7 @@ function abgelehnt(name: string, eintrag: unknown, erwartet: RegExp, args: strin
   pruefe(`${name}: Datei unverändert`, vorher.equals(datei(d)));
 }
 
+async function haupt(): Promise<void> {
 try {
   // ── Einfügen, Sortieren, Ersetzen, Byte-Gleichheit ──────────────────
   {
@@ -170,7 +172,7 @@ try {
       ? tag("2026-09-02", text)
       : tag("2026-09-02", "T", { de: { titel: "T", punkte: [text] } });
   abgelehnt("PR-Nummer", mit("Behoben in #123."), /PR- oder Issue-Nummer.*#123/);
-  abgelehnt("Issue-Nummer im Titel", mit("Fix für #7", "titel"), /PR- oder Issue-Nummer/);
+  abgelehnt("Issue-Nummer im Titel", mit("Fix für #77", "titel"), /PR- oder Issue-Nummer/);
   abgelehnt("Commit-Hash (7 Zeichen)", mit("Stand a1b2c3d erreicht"), /Commit-Hash.*a1b2c3d/);
   abgelehnt(
     "Commit-Hash (40 Zeichen)",
@@ -222,7 +224,11 @@ try {
     const gesperrt: [string, string][] = [
       ["Fix #１２３", nummer],
       ["＃123", nummer],
-      ["Platz #1 der Rangliste", nummer], // bewusst: Sicherheit vor Überfilterung
+      ["Fix # 123", nummer], // Leerzeichen nach dem Zeichen (F6)
+      ["Fix #  45", nummer],
+      ["PR 12", nummer],
+      ["pull #5", nummer],
+      ["issue/7", nummer],
       ["PR 123", nummer],
       ["Pull Request 12", nummer],
       ["pull/123", nummer],
@@ -243,6 +249,69 @@ try {
       ["liegt in ~/foo", "Serveradresse"],
       ["localhost:2713", "Serveradresse"],
       ["wov-dev", "Serveradresse"],
+      ["wov dev", "Serveradresse"], // F6: Leerzeichen statt Bindestrich
+      ["wov_live", "Serveradresse"],
+      ["Wov Host", "Serveradresse"],
+      ["127.0.0.1", "Serveradresse"],
+      ["127.0.0.1:2713", "Serveradresse"],
+      ["Port 2467", "Serveradresse"],
+      ["port:8080", "Serveradresse"],
+      ["localhost : 2713", "Serveradresse"],
+      ["github . com/x", "Adresse"], // F6: Trennzeichen
+      ["github\u00a0.\u00a0com", "Adresse"],
+      ["github dot com", "Adresse"],
+      ["g i t h u b", "Adresse"],
+      ["GitHub", "Adresse"],
+      ["hxxp://example.org", "Adresse"],
+      ["https\u2236//x", "Adresse"], // Doppelpunkt U+2236
+      ["ssh://host", "Adresse"],
+      ["ftp://x", "Adresse"],
+      ["file:///etc", "Adresse"],
+      ["mailto:a@b.c", "Adresse"],
+      ["deadbeefcafe", "Commit-Hash"], // F6: nur Buchstaben a-f, ab 10 Zeichen
+      ["Hash deadbeefcafe123", "Commit-Hash"],
+      ["c :/x", "Dateipfad"],
+      ["wov-web/static", "Dateipfad"], // Wurzelordner wov-web
+      ["bild.png", "Dateiendung"],
+      ["notiz.txt", "Dateiendung"],
+      ["setup.exe", "Dateiendung"],
+      ["lib.so", "Dateiendung"],
+      ["main.cpp", "Dateiendung"],
+      ["main.c", "Dateiendung"],
+      ["kopf.h", "Dateiendung"],
+      ["kopf.hpp", "Dateiendung"],
+      ["lib.rs", "Dateiendung"],
+      ["main.go", "Dateiendung"],
+      ["x.rb", "Dateiendung"],
+      ["x.lua", "Dateiendung"],
+      ["x.sql", "Dateiendung"],
+      ["x.csv", "Dateiendung"],
+      ["x.xml", "Dateiendung"],
+      ["x.ini", "Dateiendung"],
+      ["x.toml", "Dateiendung"],
+      ["x.zip", "Dateiendung"],
+      ["x.gz", "Dateiendung"],
+      ["x.tar", "Dateiendung"],
+      ["x.gltf", "Dateiendung"],
+      ["x.fbx", "Dateiendung"],
+      ["x.wav", "Dateiendung"],
+      ["x.ogg", "Dateiendung"],
+      ["x.mp3", "Dateiendung"],
+      ["x.ktx2", "Dateiendung"],
+      ["x.bin", "Dateiendung"],
+      ["x.jpg", "Dateiendung"],
+      ["x.jpeg", "Dateiendung"],
+      ["x.webp", "Dateiendung"],
+      ["x.svg", "Dateiendung"],
+      ["x.gif", "Dateiendung"],
+      ["x.log", "Dateiendung"],
+      ["x.dll", "Dateiendung"],
+      ["a1b2-c3d4e5", "Commit-Hash"],
+      ["f\u043e\u043ebar", "fremde Schrift"], // F5: kyrillisches „о“ statt „o“
+      ["f\u03bf\u03bfbar", "fremde Schrift"], // griechisches „ο“
+      ["g\u0456thub.com", "fremde Schrift"], // kyrillisches „і“
+      ["Привет", "fremde Schrift"],
+      ["こんにちは", "fremde Schrift"],
       ["WOV-Host", "Serveradresse"],
       ["wov-lab", "Serveradresse"],
       ["wov-live", "Serveradresse"],
@@ -292,6 +361,29 @@ try {
       "Die Regierung spricht 3 Sätze",
       "Der Commit-Ablauf ist kürzer",
       "Der Prüfer kommt um 3 Uhr",
+      // F7: Überfilterung an echten Spielertexten
+      "Platz #1 der Rangliste",
+      "Rang #9",
+      "Feb-2026",
+      "Cafe-2026",
+      "Fade-2026",
+      "Bade-2026",
+      "Ade-1234",
+      "ABC-DEF-12345",
+      "Pull 3 Gegner",
+      "issue 2 wichtig",
+      "Stufe 3 pr 1",
+      "Wir nutzen node.js nicht",
+      "Node.JS",
+      "Heute.Html ist nett",
+      "Dienstag.Sh",
+      "Ja.Md",
+      "Das heißt d.h. dies",
+      "Sieg über Wölfe 🐺 und Bären 🐻",
+      "Ärger über Straße und Öl",
+      "Version 1.2.3",
+      "Es gibt 25 Ziegen",
+      "Der Wolf hat Hunger",
     ];
     for (const text of erlaubt) {
       const funde = findeSpuren({ de: { titel: "T", punkte: [text] } }, sperr);
@@ -364,45 +456,143 @@ try {
     );
     schreibeAlt();
     const vorher = readdirSync(d).join();
-    const abgelehntLauf = lauf(d, mit("Behoben in #5"));
+    const abgelehntLauf = lauf(d, mit("Behoben in #55"));
     pruefe(
       "Abgelehnter Eintrag: keine Sicherung, Datei unverändert",
       abgelehntLauf.rc === 1 && readdirSync(d).join() === vorher,
     );
   }
+  {
+    // F4/M20: ein Lauf OHNE ungültige Alteinträge legt auch bei vorhandener Datei keine Sicherung an.
+    const d = ordner();
+    lauf(d, tag("2026-09-01"));
+    const r = lauf(d, tag("2026-09-02"));
+    const baks = readdirSync(d).filter((n) => n.includes(".bak-"));
+    pruefe("Bestehende, gültige Datei: keine Sicherung bei jedem Lauf", r.rc === 0 && baks.length === 0, baks.join());
+  }
+  {
+    // F11: fremde Dateien mit dem Präfix zählen nicht mit und werden nie gelöscht.
+    const d = ordner();
+    const ziel = join(d, "devlog.json");
+    const kaputt = { datum: "kaputt", de: { titel: "T", punkte: ["p"] } };
+    const fremd = [
+      "devlog.json.bak-zzz-fremd",
+      "devlog.json.bak-20260930T123456Z", // ohne Millisekunden: nicht unser Muster
+      "devlog.json.bak-20260930T123456789Zx",
+      "devlog.json.bak-",
+    ];
+    for (const n of fremd) writeFileSync(join(d, n), "fremd");
+    for (let i = 0; i < 9; i++) {
+      writeFileSync(ziel, JSON.stringify({ devlogVersion: 1, eintraege: [tag("2026-08-01"), kaputt] }));
+      lauf(d, tag("2026-09-03"));
+    }
+    const eigene = readdirSync(d).filter((n) => /^devlog\.json\.bak-\d{8}T\d{9}Z$/.test(n));
+    pruefe("Fremde Dateien bleiben alle liegen", fremd.every((n) => existsSync(join(d, n))), readdirSync(d).join());
+    pruefe("Von den eigenen bleiben genau 5 (fremde zählen nicht mit)", eigene.length === 5, String(eigene.length));
+  }
 
-  // ── Sperrdatei gegen gleichzeitige Läufe ─────────────────────────────
+  // ── Kernel-Sperre gegen gleichzeitige Läufe (flock, Exit 3) ───────────
   {
     const d = ordner();
     const sperre = join(d, "devlog.json.lock");
-    writeFileSync(sperre, "99999\n");
+    // Fremder Halter: hält dieselbe Sperrdatei, wie es ein anderer Lauf täte.
+    const halter = spawn("flock", [sperre, "sleep", "60"], { stdio: "ignore", detached: true });
+    const halterPid = halter.pid as number;
+    const halterLebt = (): boolean => {
+      try {
+        process.kill(halterPid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    await new Promise((r) => setTimeout(r, 300));
     const r = lauf(d, tag("2026-09-01"));
     pruefe(
-      "Belegte Sperre: Exit 2 mit benannter Meldung (PID)",
-      r.rc === 2 && /Sperre .*devlog\.json\.lock belegt.*99999/.test(r.err),
+      "Belegte Sperre: Exit 3 (nicht 2) mit benannter Meldung",
+      r.rc === 3 && /Ziel gesperrt.*devlog\.json\.lock/.test(r.err),
       `rc=${r.rc} ${r.err}`,
     );
     pruefe(
-      "Belegte Sperre: keine Datei geschrieben, fremde Sperre bleibt",
-      !existsSync(join(d, "devlog.json")) && existsSync(sperre),
+      "Belegte Sperre: keine Datei geschrieben, Halter läuft weiter, Sperre bleibt belegt",
+      !existsSync(join(d, "devlog.json")) && halterLebt() && lauf(d, tag("2026-09-01")).rc === 3,
     );
-    const alt = new Date(Date.now() - 11 * 60 * 1000);
-    utimesSync(sperre, alt, alt);
-    const r2 = lauf(d, tag("2026-09-01"));
-    pruefe("Veraltete Sperre (über 10 min) wird übernommen", r2.rc === 0, r2.err);
     pruefe(
-      "Nach dem Lauf ist die Sperre frei",
-      !existsSync(sperre) && existsSync(join(d, "devlog.json")),
-      readdirSync(d).join(),
+      "Belegte Sperre ist auch für den Prüfmodus kein Hindernis (nimmt keine Sperre)",
+      lauf(d, tag("2026-09-01"), ["--pruefen"]).rc === 0,
     );
-    const knapp = new Date(Date.now() - 9 * 60 * 1000);
-    writeFileSync(sperre, "1\n");
-    utimesSync(sperre, knapp, knapp);
-    const r3 = lauf(d, tag("2026-09-02"));
-    pruefe("Sperre mit 9 min Alter gilt noch", r3.rc === 2, `rc=${r3.rc}`);
-    rmSync(sperre);
-    const r4 = lauf(d, tag("2026-09-02"));
-    pruefe("Abgelehnter Eintrag gibt die Sperre frei", (lauf(d, mit("Fix #9")).rc === 1) && !existsSync(sperre) && r4.rc === 0);
+    // SIGKILL des Halters: die Sperre ist sofort frei, ohne Wartezeit.
+    // flock startet den Halter als Kind: die ganze Prozessgruppe (flock und sleep) fällt.
+    process.kill(-halterPid, "SIGKILL");
+    for (let i = 0; i < 50 && halterLebt(); i++) await new Promise((r2) => setTimeout(r2, 20));
+    const nachKill = lauf(d, tag("2026-09-01"));
+    pruefe(
+      "Nach SIGKILL des Halters ist die Sperre sofort frei (Exit 0)",
+      nachKill.rc === 0 && existsSync(join(d, "devlog.json")),
+      `rc=${nachKill.rc} ${nachKill.err}`,
+    );
+    const rest = readdirSync(d).filter((n) => n !== "devlog.json" && n !== "devlog.json.lock" && n !== "tag.json");
+    pruefe("Keine Reste neben Datei und leerer Sperrdatei", rest.length === 0, rest.join());
+    pruefe(
+      "Abgelehnter Eintrag gibt die Sperre frei",
+      lauf(d, mit("Fix #99")).rc === 1 && lauf(d, tag("2026-09-02")).rc === 0,
+    );
+    // Sperrdatei nicht anlegbar (Zielordner fehlt): Dateifehler 2, nicht „gesperrt“.
+    const ohneOrdner = spawnSync(
+      process.execPath,
+      [WERKZEUG, "--datei", join(d, "gibt-es-nicht", "devlog.json"), "--eintrag", join(d, "tag.json")],
+      { encoding: "utf8" },
+    );
+    pruefe("Zielordner fehlt: Exit 2, nicht 3", ohneOrdner.status === 2, `rc=${ohneOrdner.status}`);
+  }
+  {
+    // 4 Prozesse × 40 Runden um dieselbe Datei: nie zwei zugleich in der Sperre.
+    const d = ordner();
+    const eintragDatei = join(d, "tag.json");
+    writeFileSync(eintragDatei, JSON.stringify(tag("2026-09-05")));
+    const hookDatei = join(d, "hook.log");
+    const start = (): Promise<number | null> =>
+      new Promise((fertig) => {
+        const c = spawn(
+          process.execPath,
+          [WERKZEUG, "--datei", join(d, "devlog.json"), "--eintrag", eintragDatei],
+          {
+            stdio: "ignore",
+            env: { ...process.env, DEVLOG_EINTRAGEN_TEST_HOOK: hookDatei },
+          },
+        );
+        c.on("close", (rc) => fertig(rc));
+      });
+    let ueberschneidungen = 0;
+    let rundenOhneSieger = 0;
+    let fremdeCodes = 0;
+    let eintritte = 0;
+    for (let runde = 0; runde < 40; runde++) {
+      rmSync(hookDatei, { force: true });
+      const codes = await Promise.all([start(), start(), start(), start()]);
+      fremdeCodes += codes.filter((c) => c !== 0 && c !== 3).length;
+      if (!codes.includes(0)) rundenOhneSieger++;
+      const zeilen = existsSync(hookDatei)
+        ? readFileSync(hookDatei, "utf8").trim().split("\n").filter(Boolean)
+        : [];
+      let drin = 0;
+      for (const z of zeilen) {
+        if (z.startsWith("ein ")) {
+          eintritte++;
+          if (++drin > 1) ueberschneidungen++;
+        } else drin--;
+      }
+    }
+    pruefe(
+      "4 Prozesse × 40 Runden: 0 Überschneidungen in der Sperre",
+      ueberschneidungen === 0 && eintritte >= 40,
+      `Überschneidungen=${ueberschneidungen} Eintritte=${eintritte}`,
+    );
+    pruefe(
+      "Jede Runde hat einen Sieger, alle anderen enden mit Exit 3 (kein anderer Code)",
+      rundenOhneSieger === 0 && fremdeCodes === 0,
+      `ohne Sieger=${rundenOhneSieger} fremde Codes=${fremdeCodes}`,
+    );
   }
 
   // ── Datei defekt, Aufruf ─────────────────────────────────────────────
@@ -412,12 +602,75 @@ try {
     const vor = datei(d);
     const r = lauf(d, tag("2026-09-02"));
     pruefe(
-      "Defekte Datei: Exit 2, Datei unverändert",
+      "Defekte Zieldatei: Exit 2 (nicht 3), Datei unverändert",
       r.rc === 2 && vor.equals(datei(d)),
       `rc=${r.rc} ${r.err}`,
     );
     const ohne = spawnSync(process.execPath, [WERKZEUG], { encoding: "utf8" });
     pruefe("Ohne Argumente: Exit 2", ohne.status === 2);
+  }
+
+  // ── Rechte der Zieldatei (F8) ────────────────────────────────────────
+  {
+    const d = ordner();
+    const eintragDatei = join(d, "tag.json");
+    writeFileSync(eintragDatei, JSON.stringify(tag("2026-09-07")));
+    for (const maske of ["077", "0277"]) {
+      const ziel = join(d, `devlog-${maske}.json`);
+      const r = spawnSync(
+        "sh",
+        ["-c", `umask ${maske}; exec "$0" "$@"`, process.execPath, WERKZEUG, "--datei", ziel, "--eintrag", eintragDatei],
+        { encoding: "utf8" },
+      );
+      const modus = existsSync(ziel) ? statSync(ziel).mode & 0o777 : -1;
+      pruefe(
+        `Zieldatei hat unter umask ${maske} Modus 0644`,
+        r.status === 0 && modus === 0o644,
+        `rc=${r.status} modus=${modus.toString(8)} ${r.stderr}`,
+      );
+    }
+  }
+
+  // ── Prüfmodus --pruefen (F10) ────────────────────────────────────────
+  {
+    const d = ordner();
+    const pruefen = (eintrag: unknown, args: string[] = []) => {
+      const f = join(d, "pruef.json");
+      writeFileSync(f, typeof eintrag === "string" ? eintrag : JSON.stringify(eintrag));
+      const r = spawnSync(process.execPath, [WERKZEUG, "--pruefen", "--eintrag", f, ...args], {
+        encoding: "utf8",
+      });
+      return { rc: r.status, aus: r.stdout, err: r.stderr };
+    };
+    const sauber = pruefen(tag("2026-09-08"));
+    pruefe("--pruefen: sauberer Eintrag Exit 0, ohne --datei", sauber.rc === 0 && /bestanden/.test(sauber.aus), sauber.err);
+    pruefe("--pruefen: schreibt nichts (Ordner unverändert)", readdirSync(d).join() === "pruef.json", readdirSync(d).join());
+    const spur = pruefen(tag("2026-09-08", "Fix # 123"));
+    pruefe("--pruefen: Spur Exit 1 mit Meldung", spur.rc === 1 && /PR- oder Issue-Nummer/.test(spur.err), spur.err);
+    const wort = pruefen(tag("2026-09-08", "x".repeat(41)));
+    pruefe("--pruefen: überlanges Wort Exit 1", wort.rc === 1 && /Wort mit mehr als 40/.test(wort.err), wort.err);
+    const schema = pruefen({ datum: "2026-09-08", de: tag("x").de });
+    pruefe("--pruefen: Schemafehler Exit 1", schema.rc === 1 && /en: fehlt/.test(schema.err), schema.err);
+    const fremdSchrift = pruefen(tag("2026-09-08", "fооbar"));
+    pruefe("--pruefen: fremde Schrift Exit 1", fremdSchrift.rc === 1 && /fremde Schrift/.test(fremdSchrift.err), fremdSchrift.err);
+    const sl = join(d, "sl.txt");
+    writeFileSync(sl, "foobar\n");
+    const liste = pruefen(tag("2026-09-08", "Das Foobar"), ["--sperrliste", sl]);
+    pruefe("--pruefen: Sperrliste wirkt", liste.rc === 1 && /Sperrwort/.test(liste.err), liste.err);
+    const kaputt = pruefen("{kaputt");
+    pruefe("--pruefen: nicht lesbarer Eintrag Exit 2", kaputt.rc === 2, `rc=${kaputt.rc}`);
+    const ohne = spawnSync(process.execPath, [WERKZEUG, "--pruefen"], { encoding: "utf8" });
+    pruefe("--pruefen ohne --eintrag: Exit 2", ohne.status === 2);
+  }
+
+  // ── Sperrliste wird genauso geglättet wie der Text (F4/M19) ──────────
+  {
+    const vollbreit = findeSpuren({ de: { titel: "T", punkte: ["Das foobar"] } }, ["ＦＯＯＢＡＲ"]);
+    const lang = findeSpuren({ de: { titel: "T", punkte: ["Das Kaiser"] } }, ["Kaiſer"]);
+    const weich = findeSpuren({ de: { titel: "T", punkte: ["Das kaiser"] } }, ["kai­ser"]);
+    pruefe("Sperrliste in Vollbreite sperrt das normale Wort", vollbreit.length === 1, vollbreit.join());
+    pruefe("Sperrliste mit langem s sperrt das normale Wort", lang.length === 1, lang.join());
+    pruefe("Sperrliste mit weicher Trennung sperrt das normale Wort", weich.length === 1, weich.join());
   }
 
   // ── Kürzen auf 512 KB ────────────────────────────────────────────────
@@ -477,6 +730,10 @@ try {
     writeFileSync(ziel, "alt");
     const aufrufe: string[] = [];
     const fs = {
+      fchmodSync: (...a: Parameters<typeof echt.fchmodSync>) => (
+        aufrufe.push("chmod"),
+        echt.fchmodSync(...a)
+      ),
       openSync: (...a: Parameters<typeof echt.openSync>) => (
         aufrufe.push("open"),
         echt.openSync(...a)
@@ -504,8 +761,8 @@ try {
     };
     schreibeAtomar(ziel, "neu", fs);
     pruefe(
-      "Atomar: Reihenfolge öffnen, schreiben, sichern, schließen, umhängen",
-      aufrufe.join() === "open,write,fsync,close,rename",
+      "Atomar: Reihenfolge öffnen, Modus, schreiben, sichern, schließen, umhängen",
+      aufrufe.join() === "open,chmod,write,fsync,close,rename",
       aufrufe.join(),
     );
     pruefe(
@@ -538,10 +795,19 @@ try {
 } finally {
   rmSync(ARBEIT, { recursive: true, force: true });
 }
+}
 
-console.log(
-  fehler === 0
-    ? `\ndevlog-eintragen: alle ${zaehler} Prüfungen grün.\n`
-    : `\ndevlog-eintragen: ${fehler} von ${zaehler} FEHLGESCHLAGEN.\n`,
+haupt().then(
+  () => {
+    console.log(
+      fehler === 0
+        ? `\ndevlog-eintragen: alle ${zaehler} Prüfungen grün.\n`
+        : `\ndevlog-eintragen: ${fehler} von ${zaehler} FEHLGESCHLAGEN.\n`,
+    );
+    process.exit(fehler > 0 ? 1 : 0);
+  },
+  (e) => {
+    console.log(`FEHL  Testlauf abgebrochen: ${e instanceof Error ? e.stack : String(e)}`);
+    process.exit(1);
+  },
 );
-process.exit(fehler > 0 ? 1 : 0);

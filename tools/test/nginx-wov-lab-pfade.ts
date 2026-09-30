@@ -157,9 +157,9 @@ const ERWARTUNGEN: Erwartung[] = [
       /location\s+=\s+\/api\/devlog\.json\s*\{[^}]*root\s+\/var\/lib\/wov\/web\s*;[^}]*try_files\s+\/devlog\.json\s+@devlog-rueckfall\s*;[^}]*disable_symlinks\s+on\b[^;]*;[^}]*Cache-Control\s+"no-cache"[^}]*\}/,
   },
   {
-    weg: '@devlog-rueckfall (Rueckfall-Datei aus dem Build, no-cache)',
+    weg: '@devlog-rueckfall (Rueckfall-Datei aus dem Build, no-cache, keine Symlinks)',
     muster:
-      /location\s+@devlog-rueckfall\s*\{[^}]*root\s+\/opt\/worldofvikings\/wov-web\/build\/client\s*;[^}]*try_files\s+\/api\/devlog\.json\s+=404\s*;[^}]*Cache-Control\s+"no-cache"[^}]*\}/,
+      /location\s+@devlog-rueckfall\s*\{[^}]*root\s+\/opt\/worldofvikings\/wov-web\/build\/client\s*;[^}]*try_files\s+\/api\/devlog\.json\s+=404\s*;[^}]*disable_symlinks\s+on\b[^;]*;[^}]*Cache-Control\s+"no-cache"[^}]*\}/,
   },
   { weg: '/api/accounts/ (Konten-API des Spielservers)', muster: /location\s+\/api\/accounts\/\s*\{/ },
   { weg: '/api/forum/ (Das Thing, Foren-API des Spielservers)', muster: /location\s+\/api\/forum\/\s*\{/ },

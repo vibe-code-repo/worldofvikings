@@ -5,7 +5,7 @@
  * Every visible word comes through the translator `t` (catalogue keys `rarity.*`, `stat.*`,
  * `tooltip.*`, `character.slot.*`); the numbers and colors are the only things that live here.
  */
-import { ESSEN, STAT_IDS, RARITY_TEXT_KEYS, SLOT_VORGABE, anzeigeName, type ItemShared, type ItemStack, type ItemStats, type Rarity, type StatId } from '@wov/shared';
+import { ESSEN, STAT_IDS, RARITY_TEXT_KEYS, SLOT_VORGABE, anzeigeName, loeseStufe, type ItemShared, type ItemStack, type ItemStats, type Rarity, type StatId } from '@wov/shared';
 
 export type Uebersetzer = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -86,13 +86,16 @@ function wertZeile(t: Uebersetzer, id: StatId, wert: number, vergleich: ItemStat
 }
 
 export function tooltipInhalt(shared: ItemShared, t: Uebersetzer, opt: TooltipOptionen = {}): TooltipInhalt {
-  const farbe = RARITY_FARBEN[shared.rarity];
+  // Data items (#152) bring their own level and rarity, which may be missing or out of range: the same rules
+  // as everywhere (`loeseStufe`, fallback 1 / common), so the tooltip never crashes on them.
+  const stufe = loeseStufe(shared, shared).stufe;
+  const farbe = RARITY_FARBEN[stufe.rarity];
   const zeilen: TooltipZeile[] = [
-    { art: 'seltenheit', text: t(RARITY_TEXT_KEYS[shared.rarity]), farbe },
+    { art: 'seltenheit', text: t(RARITY_TEXT_KEYS[stufe.rarity]), farbe },
     { art: 'typ', text: t(typSchluessel(shared)), farbe: FARBE_TEXT },
   ];
   if (zeigtItemLevel(shared)) {
-    zeilen.push({ art: 'itemlevel', text: t('tooltip.itemlevel', { level: shared.itemLevel }), farbe: FARBE_TEXT });
+    zeilen.push({ art: 'itemlevel', text: t('tooltip.itemlevel', { level: stufe.itemLevel }), farbe: FARBE_TEXT });
   }
   // Only values other than 0; with a comparison also a value the worn part has and this one lacks.
   for (const id of STAT_IDS) {

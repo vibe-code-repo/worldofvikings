@@ -281,12 +281,12 @@ describe('devlog: Zeichen-Positivliste (Allowed text)', () => {
     expect(/\p{Cn}/u.test('\u{1F02C}')).toBe(true);
   });
 
-  it('lässt im Lateinblock nur Buchstaben zu, die nicht wie Satzzeichen oder Ziffern aussehen', () => {
-    for (const t of ['ł ø đ ħ ŧ ƀ ð ĸ æ œ þ ß', 'ǅ ǲ Ǆ'])
+  it('lässt nur Latin bis U+017F zu (ohne Erweiterung B und ohne Lookalikes)', () => {
+    for (const t of ['ł ø đ ħ ŧ ð ĸ æ œ þ ß', 'Ärger Straße café ŧ ł ø'])
       expect(unerlaubteZeichen(t.replaceAll(' ', ''))).toEqual([]);
     const raus = [
-      0x13f, 0x140, 0x149, 0x1a7, 0x1a8, 0x1b7, 0x1bb, 0x1be, 0x1c0, 0x1c1, 0x1c2, 0x1c3, 0x21c,
-      0x21d, 0x241, 0x242,
+      0x13f, 0x140, 0x149, 0x180, 0x192, 0x257, 0x199, 0x1f1, 0x1a7, 0x1bb, 0x1c0, 0x1c3, 0x21c,
+      0x241, 0x24f,
     ];
     for (const c of raus) {
       const z = String.fromCodePoint(c);
@@ -314,19 +314,19 @@ describe('devlog: Zeichen-Positivliste (Allowed text)', () => {
       expect(unerlaubteZeichen(z), `abgelehnt ${z}`).toEqual([
         `U+${z.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`,
       ]);
-    // Lateinblock: die genannten Ausnahmen sind genau die abgelehnten Buchstaben zwischen U+00C0 und U+024F (ohne × ÷).
+    // Lateinblock: die genannten Ausnahmen sind genau die abgelehnten Buchstaben zwischen U+00C0 und U+017F (ohne × ÷), darüber ist alles abgelehnt.
     const raus = new Set<number>();
-    const teil = /Left out of the Latin block: .*?\((.+?)\)\./.exec(text)?.[1] ?? '';
+    const teil = /Left out of the allowed block: .*?\((.+?)\)\./.exec(text)?.[1] ?? '';
     for (const m of teil.matchAll(/U\+([0-9A-F]{4})(?:-U\+([0-9A-F]{4}))?/g)) {
       const von = parseInt(m[1], 16);
       const bis = m[2] ? parseInt(m[2], 16) : von;
       for (let c = von; c <= bis; c++) raus.add(c);
     }
-    expect(raus.size).toBeGreaterThan(10);
+    expect(raus.size).toBe(3);
     for (let c = 0xc0; c <= 0x24f; c++) {
       if (c === 0xd7 || c === 0xf7) continue;
       expect(unerlaubteZeichen(String.fromCodePoint(c)).length === 0, `U+${c.toString(16)}`).toBe(
-        !raus.has(c),
+        c <= 0x17f && !raus.has(c),
       );
     }
   });

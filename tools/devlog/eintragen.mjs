@@ -17,7 +17,7 @@
  * text“ beschrieben). Jedes andere Zeichen lehnt das Werkzeug ab und nennt es
  * als `U+XXXX`. Darüber hinaus gibt es wenige Muster auf dem normalisierten
  * Text (NFKC, Akzente und punktloses i gefaltet, Strichbuchstaben und Ligaturen
- * wie ø ł đ ħ ŧ ƀ ð ĸ æ œ þ ß zu o l d h t b d k ae oe th ss, klein geschrieben,
+ * wie ø ł đ ħ ŧ ð ĸ æ œ þ ß zu o l d h t d k ae oe th ss, klein geschrieben,
  * – und — als -): Hash, PR-/Issue-Nummer, Domain, IPv4, IPv6, Serverkürzel, Port,
  * Dateiendung. Wörter über 40 Zeichen werden beim Eintragen abgelehnt.
  *
@@ -89,7 +89,7 @@ export function glaette(text) {
 }
 
 /** Buchstaben, die keine Akzente tragen und sich nicht zerlegen lassen; sie werden auf ihr Grundzeichen gefaltet. */
-const FALTUNG = { "ø": "o", "ł": "l", "đ": "d", "ħ": "h", "ŧ": "t", "ƀ": "b", "ð": "d", "ĸ": "k", "æ": "ae", "œ": "oe", "þ": "th", "ß": "ss" };
+const FALTUNG = { "ø": "o", "ł": "l", "đ": "d", "ħ": "h", "ŧ": "t", "ð": "d", "ĸ": "k", "æ": "ae", "œ": "oe", "þ": "th", "ß": "ss" };
 
 /**
  * Normalisierte Fassung für alle Muster und die Sperrliste: geglättet, Akzente
@@ -103,7 +103,7 @@ export function normalisiert(text) {
     .replace(/\p{Mn}/gu, "")
     .replace(/\u0131/g, "i")
     .toLowerCase()
-    .replace(/[øłđħŧƀðĸæœþß]/gu, (z) => FALTUNG[z])
+    .replace(/[øłđħŧðĸæœþß]/gu, (z) => FALTUNG[z])
     .replace(/[\u2013\u2014]/g, "-");
 }
 

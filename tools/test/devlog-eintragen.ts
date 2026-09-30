@@ -559,7 +559,6 @@ try {
       ["Đrache", "drache", "đ"],
       ["Ħalle", "halle", "ħ"],
       ["Ŧeufel", "teufel", "ŧ"],
-      ["ƀaum", "baum", "ƀ"],
       ["ðrache", "drache", "ð"],
       ["ĸaiser", "kaiser", "ĸ"],
       ["Æther", "aether", "æ"],

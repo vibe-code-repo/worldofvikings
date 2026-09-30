@@ -70,12 +70,12 @@ export function istDatum(x: unknown): x is string {
  * Everything else is rejected and named as `U+XXXX`; this is deliberate and
  * over-filtering that follows from the list is documented here, not a defect.
  *
- *   - Latin letters (Basic Latin, Latin-1 Supplement, Latin Extended-A and -B,
- *     so umlauts and ß), without × and ÷. No other script, no IPA or
+ *   - Latin letters U+0041-U+017F (Basic Latin, Latin-1 Supplement, Latin
+ *     Extended-A, so umlauts, ß and é), without × and ÷. Latin Extended-B
+ *     (U+0180-U+024F) is not allowed at all. No other script, no IPA or
  *     phonetic letters, no combining marks (write precomposed letters).
- *     Left out of the Latin block: the letters that look like punctuation or
- *     digits (U+013F U+0140 U+0149 U+01A7 U+01A8 U+01B7-U+01BE U+01C0-U+01C3
- *     U+021C U+021D U+0241 U+0242).
+ *     Left out of the allowed block: the letters that fold to punctuation
+ *     (U+013F U+0140 U+0149).
  *   - Digits 0-9 and the space U+0020 (no other space, no tab, no line break).
  *   - Punctuation: . , ! ? : ; ' " „ “ ” ‚ ‘ ’ ( ) - – — % + & €
  *   - Emoji (Extended_Pictographic, assigned code points only) as a sequence:
@@ -92,7 +92,7 @@ export function istDatum(x: unknown): x is string {
  * "Platz #1", no chat commands such as "/heim".
  *
  * On top of the list the tool rejects a few patterns on the normalised text
- * (NFKC, diacritics removed, dotless i and the letters ø ł đ ħ ŧ ƀ ð ĸ æ œ þ ß
+ * (NFKC, diacritics removed, dotless i and the letters ø ł đ ħ ŧ ð ĸ æ œ þ ß
  * folded to o l d h t b d k ae oe th ss, lower case, – and — as -):
  * hashes (7+ hex characters that contain digits and letters, except the form
  * word + year such as Facade2026; "abc1234" and "Bad1234" are rejected on
@@ -112,9 +112,8 @@ export function istDatum(x: unknown): x is string {
  */
 const BASIS =
   /^[A-Za-z0-9 .,!?:;'"\u201E\u201C\u201D\u201A\u2018\u2019()\u002D\u2013\u2014%+&\u20AC]$/u;
-const LATEIN = /^[\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F]$/u;
-const LATEIN_RAUS =
-  /^[\u013F\u0140\u0149\u01A7\u01A8\u01B7-\u01BE\u01C0-\u01C3\u021C\u021D\u0241\u0242]$/u;
+const LATEIN = /^[\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u017F]$/u;
+const LATEIN_RAUS = /^[\u013F\u0140\u0149]$/u;
 const PIKTO = /^\p{Extended_Pictographic}$/u;
 const PIKTO_RAUS = /^[\u2122\u2139\u24C2]$/u;
 const UNBELEGT = /^\p{Cn}$/u;

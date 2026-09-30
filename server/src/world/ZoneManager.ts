@@ -91,7 +91,7 @@ const f32 = Math.fround;
 // ── Reference zone constants ────────────────────────────────────────
 const NEAR_ZRADIUS = 2;
 const DISTANT_ZRADIUS = 2;
-/** Guaranteed share of the per-tick zone budget for every player with open zones (ms). */
+/** Per-player share of the per-tick zone budget in the round-robin phase (ms). */
 const MIN_ANTEIL_MS = 2;
 
 /** One open zone in a player's queue; `d2` = squared zone distance to that player when queued. */
@@ -105,7 +105,6 @@ interface OffeneZone {
 interface SpielerSchlange {
   zx: number;
   zy: number;
-  epoche: number;
   offen: OffeneZone[];
   /** Read position in `offen` (consumed entries are skipped, compacted lazily). */
   kopf: number;
@@ -280,8 +279,6 @@ export class ZoneManager {
   private readonly pending = new Map<string, number>();
   /** One generation queue per player (key = stable player id). */
   private readonly schlangen = new Map<string, SpielerSchlange>();
-  /** Bumped when a generated zone is taken back, so every queue re-reads its window. */
-  private schlangenEpoche = 0;
   /** Round-robin start; moves on every tick so no player is always served first. */
   private rundenStart = 0;
   private readonly zeit: () => number;
@@ -446,9 +443,12 @@ export class ZoneManager {
   /**
    * Server-tick entry point with player ids: one queue per player (ring
    * order, nearest zone first). `budgetMs` is the global cap of the tick;
-   * every player with open zones gets at least `MIN_ANTEIL_MS` of it (round
-   * robin, the start moves each tick), the rest goes to the player whose
-   * next open zone is nearest. A zone in several queues is generated once.
+   * players with open zones are served round robin (the start moves each
+   * tick), each for `MIN_ANTEIL_MS` (or budget / players if smaller), the
+   * rest goes to the player whose next open zone is nearest. When one zone
+   * costs more than a player's share, not every player is served every tick,
+   * but every player with open zones comes up within at most n ticks (n =
+   * number of players). The tick overshoots the budget by at most one zone. A zone in several queues is generated once.
    * The id must not change between ticks. Returns the zones generated.
    */
   updateJeSpieler(spieler: readonly { id: string; pos: Vector3 }[], budgetMs = 12): number {
@@ -507,7 +507,7 @@ export class ZoneManager {
    * Brings the per-player queues in line with the current players: drops the
    * queues of players that left (their zones fall out of `pending`) and
    * rebuilds a queue when its player changed zone (G-POP: zones behind a
-   * fast mover are dropped) or a zone was taken back. Returns the queues in
+   * fast mover are dropped). Returns the queues in
    * list order.
    */
   private gleicheSchlangenAb(spieler: readonly { id: string; pos: Vector3 }[]): SpielerSchlange[] {
@@ -520,10 +520,10 @@ export class ZoneManager {
       const zy = HeightmapProvider.worldToZone(s.pos.z);
       let sl = this.schlangen.get(s.id);
       if (!sl) {
-        sl = { zx: NaN, zy: NaN, epoche: -1, offen: [], kopf: 0 };
+        sl = { zx: NaN, zy: NaN, offen: [], kopf: 0 };
         this.schlangen.set(s.id, sl);
       }
-      if (sl.zx !== zx || sl.zy !== zy || sl.epoche !== this.schlangenEpoche) {
+      if (sl.zx !== zx || sl.zy !== zy) {
         this.baueSchlange(sl, zx, zy);
       }
       reihe.push(sl);
@@ -552,7 +552,6 @@ export class ZoneManager {
     }
     sl.zx = zx;
     sl.zy = zy;
-    sl.epoche = this.schlangenEpoche;
   }
 
   /** Empties a queue and releases its zones from `pending`. */
@@ -1367,12 +1366,11 @@ export class ZoneManager {
   /**
    * Zonen-Rücksetzer (zonenRuecksetzer.ts): nimmt eine Zone aus `generated`,
    * damit `erzeugeZone` sie neu aufbauen kann. Liefert false, wenn sie gar
-   * nicht erzeugt war.
+   * nicht erzeugt war. Die Spielerschlangen lesen ihr Fenster nur beim Zonenwechsel
+   * neu; wer eine Zone zurücknimmt, erzeugt sie sofort neu (`erzeugeZone`).
    */
   nimmZoneZurueck(zone: ZoneID): boolean {
-    const war = this.generated.delete(zoneKey(zone.x, zone.y));
-    if (war) this.schlangenEpoche++;
-    return war;
+    return this.generated.delete(zoneKey(zone.x, zone.y));
   }
 
   /** Erzeugt eine Zone sofort statt über die Warteschlange; false, wenn sie schon erzeugt war. */

@@ -24,6 +24,13 @@ export default [
   // Ein misslungener Speichervorgang darf die Welt nicht beschaedigen;
   // wer das erst nach dem Ausrollen merkt, merkt es an der Welt.
   ['admin', 'test/betriebsdienst.ts'],
+  // Editor EG1: GET/PUT /api/gegenstaende und GET .../quittung gegen den echten
+  // Betriebsdienst mit einer Testwurzel (Muster z3f-folgen.ts). Deckt die
+  // Anlage der Arbeitskopie aus dem Repo, If-Match (428/412), die
+  // 422-Ablehnung jedes ungueltigen Teils (nie still verworfen), das
+  // kanonische Schreiben, die Bestaetigung beim Entfernen (409) und zwei
+  // gleichzeitige PUTs (genau einer gewinnt). Keine Assets, keine GPU, ~5s.
+  ['admin', 'test/gegenstaende-route.ts'],
   // ... and the wiring in the operations service itself, checked on the syntax
   // tree (survives `npm run format`): PR #59's content-type gate carries a
   // narrow, path-and-method-scoped exception for this one route, the origin

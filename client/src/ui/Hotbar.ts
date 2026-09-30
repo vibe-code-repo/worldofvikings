@@ -6,9 +6,10 @@
  */
 
 import type { Inventory, ItemStack } from '@wov/shared';
-import { HOTBAR_SIZE } from '@wov/shared';
+import { HOTBAR_SIZE, anzeigeName } from '@wov/shared';
 import type { Equipment } from '../player/Equipment';
 import { UI, slotStyle } from './theme';
+import { mitTooltip, versteckeTooltip } from './ItemTooltip';
 
 const SLOT = 52;
 
@@ -16,6 +17,8 @@ export class Hotbar {
   private readonly root: HTMLDivElement;
   private readonly cells: HTMLDivElement[] = [];
   private readonly unsubscribe: Array<() => void> = [];
+  /** What render() last put into the cells; the tooltip reads it without asking the inventory again. */
+  private aktuell: ReadonlyArray<ItemStack | null | undefined> = [];
 
   constructor(
     private readonly inventory: Inventory,
@@ -34,6 +37,7 @@ export class Hotbar {
       cell.style.pointerEvents = 'auto';
       cell.style.cursor = 'pointer';
       cell.addEventListener('click', () => this.equipment.useHotbar(i));
+      mitTooltip(cell, () => this.aktuell[i] ?? null);
 
       const key = document.createElement('div');
       key.textContent = String(i + 1);
@@ -53,7 +57,9 @@ export class Hotbar {
   }
 
   private render(): void {
+    versteckeTooltip(); // cells are rebuilt below; the mouse may rest on one that changes
     const items = this.inventory.hotbar();
+    this.aktuell = items;
     for (let i = 0; i < this.cells.length; i++) {
       const cell = this.cells[i];
       const item = items[i];
@@ -82,14 +88,14 @@ export function itemVisual(item: ItemStack): HTMLDivElement {
 
   const img = document.createElement('img');
   img.src = `/assets/sprites/${item.shared.icon}.png`;
-  img.alt = item.shared.label;
+  img.alt = anzeigeName(item.shared);
   img.draggable = false;
   img.style.cssText = 'width:80%;height:80%;object-fit:contain;image-rendering:auto';
   // A missing sprite should not leave a broken-image glyph in the slot.
   img.addEventListener('error', () => {
     img.style.display = 'none';
     const fallback = document.createElement('div');
-    fallback.textContent = item.shared.label.slice(0, 2);
+    fallback.textContent = anzeigeName(item.shared).slice(0, 2);
     fallback.style.cssText = `font-size:16px;color:${UI.text}`;
     wrap.appendChild(fallback);
   });

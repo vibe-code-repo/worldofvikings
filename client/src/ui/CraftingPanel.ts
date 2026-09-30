@@ -4,8 +4,9 @@
  * clientseitig); geprüft wird gegen countOf, Zutaten gehen per
  * removeByName raus. Gestaltung wie SettingsPanel (Leder/Bronze).
  */
-import { REZEPTE, findItem, type Inventory } from '@wov/shared';
+import { REZEPTE, findItem, anzeigeName, type Inventory } from '@wov/shared';
 import type { GameI18n } from '../i18n';
+import { konfiguriereTooltip, mitTooltip, versteckeTooltip } from './ItemTooltip';
 
 export class CraftingPanel {
   private readonly root: HTMLDivElement;
@@ -41,6 +42,7 @@ export class CraftingPanel {
     root.appendChild(panel);
     document.body.appendChild(root);
     this.root = root;
+    konfiguriereTooltip({ i18n: this.i18n });
     this.unsubscribe = this.i18n.onChange(() => {
       titel.textContent = this.i18n.t('crafting.title');
       if (this.visible) this.fuellen();
@@ -69,6 +71,7 @@ export class CraftingPanel {
 
   private fuellen(): void {
     const inv = this.inventory();
+    versteckeTooltip();
     this.liste.textContent = '';
     if (!inv) return;
     for (const r of REZEPTE) {
@@ -80,12 +83,21 @@ export class CraftingPanel {
         'display:flex;justify-content:space-between;align-items:center;padding:6px 4px;' +
         'border-bottom:1px solid rgba(138,106,52,.35);gap:8px';
       const info = document.createElement('div');
-      const kosten = r.zutaten
-        .map((z) => `${z.menge}× ${findItem(z.item)?.label ?? z.item}`)
-        .join(', ');
-      info.innerHTML =
-        `<div style="color:#f2c86a">${def.label}</div>` +
-        `<div style="font-size:12px;color:${machbar ? '#a8916a' : '#7a5b4a'}">${kosten}</div>`;
+      const kopf = document.createElement('div');
+      kopf.style.color = '#f2c86a';
+      kopf.textContent = anzeigeName(def, this.i18n.language);
+      mitTooltip(kopf, () => def);
+      const kosten = document.createElement('div');
+      kosten.style.cssText = `font-size:12px;color:${machbar ? '#a8916a' : '#7a5b4a'}`;
+      r.zutaten.forEach((z, i) => {
+        const zutat = findItem(z.item);
+        if (i > 0) kosten.appendChild(document.createTextNode(', '));
+        const teil = document.createElement('span');
+        teil.textContent = `${z.menge}× ${zutat ? anzeigeName(zutat, this.i18n.language) : z.item}`;
+        if (zutat) mitTooltip(teil, () => zutat);
+        kosten.appendChild(teil);
+      });
+      info.append(kopf, kosten);
       zeile.appendChild(info);
       const btn = document.createElement('button');
       btn.textContent = this.i18n.t('crafting.action');
@@ -106,7 +118,7 @@ export class CraftingPanel {
         }
         for (const z of r.zutaten) jetzt.removeByName(z.item, z.menge);
         jetzt.addItem(def, r.menge);
-        this.meldung(this.i18n.t('crafting.created', { item: def.label }));
+        this.meldung(this.i18n.t('crafting.created', { item: anzeigeName(def, this.i18n.language) }));
         this.fuellen();
       });
       zeile.appendChild(btn);

@@ -91,6 +91,7 @@ import {
 import { fehlerhaftAntwort, weltAnlegen, weltOpsBehandeln } from './routen/weltOps.js';
 import { anwendungAnhaengen } from './routen/anwendung.js';
 import { weltBestaetigenBehandeln } from './routen/weltBestaetigen.js';
+import { gegenstaendeBehandeln } from './routen/gegenstaende.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
 import { bestaetigenAnfrageDatei, bestaetigenAnfrageLesen } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import { loeschsperreDatei } from '@wov/shared/src/worldlayout/loeschsperre.js';
@@ -2492,6 +2493,9 @@ const dienst = createServer((req, res) => {
       if (pfad === '/api/modell-hochladen' && req.method === 'POST') {
         return await modellHochladenBehandeln(req, res, klient || peer);
       }
+
+      // EG1: Gegenstandsdaten (GET/PUT /api/gegenstaende, .../quittung); der Rumpf wird als Rohtext gelesen (routen/gegenstaende.ts).
+      if (await gegenstaendeBehandeln(req, res, pfad, angefragteUrl.searchParams, WURZEL)) return;
 
       // DELETE zusaetzlich zu PUT/POST: DELETE /admin/liste braucht einen
       // Koerper ({name} oder {spielerId}), um zu sagen, WAS entfernt

@@ -36,6 +36,22 @@ export const STAT_TEXT_KEYS: Readonly<Record<StatId | typeof RESERVIERTE_STAT_ID
   intellect: { name: 'stat.intellect', desc: 'stat.intellect.desc' },
 };
 
+/** Rarity of an item; `rarity.<id>` is the translation key of its name. Not the stack field `quality`. */
+export const RARITY_IDS = ['common', 'uncommon', 'rare', 'epic', 'legendary'] as const;
+export type Rarity = typeof RARITY_IDS[number];
+
+export const RARITY_TEXT_KEYS: Readonly<Record<Rarity, string>> = {
+  common: 'rarity.common',
+  uncommon: 'rarity.uncommon',
+  rare: 'rarity.rare',
+  epic: 'rarity.epic',
+  legendary: 'rarity.legendary',
+};
+
+export function istRarity(wert: unknown): wert is Rarity {
+  return typeof wert === 'string' && (RARITY_IDS as readonly string[]).includes(wert);
+}
+
 /** Damage of a bare fist ('' = no weapon). `leben.ts` is calibrated against these numbers. */
 export const FAUST_SCHADEN = 4;
 

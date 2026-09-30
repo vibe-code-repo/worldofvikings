@@ -144,6 +144,23 @@ const ERWARTUNGEN: Erwartung[] = [
   { weg: '/play/ (Spiel-Client)', muster: /location\s+\/play\/\s*\{/ },
   { weg: '/editor/ (Editor-Einstieg)', muster: /location\s+=?\s*\/editor\/\s*\{/ },
   { weg: '/api/*.json (statische Daten der Webseite)', muster: /location\s+~\s+\^\/api\/[^\n{]*\\\.json[^\n{]*\{/ },
+  /*
+    Dev-Log (30.09.2026): /api/devlog.json kommt zuerst aus dem Zustandsverzeichnis
+    /var/lib/wov/web (der taegliche Lauf schreibt dort, ohne Build), sonst aus der
+    Rueckfall-Datei im Build. `location =` haelt den Weg vor der Regex-location
+    darueber; `no-cache`, damit ein neuer Tag sofort sichtbar ist. Die Probe mit
+    einem eigenen nginx steht im Bericht der Karte.
+  */
+  {
+    weg: '/api/devlog.json (exakt, zuerst /var/lib/wov/web/devlog.json, no-cache)',
+    muster:
+      /location\s+=\s+\/api\/devlog\.json\s*\{[^}]*root\s+\/var\/lib\/wov\/web\s*;[^}]*try_files\s+\/devlog\.json\s+@devlog-rueckfall\s*;[^}]*Cache-Control\s+"no-cache"[^}]*\}/,
+  },
+  {
+    weg: '@devlog-rueckfall (Rueckfall-Datei aus dem Build, no-cache)',
+    muster:
+      /location\s+@devlog-rueckfall\s*\{[^}]*root\s+\/opt\/worldofvikings\/wov-web\/build\/client\s*;[^}]*try_files\s+\/api\/devlog\.json\s+=404\s*;[^}]*Cache-Control\s+"no-cache"[^}]*\}/,
+  },
   { weg: '/api/accounts/ (Konten-API des Spielservers)', muster: /location\s+\/api\/accounts\/\s*\{/ },
   { weg: '/api/forum/ (Das Thing, Foren-API des Spielservers)', muster: /location\s+\/api\/forum\/\s*\{/ },
   { weg: '/accounts/ (Konten-API, bare, fuer den eingebauten Anmeldedialog)', muster: /location\s+\/accounts\/\s*\{/ },

@@ -109,6 +109,7 @@ export type KanonischerPfad = OhneSprachpraefix<RouteId>;
 
 export const SLUGS = {
   '/saga': { de: 'saga', en: 'saga' },
+  '/devlog': { de: 'devlog', en: 'devlog' },
   '/thing': { de: 'thing', en: 'thing' },
   /* Die interne Meldungsliste (Moderation) — gleicher Slug in beiden
      Sprachen; sie steht in keiner Navigation, wird aber wie jede Seite unter

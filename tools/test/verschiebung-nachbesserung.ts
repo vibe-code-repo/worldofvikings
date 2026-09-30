@@ -145,6 +145,8 @@ lauf.abschnitt('V2-A13: the reason of a release has words');
   };
   lauf.pruefe('A13a', 'a reason of one repeated letter is refused', g('xxxxxxxxxxxxxxxxxxxxxxxx').includes('in words'), g('xxxxxxxxxxxxxxxxxxxxxxxx'));
   lauf.pruefe('A13b', 'a reason of filler characters and few letters is refused', g('-------- ab ab ab -------').includes('in words'), g('-------- ab ab ab -------'));
+  lauf.pruefe('A13e', 'the length floor of 20 visible characters holds for a reason that has words (19 characters: refused)', g('abcdefghij klmnopqrs').includes('at least 20 visible'), g('abcdefghij klmnopqrs'));
+  lauf.pruefe('A13f', 'and 20 visible characters with several letters are accepted', g('abcdefghij klmnopqrst') === 'ok', g('abcdefghij klmnopqrst'));
   lauf.pruefe('A13c', 'a reason with words is accepted', g('the registry is filled while loading, nothing runs before') === 'ok', g('the registry is filled while loading, nothing runs before'));
   lauf.pruefe('A13d', 'a reason with umlauts counts letters, not bytes', g('Größe wird beim Laden gefüllt, davor läuft nichts') === 'ok', g('Größe wird beim Laden gefüllt, davor läuft nichts'));
 }

@@ -794,4 +794,6 @@ export default [
   // `zone reset` re-scatters generated zones and leaves layout objects, player
   // builds and admin trees alone.
   ['server', 'test/zonen-ruecksetzer.ts'],
+  // D2: server decides hits from geometry and time (hit sphere, swing window, combo ack, cooldown).
+  ['server', 'test/d2-treffer.ts'],
 ];

@@ -47,8 +47,8 @@
  * Refactor N4: the two methods of the collision carriers (`enablePhysics`, `rebuildBucketColliders`) became functions with a
  * context in kollisionsEimer.ts. The context is called `ctx` there (`k` is the loop variable of `rebuildBucketColliders`).
  * The class lost `private` on ten fields (`buckets`, `masterMeshes`, `masterLocals`, `kollisionsMasters`, `kollisionsLocals`,
- * `colliders`, `colliderless`, `physicsEnabled`, `colliderCenterX`, `colliderCenterZ`) and on the forwarder
- * `rebuildBucketColliders`. Two findings of the attack on N3 came in here:
+ * `colliders`, `colliderless`, `physicsEnabled`, `colliderCenterX`, `colliderCenterZ`); the forwarder `rebuildBucketColliders`
+ * stays private. Two findings of the attack on N3 came in here:
  *  (N3-B1) [8] and [9] create a second scene AFTER the scene of the instance and check `getScene()` of every material
  *      and carrier: Babylon falls back to the scene created last, so a context that does not hand its scene on would
  *      otherwise stay green;
@@ -124,7 +124,7 @@ const FORMER_METHODS: Readonly<Partial<Record<ModuleName, Readonly<Record<string
   },
   kollisionsEimer: {
     enablePhysics: 'enablePhysics(): void',
-    rebuildBucketColliders: 'rebuildBucketColliders(bucket: StaticBucket, zdoMats: readonly Matrix[]): void',
+    rebuildBucketColliders: 'private rebuildBucketColliders(bucket: StaticBucket, zdoMats: readonly Matrix[]): void',
   },
 };
 /** The modules a module of former methods may load at run time (check (2)). Anything else is a new edge in the graph. */
@@ -139,8 +139,8 @@ const VALUE_IMPORTS: Readonly<Partial<Record<ModuleName, readonly string[]>>> = 
  * N2 loosened `zellen`, `indexVon`, `ausZelleLoesen`; N3 loosened `steinMaterials`, `steinMasters`, `dokumentSteinKit`,
  * `weiseSteinMaterialZu`, `holeSteinMaterial` and `scene` (parameter property of the constructor, because
  * `holeSteinMaterial` reads it); N4 loosened `buckets`, `masterMeshes`, `masterLocals`, `kollisionsMasters`, `kollisionsLocals`,
- * `colliders`, `colliderless`, `physicsEnabled`, `colliderCenterX`, `colliderCenterZ` and the forwarder `rebuildBucketColliders`
- * (`colliderSpecs` was public before).
+ * `colliders`, `colliderless`, `physicsEnabled`, `colliderCenterX`, `colliderCenterZ` (ten fields; `colliderSpecs` was public before).
+ * The forwarder `rebuildBucketColliders` stays `private`: no function calls it through the context.
  */
 const PUBLIC_MEMBERS: readonly string[] = [
   'aktualisiereGrundskala', 'applyUpdate', 'ausZelleLoesen', 'buckets', 'colliderCenterX', 'colliderCenterZ', 'colliderNahe',
@@ -148,10 +148,10 @@ const PUBLIC_MEMBERS: readonly string[] = [
   'dynamicList', 'dynamicMasse', 'dynamicPose', 'dynamicSprung', 'dynamischeInstanzen', 'enablePhysics', 'flush',
   'holeSteinMaterial', 'impostorGrenze', 'impostoren', 'indexStats', 'indexVon', 'instanzPosition', 'kollisionsLocals',
   'kollisionsMasters', 'lichtquellen', 'masterLocals', 'masterMeshes', 'naechstesInteragierbares', 'nearbyInstances',
-  'npcEinordnung', 'onMasterBelebt', 'onMasterEntsorgt', 'physicsEnabled', 'rebuildBucketColliders', 'removeZDO', 'scene',
-  'setHundertFpsProfil', 'setPlayerPosition', 'setVegetationsGrenze', 'setVegetationsSchattenEmpfaenger',
-  'setzeDokumentSteinKit', 'setzeInstanzVerborgen', 'setzeNpcQuelle', 'staticCount', 'steinMasters', 'steinMaterials',
-  'toenungAn', 'toenungSetzen', 'updateDynamics', 'vegetationsGrenzeInfo', 'weiseSteinMaterialZu', 'zellStats', 'zellen',
+  'npcEinordnung', 'onMasterBelebt', 'onMasterEntsorgt', 'physicsEnabled', 'removeZDO', 'scene', 'setHundertFpsProfil',
+  'setPlayerPosition', 'setVegetationsGrenze', 'setVegetationsSchattenEmpfaenger', 'setzeDokumentSteinKit',
+  'setzeInstanzVerborgen', 'setzeNpcQuelle', 'staticCount', 'steinMasters', 'steinMaterials', 'toenungAn', 'toenungSetzen',
+  'updateDynamics', 'vegetationsGrenzeInfo', 'weiseSteinMaterialZu', 'zellStats', 'zellen',
 ];
 type SpatialIndex = typeof import('../src/entities/raumIndex');
 type StoneModule = typeof import('../src/entities/steinMaterial');

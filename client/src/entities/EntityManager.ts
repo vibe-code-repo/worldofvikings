@@ -1155,7 +1155,7 @@ export class EntityManager {
     return { grenzeM: this.vegetationsGrenzeM, auswahlRadiusM: radius, gesamt, sichtbar };
   }
 
-  rebuildBucketColliders(bucket: StaticBucket, zdoMats: readonly Matrix[]): void {
+  private rebuildBucketColliders(bucket: StaticBucket, zdoMats: readonly Matrix[]): void {
     return rebuildBucketColliders(this, bucket, zdoMats);
   }
 

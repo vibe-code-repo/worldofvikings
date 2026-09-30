@@ -14,7 +14,7 @@
  *
  *   npx tsx shared/test/kollision-upload-entscheid.ts
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
@@ -102,11 +102,20 @@ function aufrufe(datei: string): Map<string, number> {
   besuche(sf);
   return zaehler;
 }
-for (const [seite, datei] of [
-  ['Client', 'client/src/entities/EntityManager.ts'],
-  ['Server', 'server/src/world/KollisionsFormen.ts'],
+// Client scope: every .ts file directly under client/src/entities/, not EntityManager.ts alone. Code that moved out of
+// that file into a module next to it (refactor N1) stays under the same limit, and so does every later module there.
+// The counts hold for the sum over these files.
+const CLIENT_DIR = 'client/src/entities';
+const clientFiles = readdirSync(join(WURZEL, CLIENT_DIR), { withFileTypes: true })
+  .filter((e) => e.isFile() && e.name.endsWith('.ts'))
+  .map((e) => `${CLIENT_DIR}/${e.name}`)
+  .sort();
+for (const [seite, files] of [
+  ['Client', clientFiles],
+  ['Server', ['server/src/world/KollisionsFormen.ts']],
 ] as const) {
-  const a = aufrufe(datei);
+  const a = new Map<string, number>();
+  for (const file of files) for (const [name, count] of aufrufe(file)) a.set(name, (a.get(name) ?? 0) + count);
   pruefe((a.get('istFesterKoerperImSpiel') ?? 0) === 1, `${seite}: genau ein Aufruf von istFesterKoerperImSpiel`, String(a.get('istFesterKoerperImSpiel') ?? 0));
   pruefe((a.get('istFesterKoerper') ?? 0) === 0, `${seite}: kein Aufruf des rohen istFesterKoerper mehr`, String(a.get('istFesterKoerper') ?? 0));
 }

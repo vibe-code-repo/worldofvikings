@@ -296,9 +296,10 @@ export interface ServerConfig {
   sessionSecret?: Buffer;
 }
 
-/** Parade: Fenster (ms), in dem ein Treffer abgewehrt wird (Clip 0,45 s + Nachlauf). */
 /** `spielerIdFuerName` found several players of that name: the admin command must do nothing. */
 const NAME_NICHT_EINDEUTIG = 'nicht-eindeutig' as const;
+
+/** Parade: Fenster (ms), in dem ein Treffer abgewehrt wird (Clip 0,45 s + Nachlauf). */
 const PARADE_FENSTER_MS = 600;
 /** Parade: Ausdauerkosten (ein Schlag kostet 8). */
 const PARADE_AUSDAUER = 4;
@@ -6713,11 +6714,6 @@ function pickableItem(prefabName: string): { name: string; amount: number } | nu
 }
 
 /**
- * Kreaturen-Drops (nah am Original, beschränkt auf existierende itemDefs).
- * Format: [Item, min, max, Chance 0..1].
- */
-
-/**
  * Waffenname aus dem Angriffs-/Ernte-Paket nur übernehmen, wenn er
  * tatsächlich im Server-Inventar liegt (A2) — sonst Faust ('').
  *
@@ -6808,6 +6804,10 @@ const NPC_ENTRY = {
   aggro: false,
 } as const;
 
+/**
+ * Kreaturen-Drops (nah am Original, beschränkt auf existierende itemDefs).
+ * Format: [Item, min, max, Chance 0..1].
+ */
 const KREATUR_DROPS: Record<string, Array<[string, number, number, number]>> = {
   Eikthyr: [['HardAntler', 3, 3, 1]],
   Greyling: [['Resin', 1, 1, 1]],

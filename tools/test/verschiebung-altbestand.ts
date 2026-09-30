@@ -2,7 +2,7 @@
  * Self-test of the move proof (`tools/verschiebung/`), part 2: the fixtures of the earlier proof
  * tool, transferred.
  *
- * The earlier tool (`tools/i1-verschiebung.mjs`) had 151 fixtures: real cuts, forgeries and
+ * The earlier tool (the former one from I1 step 0) had 151 fixtures: real cuts, forgeries and
  * incomplete cuts, most of them from the two attacks on it. Every one of them stands here with the
  * expectation it had there (`herkunft`). Where the result here differs, a reason is given, and the
  * run prints a table of all transferred fixtures. A fixture that was red there and is green here

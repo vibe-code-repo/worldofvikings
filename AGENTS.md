@@ -420,15 +420,10 @@ Playwright based measurements (`tools/pw-*`) are deliberately NOT part of
 Chromium starts in a plain runner container. If your task depends on one of
 them, say so in the pull request and give the measured numbers.
 
-### Move proof tool (restricted)
+### Move proof tool
 
-`tools/i1-verschiebung.mjs` (I1, step 0) compares the old and the new state of a move
-and reports differences. **EINGESCHRÄNKT: Exit 0 ist noch kein Verschiebebeweis.**
-Bekannte Lücken: siehe `Berichte/2026-09-30 I1 Schritt 0 N1 — Nachangriff.md`
-(H1–H4, M1–M4). Umbau folgt als eigene Karte. Until then a cut is checked by hand
-as well (`git diff -w` of the rest shows only forwardings and import lines) and the
-pull request text says so. Every output of the tool carries this sentence; on exit 0
-it says "keine Abweichung gefunden (eingeschränkt)", never "proved".
+The proof of a mechanical move is `tools/verschiebung/`; see section 9, "Move proof", and the
+README there.
 
 ### File size guard
 

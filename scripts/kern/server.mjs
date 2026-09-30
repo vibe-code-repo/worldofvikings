@@ -363,6 +363,10 @@ export default [
   ['server', 'test/g9-editor-verbindung.ts'],
   // A guest keeps state and ownership only with their token; nobody inherits a saved state by typing its name, and guests cannot wear an account name.
   ['server', 'test/gaeste-besitz.ts'],
+  // G2 (item data at run time): harvest by the field `ernte` (Holzaxt 6 blows, flint axe 4), crafting without a station, the live watch with its receipt (10 -> 12 within 2 s, broken file, discarded entries, confirmation for held items, lock held by a second process). Real WebSocket, ~40 s.
+  ['server', 'test/gegenstaende-g2-live.ts'],
+  // G2: the start with a broken, gone or partly discarded working copy loads the LAST GOOD state; player and chest keep their data items over three restarts and saves.
+  ['server', 'test/gegenstaende-g2-start.ts'],
   // `createGenerated` mit Generator-Einstellungen (maxRooms/zoneSize): Dokument
   // trägt den WIRKLICH benutzten Wert, ein neuer Seed behält die Einstellungen.
   ['server', 'test/generieren-server.ts'],

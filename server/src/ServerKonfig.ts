@@ -33,6 +33,8 @@ import {
   NEBEL_AUTOMATISCH,
   NEBEL_DICHTE_MAX,
   pruefeLook,
+  pruefeWetterDefinitionen,
+  type WetterDefinitionen,
   SAVE_INTERVAL_MS,
   WETTER_AUTOMATISCH,
   type WetterVorgabe,
@@ -142,7 +144,7 @@ export const BEKANNTE_SCHLUESSEL: Record<string, readonly string[]> = Object.ass
     // ServerKonfig -- der Spielserver kennt den Schluessel trotzdem, sonst
     // waere er hier "unbekannt" und der Start warnte ohne Grund.
     uploads: ['modell-hochladen'],
-    wetter: ['umgebung', 'nebeldichte'],
+    wetter: ['umgebung', 'nebeldichte', 'definitionen'],
     'standard-konto': ['name', 'passwort', 'charakter', 'admin'],
     /*
       Der Look-Block. Nur die OBERSTE Ebene steht hier — die
@@ -234,6 +236,30 @@ function warnUnbekannteSchluessel(yaml: unknown): void {
  * sich vertippt, bekommt hier eine Zeile im Serverlog und das bisherige
  * Verhalten (Wetter wuerfeln).
  */
+/**
+ * `wetter: definitionen: <Datei>` (F9): Wetter je Biom aus einer JSON-Datei im
+ * Format von shared/data/wetter/biome.json, Pfad relativ zu server/data. Wie
+ * die Vorgabe wird GEPRUEFT und im Zweifel VERWORFEN: Jeder Fehler steht als
+ * eigene Zeile im Log, der Server startet mit den mitgelieferten Tabellen.
+ */
+function leseWetterDefinitionen(
+  wetter: Record<string, unknown>,
+  datenVerzeichnis: string
+): WetterDefinitionen | undefined {
+  const pfadRoh = wetter.definitionen;
+  if (typeof pfadRoh !== 'string' || pfadRoh.trim() === '') return undefined;
+  const pfad = resolve(datenVerzeichnis, pfadRoh.trim());
+  try {
+    const p = pruefeWetterDefinitionen(JSON.parse(readFileSync(pfad, 'utf-8')));
+    if (p.ok) return p.defs;
+    for (const f of p.fehler) console.warn(`[Main] wetter.definitionen ${pfad}: ${f}`);
+  } catch (e) {
+    console.warn(`[Main] wetter.definitionen ${pfad} nicht lesbar (${(e as Error).message})`);
+  }
+  console.warn('[Main] wetter.definitionen verworfen — es gelten die mitgelieferten Wettertabellen');
+  return undefined;
+}
+
 function leseWetterVorgabe(wetter: Record<string, unknown>): WetterVorgabe {
   const rohUmgebung = wetter.umgebung;
   let umgebung = WETTER_AUTOMATISCH;
@@ -607,6 +633,7 @@ export function leseServerKonfig(
       // ServerConfig.metrikenDatei).
       metrikenDatei: resolve(datenVerzeichnis, 'metriken.json'),
       wetterVorgabe: { ...leseWetterVorgabe(wetter), look: lookVorgabe },
+      wetterDefinitionen: leseWetterDefinitionen(wetter, datenVerzeichnis),
       standardKonten: leseStandardKonten(yaml),
     };
   } catch (err) {

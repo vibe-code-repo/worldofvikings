@@ -101,6 +101,7 @@ import { EntityManager } from './entities/EntityManager';
 import { BaumImpostor } from './engine/BaumImpostor';
 import { PlayerController } from './player/PlayerController';
 import { GameSocket } from './net/GameSocket';
+import { WetterAnnahme } from './net/wetterAnnahme';
 import { ladeModulRegistrierung } from './net/ModuleRegistryLoad';
 import { ladeHochgeladeneRegistrierung } from './net/UploadedModelRegistryLoad';
 import { Abgleicher } from './net/Positionsverlauf';
@@ -1121,6 +1122,7 @@ async function main() {
    */
   let zeitWunsch: number | null = null;
   let weather: WeatherManager | null = null;
+  const wetterAnnahme = new WetterAnnahme(); // F9: Wetter vom Server
   let precipitation: Precipitation | null = null;
   let objectLabels: ObjectLabels | null = null;
   let anvisiert: Anvisiert | null = null;
@@ -2250,6 +2252,7 @@ async function main() {
 
     // Wettervorgabe des Servers (server.yml `wetter:`) — kommt direkt
     // hinter der ServerConfig, s. WovServer.onPeerAuthenticated.
+    socket.on(PacketType.WetterZustand, (reader) => wetterAnnahme.lies(reader));
     socket.on(PacketType.WeltWetter, (reader) => {
       const umgebung = reader.readString();
       const dichte = reader.readFloat32();
@@ -3189,6 +3192,7 @@ async function main() {
       if (envPinned) weather.setEnvironmentOverride(params.get('env') ?? serverUmgebung);
     }
     weather.setBiome(biome);
+    if (!params.get('env')) wetterAnnahme.uebertrage(weather); // der Server wuerfelt, ?env= schlaegt ihn
     const wx = weather.update(worldTime, dt);
     if (imDungeon) {
       // Phase G: im Dungeon zählt das Interior-Environment der Instanz

@@ -44,16 +44,44 @@
  *      scene (no DOM, no assets: the NullEngine never fetches a texture) and, through the forwarding methods, against
  *      a real instance. The numbers were measured on the state before the move.
  *
- * DOM-free, no assets; [8] builds a NullEngine scene.
+ * Refactor N4: the two methods of the collision carriers (`enablePhysics`, `rebuildBucketColliders`) became functions with a
+ * context in kollisionsEimer.ts. The context is called `ctx` there (`k` is the loop variable of `rebuildBucketColliders`).
+ * The class lost `private` on ten fields (`buckets`, `masterMeshes`, `masterLocals`, `kollisionsMasters`, `kollisionsLocals`,
+ * `colliders`, `colliderless`, `physicsEnabled`, `colliderCenterX`, `colliderCenterZ`) and on the forwarder
+ * `rebuildBucketColliders`. Two findings of the attack on N3 came in here:
+ *  (N3-B1) [8] and [9] create a second scene AFTER the scene of the instance and check `getScene()` of every material
+ *      and carrier: Babylon falls back to the scene created last, so a context that does not hand its scene on would
+ *      otherwise stay green;
+ *  (N3-B2) MANAGER_VALUE_IMPORTS is the order in which EntityManager.ts loads its modules; an import line moved to
+ *      another place (way C of rule 4.6a) makes [6] red.
+ *  [9] Collision carriers: a fixed sequence against a stub of the context and, through the forwarding methods, against a
+ *      real instance, with real Havok (it runs under Node when handed the WASM as a buffer): numbers of `colliderStats`
+ *      after every phase, the entries of the class itself, the scene of the carriers. The numbers were measured on the
+ *      state before the move.
+ *
+ * DOM-free, no assets; [8] builds a NullEngine scene, [9] a NullEngine scene with Havok.
+ * To carry forward with every step of the form on this class: FORMER_METHODS, VALUE_IMPORTS, PUBLIC_MEMBERS and
+ * MANAGER_VALUE_IMPORTS. This test checks form, limits and fixed sequences; it does not compare the bodies (K1 was a
+ * one-time proof).
  * Run: npx tsx client/test/entity-module-oberflaeche.ts
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as ts from 'typescript';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
+import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector';
+import { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin';
+import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
+import '@babylonjs/core/Physics/physicsEngineComponent';
+import '@babylonjs/core/Meshes/thinInstanceMesh';
+import { PhysicsRaycastResult } from '@babylonjs/core/Physics/physicsRaycastResult';
+import HavokPhysics from '@babylonjs/havok';
+import { getStableHash, PREFABS_BY_NAME, ROOMS_BY_HASH } from '@wov/shared';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh';
 import type { SteinKitConfig } from '@wov/shared';
 import type { DynamischeInstanz as DynamicViaManager, StatischeInstanz as StaticViaManager } from '../src/entities/EntityManager';
 import type { DynamischeInstanz as DynamicInModule, StatischeInstanz as StaticInModule } from '../src/entities/typen';
@@ -71,7 +99,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(HERE, '../src');
 const ENTITIES = join(SRC, 'entities');
 const MANAGER = join(ENTITIES, 'EntityManager.ts');
-const MODULES = ['konstanten', 'typen', 'lod', 'toenung', 'zellMesh', 'zdoMatrix', 'platzhalter', 'raumIndex', 'kontext', 'steinMaterial'] as const;
+const MODULES = ['konstanten', 'typen', 'lod', 'toenung', 'zellMesh', 'zdoMatrix', 'platzhalter', 'raumIndex', 'kontext', 'steinMaterial', 'kollisionsEimer'] as const;
 type ModuleName = (typeof MODULES)[number];
 const fileOf = (name: ModuleName): string => join(ENTITIES, `${name}.ts`);
 const short = (file: string): string => relative(SRC, file).replaceAll('\\', '/');
@@ -94,30 +122,79 @@ const FORMER_METHODS: Readonly<Partial<Record<ModuleName, Readonly<Record<string
     setzeDokumentSteinKit: 'setzeDokumentSteinKit(cfg: Partial<SteinKitConfig> | null): void',
     holeSteinMaterial: 'holeSteinMaterial(cfg: SteinKitConfig): PBRMaterial',
   },
+  kollisionsEimer: {
+    enablePhysics: 'enablePhysics(): void',
+    rebuildBucketColliders: 'rebuildBucketColliders(bucket: StaticBucket, zdoMats: readonly Matrix[]): void',
+  },
 };
 /** The modules a module of former methods may load at run time (check (2)). Anything else is a new edge in the graph. */
 const VALUE_IMPORTS: Readonly<Partial<Record<ModuleName, readonly string[]>>> = {
   raumIndex: ['./konstanten'],
   steinMaterial: ['@wov/shared', '../engine/DungeonSteinMaterial.js'],
+  kollisionsEimer: ['@babylonjs/core/Meshes/mesh', '@wov/shared', '../engine/Physics', './konstanten', './zellMesh'],
 };
 /**
- * The non-private members of EntityManager after N3 (check (3)): fields, methods, accessors and the parameter
+ * The non-private members of EntityManager after N4 (check (3)): fields, methods, accessors and the parameter
  * properties of the constructor without `private` or `#`, sorted. Carried forward with every step of the form.
  * N2 loosened `zellen`, `indexVon`, `ausZelleLoesen`; N3 loosened `steinMaterials`, `steinMasters`, `dokumentSteinKit`,
  * `weiseSteinMaterialZu`, `holeSteinMaterial` and `scene` (parameter property of the constructor, because
- * `holeSteinMaterial` reads it).
+ * `holeSteinMaterial` reads it); N4 loosened `buckets`, `masterMeshes`, `masterLocals`, `kollisionsMasters`, `kollisionsLocals`,
+ * `colliders`, `colliderless`, `physicsEnabled`, `colliderCenterX`, `colliderCenterZ` and the forwarder `rebuildBucketColliders`
+ * (`colliderSpecs` was public before).
  */
 const PUBLIC_MEMBERS: readonly string[] = [
-  'aktualisiereGrundskala', 'applyUpdate', 'ausZelleLoesen', 'colliderNahe', 'colliderPositions', 'colliderSpecs', 'colliderStats',
-  'dokumentSteinKit', 'dynamicCount', 'dynamicList', 'dynamicMasse', 'dynamicPose', 'dynamicSprung', 'dynamischeInstanzen', 'enablePhysics',
-  'flush', 'holeSteinMaterial', 'impostorGrenze', 'impostoren', 'indexStats', 'indexVon', 'instanzPosition', 'lichtquellen',
-  'naechstesInteragierbares', 'nearbyInstances', 'npcEinordnung', 'onMasterBelebt', 'onMasterEntsorgt', 'removeZDO', 'scene',
-  'setHundertFpsProfil', 'setPlayerPosition', 'setVegetationsGrenze', 'setVegetationsSchattenEmpfaenger', 'setzeDokumentSteinKit',
-  'setzeInstanzVerborgen', 'setzeNpcQuelle', 'staticCount', 'steinMasters', 'steinMaterials', 'toenungAn', 'toenungSetzen',
-  'updateDynamics', 'vegetationsGrenzeInfo', 'weiseSteinMaterialZu', 'zellStats', 'zellen',
+  'aktualisiereGrundskala', 'applyUpdate', 'ausZelleLoesen', 'buckets', 'colliderCenterX', 'colliderCenterZ', 'colliderNahe',
+  'colliderPositions', 'colliderSpecs', 'colliderStats', 'colliderless', 'colliders', 'dokumentSteinKit', 'dynamicCount',
+  'dynamicList', 'dynamicMasse', 'dynamicPose', 'dynamicSprung', 'dynamischeInstanzen', 'enablePhysics', 'flush',
+  'holeSteinMaterial', 'impostorGrenze', 'impostoren', 'indexStats', 'indexVon', 'instanzPosition', 'kollisionsLocals',
+  'kollisionsMasters', 'lichtquellen', 'masterLocals', 'masterMeshes', 'naechstesInteragierbares', 'nearbyInstances',
+  'npcEinordnung', 'onMasterBelebt', 'onMasterEntsorgt', 'physicsEnabled', 'rebuildBucketColliders', 'removeZDO', 'scene',
+  'setHundertFpsProfil', 'setPlayerPosition', 'setVegetationsGrenze', 'setVegetationsSchattenEmpfaenger',
+  'setzeDokumentSteinKit', 'setzeInstanzVerborgen', 'setzeNpcQuelle', 'staticCount', 'steinMasters', 'steinMaterials',
+  'toenungAn', 'toenungSetzen', 'updateDynamics', 'vegetationsGrenzeInfo', 'weiseSteinMaterialZu', 'zellStats', 'zellen',
 ];
 type SpatialIndex = typeof import('../src/entities/raumIndex');
 type StoneModule = typeof import('../src/entities/steinMaterial');
+type CollisionModule = typeof import('../src/entities/kollisionsEimer');
+/**
+ * The order in which EntityManager.ts loads its modules: the sources of its value imports and of its `export … from`,
+ * in the order of the file (N3-B2). Import lines that took the place of a dropped statement (way C of rule 4.6a) or
+ * were added at the end stand where K8 proved them; a moved line changes the order of evaluation and makes [6] red.
+ * Carried forward with every step of the form on this class.
+ */
+const MANAGER_VALUE_IMPORTS: readonly string[] = [
+  '@babylonjs/core/Maths/math.vector',
+  '@wov/shared',
+  '../player/armorVisibility.js',
+  '../player/headSkin.js',
+  '@wov/shared',
+  '@babylonjs/core/Meshes/transformNode',
+  '@babylonjs/core/Meshes/mesh',
+  '@babylonjs/core/Maths/math.frustum',
+  '@wov/shared',
+  './steinMaterial',
+  '../player/haarfarbe.js',
+  '../player/augenfarbe.js',
+  '../engine/Physics',
+  '../engine/BaumImpostorKern',
+  '../engine/RefraktionsAuswahl',
+  './clipTempo',
+  './gruppenSicherung',
+  './animationsLod',
+  './konstanten',
+  './typen',
+  './lod',
+  './toenung',
+  './zellMesh',
+  './zdoMatrix',
+  './platzhalter',
+  './raumIndex',
+  './kollisionsEimer',
+  './konstanten',
+  './lod',
+  './toenung',
+  './zellMesh'
+];
 type ManagerModule = typeof import('../src/entities/EntityManager');
 
 /** Identity of two types at compile time: this file does not translate when a re-exported type differs. */
@@ -579,6 +656,16 @@ console.log('\n[6] Forwarding: the former methods are still methods of the class
     classNode !== undefined && loosened.length === 0 && gone.length === 0,
     `loosened or new: ${loosened.join(', ') || 'none'}; gone or private again: ${gone.join(', ') || 'none'}`
   );
+  // (N3-B2) The order in which EntityManager.ts loads its modules is the recorded one. Way C of rule 4.6a puts a new import
+  // line at the place of a dropped statement; a later move of that line (by hand, by a formatter, by the next step) changes
+  // what is evaluated when, and K8 is a one-time proof.
+  const order = importsOf(managerSource).filter((i) => !i.typeOnly).map((i) => i.spec);
+  const firstOff = order.findIndex((spec, i) => spec !== MANAGER_VALUE_IMPORTS[i]);
+  check(
+    `EntityManager.ts loads its ${MANAGER_VALUE_IMPORTS.length} modules in the recorded order`,
+    order.length === MANAGER_VALUE_IMPORTS.length && firstOff === -1,
+    firstOff === -1 ? `${order.length} value imports` : `place ${firstOff + 1}: '${order[firstOff]}' instead of '${MANAGER_VALUE_IMPORTS[firstOff]}' (${order.length} against ${MANAGER_VALUE_IMPORTS.length})`
+  );
 }
 
 // ── [7] Spatial index ────────────────────────────────────────────────────────
@@ -923,6 +1010,9 @@ console.log('\n[8] Stone material: the fixed sequence gives the numbers measured
   const there = stone !== null && Object.keys(FORMER_METHODS.steinMaterial ?? {}).every((name) => typeof (stone as Loaded)[name] === 'function');
   check('the three functions of the stone material are there', there);
   const scene = new Scene(new NullEngine());
+  // (N3-B1) A second scene, created AFTER the one of the instance: Babylon puts a material without a scene into the scene
+  // created last, so a context that does not hand its `scene` on would otherwise go unseen.
+  const decoy = new Scene(new NullEngine());
   if (stone && there) {
     const calls: StoneCalls<StoneStub> = {
       weiseSteinMaterialZu: (k, bucket, masters) => stone.weiseSteinMaterialZu(k as never, bucket as never, masters as never),
@@ -968,6 +1058,251 @@ console.log('\n[8] Stone material: the fixed sequence gives the numbers measured
     );
     compare('methods of a real instance', run, fetched, painted, JSON.stringify(reach.dokumentSteinKit));
     check('the scene holds the materials of both runs, none of them a fallback of another engine', scene.materials.length === 2 * STONE_EXPECTED.materials, String(scene.materials.length));
+    check('every material belongs to the scene of the instance (getScene), none to the scene created after it', scene.materials.length > 0 && scene.materials.every((m) => m.getScene() === scene) && decoy.materials.length === 0, `scene ${scene.materials.length}, decoy ${decoy.materials.length}`);
+  }
+}
+
+// ── [9] Collision carriers ───────────────────────────────────────────────────
+// The sequence is fixed: nine buckets of a 6 x 6 grid (9 m apart) plus one instance far away each, of which six get a
+// carrier (four kinds of prefab, one with an override, a dungeon room, a prefab with a hand-made shape and no master) and
+// three do not (soft, unknown, one with no shape); before and after `enablePhysics`, with the centre of the collision
+// window moved and moved out of reach. COLLISION_EXPECTED was measured on the state before the move with exactly the text
+// between the two marks, the methods called as EntityManager.prototype.<name>.call(stub, …), with real Havok.
+// <collision-sequence>
+interface CollisionBucket {
+  prefabName: string;
+  prefabHash: number;
+  schluessel: string;
+  masterKey: string;
+  steinKitOverride: string;
+  indexOf: Map<string, number>;
+  matrices: number[];
+  dirty: boolean;
+  colliderDirty: boolean;
+  mastersReady: boolean;
+}
+interface CollisionEntry {
+  carrier: Mesh;
+  set: { count: number; bodyInstances: number };
+  signature: string;
+}
+interface CollisionState {
+  physicsEnabled: boolean;
+  buckets: Map<string, CollisionBucket>;
+  colliderless: Set<string>;
+  masterMeshes: Map<string, Mesh[]>;
+  kollisionsMasters: Map<string, Mesh[]>;
+  colliders: Map<string, CollisionEntry>;
+  kollisionsLocals: Map<string, Matrix[]>;
+  masterLocals: Map<string, Matrix[]>;
+  colliderSpecs: Map<string, unknown>;
+  colliderCenterX: number;
+  colliderCenterZ: number;
+  scene: Scene;
+}
+interface CollisionCalls<K extends CollisionState> {
+  enablePhysics(k: K): void;
+  rebuildBucketColliders(k: K, bucket: CollisionBucket, zdoMats: readonly Matrix[]): void;
+}
+interface CollisionRun {
+  /** colliderStats after each phase, as JSON: bodies, havok, prefabs, ohneForm. */
+  stats: string[];
+  /** Buckets marked dirty by the switch: after the first call, after the second, after a reset and a third call. */
+  dirty: number[];
+  physicsEnabled: boolean[];
+  /** Names with a carrier, and names without a shape, at the end. */
+  carriers: string;
+  colliderless: string;
+  /** Identity: an entry of the class is the same object after a rebuild with the same signature; the spec is the form of the set. */
+  identity: number;
+  /** Rays from above onto the 36 grid points of a bucket with a carrier. */
+  hits: number;
+  steps: number;
+}
+function runCollisionSequence<K extends CollisionState>(calls: CollisionCalls<K>, k: K, statsOf: () => string): CollisionRun {
+  const run: CollisionRun = { stats: [], dirty: [], physicsEnabled: [], carriers: '', colliderless: '', identity: 0, hits: 0, steps: 0 };
+  const scene = k.scene;
+  const room = [...ROOMS_BY_HASH.keys()][0]!;
+  const sample = [...PREFABS_BY_NAME.keys()];
+  const barrow = sample.find((n) => /^Grabhuegel/i.test(n))!;
+  const circle = sample.find((n) => /^Steinkreis/i.test(n));
+  const kinds: Array<[string, number, string]> = [
+    ['Eiche1', getStableHash('Eiche1'), ''],
+    ['Eiche1', getStableHash('Eiche1'), '{"moos":1}'],
+    ['Felsblock1', getStableHash('Felsblock1'), ''],
+    [barrow, getStableHash(barrow), ''],
+    ['Ginster2', getStableHash('Ginster2'), ''],
+    ['vegetation-large-bush-1a1', getStableHash('vegetation-large-bush-1a1'), ''],
+    ['NichtVorhanden', getStableHash('NichtVorhanden'), ''],
+    ['raum-probe', room, ''],
+  ];
+  if (circle) kinds.push([circle, getStableHash(circle), '']);
+  const zdo = new Map<string, Matrix[]>();
+  let made = 0;
+  for (const [prefabName, prefabHash, override] of kinds) {
+    const masterKey = override ? `${prefabName}#${override}` : prefabName;
+    const bucket: CollisionBucket = { prefabName, prefabHash, schluessel: masterKey, masterKey, steinKitOverride: override, indexOf: new Map(), matrices: [], dirty: false, colliderDirty: false, mastersReady: true };
+    const list: Matrix[] = [];
+    let i = 0;
+    for (let gx = -3; gx < 3; gx++) for (let gz = -3; gz < 3; gz++) list.push(Matrix.Translation(gx * 9 + 3.5, 0.25 * i++, gz * 9 - 2.5));
+    list.push(Matrix.Translation(400, 0, 400));
+    for (const m of list) bucket.matrices.push(...m.toArray());
+    zdo.set(masterKey, list);
+    const master = MeshBuilder.CreateBox(`master_${made++}`, { width: 1.2, height: 3, depth: 1.2 }, scene);
+    master.isVisible = false;
+    k.masterMeshes.set(masterKey, [master]);
+    k.masterLocals.set(masterKey, [Matrix.Identity()]);
+    k.buckets.set(masterKey, bucket);
+  }
+  const all = (): CollisionBucket[] => [...k.buckets.values()];
+  const rebuildAll = (): void => {
+    for (const b of all()) calls.rebuildBucketColliders(k, b, zdo.get(b.masterKey)!);
+    run.steps++;
+  };
+  const stats = (): void => { run.stats.push(statsOf()); };
+  rebuildAll();
+  stats();
+  calls.enablePhysics(k);
+  run.dirty.push(all().filter((b) => b.dirty).length);
+  calls.enablePhysics(k);
+  run.dirty.push(all().filter((b) => b.dirty).length);
+  for (const b of all()) b.dirty = false;
+  calls.enablePhysics(k);
+  run.dirty.push(all().filter((b) => b.dirty).length);
+  run.physicsEnabled.push(k.physicsEnabled);
+  stats();
+  rebuildAll();
+  stats();
+  const before = new Map(k.colliders);
+  rebuildAll();
+  run.identity += [...k.colliders].filter(([key, e]) => before.get(key) === e).length;
+  stats();
+  k.colliderCenterX = 30;
+  k.colliderCenterZ = -20;
+  rebuildAll();
+  stats();
+  k.colliderCenterX = 1000;
+  k.colliderCenterZ = 1000;
+  rebuildAll();
+  stats();
+  calls.rebuildBucketColliders(k, k.buckets.get('Eiche1')!, [Matrix.Translation(1000, 0, 1000), Matrix.Translation(1001, 0, 1001)]);
+  stats();
+  k.colliderCenterX = 0;
+  k.colliderCenterZ = 0;
+  for (const e of k.colliders.values()) e.signature = '';
+  rebuildAll();
+  stats();
+  run.carriers = [...k.colliders.keys()].sort().join(' ');
+  run.colliderless = [...k.colliderless].sort().join(' ');
+  for (const [key, spec] of k.colliderSpecs) if (spec === (k.colliders.get(key)?.set as unknown as { form: unknown }).form) run.identity++;
+  const engine = scene.getPhysicsEngine() as unknown as { raycastToRef(from: Vector3, to: Vector3, out: PhysicsRaycastResult): void };
+  const result = new PhysicsRaycastResult();
+  for (let gx = -3; gx < 3; gx++) for (let gz = -3; gz < 3; gz++) {
+    engine.raycastToRef(new Vector3(gx * 9 + 3.5, 30, gz * 9 - 2.5), new Vector3(gx * 9 + 3.5, -30, gz * 9 - 2.5), result);
+    if (result.hasHit) run.hits++;
+  }
+  return run;
+}
+// </collision-sequence>
+const COLLISION_EXPECTED = {
+  stats: [
+    '{"bodies":0,"havok":0,"prefabs":0,"ohneForm":0}',
+    '{"bodies":0,"havok":0,"prefabs":0,"ohneForm":0}',
+    '{"bodies":216,"havok":216,"prefabs":6,"ohneForm":3}',
+    '{"bodies":216,"havok":216,"prefabs":6,"ohneForm":3}',
+    '{"bodies":162,"havok":162,"prefabs":6,"ohneForm":3}',
+    '{"bodies":0,"havok":0,"prefabs":6,"ohneForm":3}',
+    '{"bodies":2,"havok":2,"prefabs":6,"ohneForm":3}',
+    '{"bodies":216,"havok":216,"prefabs":6,"ohneForm":3}',
+  ],
+  dirty: [9, 9, 0],
+  physicsEnabled: [true],
+  carriers: 'Eiche1 Eiche1#{"moos":1} Grabhuegel Steinkreis raum-probe vegetation-large-bush-1a1',
+  colliderless: 'Felsblock1 Ginster2 NichtVorhanden',
+  /** Six entries unchanged by a rebuild with the same signature, six specs that are the form the set holds. */
+  identity: 12,
+  hits: 36,
+  steps: 6,
+};
+
+console.log('\n[9] Collision carriers: the fixed sequence gives the numbers measured before the move (real Havok)');
+{
+  const wasm = new Uint8Array(readFileSync(createRequire(import.meta.url).resolve('@babylonjs/havok/lib/esm/HavokPhysics.wasm'))).buffer;
+  const havok = await HavokPhysics({ wasmBinary: wasm });
+  const freshScenes = (): { scene: Scene; decoy: Scene } => {
+    const scene = new Scene(new NullEngine());
+    scene.enablePhysics(new Vector3(0, -20, 0), new HavokPlugin(true, havok));
+    // (N3-B1) created AFTER the scene of the instance: what is built without a scene lands here
+    return { scene, decoy: new Scene(new NullEngine()) };
+  };
+  const compare = (label: string, run: CollisionRun, scene: Scene, decoy: Scene, entries: readonly CollisionEntry[]): void => {
+    check(`${label}: ${COLLISION_EXPECTED.steps} rebuilds of all buckets as planned`, run.steps === COLLISION_EXPECTED.steps, String(run.steps));
+    for (let i = 0; i < COLLISION_EXPECTED.stats.length; i++) {
+      check(`${label}: colliderStats after phase ${i + 1} = ${COLLISION_EXPECTED.stats[i]}`, run.stats[i] === COLLISION_EXPECTED.stats[i], String(run.stats[i]));
+    }
+    check(`${label}: the switch marks ${COLLISION_EXPECTED.dirty.join(', ')} buckets dirty (first call, second call, third call after a reset) and stays on`, JSON.stringify(run.dirty) === JSON.stringify(COLLISION_EXPECTED.dirty) && JSON.stringify(run.physicsEnabled) === JSON.stringify(COLLISION_EXPECTED.physicsEnabled), `${run.dirty.join(', ')}; ${run.physicsEnabled.join(', ')}`);
+    check(`${label}: carriers ${COLLISION_EXPECTED.carriers}`, run.carriers === COLLISION_EXPECTED.carriers, run.carriers);
+    check(`${label}: no shape for ${COLLISION_EXPECTED.colliderless}`, run.colliderless === COLLISION_EXPECTED.colliderless, run.colliderless);
+    check(`${label}: ${COLLISION_EXPECTED.identity} identities (entries stay the same objects, specs are the form of the set)`, run.identity === COLLISION_EXPECTED.identity, String(run.identity));
+    check(`${label}: ${COLLISION_EXPECTED.hits} of 36 rays from above hit a body`, run.hits === COLLISION_EXPECTED.hits, String(run.hits));
+    check(
+      `${label}: every carrier belongs to the scene of the instance, none to the scene created after it`,
+      entries.length === 6 && entries.every((e) => e.carrier.getScene() === scene) && decoy.meshes.length === 0 && scene.meshes.filter((m) => m.name.startsWith('col_') && !m.name.endsWith('_netz')).length === entries.length,
+      `${entries.length} carriers, decoy holds ${decoy.meshes.length} meshes, scene holds ${scene.meshes.filter((m) => m.name.startsWith('col_') && !m.name.endsWith('_netz')).length} of them`
+    );
+  };
+  const statsOfMaps = (k: CollisionState) => (): string => {
+    let bodies = 0;
+    let havok = 0;
+    for (const e of k.colliders.values()) {
+      bodies += e.set.count;
+      havok += e.set.bodyInstances;
+    }
+    return JSON.stringify({ bodies, havok, prefabs: k.colliders.size, ohneForm: k.colliderless.size });
+  };
+
+  const collision = (await load(fileOf('kollisionsEimer'))).module as CollisionModule | null;
+  const there = collision !== null && Object.keys(FORMER_METHODS.kollisionsEimer ?? {}).every((name) => typeof (collision as Loaded)[name] === 'function');
+  check('the two functions of the collision carriers are there', there);
+  if (collision && there) {
+    const { scene, decoy } = freshScenes();
+    const stub: CollisionState = {
+      physicsEnabled: false,
+      buckets: new Map(),
+      colliderless: new Set(),
+      masterMeshes: new Map(),
+      kollisionsMasters: new Map(),
+      colliders: new Map(),
+      kollisionsLocals: new Map(),
+      masterLocals: new Map(),
+      colliderSpecs: new Map(),
+      colliderCenterX: 0,
+      colliderCenterZ: 0,
+      scene,
+    };
+    const run = runCollisionSequence<CollisionState>(
+      { enablePhysics: (k) => collision.enablePhysics(k as never), rebuildBucketColliders: (k, bucket, zdoMats) => collision.rebuildBucketColliders(k as never, bucket as never, zdoMats as never) },
+      stub,
+      statsOfMaps(stub)
+    );
+    compare('functions on a stub of the context', run, scene, decoy, [...stub.colliders.values()]);
+  }
+
+  // The same through the class: the forwarding methods of a real instance, with the fields of the instance itself.
+  const Manager = ((await load(MANAGER)).module as ManagerModule | null)?.EntityManager;
+  check('a real instance can be built with a NullEngine scene and Havok', typeof Manager === 'function');
+  if (Manager) {
+    const { scene, decoy } = freshScenes();
+    const real = new Manager(scene, null as never, null as never, null as never);
+    type Reach = CollisionState & { enablePhysics(): void; rebuildBucketColliders(bucket: CollisionBucket, zdoMats: readonly Matrix[]): void };
+    const reach = real as unknown as Reach;
+    const run = runCollisionSequence<Reach>(
+      { enablePhysics: (k) => k.enablePhysics(), rebuildBucketColliders: (k, bucket, zdoMats) => k.rebuildBucketColliders(bucket, zdoMats) },
+      reach,
+      () => JSON.stringify(real.colliderStats)
+    );
+    compare('methods of a real instance', run, scene, decoy, [...reach.colliders.values()]);
+    check('colliderSpecs of the instance holds the six forms', real.colliderSpecs.size === 6, String(real.colliderSpecs.size));
   }
 }
 

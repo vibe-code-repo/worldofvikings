@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
 import { HEALTH_MEMBER, getStableHash, maxLeben, PacketType, type Vector3 } from '@wov/shared';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer, type WovServer } from '../src/WovServer.js';
-import { BEUTE_EXKLUSIV_MS, BEUTE_LEBEN_MS, BEUTE_BESITZER, BEUTE_ITEM, BEUTE_MENGE, BEUTE_FREI_AB, BEUTE_ABLAUF, SERVER_MELDUNG_BEUTE_FREMD } from '../src/spiel/BeuteAmBoden.js';
+import { BEUTE_EXKLUSIV_MS as EXKLUSIV_IM_CODE, BEUTE_LEBEN_MS as LEBEN_IM_CODE, BEUTE_BESITZER, BEUTE_ITEM, BEUTE_MENGE, BEUTE_FREI_AB, BEUTE_ABLAUF, SERVER_MELDUNG_BEUTE_FREMD } from '../src/spiel/BeuteAmBoden.js';
 import { wuerfleDrop } from '../src/spiel/Beute.js';
 import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
@@ -41,6 +41,9 @@ function check(label: string, ok: boolean, detail = ''): void {
 const P = { VersionCheck: 1, PasswordAuth: 2, PeerInfo: 3, PlayerInput: 40, InteractResult: 45, Attack: 46, AdminCommand: 53, AuthChallenge: 68 };
 const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const KUH = getStableHash('Kuh');
+// The numbers of the card, written out here on purpose: the test must not follow a changed constant in the code.
+const BEUTE_EXKLUSIV_MS = 120_000;
+const BEUTE_LEBEN_MS = 300_000;
 
 function verbinde(port: number, name: string): Promise<WebSocket> {
   return new Promise((resolvePromise, reject) => {
@@ -176,6 +179,8 @@ async function main(): Promise<void> {
       await warte(250);
     }
     const fleisch = (s: Spieler): number => s.peer.inventar.countOf('RawMeat');
+
+    check('the code constants are 2 min exclusive and 5 min life', EXKLUSIV_IM_CODE === BEUTE_EXKLUSIV_MS && LEBEN_IM_CODE === BEUTE_LEBEN_MS, `${EXKLUSIV_IM_CODE} / ${LEBEN_IM_CODE}`);
 
     // ── [1] Kill → loot on the ground, not in the inventory ──────
     console.log('\n[1] Kill: loot lies at the corpse, inventory unchanged');

@@ -19,12 +19,15 @@ export interface SchlagFelder {
 }
 
 /**
- * How long (s), counted from the start of a swing, the server keeps the chain open: the cooldown of the
- * slowest weapon (350 ms) plus `KETTE_FENSTER_S` (0.6 s), server/src/spiel/Treffer.ts. The figure's own window
+ * How long (s), counted from the start of a swing, the figure keeps its chain open at most. The server keeps it open
+ * 0.95 s from swing START to swing ARRIVAL (cooldown of the slowest weapon 350 ms plus `KETTE_FENSTER_S` 0.6 s,
+ * server/src/spiel/Treffer.ts); the client counts click to click, the server arrival to arrival, so the difference of
+ * two latencies eats into it. 0.80 s leaves 150 ms: jitter of +-40 ms per swing (80 ms between two) loses no finisher
+ * at 40, 150 or 300 ms latency (simulation in client/test/d2-quittung.ts). The figure's own window
  * (clip length / tempo - 0.25 s + 0.6 s = 1.33 .. 1.63 s for the real weapon clips) is longer; without this cap
  * the figure plays blow 2 or 3 where the server already counted blow 1 again.
  */
-export const SERVER_KETTE_S = 0.95;
+export const SERVER_KETTE_S = 0.8;
 
 /** The figure's chain window (s from swing start): its own, but never longer than the server's. */
 export function komboRestS(angriffRest: number, komboFenster: number): number {
@@ -50,6 +53,8 @@ export function liesQuittung(r: { readInt32(): number }): Quittung {
 export class SchlagBuch {
   private naechste = 0;
   private readonly offen = new Map<number, { t: number; schritt: number }>();
+  /** Sequence number of the swing that started the figure's current chain (played step 1). */
+  private kettenStart = 0;
   /** Round trips (ms) of the last acknowledged swings, newest last. */
   readonly latenzen: number[] = [];
   /** Sequence number of the newest swing sent. */
@@ -60,6 +65,7 @@ export class SchlagBuch {
     const seq = ++this.naechste;
     this.letzteSeq = seq;
     this.offen.set(seq, { t: jetzt, schritt });
+    if (schritt === 1) this.kettenStart = seq;
     for (const alt of this.offen.keys()) {
       if (alt >= seq - 16) break;
       this.offen.delete(alt);
@@ -70,7 +76,9 @@ export class SchlagBuch {
   /**
    * The server answered. Returns the round trip in ms and whether the figure's chain must start
    * again (the server refused the finisher, or counted a lower step than the figure played), only
-   * when this is the newest swing: an older answer must not reset a chain that has moved on.
+   * when the swing belongs to the figure's current chain: an answer that arrives after the next swing still
+   * corrects that chain, but one from before the figure's last restart (a swing that played step 1) must not
+   * reset the chain that has moved on.
    */
   quittiere(q: Quittung, jetzt: number): { latenzMs: number; kettenNeu: boolean } | null {
     const e = this.offen.get(q.seq);
@@ -80,6 +88,6 @@ export class SchlagBuch {
     this.latenzen.push(latenzMs);
     if (this.latenzen.length > 32) this.latenzen.shift();
     const abweichend = q.ergebnis === ERGEBNIS_KOMBO || (q.schritt > 0 && e.schritt > q.schritt);
-    return { latenzMs, kettenNeu: abweichend && q.seq === this.letzteSeq };
+    return { latenzMs, kettenNeu: abweichend && q.seq >= this.kettenStart };
   }
 }

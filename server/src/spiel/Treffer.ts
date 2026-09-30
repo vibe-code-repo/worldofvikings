@@ -12,7 +12,7 @@
  *  - the swing window: a swing counts 0.2 s after the weapon tip (`SCHLAG_FENSTER_S`); a stamp
  *    from the future or older than that is rejected;
  *  - the combo chain 1 -> 2 -> 3 (chain window 0.6 s after the end of the previous swing, like
- *    `KOMBO_FENSTER` in `AvatarRig`) and the cooldown per weapon;
+ *    `KOMBO_FENSTER` in `AvatarRig`) and the cooldown per weapon; a finisher claimed outside the chain counts as step 1;
  *  - the acknowledgement (`PacketType.AttackAck`) the server sends back for each swing.
  *
  * Wire extension of `PacketType.Attack` (appended after the weapon string, 16 bytes):
@@ -44,8 +44,6 @@ export const KETTE_FENSTER_S = 0.6;
 export const KETTE_LAENGE = 3;
 /** Zwei Attack-Pakete naeher als das zaehlen hoechstens einmal (ms). */
 export const DOPPEL_MS = 50;
-/** Clock jitter (ms) allowed when a claimed swing age reaches back into the previous swing's cooldown. */
-export const UEBERLAPP_TOLERANZ_MS = 50;
 /** Abklingzeit (ms) je Waffe; ohne Eintrag gilt die der langsamsten. */
 export const ABKLINGZEIT_LANGSAMSTE_MS = 350;
 export const ABKLINGZEIT_JE_WAFFE_MS: Readonly<Record<string, number>> = {};
@@ -55,6 +53,7 @@ export const SchlagErgebnis = {
   Treffer: 0,
   /** No creature struck (the swing then goes on to the harvest path). */
   Fehl: 1,
+  /** Refused finisher. No longer sent since D2 N2 (such a swing restarts the chain); kept for the wire format and old servers. */
   Kombo: 2,
   Abklingzeit: 3,
   Zeit: 4,
@@ -96,7 +95,7 @@ export function liesSchlagMeldung(rest: number, leser: { readInt32(): number; re
 
 export type SchlagEntscheid =
   | { ok: true; schritt: number }
-  | { ok: false; ergebnis: typeof SchlagErgebnis.Kombo | typeof SchlagErgebnis.Abklingzeit | typeof SchlagErgebnis.Zeit };
+  | { ok: false; ergebnis: typeof SchlagErgebnis.Abklingzeit | typeof SchlagErgebnis.Zeit };
 
 /**
  * May this swing count? Checks stamp, cooldown and chain, in that order. Changes nothing:
@@ -109,20 +108,18 @@ export function pruefeSchlag(z: SchlagZustand, m: SchlagMeldung | null, jetzt: n
     if (!Number.isFinite(m.alterMs) || m.alterMs < 0 || m.alterMs > spitze + SCHLAG_FENSTER_S * 1000) {
       return { ok: false, ergebnis: SchlagErgebnis.Zeit };
     }
-    // The age is the client's word. The server checks it against its own clock: a swing cannot have begun before the
-    // previous accepted one was off cooldown. (An age of 0 claims nothing; it gains nothing either, because a hit is
-    // always resolved against the server's state at arrival, never at the claimed time.)
-    if (m.alterMs > 0 && z.letzteZeit > 0 && jetzt - m.alterMs < z.letzteZeit + z.abklingMs - UEBERLAPP_TOLERANZ_MS) {
-      return { ok: false, ergebnis: SchlagErgebnis.Zeit };
-    }
+    // Nothing more is checked about the age: the client's word decides nothing. A hit is always resolved against the
+    // server's own state at arrival (position, look direction, targets), never at the claimed time, so a false age gains
+    // nothing; a clock rule on it was a no-op for age 0 and too strict for a real age under jitter (D2 N2).
   }
   if (z.letzteZeit > 0 && jetzt - z.letzteZeit < Math.max(DOPPEL_MS, abklingzeitMs(waffe), z.abklingMs)) {
     return { ok: false, ergebnis: SchlagErgebnis.Abklingzeit };
   }
   const inKette = z.schritt >= 1 && jetzt - (z.letzteZeit + z.abklingMs) <= KETTE_FENSTER_S * 1000;
   const schritt = inKette ? (z.schritt % KETTE_LAENGE) + 1 : 1;
-  // Only the finisher is refused when the client claims it without a valid second blow.
-  if (m && m.schritt === KETTE_LAENGE && schritt < KETTE_LAENGE) return { ok: false, ergebnis: SchlagErgebnis.Kombo };
+  // A finisher the client claims without a valid second blow (the chain ran out on the way, latency and jitter) is not
+  // refused: the swing counts with normal damage as step 1, the chain starts again. No new balance number.
+  if (m && m.schritt === KETTE_LAENGE && schritt < KETTE_LAENGE) return { ok: true, schritt: 1 };
   return { ok: true, schritt };
 }
 

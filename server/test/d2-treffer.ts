@@ -10,7 +10,7 @@
  *      aber weit ausserhalb der Kugel)
  *  [2] Ziel im Ruecken trifft nicht
  *  [3] bewegtes Ziel: dieselbe Stelle trifft mit Tempo, nicht ohne; die Toleranz ist gedeckelt
- *  [4] Kombo: der dritte Schlag zaehlt nur, wenn der zweite in das Kettenfenster fiel
+ *  [4] Kombo: der dritte Schlag zaehlt nur, wenn der zweite in das Kettenfenster fiel; sonst als Schritt 1 (N2)
  *  [5] zwei Attack-Pakete innerhalb von 50 ms zaehlen einmal
  *  [6] Zeitstempel aus der Zukunft (und ein abgelaufener) wird abgelehnt, ohne Ausdauerabzug
  *  [7] eine nicht getragene Waffe im Paket zaehlt nicht (Faustschaden)
@@ -305,9 +305,9 @@ async function main(): Promise<void> {
     const r1 = await schlage(mitte, { schritt: 1 }, 1300); // nach der Kette (0,35 s + 0,6 s) ist das Fenster zu
     const r3 = await schlage(mitte, { schritt: 3 }, 400);
     check(
-      `Schlag 3 ohne Schlag 2 im Kettenfenster (${KETTE_FENSTER_S} s) zaehlt NICHT`,
-      hp(ohne2) === 20 - FAUST_SCHADEN && r3?.ergebnis === SchlagErgebnis.Kombo && r3.schritt === 0,
-      `hp 20 -> ${hp(ohne2)} (nur Schlag 1); ${zeige(r1)} | ${zeige(r3)}`
+      `Schlag 3 ohne Schlag 2 im Kettenfenster (${KETTE_FENSTER_S} s): trifft mit vollem Schaden, als Schritt 1 (N2)`,
+      hp(ohne2) === 20 - 2 * FAUST_SCHADEN && r3?.ergebnis === SchlagErgebnis.Treffer && r3.schritt === 1,
+      `hp 20 -> ${hp(ohne2)} (zwei Schlaege); ${zeige(r1)} | ${zeige(r3)}`
     );
     server.zdos.destroyZDO(ohne2.zdoid);
 
@@ -379,21 +379,26 @@ async function main(): Promise<void> {
       `Zeiten ms: ${dauern.map((d) => d.toFixed(0)).join(', ')}; Mittel ${mittel.toFixed(0)}, Max ${max.toFixed(0)}`
     );
 
-    // ── [11] F3: ein luegender Client (Alter 0) gewinnt nichts ─────
-    console.log('\n[11] F3: Alter 0 gemeldet, der Schlag aber verspaetet — es zaehlt der Zustand des Servers bei Ankunft:');
+    // ── [11] N1-2: der Server entscheidet aus seinem Zustand bei Ankunft ───
+    console.log('\n[11] N1-2: ein gemeldetes Alter aendert weder Treffer noch Schaden noch Kette (Zustand bei Ankunft entscheidet):');
     mitte = await neuerPlatz(700, 700);
     await blicke(ws, YAW_MINUS_Z);
+    const ergebnisse: string[] = [];
+    for (const alter of [0, 50, 600]) {
+      frisch();
+      const z = ziel(vorn(mitte, YAW_MINUS_Z, 1.5));
+      const a1 = await schlage(mitte, { schritt: 1, alterMs: alter }, 400);
+      // Alter 600 ms gleich nach dem ersten Schlag: haette der Schlag vor dem Ende der Abklingzeit begonnen (die alte Uhrregel lehnte ihn ab).
+      const a2 = await schlage(mitte, { schritt: 2, alterMs: alter }, 400);
+      ergebnisse.push(`alter ${alter}: hp ${hp(z)}, ${zeige(a1)} | ${zeige(a2)}`);
+      check(`Alter ${alter} ms: beide Schlaege treffen mit vollem Schaden, Kette 1, 2`, hp(z) === 20 - 2 * FAUST_SCHADEN && a1?.schritt === 1 && a2?.schritt === 2 && a2.ergebnis === SchlagErgebnis.Treffer, ergebnisse[ergebnisse.length - 1]);
+      server.zdos.destroyZDO(z.zdoid);
+    }
     frisch();
-    const weg = ziel(vorn(mitte, YAW_MINUS_Z, 1.5));
-    server.zdos.destroyZDO(weg.zdoid); // das Ziel war beim Klick da, bei der Ankunft nicht mehr in Reichweite
-    const wegNeu = ziel(vorn(mitte, YAW_MINUS_Z, 5));
+    const weg = ziel(vorn(mitte, YAW_MINUS_Z, 5));
     q = await schlage(mitte, { alterMs: 0, spitzeMs: 400 });
-    check('verspaeteter Schlag, Alter 0: das inzwischen entfernte Ziel wird nicht getroffen', hp(wegNeu) === 0 && q?.ergebnis === SchlagErgebnis.Fehl, `hp 0 -> ${hp(wegNeu)}; ${zeige(q)}`);
-    server.zdos.destroyZDO(wegNeu.zdoid);
-    frisch();
-    const k1 = await schlage(mitte, { schritt: 1, alterMs: 0 }, 1300);
-    const k2 = await schlage(mitte, { schritt: 2, alterMs: 0 }, 400);
-    check('zweiter Schlag 1,3 s spaeter mit Alter 0 und Schritt 2: der Server zaehlt Schritt 1 (Kette neu)', k1?.schritt === 1 && k2?.schritt === 1, `${zeige(k1)} | ${zeige(k2)}`);
+    check('das Ziel war beim Klick da, bei Ankunft nicht in Reichweite: Fehl, kein Schaden', hp(weg) === 0 && q?.ergebnis === SchlagErgebnis.Fehl, `hp 0 -> ${hp(weg)}; ${zeige(q)}`);
+    server.zdos.destroyZDO(weg.zdoid);
 
     // ── [12] F6: Kurzpakete trennen den Peer nicht ─────────────────
     console.log('\n[12] F6: Attack-Pakete mit 0 bis 15 Byte werden still verworfen, der Peer bleibt verbunden:');
@@ -416,6 +421,33 @@ async function main(): Promise<void> {
     check('der naechste gueltige Schlag trifft', hp(nachKurz) === 20 - FAUST_SCHADEN && q?.ergebnis === SchlagErgebnis.Treffer, `hp 20 -> ${hp(nachKurz)}; ${zeige(q)}`);
     server.zdos.destroyZDO(nachKurz.zdoid);
 
+    // N1-1: die Grenze des Guards mit GUELTIGER Position (Fuellbytes liegen weit weg und erreichen den Guard nie).
+    console.log('\n[12b] N1-1: gueltige Position, 12..15 Byte werden verworfen, 16 und 17 Byte treffen:');
+    const pktGueltig = (n: number): Buffer => {
+      const w = new Writer();
+      w.writeVector3(mitte);
+      w.writeFloat32(YAW_MINUS_Z);
+      const rumpf = w.toBuffer(); // 16 Byte: Position + Blickwinkel
+      const koerper = n <= 16 ? rumpf.subarray(0, n) : Buffer.concat([rumpf, Buffer.alloc(n - 16, 0)]); // 17: leerer Waffenname
+      return Buffer.concat([Buffer.from([P.Attack]), koerper]);
+    };
+    for (const n of [12, 13, 14, 15]) {
+      frisch();
+      const z = ziel(vorn(mitte, YAW_MINUS_Z, 1.5));
+      ws.send(pktGueltig(n));
+      await warte(450); // die Drossel laesst 1 Attack je 0,35 s durch
+      check(`${n} Byte mit gueltiger Position: verworfen (kein Schaden), Verbindung offen`, hp(z) === 0 && ws.readyState === WebSocket.OPEN && server.net.getPeers().some((p) => p.name === 'Schlaeger'), `hp 0 -> ${hp(z)}, readyState ${ws.readyState}`);
+      server.zdos.destroyZDO(z.zdoid);
+    }
+    for (const n of [16, 17]) {
+      frisch();
+      const z = ziel(vorn(mitte, YAW_MINUS_Z, 1.5));
+      ws.send(pktGueltig(n));
+      await warte(450); // die Drossel laesst 1 Attack je 0,35 s durch
+      check(`${n} Byte (Altclient ohne Waffenfeld${n === 17 ? ' bzw. mit leerem' : ''}): trifft`, hp(z) === 20 - FAUST_SCHADEN && ws.readyState === WebSocket.OPEN, `hp 20 -> ${hp(z)}`);
+      server.zdos.destroyZDO(z.zdoid);
+    }
+
     // ── [10] reine Regeln an den Grenzen ──────────────────────────
     console.log('\n[10] Reine Regeln an den Grenzen:');
     const z0 = neuerSchlagZustand();
@@ -429,7 +461,9 @@ async function main(): Promise<void> {
     const zwei = pruefeSchlag(z0, m(2), 1000 + abklingzeitMs(''), '');
     check('nach der Abklingzeit im Kettenfenster: Schritt 2', zwei.ok && zwei.schritt === 2);
     const spaet = pruefeSchlag(z0, m(3), 1000 + abklingzeitMs('') + KETTE_FENSTER_S * 1000 + 1, '');
-    check('1 ms nach dem Kettenfenster: Schritt 3 abgelehnt', !spaet.ok && spaet.ergebnis === SchlagErgebnis.Kombo);
+    check('1 ms nach dem Kettenfenster: Schritt 3 zaehlt, als Schritt 1 (nicht verweigert)', spaet.ok && spaet.schritt === 1, JSON.stringify(spaet));
+    const zwischen = pruefeSchlag(z0, m(3), 1000 + abklingzeitMs(''), '');
+    check('Schritt 3 gemeldet, der Server zaehlt erst 2: zaehlt als Schritt 1 (Neustart der Kette)', zwischen.ok && zwischen.schritt === 1, JSON.stringify(zwischen));
     // F1: die Kante des Kettenfensters (Abklingzeit 350 ms + 0,6 s = 950 ms ab dem vorigen Schlag).
     const kante = 950; // literal, nicht aus den Konstanten: sonst wandert die Probe mit einer verstellten Konstante mit
     const innen = pruefeSchlag(z0, m(2), 1000 + kante - 10, '');
@@ -440,16 +474,15 @@ async function main(): Promise<void> {
     check(`${kante + 1} ms (ausserhalb): die Kette beginnt neu, Schritt 1`, aussen.ok && aussen.schritt === 1);
     const weit = pruefeSchlag(z0, m(1), 1000 + kante + 500, '');
     check('weit nach dem Fenster: Schritt 1', weit.ok && weit.schritt === 1);
-    // F3: das Alter ist das Wort des Clients; der Server prueft es an der eigenen Uhr. Ein Schlag kann nicht
-    // begonnen haben, bevor der vorige (1000 ms, Abklingzeit 350 ms, Toleranz 50 ms) frei war.
-    const ehrlich = pruefeSchlag(z0, m(2, 0), 1400, '');
-    check('F3: Alter 0 bei 1400 ms (ehrlich oder gelogen): die Uhr des Servers entscheidet, Schritt 2', ehrlich.ok && ehrlich.schritt === 2);
-    const rand3 = pruefeSchlag(z0, m(2, 100), 1400, '');
-    check('F3: Alter 100 ms bei 1400 ms (Beginn 1300 = Ende der Abklingzeit minus Toleranz): gerade noch gueltig', rand3.ok);
-    const rueck = pruefeSchlag(z0, m(2, 101), 1400, '');
-    check('F3: Alter 101 ms bei 1400 ms (Beginn vor dem Ende des vorigen Schlags): abgelehnt, Zeit', !rueck.ok && rueck.ergebnis === SchlagErgebnis.Zeit);
-    const ueberlappt = pruefeSchlag(z0, m(2, 380), 1400, '');
-    check('F3: Alter 380 ms bei 1400 ms (Schlag haette den vorigen ueberlappt): abgelehnt, Zeit', !ueberlappt.ok && ueberlappt.ergebnis === SchlagErgebnis.Zeit);
+    // N1-2: das Alter entscheidet ueber nichts ausser dem Stempelfenster; eine Uhrregel gibt es nicht mehr.
+    const ohneAlter = JSON.stringify(pruefeSchlag(z0, m(2, 0), 1400, ''));
+    for (const alter of [0, 1, 50, 100, 101, 380, 600]) {
+      check(`N1-2: Alter ${alter} ms (im Stempelfenster) aendert die Entscheidung nicht`, JSON.stringify(pruefeSchlag(z0, m(2, alter), 1400, '')) === ohneAlter, ohneAlter);
+    }
+    for (const alter of [601, 10000, NaN, -1]) {
+      const e = pruefeSchlag(z0, m(2, alter), 1400, '');
+      check(`N1-2: Alter ${alter} ms liegt ausserhalb des Stempelfensters: Zeit (F2, unveraendert)`, !e.ok && e.ergebnis === SchlagErgebnis.Zeit);
+    }
     // F2: Spitzendeckel (600 ms) + Fenster 200 ms = 800 ms, auch wenn der Client eine riesige Spitze meldet.
     const riesig = { seq: 1, schritt: 1, spitzeMs: 6_000_000 };
     const riesigAlt = pruefeSchlag(neuerSchlagZustand(), { ...riesig, alterMs: 5000 }, 9000, '');

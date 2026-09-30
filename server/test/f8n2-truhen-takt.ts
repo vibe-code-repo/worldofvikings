@@ -28,6 +28,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { zstdDecompressSync } from 'node:zlib';
 import WebSocket from 'ws';
 import { findItem, getStableHash, packContainer, unpackContainer } from '@wov/shared';
 import { createWovServer } from '../src/WovServer.js';
@@ -77,8 +78,7 @@ if (process.argv[2] === 'kind') {
     sessionSecret: Buffer.from(GEHEIMNIS_HEX, 'hex'),
     ...(modus === 'layout' ? { worldMode: 'layout' as const, worldLayoutPath: layoutPfad } : {}),
   });
-  server.init();
-  server.start();
+  await server.start(); // wie main.ts: start() ruft init() selbst auf
   const fahreHerunter = erstelleHerunterfahren(server, (code) => process.exit(code));
   process.on('SIGTERM', fahreHerunter);
   console.log(`BEREIT ${portVon(server)}`);
@@ -208,6 +208,11 @@ function admin(ws: WebSocket, zeile: string): void {
 }
 function truhe(ws: WebSocket, k: { userId: string; id: number }, richtung: 0 | 1, item: string, menge: number): void {
   ws.send(Buffer.concat([Buffer.from([P.ContainerAction]), new Writer().writeString(k.userId).writeInt32(k.id).writeInt32(richtung).writeString(item).writeInt32(menge).toBuffer()]));
+}
+
+/** Kennung der Welt aus dem Kopf der Weltdatei (F8 N3). */
+function kennungAusDatei(dir: string): string | undefined {
+  return (JSON.parse(zstdDecompressSync(readFileSync(resolve(dir, 'world.db.zst'))).toString('utf-8')) as { meta: { weltId?: string } }).meta.weltId;
 }
 
 function sql<T>(dir: string, text: string): T[] {
@@ -392,16 +397,38 @@ async function haupt(): Promise<void> {
       ersatz.setInt('spieler', 1); ersatz.setInt('marke', 7); // hoehere Datenrevision
       const neuesTeil = a.zdos.createZDO(WAND, { x: 20, y: 1, z: 5 }); neuesTeil.setInt('spieler', 1);
       const zeilen = [
-        { zdoId: echtes.zdoid.toString(), daten: JSON.stringify(ersatz.toSnapshot()) },
-        { zdoId: neuesTeil.zdoid.toString(), daten: JSON.stringify(neuesTeil.toSnapshot()) },
-        { zdoId: b.zdos.getAllZDOs().find((z) => z.position.x === 9)!.zdoid.toString(), daten: null },
+        { zdoId: echtes.zdoid.toString(), stand: 10, daten: JSON.stringify(ersatz.toSnapshot()) },
+        { zdoId: neuesTeil.zdoid.toString(), stand: 10, daten: JSON.stringify(neuesTeil.toSnapshot()) },
+        { zdoId: b.zdos.getAllZDOs().find((z) => z.position.x === 9)!.zdoid.toString(), stand: 10, daten: null },
       ];
-      const e = ueberlagern(zeilen, b.zdos, ZDO);
+      const e = ueberlagern(zeilen, b.zdos, ZDO, 5);
       const index = [...b.zdos.spielerbauten()].map((z) => z.zdoid.toString()).sort().join();
       const scan = b.zdos.getAllZDOs().filter((z) => z.getInt('spieler') === 1).map((z) => z.zdoid.toString()).sort().join();
       check('Ueberlagerung: 1 ersetzt, 1 neu, 1 entfernt', e.ersetzt === 1 && e.neu === 1 && e.entfernt === 1, JSON.stringify(e));
       check('Index der Spielerbauten == Vollscan', index === scan && index.split(',').length === 2, `index ${index} | scan ${scan}`);
+      // N3 (Angriff B1, U2/U3): Zeilen, die nicht zu diesem ZDO passen, ueberschreiben nichts.
+      const fremd = b.zdos.getAllZDOs().find((z) => z.position.x === 20)!;
+      const anderesPrefab = ZDO.fromSnapshot({ ...fremd.toSnapshot(), prefab: TRUHE });
+      anderesPrefab.setString('truheInhalt', 'x'); anderesPrefab.setInt('marke', 99);
+      const anderer = ZDO.fromSnapshot({ ...fremd.toSnapshot(), pos: { x: 21, y: 1, z: 5 } });
+      anderer.setInt('marke', 98);
+      const e2 = ueberlagern([
+        { zdoId: fremd.zdoid.toString(), stand: 11, daten: JSON.stringify(anderesPrefab.toSnapshot()) },
+        { zdoId: fremd.zdoid.toString(), stand: 11, daten: JSON.stringify(anderer.toSnapshot()) },
+      ], b.zdos, ZDO, 5);
+      check('Zeile mit anderem Prefab oder Ort ersetzt kein geladenes ZDO', e2.abgelehnt === 2 && e2.ersetzt === 0 && fremd.getInt('marke') === 0 && !fremd.hasMember(getStableHash('truheInhalt')), JSON.stringify(e2));
+      const e3 = ueberlagern([{ zdoId: fremd.zdoid.toString(), stand: 4, daten: null }], b.zdos, ZDO, 5);
+      check('Grabstein nicht neuer als die Weltdatei loescht nichts', e3.abgelehnt === 1 && e3.entfernt === 0 && !!b.zdos.getZDOByKey(fremd.zdoid.toString()), JSON.stringify(e3));
+      const e4 = ueberlagern([{ zdoId: fremd.zdoid.toString(), stand: 6, daten: null }], b.zdos, ZDO, 5);
+      check('Grabstein neuer als die Weltdatei loescht', e4.entfernt === 1 && !b.zdos.getZDOByKey(fremd.zdoid.toString()), JSON.stringify(e4));
       check('ersetztes ZDO traegt den Zeilenstand', b.zdos.getAllZDOs().find((z) => z.position.x === 5)!.getInt('marke') === 7);
+      // Gleichstand der Revision: der Weltspeicher gewinnt (die Zeile traegt nichts Neueres).
+      const geladen = b.zdos.getAllZDOs().find((z) => z.position.x === 5)!;
+      const gleich = ZDO.fromSnapshot(geladen.toSnapshot());
+      gleich.setInt('marke', 55);
+      gleich.revision.raw = geladen.revision.raw;
+      const e5 = ueberlagern([{ zdoId: geladen.zdoid.toString(), stand: 12, daten: JSON.stringify(gleich.toSnapshot()) }], b.zdos, ZDO, 5);
+      check('Gleichstand der Revision: der Weltspeicher gewinnt, die Zeile ersetzt nichts', e5.ersetzt === 0 && e5.uebersprungen === 1 && geladen.getInt('marke') === 7, JSON.stringify(e5));
     }
 
     console.log('\n[B2] welt_id nur aus Seed und Modus:');
@@ -442,7 +469,7 @@ async function haupt(): Promise<void> {
       await k3.beende('SIGKILL');
       const zeilen = sql<{ welt_id: string }>(dir, 'SELECT welt_id FROM spielerzustand ORDER BY welt_id');
       check('die fremde Zeile ist NICHT geloescht und nicht ueberschrieben', zeilen.some((z) => z.welt_id === 'andere-welt|layout'), zeilen.map((z) => z.welt_id).join(' | '));
-      check('die eigene Welt schreibt daneben ihre eigene Zeile', zeilen.some((z) => z.welt_id === `${SEED}|layout`), zeilen.map((z) => z.welt_id).join(' | '));
+      check('die eigene Welt schreibt daneben ihre eigene Zeile (Kennung aus der Weltdatei, nicht Seed|Modus)', zeilen.some((z) => z.welt_id !== 'andere-welt|layout' && z.welt_id === kennungAusDatei(dir)), `${zeilen.map((z) => z.welt_id).join(' | ')} / Datei: ${kennungAusDatei(dir)}`);
     }
 
     console.log('\n[B3] world.player-save-interval klemmen:');

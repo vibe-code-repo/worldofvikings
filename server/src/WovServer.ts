@@ -107,6 +107,7 @@ import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
 import { SpielerSicherung, SPIELER_SICHERUNG_INTERVALL_MS, neuerAls } from './spiel/SpielerSicherung.js';
 import { WeltZdoSicherung, ueberlagern as weltZdoUeberlagern } from './spiel/WeltZdoSicherung.js';
+import { Stempel } from './spiel/Stempel.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
@@ -150,7 +151,7 @@ import {
 } from '@wov/shared';
 import { resolve } from 'path';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { waehleChatEmpfaenger, kuerzeChatText } from './spiel/ChatReichweite.js';
 // G12: Betriebsmetriken (Tick-Dauer, ZDO-Anzahl, Sync-Bytes/s, Peers) --
@@ -607,8 +608,12 @@ export class WovServer {
   private weltZdoSicherung: WeltZdoSicherung | null = null;
   /** Prefab-Hash -> ist Behaelter/Bauteil (persistent)? Nur fuer die ZDO-Sicherung. */
   private readonly weltZdoRelevantCache = new Map<number, boolean>();
-  /** Welt-Kennung der Zustandszeilen (Seed + Modus), s. weltKennung(). */
+  /** Kennung DIESER Welt (steht in der Weltdatei; die Zustandszeilen tragen sie als `welt_id`), s. bestimmeWeltKennung(). */
   private zustandWeltId = '';
+  /** F8 N3: gemeinsamer monotoner Stempel fuer Spielerzeilen, ZDO-Zeilen und Spielerstaende im Weltspeicher. */
+  private readonly stempel = new Stempel();
+  /** F8 N3: die Weltdatei traegt (noch) keine Kennung: beim Start einmal speichern, damit sie sie bekommt. */
+  private kennungNochNichtGespeichert = false;
   private zdoSyncAccumulator: number;
   /** Datei-Wache des Weltdokuments (K5.0), im Layout-Modus nach dem Boot angelegt. */
   private layoutWache: LayoutWache | null = null;
@@ -1178,13 +1183,10 @@ export class WovServer {
       this.config.worldGenVersion,
       this.worldLayoutHash()
     );
-    // F8: Welt-Kennung der Zustandszeilen: NUR Seed und Modus (radial/layout),
-    // nicht das Layout. Ein Layout-Speichern im Editor macht die Zeilen nicht
-    // zu "fremden" (F8-Angriff B2). Zeilen einer anderen Kennung werden beim
-    // Start ignoriert, nie geloescht; geloescht wird nur beim ausdruecklichen
-    // "Welt zuruecksetzen" (admin/src/routen/weltZuruecksetzen.ts).
-    this.zustandWeltId = WovServer.weltKennung(this.config.worldSeed, this.config.worldMode);
-    this.spielerSicherung = new SpielerSicherung(this.kontenDb, this.zustandWeltId);
+    // F8 N3: Die Kennung der Welt steht in der Weltdatei (s. bestimmeWeltKennung, beim Laden); bis dahin leer.
+    // Zeilen einer anderen Kennung werden nie geloescht, nur ignoriert; geloescht wird ausschliesslich beim
+    // ausdruecklichen "Welt zuruecksetzen" (admin/src/routen/weltZuruecksetzen.ts).
+    this.spielerSicherung = new SpielerSicherung(this.kontenDb, this.zustandWeltId, this.stempel);
     this.weltZdoSicherung = new WeltZdoSicherung(
       this.zustandWeltId,
       (hash) => this.weltZdoRelevant(hash),
@@ -1671,6 +1673,14 @@ export class WovServer {
     this.saveTimer = setInterval(() => {
       void this.saveWorldAsync();
     }, this.config.saveIntervalMs);
+
+    // F8 N3: Eine Welt ohne Kennung in der Datei (neu angelegt, oder eine alte Datei) speichert JETZT einmal,
+    // noch bevor sich ein Spieler verbinden kann (kein I/O-Rueckruf lief bisher), damit die Kennung auf der
+    // Platte steht, ehe die erste Zustandszeile unter ihr geschrieben wird.
+    if (this.kennungNochNichtGespeichert) {
+      this.saveWorld();
+      this.kennungNochNichtGespeichert = false;
+    }
 
     // F8 N2: Ausgangslage der Behaelter-/Bau-ZDOs (Weltspeicher + Zeilen sind
     // geladen, Generatoren sind durch): ab hier zaehlt jede Aenderung.
@@ -5698,7 +5708,7 @@ export class WovServer {
           // Neustart die aeltere Zeile mit dem Stempel vom Abmelden (oder der
           // Eingriff fehlt nach einem Kill bis zum naechsten Weltspeichern).
           record![1].inventar = staged.serialize();
-          record![1].gespeichertAm = Date.now();
+          record![1].gespeichertAm = this.stempel.naechster();
           this.spielerSicherung?.sichere([record![1]], 'admin');
         }
         void this.saveWorldAsync();
@@ -6502,7 +6512,7 @@ export class WovServer {
       ruestung: peer.ruestung,
       waffe: peer.waffe || undefined,
       inventar: peer.inventar.serialize(),
-      gespeichertAm: Date.now(),
+      gespeichertAm: this.stempel.naechster(),
     };
   }
 
@@ -6532,12 +6542,41 @@ export class WovServer {
   }
 
   /**
-   * F8: Kennung der Welt fuer die Zustandszeilen. Nur Seed und Modus: Beides
-   * zusammen sagt "andere Welt"; das Layout aendert sich im Editor laufend
-   * und darf die Zeilen nicht entwerten.
+   * F8 N3: die Kennung dieser Welt bestimmen (beim Laden, vor dem ersten Lesen der Zustandszeilen).
+   *  - Die Weltdatei traegt eine: sie gilt (ueberlebt Layout-Speichern, Neustart, Absturz).
+   *  - Eine ALTE Datei ohne Kennung uebernimmt `<seed>|<modus>` (die `welt_id` von N2): Die vorhandenen Zeilen
+   *    gehoeren ihr damit weiter, ohne UPDATE und ohne Zeitfenster; der naechste Weltspeicher schreibt die
+   *    Kennung in die Datei (`kennungNochNichtGespeichert`).
+   *  - Keine Datei (neue Welt, Testwelt, nach "Welt zuruecksetzen"): eine ZUFAELLIGE Kennung.
+   * Lief `init()` schon einmal (Tests rufen init() und start()), bleibt die zuerst bestimmte Kennung.
    */
-  static weltKennung(seed: string, modus: string): string {
-    return `${seed}|${modus}`;
+  private bestimmeWeltKennung(data: WorldSaveData | null): void {
+    let id: string;
+    if (data?.meta.weltId) {
+      id = data.meta.weltId;
+      this.kennungNochNichtGespeichert = false;
+    } else if (data) {
+      id = `${this.config.worldSeed}|${this.config.worldMode}`;
+      this.kennungNochNichtGespeichert = true;
+    } else if (this.zustandWeltId !== '') {
+      id = this.zustandWeltId;
+      this.kennungNochNichtGespeichert = true;
+    } else {
+      id = randomUUID();
+      this.kennungNochNichtGespeichert = true;
+    }
+    this.zustandWeltId = id;
+    this.worldManager.weltId = id;
+    this.spielerSicherung?.setzeWeltId(id);
+    this.weltZdoSicherung?.setzeWeltId(id);
+    // Der Zaehler laeuft ab dem Hoechsten weiter, was auf der Platte steht (beide Tabellen, Kopf der Datei, Spielerstaende darin).
+    this.stempel.hebeAuf(data?.meta.stempel);
+    for (const p of data?.players ?? []) this.stempel.hebeAuf(p.gespeichertAm);
+    try {
+      this.stempel.hebeAuf(this.kontenDb.hoechsterZustandsStand());
+    } catch (err) {
+      console.error(`[Weltzustand] hoechster Stempel nicht lesbar: ${err}`);
+    }
   }
 
   /** F8 N2: ist ein ZDO dieses Prefabs ein persistenter Behaelter oder ein Bauteil? */
@@ -6555,7 +6594,7 @@ export class WovServer {
    * F8 N2: Zeilen der Tabelle `weltzdo` ueber die eben geladenen ZDOs legen
    * (je ZDO gewinnt der neuere Stand, s. spiel/WeltZdoSicherung.ueberlagern).
    */
-  private weltZdoAusKonto(): void {
+  private weltZdoAusKonto(weltStempel: number): void {
     let zeilen;
     try {
       zeilen = this.kontenDb.weltzdoLesen(this.zustandWeltId);
@@ -6564,9 +6603,9 @@ export class WovServer {
       return;
     }
     if (zeilen.length === 0) return;
-    const e = weltZdoUeberlagern(zeilen, this.zdos, ZDO);
+    const e = weltZdoUeberlagern(zeilen, this.zdos, ZDO, weltStempel);
     console.log(
-      `[WoV] Weltzustand aus der Konten-SQLite: ${e.neu} neu, ${e.ersetzt} ersetzt, ${e.entfernt} entfernt, ${e.uebersprungen} nicht neuer als der Weltspeicher`
+      `[WoV] Weltzustand aus der Konten-SQLite: ${e.neu} neu, ${e.ersetzt} ersetzt, ${e.entfernt} entfernt, ${e.uebersprungen} nicht neuer als der Weltspeicher, ${e.abgelehnt} abgelehnt`
     );
   }
 
@@ -6586,12 +6625,13 @@ export class WovServer {
    */
   private loadWorld(): void {
     const data = this.worldManager.load();
+    this.bestimmeWeltKennung(data);
     if (!data) {
       console.log('[WoV] No saved world found — starting fresh');
       // F8: auch ohne Weltdatei (Absturz vor dem ersten Weltspeichern) kann
       // die Konten-SQLite Spielerstaende halten.
       this.spielerstaendeAusKonto();
-      this.weltZdoAusKonto();
+      this.weltZdoAusKonto(0);
       return;
     }
 
@@ -6648,7 +6688,7 @@ export class WovServer {
       this.savedPlayers.set(schluessel, player);
     }
     this.spielerstaendeAusKonto();
-    this.weltZdoAusKonto();
+    this.weltZdoAusKonto(data.meta.stempel ?? 0);
 
     // Vegetation nachsetzen: gebackene y-Werte stammen aus dem Boden ZUM
     // GENERIERUNGSZEITPUNKT. Ändert sich der danach — Terrain-Modifier
@@ -6697,7 +6737,8 @@ export class WovServer {
   saveWorld(): void {
     if (!this.worldManager) return; // init() not run (unit tests)
 
-    const vorStand = Date.now();
+    const vorStand = this.stempel.aktuell();
+    this.worldManager.speicherStempel = vorStand;
     const aufnahme = this.momentaufnahme();
     const t0 = Date.now();
     this.worldManager.save({
@@ -6753,9 +6794,10 @@ export class WovServer {
     this.speichertGerade = true;
     const t0 = Date.now();
     try {
+      const vorStand = this.stempel.aktuell();
+      this.worldManager.speicherStempel = vorStand;
       const aufnahme = this.momentaufnahme();
       let uebersprungen = 0;
-      const vorStand = t0;
       await this.worldManager.saveAsync(aufnahme.kopf, {
         laenge: aufnahme.zdos.length,
         json: (i) => {
@@ -6767,9 +6809,10 @@ export class WovServer {
           return JSON.stringify(zdo.toSnapshot());
         },
       });
-      // F8 N2: Zeilen, die der Weltspeicher schon traegt, wegraeumen. STRIKT
-      // vor dem Beginn (t0): Was in derselben Millisekunde oder waehrend des
-      // Laufs geschrieben wurde, bleibt (beim Laden entscheidet die Revision).
+      // F8 N2: Zeilen, die der Weltspeicher schon traegt, wegraeumen: alles bis
+      // einschliesslich des Stempels am Beginn (`vorStand`, eine Folgenummer, keine
+      // Uhrzeit). Was waehrend des Laufs geschrieben wurde, bleibt (beim Laden
+      // entscheidet die Revision).
       this.weltZdoBereinigen(vorStand);
       console.log(
         `[WoV] World saved: ${aufnahme.zdos.length - uebersprungen} persistent ZDOs, ` +

@@ -875,6 +875,38 @@ if (modul) {
     check('B11: nicht-leeres Verzeichnis am Sperrpfad: „wie vorher“ nur, wenn das Dokument nicht leer ist', !(String(r.daten.message).includes('wie vorher') && leer), `= ${r.code} leer=${leer} ${String(r.daten.message).slice(0, 160)}`);
   }
   {
+    // F8 N3 (B4): the state rows (`spielerzustand`, `weltzdo`) are emptied LAST. A failed swap rolls the files back and the rows are
+    // still there (the message "Alles steht wieder wie vorher" is true for them too); a successful reset empties them and says so.
+    const echteKonten = (b: ReturnType<typeof bauen>): string => {
+      for (const s of ['', '-wal', '-shm']) rmSync(resolve(b.konten, `dev.db${s}`), { force: true });
+      const pfad = resolve(b.konten, 'dev.db');
+      const d = new DatabaseSync(pfad);
+      d.exec('CREATE TABLE spielerzustand (spieler_id TEXT NOT NULL COLLATE NOCASE, welt_id TEXT NOT NULL, stand INTEGER NOT NULL, daten TEXT NOT NULL, PRIMARY KEY (spieler_id, welt_id))');
+      d.exec('CREATE TABLE weltzdo (zdo_id TEXT NOT NULL, welt_id TEXT NOT NULL, stand INTEGER NOT NULL, daten TEXT, PRIMARY KEY (zdo_id, welt_id))');
+      d.prepare('INSERT INTO spielerzustand VALUES (?, ?, ?, ?)').run('a', 'w1', 1, '{}');
+      d.prepare('INSERT INTO spielerzustand VALUES (?, ?, ?, ?)').run('b', 'w2', 2, '{}');
+      d.prepare('INSERT INTO weltzdo VALUES (?, ?, ?, ?)').run('1:5', 'w1', 1, '{}');
+      d.close();
+      return pfad;
+    };
+    const zeilen = (pfad: string): string => {
+      const d = new DatabaseSync(pfad, { readOnly: true });
+      try {
+        const n = (t: string) => (d.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
+        return `${n('spielerzustand')}/${n('weltzdo')}`;
+      } finally { d.close(); }
+    };
+    const b = bauen({ vorSchritt: (s) => { if (s === 'dokument') throw new Error('dokument kaputt'); } });
+    const pfad = echteKonten(b);
+    const f = (await weltZuruecksetzenBehandeln(gut, b.umg)) as { code: number; daten: Record<string, any> };
+    check('B4[N3]: Fehler beim Dokument → 500, zurückgerollt', f.code === 500 && f.daten.zurueckgerollt === true, `= ${f.code} ${JSON.stringify(f.daten).slice(0, 120)}`);
+    check('B4[N3]: die Zustandszeilen sind NICHT gelöscht (2/1), die Meldung „wie vorher“ stimmt also', zeilen(pfad) === '2/1', zeilen(pfad));
+    const g = bauen();
+    const pfadG = echteKonten(g);
+    const ok = (await weltZuruecksetzenBehandeln(gut, g.umg)) as { code: number; daten: Record<string, any> };
+    check('B4[N3]: gelungener Reset leert die Zeilen (0/0) und meldet es', ok.code === 200 && zeilen(pfadG) === '0/0' && ok.daten.zustandszeilen?.geleert?.spieler === 2 && ok.daten.zustandszeilen?.geleert?.zdos === 1, `= ${ok.code} ${JSON.stringify(ok.daten.zustandszeilen)} ${zeilen(pfadG)}`);
+  }
+  {
     // A copy of the world document from an earlier attempt in the same minute (a reset that failed leaves its copies):
     // the next one takes `-2` for EVERY name, so the copy and the moved files keep sharing one suffix.
     const b = bauen();

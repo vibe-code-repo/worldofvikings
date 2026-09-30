@@ -64,7 +64,7 @@ export class WeltZdoSicherung {
   private grundlinie = false;
 
   constructor(
-    private readonly weltId: string,
+    private weltId: string,
     /** Ist ein ZDO mit diesem Prefab ein Behaelter oder Bauteil (und persistent)? */
     private readonly istRelevant: (prefabHash: number) => boolean,
     /**
@@ -74,8 +74,12 @@ export class WeltZdoSicherung {
      * obwohl das echte ZDO weg ist). Entschieden wird deshalb hier.
      */
     private readonly nachschlagen: (zdoId: string) => ZDO | undefined,
-    private readonly jetzt: () => number = Date.now,
   ) {}
+
+  /** Die Kennung der Welt (steht erst nach dem Laden der Weltdatei fest). */
+  setzeWeltId(weltId: string): void {
+    this.weltId = weltId;
+  }
 
   /** Anzahl der beobachteten ZDOs (Diagnose, Tests). */
   get beobachtet(): number {
@@ -105,7 +109,7 @@ export class WeltZdoSicherung {
     }
     const zeilen: WeltZdoZeile[] = [];
     const neuerStand: [string, number | null][] = [];
-    const stand = this.jetzt();
+    const stand = 0; // vergibt SpielerSicherung.sichere (ein Stempel je Transaktion)
     const gesehen = new Set<string>();
     for (const z of alle) {
       if (z.destroyed || !this.istRelevant(z.prefabHash)) continue;
@@ -127,7 +131,7 @@ export class WeltZdoSicherung {
   pruefe(zdos: Iterable<ZDO>): WeltZdoAenderung | null {
     const zeilen: WeltZdoZeile[] = [];
     const neuerStand: [string, number | null][] = [];
-    const stand = this.jetzt();
+    const stand = 0; // vergibt SpielerSicherung.sichere (ein Stempel je Transaktion)
     for (const gereicht of zdos) {
       if (!this.istRelevant(gereicht.prefabHash)) continue;
       const id = gereicht.zdoid.toString();
@@ -169,28 +173,40 @@ export interface UeberlagerungsErgebnis {
   entfernt: number;
   /** Zeile nicht neuer als der Weltspeicher (oder unlesbar). */
   uebersprungen: number;
+  /** Zeile passte nicht zum geladenen ZDO (anderes Prefab oder anderer Ort) oder ein Grabstein war nicht neuer als die Weltdatei. */
+  abgelehnt: number;
 }
 
 /**
  * Zeilen der Tabelle `weltzdo` ueber die frisch geladenen ZDOs legen. Je
  * ZDO gewinnt der NEUERE Stand (Datenrevision); Gleichstand: Weltspeicher.
+ *
+ * Schutz gegen Zeilen, die nicht zu diesem ZDO gehoeren (F8-N2-Angriff B1, U2/U3):
+ *  - eine Datenzeile ersetzt ein geladenes ZDO nur, wenn Prefab UND Ort (x, z; die Hoehe setzt der Vegetations-Heiler beim Laden nach) uebereinstimmen;
+ *  - ein Grabstein loescht nur, wenn sein Stempel NEUER ist als der Stempel der Weltdatei
+ *    (`weltStempel`, aus dem Kopf der Datei): ein Grabstein aus der Zeit vor dem Weltspeichern
+ *    betrifft ein ZDO, das die Datei schon nicht mehr (oder anders) kennt.
+ * Zeilen einer anderen Welt kommen hier gar nicht an: die Tabelle wird nach der Weltkennung gelesen.
  */
 export function ueberlagern(
-  zeilen: readonly { zdoId: string; daten: string | null }[],
+  zeilen: readonly { zdoId: string; stand?: number; daten: string | null }[],
   zdos: ZDOManager,
   zdoKlasse: { fromSnapshot(daten: Record<string, unknown>): ZDO },
+  weltStempel = 0,
   log: { error(text: string): void } = console,
 ): UeberlagerungsErgebnis {
-  const erg: UeberlagerungsErgebnis = { neu: 0, ersetzt: 0, entfernt: 0, uebersprungen: 0 };
+  const erg: UeberlagerungsErgebnis = { neu: 0, ersetzt: 0, entfernt: 0, uebersprungen: 0, abgelehnt: 0 };
   for (const zeile of zeilen) {
     try {
       if (zeile.daten === null) {
         const vorhanden = zdos.getZDOByKey(zeile.zdoId);
-        if (vorhanden) {
+        if (!vorhanden) {
+          erg.uebersprungen++;
+        } else if ((zeile.stand ?? 0) > weltStempel) {
           zdos.destroyZDO(vorhanden.zdoid);
           erg.entfernt++;
         } else {
-          erg.uebersprungen++;
+          erg.abgelehnt++;
         }
         continue;
       }
@@ -200,6 +216,12 @@ export function ueberlagern(
       if (!vorhanden) {
         zdos.restoreFromSnapshots([daten]);
         erg.neu++;
+      } else if (
+        vorhanden.prefabHash !== neu.prefabHash ||
+        Math.abs(vorhanden.position.x - neu.position.x) > 0.01 ||
+        Math.abs(vorhanden.position.z - neu.position.z) > 0.01
+      ) {
+        erg.abgelehnt++;
       } else if (revisionVoraus(neu.revision.dataRevision, vorhanden.revision.dataRevision)) {
         vorhanden.uebernehmeSchnappschuss(neu);
         erg.ersetzt++;

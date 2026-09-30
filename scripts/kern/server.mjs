@@ -233,6 +233,14 @@ export default [
   */
   ['server', 'test/f8n2-truhen-takt.ts'],
   /*
+    F8 N3 (2026-09-30): Weltkennung in der Weltdatei (Testwelt hin und zurueck, alte Datei ohne
+    Kennung), monotoner Stempel (Uhrsprung rueckwaerts/vorwaerts) und deterministische Kill-Proben
+    ueber Test-Haken (NODE_ENV=test + WOV_KILL_PUNKT): in der Transaktion, vor der Datei
+    (synchron/asynchron), Ereignis waehrend des Speicherns, Migration in einer Transaktion.
+    Echte Serverprozesse mit SIGKILL. Keine Assets. Ephemerer Port, ~4 min.
+  */
+  ['server', 'test/f8n3-kennung-kill.ts'],
+  /*
     Das Thing, M1: die lesende API (Wege, Blaettern, 404 statt leerer
     Liste). Fake-Request/Response, kein Netz — dieselbe Weiche wie oben.
   */

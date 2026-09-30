@@ -63,6 +63,7 @@
 import type { Kontendatenbank } from '../konto/Kontendatenbank.js';
 import type { SavedPlayer } from '../world/WorldManager.js';
 import type { WeltZdoAenderung } from './WeltZdoSicherung.js';
+import type { Stempel } from './Stempel.js';
 
 /** Obergrenze des Verlustfensters ausserhalb von Ereignissen. Roadmap F8: unter einer Minute. */
 export const SPIELER_SICHERUNG_INTERVALL_MS = 30_000;
@@ -98,10 +99,17 @@ export class SpielerSicherung {
 
   constructor(
     private readonly db: Kontendatenbank,
-    private readonly weltId: string,
-    private readonly jetzt: () => number = Date.now,
+    /** Kennung der Welt (aus der Weltdatei); wird beim Laden gesetzt, s. `setzeWeltId`. */
+    private weltId: string,
+    /** Gemeinsamer monotoner Stempel (F8 N3): ersetzt die Wanduhr als Schiedsrichter. */
+    private readonly stempel: Stempel,
     private readonly log: SicherungsLog = console,
   ) {}
+
+  /** Die Kennung der Welt, zu der die Zeilen gehoeren (steht erst nach dem Laden der Weltdatei fest). */
+  setzeWeltId(weltId: string): void {
+    this.weltId = weltId;
+  }
 
   stats(): Readonly<SicherungsStatistik> {
     return { ...this.zaehler };
@@ -134,23 +142,30 @@ export class SpielerSicherung {
    * Stopp nicht reissen.
    */
   sichere(staende: readonly SavedPlayer[], grund: string, welt: WeltZdoAenderung | null = null): number {
-    const zeilen: { spielerId: string; weltId: string; stand: number; daten: string }[] = [];
-    const schluessel: [string, string][] = [];
-    const stand = this.jetzt();
+    const geaendert: { s: SavedPlayer; vergleich: string }[] = [];
     for (const s of staende) {
       if (!s.spielerId) continue;
       const vergleich = JSON.stringify({ ...s, gespeichertAm: undefined });
       if (this.zuletzt.get(s.spielerId) === vergleich) continue;
+      geaendert.push({ s, vergleich });
+    }
+    const zdoQuelle = welt?.zeilen ?? [];
+    if (geaendert.length === 0 && zdoQuelle.length === 0) return 0;
+
+    // EIN Stempel fuer alles, was in dieser Transaktion steht (F8 N3): Spieler und ZDOs vom selben Zeitpunkt.
+    const stand = this.stempel.naechster();
+    const zeilen: { spielerId: string; weltId: string; stand: number; daten: string }[] = [];
+    const schluessel: [string, string][] = [];
+    for (const { s, vergleich } of geaendert) {
       zeilen.push({
-        spielerId: s.spielerId,
+        spielerId: s.spielerId!,
         weltId: this.weltId,
         stand,
         daten: JSON.stringify({ ...s, gespeichertAm: stand }),
       });
-      schluessel.push([s.spielerId, vergleich]);
+      schluessel.push([s.spielerId!, vergleich]);
     }
-    const zdoZeilen = welt?.zeilen ?? [];
-    if (zeilen.length === 0 && zdoZeilen.length === 0) return 0;
+    const zdoZeilen = zdoQuelle.map((z) => ({ ...z, weltId: this.weltId, stand }));
 
     const t0 = performance.now();
     try {

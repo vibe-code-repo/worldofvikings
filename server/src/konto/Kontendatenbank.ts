@@ -82,6 +82,7 @@ import {
   spielerIdErzeugen, istSpielerId, type SpielerId,
 } from '../net/Identitaet.js';
 import { getStableHash } from '../util/Hash.js';
+import { haken } from '../util/TestHaken.js';
 
 export interface Konto {
   id: number;
@@ -374,18 +375,28 @@ export class Kontendatenbank {
     // Stand vor N2: Schluessel nur spieler_id. Umbauen, Zeilen behalten.
     const alteSpalten = this.db.prepare('PRAGMA table_info(spielerzustand)').all() as { name: string; pk: number }[];
     if (alteSpalten.some((c) => c.name === 'welt_id' && c.pk === 0)) {
-      this.db.exec(`
-        ALTER TABLE spielerzustand RENAME TO spielerzustand_alt;
-        CREATE TABLE spielerzustand (
-          spieler_id TEXT NOT NULL COLLATE NOCASE,
-          welt_id    TEXT NOT NULL,
-          stand      INTEGER NOT NULL,
-          daten      TEXT NOT NULL,
-          PRIMARY KEY (spieler_id, welt_id)
-        );
-        INSERT INTO spielerzustand SELECT spieler_id, welt_id, stand, daten FROM spielerzustand_alt;
-        DROP TABLE spielerzustand_alt;
-      `);
+      // F8 N3 (B5): in EINER Transaktion. Ein Abbruch mitten drin laesst die alte Tabelle unberuehrt (DDL ist in SQLite
+      // transaktional); vorher konnten Zeilen in `spielerzustand_alt` stranden, die nie mehr migriert wurden.
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        this.db.exec('ALTER TABLE spielerzustand RENAME TO spielerzustand_alt');
+        haken('migration-mitte');
+        this.db.exec(`
+          CREATE TABLE spielerzustand (
+            spieler_id TEXT NOT NULL COLLATE NOCASE,
+            welt_id    TEXT NOT NULL,
+            stand      INTEGER NOT NULL,
+            daten      TEXT NOT NULL,
+            PRIMARY KEY (spieler_id, welt_id)
+          );
+          INSERT INTO spielerzustand SELECT spieler_id, welt_id, stand, daten FROM spielerzustand_alt;
+          DROP TABLE spielerzustand_alt;
+        `);
+        this.db.exec('COMMIT');
+      } catch (err) {
+        try { this.db.exec('ROLLBACK'); } catch { /* Transaktion schon weg */ }
+        throw err;
+      }
     }
     // F8 N2: Behaelter- und Bau-ZDOs (Truhen, Bauteile) im selben Takt und in
     // derselben Transaktion wie der Spielerzustand. `daten` NULL = das ZDO
@@ -1014,6 +1025,7 @@ export class Kontendatenbank {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       for (const z of spieler) ersetzen.run(z.spielerId, z.weltId, z.stand, z.daten);
+      haken('txn-mitte');
       for (const z of zdos) zdoErsetzen.run(z.zdoId, z.weltId, z.stand, z.daten);
       this.db.exec('COMMIT');
     } catch (err) {
@@ -1041,11 +1053,18 @@ export class Kontendatenbank {
   }
 
   /**
-   * F8 N2: ZDO-Zeilen, die der Weltspeicher schon traegt (Stand STRIKT
-   * vor `vorStand`), wegraeumen — nach einem ERFOLGREICHEN Weltspeichern. Liefert die Zahl.
+   * F8 N2: ZDO-Zeilen, die der Weltspeicher schon traegt (Stempel bis
+   * einschliesslich `bisStand`; die Stempel sind Folgenummern, keine Uhrzeiten), wegraeumen — nach einem ERFOLGREICHEN Weltspeichern. Liefert die Zahl.
    */
-  weltzdoBereinigen(weltId: string, vorStand: number): number {
-    return Number(this.db.prepare('DELETE FROM weltzdo WHERE welt_id = ? AND stand < ?').run(weltId, vorStand).changes);
+  weltzdoBereinigen(weltId: string, bisStand: number): number {
+    return Number(this.db.prepare('DELETE FROM weltzdo WHERE welt_id = ? AND stand <= ?').run(weltId, bisStand).changes);
+  }
+
+  /** F8 N3: der hoechste Stempel in beiden Zustandstabellen (alle Welten), 0 wenn leer — Startwert des Zaehlers. */
+  hoechsterZustandsStand(): number {
+    const a = this.db.prepare('SELECT MAX(stand) AS m FROM spielerzustand').get() as { m: number | null };
+    const b = this.db.prepare('SELECT MAX(stand) AS m FROM weltzdo').get() as { m: number | null };
+    return Math.max(Number(a.m ?? 0), Number(b.m ?? 0));
   }
 
   /** Zeilen einzelner Spieler loeschen (Konto geloescht, `spieler entfernen`) — in allen Welten. */

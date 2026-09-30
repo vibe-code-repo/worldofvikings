@@ -571,6 +571,8 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
   const rueckrollFehler: string[] = [];
   let startFehler: unknown = null;
   let geschrieben: Awaited<ReturnType<typeof layoutSchreibenAsync>> | null = null;
+  let zustandGeleert: { spieler: number; zdos: number } | null = null;
+  let zustandFehler: string | null = null;
   // What the game server left behind when it stopped: THIS is the file to move, and the one to count and back up if
   // the copy above found none.
   let spielstandBeiseite: ResetZahlen['spielstand'] = null;
@@ -604,11 +606,6 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
           beiseite.push({ von: datei, nach });
         }
       }
-      // F8 N2 (B2): the rows of the running player state and of the container/building state (`spielerzustand`, `weltzdo`
-      // in the accounts database) belong to the world that is being reset, and this is the ONLY place that deletes them
-      // (the game server merely ignores rows of another world id). With `konten` the whole database was moved above, and
-      // the tables go with it. A `.bak` of the database is taken first, because these rows are not moved like files.
-      if (!mitKonten) spielzustandLeeren(umg);
       // Z3 N1, E-a: „Welt zurücksetzen" ist einer der drei Wege, die die dauerhafte Löschsperre entfernen. Z3 N2 (B3): sie
       // wird VOR dem Dokument beiseite gelegt (nicht danach gelöscht): scheitert das, ist das Dokument noch das alte, und das
       // Rückrollen legt sie mit den übrigen Dateien zurück. Scheitert das Schreiben des Dokuments danach, steht die Sperre
@@ -626,6 +623,18 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
       markerSchreiben(umg, marker);
       // `leereWelt`: the write path otherwise refuses a document without a region (shared/src/worldlayout/layoutDatei.ts).
       geschrieben = await layoutSchreibenAsync(umg.layoutDatei, leeresWeltdokument(altesDokument, seed), undefined, { leereWelt: true });
+      // F8 N3 (B4): the running player/container state (`spielerzustand`, `weltzdo` in the accounts database) is emptied LAST,
+      // when the world really is reset. Before, it went first, and a later failure rolled the files back while the rows stayed
+      // gone ("Alles steht wieder wie vorher" was untrue). Now nothing after this point can fail the reset: an error here is
+      // reported as a note and leaves rows that are harmless (they carry the id of the OLD world file, which is moved away, so the
+      // new world ignores them). With `konten` the whole database was moved above and the tables went with it.
+      if (!mitKonten) {
+        try {
+          zustandGeleert = spielzustandLeeren(umg);
+        } catch (fehler) {
+          zustandFehler = fehlerText(fehler);
+        }
+      }
     } catch (fehler) {
       tauschFehler = fehler;
       // Put back what already moved, newest first. The document is written last and atomically, so it never needs this.
@@ -692,7 +701,8 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
     daten: {
       ok: startFehler === null,
       ...(startFehler === null ? {} : { fehler: 'start-fehlgeschlagen' }),
-      message: `Welt zurückgesetzt: ${platz}; ${wortZdos(spielstandBeiseite)} (Kennung ${kennung}).${dienstFehlerText}`,
+      message: `Welt zurückgesetzt: ${platz}; ${wortZdos(spielstandBeiseite)} (Kennung ${kennung}).${zustandFehler === null ? '' : ` Hinweis: die Zustandszeilen der Spieler ließen sich nicht leeren (${zustandFehler}); sie gehören der alten Welt und werden ignoriert.`}${dienstFehlerText}`,
+      zustandszeilen: { geleert: zustandGeleert, fehler: zustandFehler },
       instanz: umg.instanz,
       seed,
       konten: mitKonten,

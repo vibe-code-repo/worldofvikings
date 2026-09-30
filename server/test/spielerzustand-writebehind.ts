@@ -45,6 +45,9 @@ import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import { antwortBerechnen, spielerIdErzeugen, tokenAusstellen } from '../src/net/Identitaet.js';
 import { SPIELER_SICHERUNG_INTERVALL_MS, SpielerSicherung, neuerAls } from '../src/spiel/SpielerSicherung.js';
+import { Stempel } from '../src/spiel/Stempel.js';
+import { readFileSync } from 'node:fs';
+import { zstdDecompressSync } from 'node:zlib';
 import type { SavedPlayer } from '../src/world/WorldManager.js';
 import { portVon } from '../../scripts/testport.mjs';
 
@@ -74,8 +77,7 @@ if (process.argv[2] === 'kind') {
     spielerSicherungMs: intervall,
     sessionSecret: Buffer.from(GEHEIMNIS_HEX, 'hex'),
   });
-  server.init();
-  server.start();
+  await server.start(); // wie main.ts: start() ruft init() selbst auf
   const fahreHerunter = erstelleHerunterfahren(server, (code) => process.exit(code));
   process.on('SIGTERM', fahreHerunter);
   console.log(`BEREIT ${portVon(server)}`);
@@ -194,6 +196,13 @@ function admin(ws: WebSocket, zeile: string): void {
   ws.send(Buffer.concat([Buffer.from([P.AdminCommand]), new Writer().writeString(zeile).toBuffer()]));
 }
 
+/** Zahl der Spieler im Weltspeicher (players[]); -1 ohne Datei. */
+function weltdateiSpieler(dir: string): number {
+  const pfad = resolve(dir, 'world.db.zst');
+  if (!existsSync(pfad)) return -1;
+  return (JSON.parse(zstdDecompressSync(readFileSync(pfad)).toString('utf-8')) as { players: unknown[] }).players.length;
+}
+
 interface Zeile { spieler_id: string; welt_id: string; stand: number; daten: string }
 function leseZeilen(dir: string): Zeile[] {
   const pfad = resolve(dir, 'konten/world.db');
@@ -250,9 +259,11 @@ async function haupt(): Promise<void> {
     ws.terminate();
     let zeilen = leseZeilen(dirA);
     check('nach SIGKILL steht eine Zeile in der SQLite', zeilen.length === 1, `${zeilen.length} Zeile(n)`);
-    check('es gibt KEINEN Weltspeicher (Zustand stammt nur aus der SQLite)', !existsSync(resolve(dirA, 'world.db.zst')));
-    const alterMs = zeilen[0] ? tKill - zeilen[0].stand : Infinity;
-    check('Zeile höchstens einen Takt (+ Reserve) alt', alterMs <= TAKT + 1500, `${alterMs} ms alt, Änderung vor ${tKill - tAenderung} ms`);
+    check('der Weltspeicher hat keinen Spieler (Zustand stammt nur aus der SQLite; die Datei entstand beim Start wegen der Weltkennung)', weltdateiSpieler(dirA) === 0, `${weltdateiSpieler(dirA)}`);
+    // Seit N3 ist `stand` eine Folgenummer, keine Uhrzeit: das Alter der Zeile steht nicht mehr darin. Die Zusage "höchstens ein Takt alt"
+    // tragen die Zustandsprüfungen nach dem Neustart (Position/Inventar der letzten Änderung sind da).
+    const alterMs = tKill - tAenderung;
+    check('Zeile trägt eine Folgenummer > 0 (kein Uhrstempel)', !!zeilen[0] && zeilen[0].stand > 0 && zeilen[0].stand < 1e9, `stand=${zeilen[0]?.stand}`);
     let a2 = await neu(dirA, TAKT);
     ws = await verbinde(a2.port, token);
     let s = await a2.stand();
@@ -300,7 +311,7 @@ async function haupt(): Promise<void> {
     await warte(1500);
     await c.beende('SIGKILL');
     wsC.terminate();
-    check('keine Zeile, kein Weltspeicher: der Fortschritt ist weg', leseZeilen(dirC).length === 0 && !existsSync(resolve(dirC, 'world.db.zst')));
+    check('keine Zeile, kein Weltspeicher: der Fortschritt ist weg', leseZeilen(dirC).length === 0 && weltdateiSpieler(dirC) === 0);
     const c2 = await neu(dirC, RIESIG);
     const wsC2 = await verbinde(c2.port, token);
     s = await c2.stand();
@@ -406,7 +417,7 @@ async function haupt(): Promise<void> {
         spielerzustandLoeschen: () => {},
       };
       const laut: string[] = [];
-      const sich = new SpielerSicherung(db as never, 'w', () => 1000, { warn: (t) => laut.push(t), error: (t) => laut.push(t) });
+      const sich = new SpielerSicherung(db as never, 'w', new Stempel(1000), { warn: (t) => laut.push(t), error: (t) => laut.push(t) });
       const stand: SavedPlayer = { name: 'X', spielerId: 'id-x', position: { x: 1, y: 2, z: 3 }, flying: false };
       const r1 = sich.sichere([stand], 'test');
       check('Fehler: Rückgabe -1 und laute Meldung', r1 === -1 && laut.some((t) => t.includes('SPIELER_SICHERUNG_FEHLER')));

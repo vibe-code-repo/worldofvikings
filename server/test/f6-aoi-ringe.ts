@@ -1,29 +1,29 @@
 /**
- * F6 — zweite AoI-Schicht: Sync-Takt nach Ring.
+ * F6 — zweite AoI-Schicht: der ferne Teil des Sichtfensters im halben Takt.
  *
- * Ring 0–1 (3×3 Zonen) läuft jeden Tick, Ring 2–3 im halben Takt, Ring 4 bei
- * Zu-/Abgang seiner Zonen und als Netz alle SYNC_AUSSEN_NETZ_TICKS Ticks.
- * Alles in-process ueber den privaten `syncZDOs` (Peers mit gefaelschtem
- * Socket, wie f2-sync-deckel.ts) und den ECHTEN Client-Parser (wie
- * d6-zdo-delta.ts): Was hier als „angekommen" zaehlt, hat der Parser gelesen.
+ * Ring 0–1 (3×3 Zonen) wird jeden Tick geprueft, alles dahinter nur in jedem
+ * 2. Tick (Phase deterministisch, Paritaet eines Tickzaehlers). Zerstoerungen
+ * gehen jeden Tick raus. Alles in-process ueber den privaten `syncZDOs` (Peers
+ * mit gefaelschtem Socket, wie f2-sync-deckel.ts) und den ECHTEN Client-Parser
+ * (wie d6-zdo-delta.ts). Alle Schranken sind feste Zahlen, keine Modulkonstanten.
  *
  * Geprueft wird (Zeugen in Zahlen):
  *  1. Ring 0: eine Aenderung kommt im naechsten Tick an, immer (100 Laeufe
  *     mit zufaelligem Tick-Versatz).
- *  2. Ring 3: Aenderung in hoechstens 2 Ticks (100 Laeufe); bei einer Aenderung
- *     JEDEN Tick tragen in 40 Ticks hoechstens 20 Pakete Ring-3-Saetze
- *     (vor F6: 40).
- *  3. Ring 4: unveraendert 0 Saetze in 40 Ticks; ein Zugang (neues ZDO) kommt im
- *     naechsten Tick; eine reine Member-Aenderung spaetestens im naechsten
- *     Netz-Tick.
- *  4. Zerstoerung in Ring 4 kommt im NAECHSTEN Tick.
- *  5. Leerlauf: die Zahl der Pruefungen je 40 Ticks sinkt unter 65 % des
- *     Vollfensters (vor F6: 100 %).
+ *  2. Ring 3 und Ring 4: Aenderung in hoechstens 2 Ticks (je 100 Laeufe); bei
+ *     einer Aenderung JEDEN Tick tragen in 40 Ticks hoechstens 20 Pakete
+ *     Ring-3-Saetze (vor F6: 40).
+ *  3. Zugang in Ring 4: hoechstens 2 Ticks.
+ *  4. Zerstoerung in Ring 2 und Ring 4 kommt im NAECHSTEN Tick (20 Laeufe mit
+ *     zufaelliger Phase; wuerden Zerstoerungen nur mit dem fernen Teil gehen,
+ *     waere jeder zweite Lauf verspaetet).
+ *  5. Leerlauf: die Zahl der Pruefungen je 40 Ticks liegt zwischen 45 % und
+ *     65 % des Vollfensters (vor F6: 100 %; ferner Teil nie: ~10 %).
  *  6. Erstuebertragung nach Zonenwechsel und nach Weltwechsel: alle Gruppen im
  *     ersten Tick voll (Saetze je Gruppe gezaehlt).
  *  7. Bytes je Peer (Metriken.syncBytesJePeerLaufend) = am Socket gezaehlte Bytes.
- *  8. 25 Peers, 48.000 ZDOs, 5 % Aenderungen je Tick: Bytes je Peer und
- *     Sekunde sowie Ø tickSyncMs (nur Ausgabe, keine Schranke).
+ *  8. 25 Peers, 48.000 ZDOs: Bytes je Peer und Sekunde sowie Ø tickSyncMs
+ *     (nur Ausgabe, keine Schranke).
  *
  * Lauf: node_modules/.bin/tsx server/test/f6-aoi-ringe.ts   (aus dem Repo-Stamm)
  */
@@ -35,7 +35,6 @@ import { worldToZone } from '../src/zdo/ZDOManager.js';
 import { createWovServer } from '../src/WovServer.js';
 import { Peer } from '../src/net/Peer.js';
 import * as Metriken from '../src/Metriken.js';
-import * as ZonenFensterModul from '../src/zdo/ZonenFenster.js';
 import type { ZDO } from '../src/zdo/ZDO.js';
 import { BinaryReader } from '../../client/src/net/GameSocket';
 import { parseZDOSync, ZDOSpiegel } from '../../client/src/net/ZDOSync';
@@ -45,11 +44,6 @@ function check(label: string, ok: boolean, detail = ''): void {
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? ' — ' + detail : ''}`);
   if (!ok) failures++;
 }
-
-// Vor F6 gibt es die Konstante nicht: dann gilt der Sollwert der Karte (Netz 20 Ticks
-// waere erlaubt gewesen; die Pruefungen unten verlangen ohnehin das kleinere).
-const NETZ: number =
-  (ZonenFensterModul as unknown as { SYNC_AUSSEN_NETZ_TICKS?: number }).SYNC_AUSSEN_NETZ_TICKS ?? 1;
 
 const wurzel = mkdtempSync(join(tmpdir(), 'f6-aoi-ringe-'));
 
@@ -234,12 +228,12 @@ async function main(): Promise<void> {
       }
       maxZugang = Math.max(maxZugang, da ? n : 99);
     }
-    check('Zugang in Ring 4 kommt im naechsten Tick', maxZugang === 1, `laengste Wartezeit ${maxZugang} Ticks`);
+    check('Zugang in Ring 4 kommt in hoechstens 2 Ticks', maxZugang <= 2, `laengste Wartezeit ${maxZugang} Ticks`);
 
     // Reine Member-Aenderung (Zonenbestand gleich): hoechstens im naechsten Netz-Tick
     let maxMember = 0;
     let wert = 5000;
-    for (let lauf = 0; lauf < 40; lauf++) {
+    for (let lauf = 0; lauf < 100; lauf++) {
       for (let i = 0; i < Math.floor(rnd() * 3); i++) tick(peer);
       aendere(r4, wert++);
       let n = 0;
@@ -250,27 +244,29 @@ async function main(): Promise<void> {
       }
       maxMember = Math.max(maxMember, da ? n : 99);
     }
-    check(`Member-Aenderung in Ring 4 spaetestens im naechsten Netz-Tick (Netz ${NETZ})`, maxMember <= Math.max(NETZ, 1), `laengste Wartezeit ${maxMember} Ticks`);
+    check('Member-Aenderung in Ring 4 in hoechstens 2 Ticks', maxMember <= 2, `laengste Wartezeit ${maxMember} Ticks`);
   }
 
-  // ── [4] Zerstoerung in Ring 4 ──
-  console.log('\n[4] Zerstoerung in Ring 4:');
+  // ── [4] Zerstoerung in Ring 2 und Ring 4 ──
+  console.log('\n[4] Zerstoerung in Ring 2 und Ring 4:');
   {
-    let maxZerst = 0;
-    for (let lauf = 0; lauf < 20; lauf++) {
-      const opfer = sondeIn(4, lauf % 2 === 0 ? 1 : -1);
-      for (let i = 0; i < 4; i++) tick(peer);
-      for (let i = 0; i < Math.floor(rnd() * 3); i++) tick(peer);
-      zdos.destroyZDO(opfer.zdoid);
-      let n = 0;
-      let da = false;
-      while (!da && n < 40) {
-        n++;
-        da = tick(peer).destroyed.includes(schluessel(opfer));
+    for (const ring of [2, 4]) {
+      let maxZerst = 0;
+      for (let lauf = 0; lauf < 20; lauf++) {
+        const opfer = sondeIn(ring, lauf % 2 === 0 ? 1 : -1);
+        for (let i = 0; i < 4; i++) tick(peer);
+        for (let i = 0; i < lauf % 3; i++) tick(peer);
+        zdos.destroyZDO(opfer.zdoid);
+        let n = 0;
+        let da = false;
+        while (!da && n < 40) {
+          n++;
+          da = tick(peer).destroyed.includes(schluessel(opfer));
+        }
+        maxZerst = Math.max(maxZerst, da ? n : 99);
       }
-      maxZerst = Math.max(maxZerst, da ? n : 99);
+      check(`Zerstoerung in Ring ${ring} kommt im naechsten Tick (20 Laeufe)`, maxZerst === 1, `laengste Wartezeit ${maxZerst} Ticks`);
     }
-    check('Zerstoerung kommt im naechsten Tick (20 Laeufe)', maxZerst === 1, `laengste Wartezeit ${maxZerst} Ticks`);
   }
 
   // ── [5] Leerlauf: Pruefungen ──
@@ -289,7 +285,7 @@ async function main(): Promise<void> {
     const fensterGroesse = peer.fenster.hole(zdos, pz2.x, pz2.y, 4).length;
     const voll = fensterGroesse * 40;
     console.log(`  Fenster ${fensterGroesse} ZDOs, ${pruefungen} Pruefungen in 40 Ticks (voll: ${voll})`);
-    check('Pruefungen in 40 Ticks unter 65 % des Vollfensters', pruefungen < 0.65 * voll, `${((pruefungen / voll) * 100).toFixed(0)} %`);
+    check('Pruefungen in 40 Ticks zwischen 45 % und 65 % des Vollfensters', pruefungen < 0.65 * voll && pruefungen > 0.45 * voll, `${((pruefungen / voll) * 100).toFixed(0)} %`);
   }
 
   // ── [6] Erstuebertragung: alle Gruppen im ersten Tick voll ──

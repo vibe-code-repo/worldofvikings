@@ -11,7 +11,7 @@
  *      usable one comes back never equipped.
  *  [C] `unpackContainer`: 12 known stacks plus raw ones lose no known stack.
  *  [D] (N4-1) the order of a chest list does not matter; `removeByName` removes what it counts.
- *  [E] (N4-2) one check of a stack (`stapelBrauchbar`) for `load`, `unpackContainer` and `rebind`.
+ *  [E] (N4-2) one repair (`repariereStapel`) for `load`, `unpackContainer` and `rebind`; N5: repair instead of keeping, cells against kept ones, tests for `removeByName`.
  *  [F] (N4-3) the watch without a file: save in progress, scan rate, outdated receipt, broken last good state.
  *
  * Run: npx tsx server/test/gegenstaende-g2-n4.ts   (from the repo root)
@@ -130,7 +130,7 @@ function main(): void {
       setzeUnbekannteVerwahren(false);
     }
 
-    console.log('\n[B] rebind brings back only usable stacks (N3-3)');
+    console.log('\n[B] rebind brings back usable stacks, repairs the repairable, keeps the rest (N3-3, N5-1)');
     {
       setzeUnbekannteVerwahren(true);
       try {
@@ -148,10 +148,12 @@ function main(): void {
         check('setup: eight stacks kept raw', inv.verwahrte.length === 8 && inv.all.length === 0);
         wendeGegenstandsDatenAn(eintraege('Datenaxt'));
         const { warnungen } = ohneWarnung(() => inv.rebind());
-        check('the seven unusable stacks stay kept with a warning each', inv.verwahrte.length === 7 && warnungen.filter((w) => w.includes('unusable')).length === 7, `${inv.verwahrte.length} kept, ${warnungen.length} warnings`);
-        check('nothing unusable entered the grid: one stack of 7 with finite values', inv.all.length === 1 && inv.all[0].stack === 7 && Number.isFinite(inv.all[0].durability) && Number.isInteger(inv.all[0].stack));
-        check('the coming-back stack is not equipped', inv.all[0].equipped === false);
-        check('the kept ones are still written back unchanged', inv.serialize().filter((s) => s.name === 'Datenaxt').length === 8 && inv.verwahrte.some((s) => (s.stack as unknown) === 'x'));
+        check('the three without a usable amount (x, 0, -4) stay kept, one warning each', inv.verwahrte.length === 3 && warnungen.filter((w) => w.includes('unusable')).length === 3, `${inv.verwahrte.length} kept, ${warnungen.length} warnings`);
+        check('the five repairable ones came back, repaired with a warning each', inv.all.length === 5 && warnungen.filter((w) => w.includes('repaired')).length === 4, `${inv.all.length} back`);
+        check('every stack in the grid is usable: whole amount >= 1, finite durability >= 0, whole quality >= 1', inv.all.every((i) => Number.isInteger(i.stack) && i.stack >= 1 && Number.isFinite(i.durability) && i.durability >= 0 && Number.isInteger(i.quality) && i.quality >= 1));
+        check('1.5 became 1, the infinite durability the maximum, -5 became 0', inv.all.some((i) => i.stack === 1) && inv.all.some((i) => i.durability === 0) && inv.all.every((i) => i.durability <= (i.shared.maxDurability ?? 1e9)));
+        check('nothing is equipped that came back', inv.all.every((i) => i.equipped === false));
+        check('the kept ones are still written back unchanged', inv.verwahrte.some((s) => (s.stack as unknown) === 'x') && inv.serialize().length === 8);
       } finally {
         setzeUnbekannteVerwahren(false);
         wendeGegenstandsDatenAn([]);
@@ -201,40 +203,72 @@ function main(): void {
         schief.addItem(holz(), 5);
         schief.all[0].gridY = 9;
         check('a stack outside the grid: removeByName is true and removes it (no half removal)', schief.removeByName('Wood', 5) === true && schief.countOf('Wood') === 0);
-        const roh2 = unpackContainer('[["Wood",0,0,1],["Wood","2",0,1],["Wood",3,-5,1]]');
-        check('unusable known tuples (amount 0, "2", durability -5) are kept, never in the grid, never dropped', roh2.all.length === 0 && roh2.verwahrte.length === 3);
+        const roh2 = unpackContainer('[["Wood",0,0,1],["Wood","2",0,1],["Wood",null,0,1]]');
+        check('tuples without a usable amount (0, "2", null) are kept, never in the grid, never dropped', roh2.all.length === 0 && roh2.verwahrte.length === 3);
+        const mitMuell = unpackContainer(`[["Wood",0,0,1],${zwoelf}]`);
+        check('an unusable tuple in front does not take one of the 12 grid cells (a legitimate 12th is not pushed out)', mitMuell.all.length === 12 && mitMuell.verwahrte.length === 1, `${mitMuell.all.length} in grid`);
+        const repariert = unpackContainer('[["Wood",3,-5,0]]');
+        check('a repairable tuple (durability -5, quality 0) lies in the grid, repaired', repariert.all.length === 1 && repariert.all[0].durability === 0 && repariert.all[0].quality === 1 && repariert.verwahrte.length === 0);
+        const nan = new Inventory();
+        nan.addItem(holz(), 5);
+        nan.all[0].stack = Number.NaN;
+        check('removeByName that cannot remove everything is false (a NaN stack)', nan.removeByName('Wood', 5) === false);
       } finally {
         setzeUnbekannteVerwahren(false);
         wendeGegenstandsDatenAn([]);
       }
     }
 
-    console.log('\n[E] one check for load, unpack and rebind (N4-2)');
+    console.log('\n[E] one repair for load, unpack and rebind (N4-2, N5-1, N5-2)');
     {
-      const schlecht: Record<string, unknown>[] = [
-        { stack: 0 }, { stack: 1.5 }, { stack: -1 }, { stack: '2' }, { stack: null }, { stack: 1e308 }, { stack: 2 ** 53 }, { stack: STAPEL_OBERGRENZE + 1 },
-        { durability: -5 }, { durability: Number.POSITIVE_INFINITY }, { durability: Number.NaN }, { quality: -1 }, { quality: 0 }, { quality: 1.5 }, { quality: null },
-        { stack: 'x', durability: Number.NaN, equipped: true },
-      ];
+      const unbrauchbar: Record<string, unknown>[] = [{ stack: 0 }, { stack: -1 }, { stack: '2' }, { stack: null }, { stack: Number.NaN }, { stack: 0.5 }];
       const inv = new Inventory();
-      const { warnungen } = ohneWarnung(() => inv.load(schlecht.map((x, n) => gespeichert('Wood', { ...x, gridX: n % 8, gridY: (n / 8) | 0 }))));
-      check('load: all 16 unusable stacks stay kept, none in the grid, one warning each', inv.all.length === 0 && inv.verwahrte.length === 16 && warnungen.length === 16, `${inv.all.length} in grid, ${inv.verwahrte.length} kept`);
+      const { warnungen } = ohneWarnung(() => inv.load(unbrauchbar.map((x, n) => gespeichert('Wood', { ...x, gridX: n, gridY: 0 }))));
+      check('load: a stack without a usable amount (0, -1, "2", null, NaN, 0.5) is kept, none in the grid, one warning each', inv.all.length === 0 && inv.verwahrte.length === 6 && warnungen.length === 6, `${inv.all.length} in grid, ${inv.verwahrte.length} kept`);
       const weg = new Inventory();
       weg.load(JSON.parse(JSON.stringify(inv.serialize())) as never);
-      check('after a JSON round trip (NaN/Infinity become null) the next login still keeps them all (16 kept, 0 in the grid)', weg.all.length === 0 && weg.verwahrte.length === 16, `${weg.all.length} / ${weg.verwahrte.length}`);
+      check('after a JSON round trip the next login keeps them all (6 kept, 0 in the grid)', weg.all.length === 0 && weg.verwahrte.length === 6, `${weg.all.length} / ${weg.verwahrte.length}`);
+
+      const reparierbar: Record<string, unknown>[] = [
+        { stack: 1.5 }, { durability: -5 }, { durability: Number.POSITIVE_INFINITY }, { durability: Number.NaN }, { quality: -1 }, { quality: 0 }, { quality: 1.5 }, { quality: null }, { quality: Number.NaN },
+      ];
+      const rep = new Inventory();
+      const r = ohneWarnung(() => rep.load(reparierbar.map((x, n) => gespeichert('Wood', { ...x, gridX: n % 8, gridY: (n / 8) | 0 }))));
+      check('load: a repairable stack is repaired, not kept (9 in the grid, none kept, one warning each)', rep.all.length === 9 && rep.verwahrte.length === 0 && r.warnungen.filter((w) => w.includes('repaired')).length === 9, `${rep.all.length} in grid, ${rep.verwahrte.length} kept`);
+      check('quality is a whole number >= 1, durability finite and >= 0, amount a whole number >= 1', rep.all.every((i) => Number.isInteger(i.quality) && i.quality >= 1 && Number.isFinite(i.durability) && i.durability >= 0 && Number.isInteger(i.stack) && i.stack >= 1));
+      const ausnahmen = new Inventory();
+      ohneWarnung(() => ausnahmen.load([gespeichert('Wood', { stack: 1e308 })]));
+      check('an absurd amount (1e308) is brought to 9999 and split, not kept and not an endless loop', ausnahmen.verwahrte.length === 0 && ausnahmen.countOf('Wood') === STAPEL_OBERGRENZE, `${ausnahmen.countOf('Wood')}`);
+      const hoch = new Inventory();
+      ohneWarnung(() => hoch.load([gespeichert('Wood', { durability: 99999 })]));
+      const max = findItem('Wood')!.maxDurability;
+      check('durability over the maximum is brought to it (when the item has one)', max === undefined || hoch.all[0].durability === max, `${hoch.all[0].durability} / ${max}`);
+
       const gut = new Inventory();
       gut.load([
-        gespeichert('Wood', { stack: STAPEL_OBERGRENZE, equipped: true, gridX: 0, gridY: 0 }),
+        gespeichert('Wood', { stack: 20, equipped: true, gridX: 0, gridY: 0 }),
         gespeichert('Wood', { gridX: 99, gridY: -3 }),
         gespeichert('Wood', { gridX: 0, gridY: 0 }),
         gespeichert('Wood', { gridX: 1.5, gridY: 2 }),
       ]);
-      const felder = gut.all.filter((i) => i.shared.name === 'Wood');
-      check('usable stacks: a cell outside the grid, a fraction or a taken cell gets a free one; each stack owns its cell', felder.length >= 4 && eindeutig(zellen(gut)) && gut.all.every((i) => i.gridX >= 0 && i.gridX < gut.width && i.gridY >= 0 && i.gridY < gut.height));
+      check('a cell outside the grid, a fraction or a taken cell gets a free one; each stack owns its cell', gut.all.length === 4 && eindeutig(zellen(gut)) && gut.all.every((i) => i.gridX >= 0 && i.gridX < gut.width && i.gridY >= 0 && i.gridY < gut.height));
       check('equipped stays a real boolean (true kept for the server to derive from)', gut.all.some((i) => i.equipped === true) && gut.all.every((i) => typeof i.equipped === 'boolean'));
       const voll = new Inventory(1, 1);
       ohneWarnung(() => voll.load([gespeichert('Wood', { gridX: 0, gridY: 0 }), gespeichert('Stone', { gridX: 0, gridY: 0 })]));
       check('no free cell for a stack with a taken cell: it is kept, not dropped', voll.all.length === 1 && voll.verwahrte.length === 1);
+
+      setzeUnbekannteVerwahren(true);
+      try {
+        for (const rohZuerst of [true, false]) {
+          const a = new Inventory();
+          const rohStapel = gespeichert('Datenaxt', { gridX: 1, gridY: 1 });
+          const holzStapel = gespeichert('Wood', { gridX: 1, gridY: 1 });
+          ohneWarnung(() => a.load(rohZuerst ? [rohStapel, holzStapel] : [holzStapel, rohStapel]));
+          check(`N5-2: a kept raw stack and a known one on the same cell (${rohZuerst ? 'raw first' : 'known first'}): every stack owns its own cell`, a.all.length === 1 && a.verwahrte.length === 1 && eindeutig(zellen(a)), zellen(a).join(' | '));
+        }
+      } finally {
+        setzeUnbekannteVerwahren(false);
+      }
     }
 
     console.log('\n[F] the watch without a file: save in progress, scan rate, outdated receipt, broken last good state (N4-3, hints)');

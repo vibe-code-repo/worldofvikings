@@ -170,7 +170,7 @@ async function main(): Promise<void> {
         wendeGegenstandsDatenAn(eintraege('Datenaxt'));
         alt.rebind();
         const axt = alt.all.find((s) => s.shared.name === 'Datenaxt');
-        check('old save with two stacks on one cell: the coming-back stack takes a free cell, no two on one cell', !!axt && alt.verwahrte.length === 0 && eindeutig(zellen(alt)) && (axt.gridX !== 0 || axt.gridY !== 3), axt ? `${axt.gridX},${axt.gridY}` : 'missing');
+        check('old save with two stacks on one cell: load already gives the known one a free cell (N5), the coming-back stack keeps its own, no two on one cell', !!axt && alt.verwahrte.length === 0 && eindeutig(zellen(alt)) && axt.gridX === 0 && axt.gridY === 3 && (() => { const h = alt.all.find((x) => x.shared.name === 'Wood')!; return !(h.gridX === 0 && h.gridY === 3); })(), axt ? `${axt.gridX},${axt.gridY}` : 'missing');
       } finally {
         setzeUnbekannteVerwahren(false);
         wendeGegenstandsDatenAn([]);
@@ -202,10 +202,7 @@ async function main(): Promise<void> {
         // no free cell: stays kept, comes back when a cell is free
         wendeGegenstandsDatenAn([]);
         const voll = new Inventory();
-        voll.load([
-          { name: 'Wood', stack: 50, durability: 0, quality: 1, gridX: 0, gridY: 0, equipped: false },
-          { name: 'Datenaxt', stack: 4, durability: 0, quality: 1, gridX: 0, gridY: 0, equipped: false },
-        ]);
+        voll.load([{ name: 'Datenaxt', stack: 4, durability: 0, quality: 1, gridX: 99, gridY: 99, equipped: false }]); // a cell of its own that does not exist
         voll.addItem(holz(), 100000);
         wendeGegenstandsDatenAn(eintraege('Datenaxt'));
         const { warnungen } = ohneWarnung(() => voll.rebind());

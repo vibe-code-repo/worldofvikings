@@ -35,7 +35,7 @@
  * zu D9.
  */
 
-import { Inventory, stapelBrauchbar, unbekannteWerdenVerwahrt } from './Inventory.js';
+import { Inventory, repariereStapel, unbekannteWerdenVerwahrt } from './Inventory.js';
 import { findItem } from './itemDefs.js';
 import type { SavedItemStack } from './ItemData.js';
 
@@ -105,7 +105,9 @@ export function unpackContainer(json: string): Inventory {
       gridY: 0,
       equipped: false,
     };
-    if (bekannt && stapelBrauchbar(s) && imRaster.length < CONTAINER_SLOTS) imRaster.push(s);
+    const shared = findItem(name);
+    const r = shared ? repariereStapel(s, shared) : null;
+    if (r && imRaster.length < CONTAINER_SLOTS) imRaster.push(r.stack); // repaired like `load` does, so it takes the cell it will keep
     else verwahrt.push(s);
   }
   const zelle = (n: number): { gridX: number; gridY: number } => ({ gridX: n % CONTAINER_WIDTH, gridY: (n / CONTAINER_WIDTH) | 0 });

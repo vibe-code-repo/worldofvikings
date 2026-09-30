@@ -90,7 +90,7 @@
 import { platzierungenFehler, platzierungenFehlerText, sanitizeWorldLayout, type PlatzierungsFehler } from './sanitize.js';
 import { WORLD_LAYOUT_VERSION, type WorldLayout } from './types.js';
 
-export const OP_COLLECTIONS = ['placements', 'regions', 'routes', 'rivers', 'lakes', 'continents'] as const;
+export const OP_COLLECTIONS = ['placements', 'regions', 'routes', 'rivers', 'lakes', 'continents', 'bausaetze'] as const;
 export type OpCollection = (typeof OP_COLLECTIONS)[number];
 export type OpKind = 'setze' | 'aendere' | 'entferne';
 
@@ -134,6 +134,7 @@ export const OP_LIMITS: Readonly<Record<OpCollection, number>> = {
   rivers: 256,
   lakes: 256,
   continents: 32,
+  bausaetze: 256,
 };
 
 /** A Vorgang with more ops than this is refused; a drag is merged long before. */
@@ -372,8 +373,8 @@ export function wende(layout: WorldLayout, eingabe: unknown, san: LayoutSanitize
   const nurZahl: { sammlung: OpCollection; id: string }[] = [];
   const einfuegen = (l: OpEntry[], eintrag: OpEntry, op: Op): void => {
     const da = vorhandene.get(op.sammlung)!;
-    if (op.sammlung === 'placements') {
-      l.push(eintrag); // unordered, see the header
+    if (op.sammlung === 'placements' || op.sammlung === 'bausaetze') {
+      l.push(eintrag); // unordered, see the header (kit instances are sorted by id like placements)
     } else if (op.nach === null) {
       l.splice(0, 0, eintrag);
     } else if (typeof op.nach === 'string') {

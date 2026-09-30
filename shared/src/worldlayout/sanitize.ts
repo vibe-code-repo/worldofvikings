@@ -35,6 +35,7 @@ import {
   type ZoneHeightDelta,
   type WorldLayout,
 } from './types.js';
+import { sanitizeBausatzInstanzen } from '../bausatz/sanitize.js';
 import { gleicherInhalt, ID_RE, merkeZusammengefasst, platzierungenNormalisieren } from './platzierungsId.js';
 
 // Über diese Datei nach außen (index.ts lässt sie ohnehin durch): die Werkzeuge, die eine Platzierung anlegen.
@@ -789,6 +790,11 @@ export function sanitizeWorldLayoutMitBericht(input: unknown, _optionen: Sanitiz
   // Exakte Duplikate zusammenfassen, jedem Eintrag eine eindeutige `id` geben,
   // nach `id` sortieren (platzierungsId.ts).
   const { placements, zusammengefasst } = platzierungenNormalisieren(roheEintraege);
+  // Bausatz-Instanzen (C2): geklemmt/verworfen wie Routen; `kennungen` darf keine Platzierungs-id des Dokuments nehmen.
+  const bausaetze = sanitizeBausatzInstanzen(
+    d.bausaetze,
+    new Set(placements.flatMap((p) => (p.id === undefined ? [] : [p.id])))
+  );
 
   const rivers: RiverDef[] = [];
   if (Array.isArray(d.rivers)) {
@@ -894,6 +900,7 @@ export function sanitizeWorldLayoutMitBericht(input: unknown, _optionen: Sanitiz
     ...(rivers.length > 0 ? { rivers } : {}),
     ...(lakes.length > 0 ? { lakes } : {}),
     ...(routes.length > 0 ? { routes } : {}),
+    ...(bausaetze.length > 0 ? { bausaetze } : {}),
     ...(heightDeltas.length > 0 ? { heightDeltas } : {}),
   };
   merkeZusammengefasst(layout, zusammengefasst);

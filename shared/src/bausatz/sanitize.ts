@@ -240,43 +240,48 @@ function koordinate(v: unknown): number | null {
   return rundePosition(v);
 }
 
-function kennungenBereinigen(roh: unknown): Record<string, string> | undefined {
+/** `belegt` = the values already taken in the document (by earlier instances and by placements). */
+function kennungenBereinigen(roh: unknown, belegt: ReadonlySet<string>): Record<string, string> | undefined {
   if (!istObjekt(roh)) return undefined;
   const aus: Record<string, string> = {};
-  const belegt = new Set<string>();
+  const hier = new Set<string>();
   for (const teilId of Object.keys(roh).sort()) {
     const wert = roh[teilId];
-    if (!ID_RE.test(teilId) || typeof wert !== 'string' || !ID_RE.test(wert) || belegt.has(wert)) continue;
-    belegt.add(wert);
+    if (!ID_RE.test(teilId) || typeof wert !== 'string' || !ID_RE.test(wert) || belegt.has(wert) || hier.has(wert)) continue;
+    hier.add(wert);
     aus[teilId] = wert;
   }
   return Object.keys(aus).length > 0 ? aus : undefined;
 }
 
-function instanzEinzeln(roh: unknown): BausatzInstanzDef | null {
+function instanzEinzeln(roh: unknown, belegt: ReadonlySet<string> = new Set()): BausatzInstanzDef | null {
   if (!istObjekt(roh)) return null;
   if (typeof roh.id !== 'string' || !ID_RE.test(roh.id) || typeof roh.bausatz !== 'string' || !ID_RE.test(roh.bausatz)) return null;
   const x = koordinate(roh.x);
   const z = koordinate(roh.z);
   if (x === null || z === null) return null;
   const yaw = roh.yaw === undefined ? 0 : rundeWinkel(Math.min(BAUSATZ_WINKEL_MAX, Math.max(-BAUSATZ_WINKEL_MAX, Number.isFinite(Number(roh.yaw)) ? Number(roh.yaw) : 0)));
-  const kennungen = kennungenBereinigen(roh.kennungen);
+  const kennungen = kennungenBereinigen(roh.kennungen, belegt);
   return { id: roh.id, bausatz: roh.bausatz, x, z, ...(yaw !== 0 ? { yaw } : {}), ...(kennungen ? { kennungen } : {}) };
 }
 
 /**
  * Clamps and drops raw instances like routes: a bad entry disappears, the first
  * of two entries with the same id stays, at most `BAUSATZ_INSTANZEN_MAX` are read.
+ * A `kennungen` value that equals a placement id (`platzierungsIds`) or was given
+ * to an earlier instance is dropped (the write path rejects it instead).
  * Sorted by id, so writing the list twice gives the same bytes.
  */
-export function sanitizeBausatzInstanzen(roh: unknown): BausatzInstanzDef[] {
+export function sanitizeBausatzInstanzen(roh: unknown, platzierungsIds: ReadonlySet<string> = new Set()): BausatzInstanzDef[] {
   if (!Array.isArray(roh)) return [];
   const aus: BausatzInstanzDef[] = [];
   const ids = new Set<string>();
+  const belegt = new Set(platzierungsIds);
   for (const e of roh.slice(0, BAUSATZ_INSTANZEN_MAX)) {
-    const i = instanzEinzeln(e);
+    const i = instanzEinzeln(e, belegt);
     if (i === null || ids.has(i.id)) continue;
     ids.add(i.id);
+    for (const w of Object.values(i.kennungen ?? {})) belegt.add(w);
     aus.push(i);
   }
   return aus.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -312,7 +317,8 @@ function wertKurz(v: unknown): unknown {
  *  - `schluessel`: unknown key;
  *  - `id` = `doppelt`: the same id twice with different content;
  *  - `kennungen`: not an object, a value that is no `ID_RE` id, a value equal to
- *    an id in `platzierungsIds` (the placement ids of the same document), or a value given twice.
+ *    an id in `platzierungsIds` (the placement ids of the same document), or a value given twice
+ *    (in one instance or across instances).
  * An unknown KIT is not among them: that is a finding of `pruefeLayout`, so the
  * document stays writable on a machine without that kit file.
  * Only the first `BAUSATZ_INSTANZEN_MAX` entries are looked at; more is a separate
@@ -323,12 +329,14 @@ export function bausatzInstanzenFehler(roh: unknown, platzierungsIds: ReadonlySe
   if (!Array.isArray(roh)) return fehler;
   const erste = new Map<string, string>();
   const gemeldet = new Set<string>();
+  const vergebenGlobal = new Set<string>(); // kennungen values over ALL instances: one address, one part
   roh.slice(0, BAUSATZ_INSTANZEN_MAX).forEach((e, i) => {
     const id = istObjekt(e) && typeof e.id === 'string' && e.id.length <= 64 ? e.id : `#${i}`;
     if (!istObjekt(e)) {
       fehler.push({ id, feld: 'eintrag', wert: wertKurz(e) });
       return;
     }
+    const wiederholt = typeof e.id === 'string' && erste.has(e.id); // a repeat of an earlier id: its kennungen are not counted again
     if (typeof e.id !== 'string' || !ID_RE.test(e.id)) fehler.push({ id, feld: 'id', wert: wertKurz(e.id) });
     if (typeof e.bausatz !== 'string' || !ID_RE.test(e.bausatz)) fehler.push({ id, feld: 'bausatz', wert: wertKurz(e.bausatz) });
     if (koordinate(e.x) === null) fehler.push({ id, feld: 'x', wert: wertKurz(e.x) });
@@ -337,13 +345,12 @@ export function bausatzInstanzenFehler(roh: unknown, platzierungsIds: ReadonlySe
     if (e.kennungen !== undefined) {
       if (!istObjekt(e.kennungen)) fehler.push({ id, feld: 'kennungen', wert: wertKurz(e.kennungen) });
       else {
-        const vergeben = new Set<string>();
         for (const teilId of Object.keys(e.kennungen).sort()) {
           const wert = e.kennungen[teilId];
           if (typeof wert !== 'string' || !ID_RE.test(wert)) fehler.push({ id, feld: 'kennungen', wert: `${teilId}: ${JSON.stringify(wertKurz(wert))}` });
           else if (platzierungsIds.has(wert)) fehler.push({ id, feld: 'kennungen', wert: `${teilId}: ${wert} (Platzierungs-id)` });
-          else if (vergeben.has(wert)) fehler.push({ id, feld: 'kennungen', wert: `${teilId}: ${wert} (doppelt)` });
-          vergeben.add(typeof wert === 'string' ? wert : '');
+          else if (!wiederholt && vergebenGlobal.has(wert)) fehler.push({ id, feld: 'kennungen', wert: `${teilId}: ${wert} (doppelt)` });
+          if (typeof wert === 'string' && !wiederholt) vergebenGlobal.add(wert);
         }
       }
     }

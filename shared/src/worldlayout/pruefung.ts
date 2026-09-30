@@ -19,6 +19,7 @@ import { FEATURES } from '../features.js';
 import { SPAWN_TABLE } from '../spawnData.js';
 import { PREFABS_BY_NAME, istEigenesModell } from '../prefabs.js';
 import { istNpcPrefab } from '../npc.js';
+import type { Bausatz } from '../bausatz/types.js';
 import type { PlacementDef, WorldLayout } from './types.js';
 import { gleicherInhalt, zusammengefassteDuplikate } from './platzierungsId.js';
 import { MAX_KANDIDATEN } from './compile.js';
@@ -27,7 +28,7 @@ import { ueberlappungsGruppen, type UeberlappungsGruppe } from './kartenAuswertu
 export interface LayoutBefund {
   /** Regions-ID bzw. 'placements' — wo der Fund liegt. */
   wo: string;
-  art: 'vegetation' | 'location' | 'spawn' | 'placement' | 'route' | 'welt' | 'modell';
+  art: 'vegetation' | 'location' | 'spawn' | 'placement' | 'route' | 'welt' | 'modell' | 'bausatz';
   text: string;
   /**
    * Der eine Eintrag, um den es geht, als Adresse — nur bei Befunden, die GENAU eine Platzierung meinen
@@ -35,7 +36,7 @@ export interface LayoutBefund {
    * damit zum Objekt, statt den Text zu zerlegen. Befunde, die Objekte zählen („kein eigenes Modell: X (n)“)
    * oder ein exaktes Duplikat melden, das schon zusammengelegt ist, tragen keine.
    */
-  ref?: { sammlung: 'placements'; id: string };
+  ref?: { sammlung: 'placements' | 'bausaetze'; id: string };
 }
 
 /** Die Adresse einer Platzierung für einen Befund; ohne `id` (ungeprüftes Dokument) keine. */
@@ -43,7 +44,11 @@ function refVon(p: PlacementDef): Pick<LayoutBefund, 'ref'> {
   return p.id === undefined ? {} : { ref: { sammlung: 'placements', id: p.id } };
 }
 
-export function pruefeLayout(layout: WorldLayout): LayoutBefund[] {
+/**
+ * `bausaetze`: der Katalog der geladenen Bausatz-Dateien (Id → Bausatz). Ohne Katalog entfällt die Bausatz-Prüfung
+ * (der Aufrufer kennt die Dateien nicht, z. B. der Editor im Browser).
+ */
+export function pruefeLayout(layout: WorldLayout, bausaetze?: ReadonlyMap<string, Bausatz>): LayoutBefund[] {
   const befunde: LayoutBefund[] = [];
   const vegNamen = new Set(FOLIAGE.map((f) => f.prefabName));
   const locNamen = new Set(FEATURES.map((f) => f.name));
@@ -117,6 +122,7 @@ export function pruefeLayout(layout: WorldLayout): LayoutBefund[] {
     }
   }
   befunde.push(...platzierungsBefunde(layout));
+  if (bausaetze) befunde.push(...bausatzBefunde(layout, bausaetze));
   for (const [name, anzahl] of fremdeModelle) {
     befunde.push({
       wo: 'placements',
@@ -229,6 +235,41 @@ function platzierungsBefunde(layout: WorldLayout): LayoutBefund[] {
     }
     if (gleiche) gleiche.push(p);
     else nachPrefab.set(p.prefab, [p]);
+  }
+  return befunde;
+}
+
+/**
+ * Befunde zu den Bausatz-Instanzen: ein unbekannter Bausatz (Datei fehlt) und unbekannte Teil-Prefabs, die Letzteren
+ * je NAME und Bausatz gezählt (eine Zeile „U_Palisade (51 Teile in startdorf)“, nicht 51 Zeilen). Der Server schont
+ * die Objekte einer unbekannten Instanz; hier steht nur der Hinweis. Ein unbekannter Bausatz ist absichtlich kein
+ * Schreibfehler (422), sonst wäre das Dokument auf einem Rechner ohne die Datei nicht mehr speicherbar.
+ */
+function bausatzBefunde(layout: WorldLayout, katalog: ReadonlyMap<string, Bausatz>): LayoutBefund[] {
+  const befunde: LayoutBefund[] = [];
+  const gezaehlt = new Set<string>();
+  for (const i of layout.bausaetze ?? []) {
+    const ref = { sammlung: 'bausaetze', id: i.id } as const;
+    const bausatz = katalog.get(i.bausatz);
+    if (!bausatz) {
+      befunde.push({ wo: 'bausaetze', art: 'bausatz', text: `unbekannter Bausatz: ${i.bausatz} (Instanz ${i.id})`, ref });
+      continue;
+    }
+    // Zwei Instanzen desselben Bausatzes melden dieselben Prefabs nur einmal.
+    if (gezaehlt.has(i.bausatz)) continue;
+    gezaehlt.add(i.bausatz);
+    const fremde = new Map<string, number>();
+    for (const t of bausatz.teile) {
+      if (!PREFABS_BY_NAME.has(t.prefab)) fremde.set(t.prefab, (fremde.get(t.prefab) ?? 0) + 1);
+    }
+    for (const [name, anzahl] of fremde) {
+      befunde.push({
+        wo: 'bausaetze',
+        art: 'bausatz',
+        text: `unbekanntes Prefab: ${name} (${anzahl} Teil${anzahl === 1 ? '' : 'e'} in ${i.bausatz})`,
+        ref,
+      });
+    }
   }
   return befunde;
 }

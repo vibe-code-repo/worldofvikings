@@ -96,7 +96,7 @@ import { PrefabManager } from './prefab/PrefabManager.js';
 import type { Prefab } from './prefab/Prefab.js';
 import { ZoneManager } from './world/ZoneManager.js';
 import { setzeZonenZurueck } from './world/zonenRuecksetzer.js';
-import { SpawnSystem } from './world/SpawnSystem.js';
+import { SpawnSystem, type SpawnZielInfo } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
 import { befreieSpielerbauten, istSpielerbau, layoutAbgleich, type LayoutAbgleichErgebnis, type LayoutAbgleichKontext } from './world/layoutAbgleich.js';
 import { AggroSystem } from './world/AggroSystem.js';
@@ -1082,6 +1082,8 @@ export class WovServer {
       this.weltUmgebung
     );
     this.welten.set(HAUPTWELT_ID, this.hauptwelt);
+    // Kreaturen fragen dieselbe Kollisionswelt wie die Spieler (Felsen, Bauten).
+    if (this.hauptwelt.spawns) this.hauptwelt.spawns.kollision = this.kollisionswelt;
     console.log(`[WoV] Worldgen ready in ${Date.now() - t0}ms (seed "${this.config.worldSeed}")`);
 
     // Phase G: dungeon documents/entrances from disk, then wire the
@@ -1829,6 +1831,7 @@ export class WovServer {
       // am Umkreis der Spieler. Eine leerstehende Instanz kostet nichts.
       const positionenJeWelt = new Map<string, Vector3[]>();
       const zieleJeWelt = new Map<string, Vector3[]>();
+      const zielInfoJeWelt = new Map<string, SpawnZielInfo[]>();
       for (const p of peers) {
         // A dead player stays in the position list (zones, spawns and routes keep
         // running around him, creatures do not despawn because he lies) but is no
@@ -1840,12 +1843,16 @@ export class WovServer {
         const ziele = zieleJeWelt.get(p.worldId);
         if (ziele) ziele.push(p.position);
         else zieleJeWelt.set(p.worldId, [p.position]);
+        const info = { id: String(p.userId), blick: p.blickYaw };
+        const infos = zielInfoJeWelt.get(p.worldId);
+        if (infos) infos.push(info);
+        else zielInfoJeWelt.set(p.worldId, [info]);
       }
       const weltenStart = performance.now();
       for (const welt of this.welten.values()) {
         const positionen = positionenJeWelt.get(welt.id);
         if (!positionen?.length) continue;
-        const { neueZonen } = welt.tick(deltaSec, positionen, zieleJeWelt.get(welt.id) ?? []);
+        const { neueZonen } = welt.tick(deltaSec, positionen, zieleJeWelt.get(welt.id) ?? [], zielInfoJeWelt.get(welt.id));
         if (neueZonen > 0) {
           console.log(
             `[WoV] Vegetation (${welt.id}): +${neueZonen} zone(s) ` +
@@ -3799,7 +3806,7 @@ export class WovServer {
       ziel.setInt(HEALTH_MEMBER, hp);
       ziel.revision.reviseData();
       ziel.dirty = true;
-      this.spawns?.treffer(ziel);
+      this.spawns?.treffer(ziel, { id: String(peer.userId), schaden });
     }
   }
 

@@ -33,7 +33,7 @@ import type { HeightmapProvider, IGeo, Vector3 } from '@wov/shared';
 import type { GeoManager } from '@wov/shared';
 import { ZDOManager } from '../zdo/ZDOManager.js';
 import { ZoneManager, type ZoneManagerOptions } from './ZoneManager.js';
-import { SpawnSystem, type SpawnSystemOptions } from './SpawnSystem.js';
+import { SpawnSystem, type SpawnSystemOptions, type SpawnZielInfo } from './SpawnSystem.js';
 import { AggroSystem } from './AggroSystem.js';
 import { RoutenLaeufer } from './RoutenLaeufer.js';
 
@@ -176,9 +176,14 @@ export class Welt {
    * `positionen`). Ein toter Spieler bleibt in `positionen` — Zonen, Spawns und
    * Routen laufen weiter — fällt aber aus `ziele` heraus.
    */
-  tick(deltaSec: number, positionen: readonly Vector3[], ziele: readonly Vector3[] = positionen): { neueZonen: number } {
+  tick(
+    deltaSec: number,
+    positionen: readonly Vector3[],
+    ziele: readonly Vector3[] = positionen,
+    zielInfo: readonly SpawnZielInfo[] = []
+  ): { neueZonen: number } {
     const neueZonen = this.mitZonengenerierung ? this.zones.update(positionen) : 0;
-    this.spawns?.update(deltaSec, positionen, ziele);
+    this.spawns?.update(deltaSec, positionen, ziele, zielInfo);
     this.routen.update(deltaSec, positionen);
     this.aggro.update(deltaSec, ziele);
     return { neueZonen };

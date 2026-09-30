@@ -63,6 +63,7 @@ export * from './npc.js';
 export * from './texte.js';
 export * from './leben.js';
 export * from './aggro.js';
+export * from './kiZustand.js';
 export * from './vegetation.js';
 export * from './flora.js';
 // Die Streutabelle der Store-Vegetation. Flach exportiert wie flora.js,

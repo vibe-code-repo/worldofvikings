@@ -32,6 +32,11 @@ import {
 export type BausatzKatalog = ReadonlyMap<string, Bausatz> | readonly Bausatz[];
 
 const endlich = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+/** Copies a triple (length read once); anything that is not three long becomes `[]`, which `skalaEndlich` rejects. */
+const kopiereSkala = (a: readonly number[]): BausatzSkala => {
+  const laenge = a.length;
+  return (laenge === 3 ? [a[0]!, a[1]!, a[2]!] : []) as unknown as BausatzSkala;
+};
 const skalaEndlich = (s: BausatzSkala): boolean => (typeof s === 'number' ? endlich(s) : Array.isArray(s) && s.length === 3 && s.every(endlich));
 
 export function loeseBausaetzeAuf(
@@ -76,8 +81,8 @@ export function loeseBausaetzeAuf(
     const s = Math.sin(yaw);
     for (const t of bausatz.teile) {
       const { id: teilId, prefab, dx, dz, dy, yaw: teilYaw, pitch, roll, scale: skalaRoh, einebnen, gruppe } = t;
-      // the scale triple is copied once as well, the copy is checked and passed on
-      const skala = Array.isArray(skalaRoh) && skalaRoh.length === 3 ? ([skalaRoh[0], skalaRoh[1], skalaRoh[2]] as BausatzSkala) : skalaRoh;
+      // a scale triple is ALWAYS copied before anything is checked (length included); only the copy is checked and passed on
+      const skala = Array.isArray(skalaRoh) ? kopiereSkala(skalaRoh) : skalaRoh;
       // An address in `kennungen` for a part id this kit does not have is never applied here, but it stays in the document:
       // a part inserted later with that id would take it over. `pruefeLayout` reports such orphans.
       const adresse = kennungen !== undefined && Object.hasOwn(kennungen, teilId) ? kennungen[teilId] : undefined;

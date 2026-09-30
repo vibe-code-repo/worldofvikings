@@ -239,10 +239,88 @@ try {
   pruefe('kein eigenes Modell: das eigene Prefab wird nicht gemeldet', !befunde.some((b) => b.text.includes(`: ${eigen} `)));
   pruefe('kein eigenes Modell: ohne Katalog kein Befund für Teile', pruefeLayout(welt).every((b) => b.wo !== 'bausaetze'));
   const verwaist = befunde.filter((b) => b.text.startsWith('verwaiste Kennung'));
-  pruefe('verwaiste Kennung: je Instanz eine Zeile (k-1, k-2), nicht für p1 und nicht für k-3', verwaist.length === 2 && verwaist.every((b) => b.art === 'bausatz' && b.wo === 'bausaetze'), JSON.stringify(verwaist.map((b) => b.text)));
+  pruefe('verwaiste Kennung: je Instanz eine Zeile (k-1, k-2), nicht für p1 und nicht für k-3', verwaist.length === 2 && verwaist.every((b) => b.art === 'welt' && b.wo === 'bausaetze'), JSON.stringify(verwaist.map((b) => b.text)));
   pruefe('verwaiste Kennung: Text nennt Instanz, Teil-id und Adresse', verwaist.some((b) => b.text.includes('k-1') && b.text.includes('weg') && b.text.includes('adr-weg') && b.ref?.id === 'k-1') && verwaist.some((b) => b.text.includes('k-2') && b.text.includes('adr-zwei') && b.ref?.id === 'k-2'));
   pruefe('verwaiste Kennung: gültiger Eintrag (p1 → adr-1) bleibt stumm', !befunde.some((b) => b.text.includes('adr-1')));
   pruefe('verwaiste Kennung: ohne Katalog kein Befund', pruefeLayout(welt).every((b) => !b.text.startsWith('verwaiste Kennung')));
+}
+
+// ── N4: pruefeLayout ──────────────────────────────────────────────────────
+{
+  const namen = [...PREFABS_BY_NAME.keys()];
+  const eigen = namen.find((n) => istEigenesModell(n))!;
+  const fremd = namen.find((n) => !istEigenesModell(n))!;
+  const kitVon = (teile: Record<string, unknown>[]) => sanitizeBausatz({ bausatzVersion: 1, id: 'kit', name: 'Kit', grundflaeche: { halbX: 5, halbZ: 5 }, teile })!;
+  const teilMit = (id: string, prefab: string): Record<string, unknown> => ({ id, prefab, dx: 0, dz: 0, yaw: 0, scale: 1 });
+  const weltMit = (bausaetze: unknown[]) => sanitizeWorldLayout({ ...dev, bausaetze })!;
+
+  // B1: 256 instances x 4000 orphaned kennungen: no throw, exactly 256 findings (one per instance), timed
+  {
+    const leerKit = kitVon([teilMit('p1', eigen)]);
+    // addresses must be unique across instances, so each instance gets its own
+    const grosse = weltMit(Array.from({ length: 256 }, (_, n) => inst({ id: `k-${n}`, bausatz: 'kit', x: n, kennungen: Object.fromEntries(Array.from({ length: 4000 }, (_, j) => [`weg${j}`, `adr-${n}-${j}`])) })));
+    const roh = Object.keys(grosse.bausaetze![0]!.kennungen ?? {}).length;
+    const t0 = performance.now();
+    let befunde: ReturnType<typeof pruefeLayout> = [];
+    let geworfen = '';
+    try {
+      befunde = pruefeLayout(grosse, new Map([['kit', leerKit]]));
+    } catch (e) {
+      geworfen = String(e);
+    }
+    const ms = Math.round(performance.now() - t0);
+    const verwaist = befunde.filter((b) => b.text.startsWith('verwaiste Kennung'));
+    console.log(`B1 256 Instanzen x ${roh} verwaiste kennungen: ${verwaist.length} Befunde in ${ms} ms`);
+    pruefe('B1 256 Instanzen x 4000 verwaiste kennungen: kein Wurf', geworfen === '', geworfen);
+    pruefe('B1 ... genau 256 Befunde, je Instanz einer', roh === 4000 && verwaist.length === 256 && new Set(verwaist.map((b) => b.ref?.id)).size === 256, `${roh} Schlüssel, ${verwaist.length} Befunde`);
+    const v0 = verwaist.find((b) => b.ref?.id === 'k-0') ?? { text: '' };
+    pruefe('B1 Text: Anzahl 4000, höchstens 5 Teil-ids mit Adresse, Rest als …', v0.text.includes('4000 Teil-ids') && (v0.text.match(/\(Adresse /g) ?? []).length === 5 && v0.text.endsWith(', …'), v0.text);
+    pruefe('B1 Befunde sind Hinweise (art welt), nicht Fehler', verwaist.every((b) => b.art === 'welt'));
+  }
+  // B1/B4: genau 5 Schlüssel: alle genannt, kein …; Einzahl bei 1
+  {
+    const k5 = kitVon([teilMit('p1', eigen)]);
+    const w5 = weltMit([inst({ id: 'a', bausatz: 'kit', kennungen: { a1: 'x1', a2: 'x2', a3: 'x3', a4: 'x4', a5: 'x5' } }), inst({ id: 'b', bausatz: 'kit', x: 9, kennungen: { b1: 'y1' } })]);
+    const b5 = pruefeLayout(w5, new Map([['kit', k5]])).filter((b) => b.text.startsWith('verwaiste Kennung'));
+    const ta = b5.find((b) => b.ref?.id === 'a')!.text;
+    const tb = b5.find((b) => b.ref?.id === 'b')!.text;
+    pruefe('B1 fünf Schlüssel: alle fünf genannt, kein …, Mehrzahl', ta.includes('5 Teil-ids') && ['a1', 'a2', 'a3', 'a4', 'a5'].every((t) => ta.includes(t)) && !ta.includes('…'), ta);
+    pruefe('B1 ein Schlüssel: Einzahl, Adresse genannt', tb.includes('1 Teil-id ') && tb.includes('b1 (Adresse y1)'), tb);
+  }
+  // B4: severity of the orphan finding is 'welt' (client befundSchwere: hint); the unknown kit stays 'bausatz' (error)
+  {
+    const b = pruefeLayout(weltMit([inst({ id: 'o', bausatz: 'kit', kennungen: { weg: 'adr' } })]), new Map([['kit', kitVon([teilMit('p1', eigen)])]])).filter((x) => x.text.startsWith('verwaiste Kennung'));
+    pruefe('B4 verwaiste Kennung: art welt (Hinweis im Editor, kein Fehler)', b.length === 1 && b[0]!.art === 'welt');
+  }
+  // B3/Y7: an unknown prefab inside a kit part is one row of art bausatz and not additionally "kein eigenes Modell"
+  {
+    const k = kitVon([teilMit('p1', 'U_Gibtsnicht_N4')]);
+    const b = pruefeLayout(weltMit([inst({ id: 'u', bausatz: 'kit' })]), new Map([['kit', k]]));
+    const zeilen = b.filter((x) => x.text.includes('U_Gibtsnicht_N4'));
+    pruefe('Y7 unbekanntes Prefab im Teil: genau eine Zeile, art bausatz, kein modell', zeilen.length === 1 && zeilen[0]!.art === 'bausatz' && !b.some((x) => x.art === 'modell' && x.wo === 'bausaetze'), JSON.stringify(zeilen.map((x) => x.text)));
+  }
+  // B3/Y9: one part with a foreign model reads "(1 Teil in kit)", not "1 Teile"
+  {
+    const b = pruefeLayout(weltMit([inst({ id: 'f', bausatz: 'kit' })]), new Map([['kit', kitVon([teilMit('p1', fremd)])]]));
+    const z = b.filter((x) => x.art === 'modell' && x.wo === 'bausaetze');
+    pruefe('Y9 ein Teil ohne eigenes Modell: Einzahl "(1 Teil in kit)"', z.length === 1 && z[0]!.text === `kein eigenes Modell: ${fremd} (1 Teil in kit)`, JSON.stringify(z.map((x) => x.text)));
+  }
+  // B3/Y12: inherited keys of `kennungen` are not reported (Object.keys, not for...in)
+  {
+    const geerbt = Object.create({ geerbt: 'x', auchGeerbt: 'y' }) as Record<string, string>;
+    geerbt.eigen = 'adr-eigen';
+    const w = { ...weltMit([]), bausaetze: [{ id: 'g', bausatz: 'kit', x: 0, z: 0, kennungen: geerbt }] } as never;
+    const b = pruefeLayout(w, new Map([['kit', kitVon([teilMit('p1', eigen)])]])).filter((x) => x.text.startsWith('verwaiste Kennung'));
+    pruefe('Y12 geerbte Schlüssel werden nicht gemeldet, der eigene schon', b.length === 1 && b[0]!.text.includes('1 Teil-id ') && b[0]!.text.includes('eigen (Adresse adr-eigen)') && !b[0]!.text.includes('geerbt'), JSON.stringify(b.map((x) => x.text)));
+  }
+  // B5: raw kennungen that is not a plain object (string, array, null, number) means "no kennungen"
+  {
+    for (const roh of ['ab', ['q'], null, 5, true] as unknown[]) {
+      const w = { ...weltMit([]), bausaetze: [{ id: 'r', bausatz: 'kit', x: 0, z: 0, kennungen: roh }] } as never;
+      const b = pruefeLayout(w, new Map([['kit', kitVon([teilMit('p1', eigen)])]]));
+      pruefe(`B5 rohe kennungen ${JSON.stringify(roh)}: keine Zeilen daraus`, !b.some((x) => x.text.startsWith('verwaiste Kennung')), JSON.stringify(b.map((x) => x.text)));
+    }
+  }
 }
 
 // ── Vorgang auf `bausaetze` ─────────────────────────────────────────────

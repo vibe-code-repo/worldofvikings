@@ -160,6 +160,28 @@ const katalog = (...k: Bausatz[]): Map<string, Bausatz> => new Map(k.map((b) => 
   const r2 = loeseBausaetzeAuf({ bausaetze: [erstInst as never] }, katalog(basis));
   pruefe('A1 Instanz-Getter x (Infinity, dann 1): fehler, Instanz ausgelassen', r2.fehler.length === 1 && r2.teile.length === 0);
 }
+// N4 B2/Y1: the scale triple is ALWAYS copied before it is checked; only the copy is used
+{
+  const basis = kit('sk', [teil('a', { scale: [1, 2, 3] })]);
+  const r0 = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'sk', x: 0, z: 0 }] }, katalog(basis));
+  const s0 = r0.teile[0]!.scale;
+  pruefe('B2 Skala: Ergebnis-Tripel ist nicht dasselbe Array wie im Katalog, aber gleich', Array.isArray(s0) && s0 !== basis.teile[0]!.scale && s0.join() === '1,2,3');
+  // proxy array: length 2 at the first read, 3 afterwards; element 0 is 1 at the first read, NaN afterwards
+  const proxyArray = (lengths: number[]): unknown => {
+    let l = 0;
+    const z = [0, 0];
+    return new Proxy([1, 2, 3], {
+      get: (t, k) => (k === 'length' ? lengths[Math.min(l++, lengths.length - 1)] : k === '0' ? (z[0]!++ === 0 ? 1 : NaN) : Reflect.get(t, k)),
+    });
+  };
+  const kaputt = { ...basis, teile: [{ ...basis.teile[0]!, scale: proxyArray([2, 3]) } as never] };
+  const r1 = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'sk', x: 0, z: 0 }] }, katalog(kaputt));
+  pruefe('B2 Skala-Proxy (length 2, dann 3): benannter Fehler, Teil ausgelassen, nichts Rohes im Ergebnis', r1.teile.length === 0 && r1.fehler.length === 1, JSON.stringify(r1.fehler));
+  const flackernd = { ...basis, teile: [{ ...basis.teile[0]!, scale: proxyArray([3, 2]) } as never] };
+  const r2 = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'sk', x: 0, z: 0 }] }, katalog(flackernd));
+  const s2 = r2.teile[0]?.scale;
+  pruefe('B2 Skala-Proxy (length 3, dann 2, [0] 1, dann NaN): echte Kopie [1,2,3], nie NaN', r2.teile.length === 1 && Array.isArray(s2) && s2.join() === '1,2,3' && s2.join() === '1,2,3', JSON.stringify(s2));
+}
 // N2 A2/X8: dy, pitch und roll werden im Auflöser geprüft
 {
   const basis = kit('w', [teil('a'), teil('b')]);

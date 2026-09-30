@@ -121,8 +121,9 @@ export function pruefeLayout(layout: WorldLayout, bausaetze?: ReadonlyMap<string
       });
     }
   }
-  befunde.push(...platzierungsBefunde(layout));
-  if (bausaetze) befunde.push(...bausatzBefunde(layout, bausaetze));
+  // appended in loops, never as spread arguments: a spread of ~100 000 findings overflows the call stack
+  for (const b of platzierungsBefunde(layout)) befunde.push(b);
+  if (bausaetze) for (const b of bausatzBefunde(layout, bausaetze)) befunde.push(b);
   for (const [name, anzahl] of fremdeModelle) {
     befunde.push({
       wo: 'placements',
@@ -153,7 +154,7 @@ export function pruefeLayout(layout: WorldLayout, bausaetze?: ReadonlyMap<string
       text: 'Kein Startpunkt gesetzt (defaultSpawn oder continent.spawn) — Spawn liegt am Ursprung',
     });
   }
-  befunde.push(...ueberlappungsBefunde(layout));
+  for (const b of ueberlappungsBefunde(layout)) befunde.push(b);
   return befunde;
 }
 
@@ -244,6 +245,9 @@ function platzierungsBefunde(layout: WorldLayout): LayoutBefund[] {
  * die Objekte einer unbekannten Instanz; hier steht nur der Hinweis. Ein unbekannter Bausatz ist absichtlich kein
  * Schreibfehler (422), sonst wäre das Dokument auf einem Rechner ohne die Datei nicht mehr speicherbar.
  */
+/** How many orphaned part ids one instance finding names. */
+const VERWAIST_GENANNT = 5;
+
 function bausatzBefunde(layout: WorldLayout, katalog: ReadonlyMap<string, Bausatz>): LayoutBefund[] {
   const befunde: LayoutBefund[] = [];
   const gezaehlt = new Set<string>();
@@ -256,13 +260,24 @@ function bausatzBefunde(layout: WorldLayout, katalog: ReadonlyMap<string, Bausat
     }
     // Eine Adresse für eine Teil-id, die der Bausatz nicht hat, wird nirgends angewendet, bleibt aber stehen und
     // würde von einem später eingefügten Teil mit dieser id übernommen. Je INSTANZ gemeldet (die Adressen gehören ihr).
+    // Raw (unsanitized) `kennungen` that is not a plain object (string, array, null) counts as no `kennungen`.
+    const roh: unknown = i.kennungen;
+    const kennungen = typeof roh === 'object' && roh !== null && !Array.isArray(roh) ? (roh as Readonly<Record<string, unknown>>) : undefined;
     const teilIds = new Set(bausatz.teile.map((t) => t.id));
-    for (const teilId of Object.keys(i.kennungen ?? {})) {
+    // ONE finding per instance (count, the first few part ids with their addresses), not one per key: a kit that loses
+    // its parts orphans every key of every instance. `art: 'welt'` so the editor shows it as a hint, not an error.
+    const verwaist: string[] = [];
+    let anzahlVerwaist = 0;
+    for (const teilId of Object.keys(kennungen ?? {})) {
       if (teilIds.has(teilId)) continue;
+      anzahlVerwaist++;
+      if (verwaist.length < VERWAIST_GENANNT) verwaist.push(`${teilId} (Adresse ${String(kennungen![teilId])})`);
+    }
+    if (anzahlVerwaist > 0) {
       befunde.push({
         wo: 'bausaetze',
-        art: 'bausatz',
-        text: `verwaiste Kennung: Instanz ${i.id}, Teil ${teilId} ist nicht im Bausatz ${i.bausatz} (gebundene Adresse ${i.kennungen![teilId]})`,
+        art: 'welt',
+        text: `verwaiste Kennungen: Instanz ${i.id}, ${anzahlVerwaist} Teil-id${anzahlVerwaist === 1 ? '' : 's'} nicht im Bausatz ${i.bausatz}: ${verwaist.join(', ')}${anzahlVerwaist > verwaist.length ? ', …' : ''}`,
         ref,
       });
     }

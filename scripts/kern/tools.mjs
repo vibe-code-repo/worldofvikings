@@ -498,6 +498,13 @@ export default [
   // einen. Fehlt einer davon GANZ, wird uebersprungen; fehlen EINZELNE
   // Dateien darin, wird der Test rot. Begruendung bei der Funktion.
   ['tools', 'test/terrain-schichten.ts', brauchtBodenQuellen()],
+  /*
+    Move proof (tools/verschiebung/), self-test part 1: every rule bites. For each rule B1 to
+    B13 at least one green and one red fixture, and every red fixture names exactly the rules
+    that must report. Small source texts in memory: no git history, no assets, no installed
+    packages, so it runs in the CI checkout. ~10 s.
+  */
+  ['tools/test', 'verschiebung-regeln.ts'],
   ['tools', 'test/vorschau-buendeln-typpruefung.ts'],
   // Preview bundle stays untracked; the update script's dirty-tree warning is run for real,
   // and the tracked appearance.json is checked against its generator.

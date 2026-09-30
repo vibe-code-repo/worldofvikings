@@ -383,6 +383,9 @@ export default [
   ['server', 'test/g9-editor-verbindung.ts'],
   // A guest keeps state and ownership only with their token; nobody inherits a saved state by typing its name, and guests cannot wear an account name.
   ['server', 'test/gaeste-besitz.ts'],
+  // Terrain T4b: save (layoutSchreibenAsync with base) -> boot from the same work copy -> getGroundHeight = base + delta;
+  // damaged heightDeltas refused at save, work copy byte-identical. No network, no assets.
+  ['server', 'test/gelaende-speichern-neustart.ts'],
   // `createGenerated` mit Generator-Einstellungen (maxRooms/zoneSize): Dokument
   // trägt den WIRKLICH benutzten Wert, ein neuer Seed behält die Einstellungen.
   ['server', 'test/generieren-server.ts'],

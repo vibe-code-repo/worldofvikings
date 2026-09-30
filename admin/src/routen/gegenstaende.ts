@@ -153,7 +153,7 @@ const KAPUTT_STEMPEL_MUSTER = kaputtStempel(new Date(0)).replace(/\d/g, '\\d');
 
 /**
  * Keeps a copy of the broken working copy (`<file>.kaputt-<UTC time>[-<n>]`) and removes all but the last 5 OF THESE
- * COPIES. Only names that match exactly this pattern (and are regular files) count and are ever removed; anything else
+ * COPIES (the fresh copy included and never removed itself, even if its stamp is not the newest). Only names that match exactly this pattern (and are regular files) count and are ever removed; anything else
  * with a similar prefix is left alone. An entry that cannot be removed is skipped and logged. Afterwards the own fresh
  * copy must still exist with the same bytes, otherwise this throws BEFORE the working copy is overwritten. Inside the lock.
  */
@@ -179,7 +179,11 @@ function kaputtSichern(arbeit: string): void {
     kopien.push({ name, stempel: treffer[1], nummer: treffer[2] === undefined ? 0 : Number(treffer[2]) });
   }
   kopien.sort((x, y) => (x.stempel < y.stempel ? -1 : x.stempel > y.stempel ? 1 : x.nummer - y.nummer));
-  for (const alt of kopien.slice(0, Math.max(0, kopien.length - KAPUTT_KOPIEN))) {
+  // The own fresh copy is never rotated: only the OTHER own copies are, the newest KAPUTT_KOPIEN - 1 of them stay.
+  const andere = kopien.filter((k) => k.name !== basename(ziel));
+  const zukunft = andere.filter((k) => k.stempel > stempel);
+  if (zukunft.length > 0) console.error(`[Admin] Gegenstaende: ${zukunft.length} Sicherung(en) mit Stempel nach ${stempel} (Uhr zurueckgesprungen?), die frische Kopie ${basename(ziel)} bleibt trotzdem erhalten`);
+  for (const alt of andere.slice(0, Math.max(0, andere.length - (KAPUTT_KOPIEN - 1)))) {
     try {
       rmSync(resolve(ordner, alt.name));
     } catch (fehler) {

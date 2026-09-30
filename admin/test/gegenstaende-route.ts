@@ -512,13 +512,16 @@ let hash = sha(arbeitBytes());
   check('10b Verzeichnis: die Zahl der Eintraege waechst nicht mehr (6 nach 8 Laeufen und nach 12)', mitVerzeichnis === 6 && alle().length === 6, `${mitVerzeichnis} ${alle().length}`);
   aufraeumen();
 
-  // The own fresh copy is checked after the rotation: five own-pattern names from the future push it out -> 500 before writing.
+  // B1/N3: five own-pattern names from the future (clock jumped back) must not push the own fresh copy out: 200, at most 5 own copies.
   for (let i = 1; i <= 5; i++) writeFileSync(resolve(ordner, `${basisName}.kaputt-9999010${i}T000000000`), `zukunft-${i}`);
   writeFileSync(ARBEIT, '{"nur":"alt"');
   const g4 = await get();
   const r4 = await put(datei([holzaxt]), String(g4.daten.hash), '?bestaetigt=1');
-  check('10b eigene Kopie nach der Rotation weg: 500 intern, vor dem Schreiben', r4.status === 500 && r4.daten.fehler === 'intern', `${r4.status} ${JSON.stringify(r4.daten)}`);
-  check('10b eigene Kopie weg: die Arbeitsdatei ist unveraendert', arbeitBytes().toString('utf-8') === '{"nur":"alt"');
+  if (r4.status === 200) hash = String(r4.daten.hash);
+  check('10b Zukunfts-Stempel: bestaetigter PUT 200', r4.status === 200, `${r4.status} ${JSON.stringify(r4.daten)}`);
+  const frische = eigene().filter((f) => readFileSync(resolve(ordner, f), 'utf-8') === '{"nur":"alt"');
+  check('10b Zukunfts-Stempel: die frische Kopie liegt da und enthaelt den alten Inhalt', frische.length === 1, eigene().join(','));
+  check('10b Zukunfts-Stempel: hoechstens 5 eigene Sicherungen', eigene().length <= 5, eigene().join(','));
   aufraeumen();
   writeFileSync(ARBEIT, kanon([holzaxt]));
   hash = sha(kanon([holzaxt]));

@@ -11,7 +11,7 @@
  *                        stays in `WovServer` (block F, distributor); a case that moves out is a finding.
  *   2. BEFEHLE           the names in the admin command registry after construction (13). The
  *                        registration code moves to `spiel/befehle/*` in step 1; the names stay.
- *   3. METHODEN          33 private methods that tests reach by name (`as unknown as { … }`, `as any`,
+ *   3. METHODEN          39 private methods that tests reach by name (`as unknown as { … }`, `as any`,
  *                        `Object.create(WovServer.prototype)`). After a move each must still be a real
  *                        PROTOTYPE method of the class with the same name (a one-line forwarding).
  *                        Not a field with an arrow function: `Object.create(WovServer.prototype)` (see
@@ -113,7 +113,7 @@ export const BEFEHLE = [
   'zone',
 ] as const;
 
-/** Private methods that tests reach by name (21 of step 0, 11 found by the broadened scan of N1: `tod-treffer-n1.ts` replaces the 11 packet handlers, and `zaehleEigeneBauten` of #153). Each stays a prototype method of `WovServer`. */
+/** Private methods that tests reach by name (21 of step 0, 11 found by the broadened scan of N1: `tod-treffer-n1.ts` replaces the 11 packet handlers, and `zaehleEigeneBauten` of #153; step 2 adds 5: the forwardings of the moved handlers that `i1-form-k.ts` calls by name, `handleAdminCommand` was on the list already; #146 added `sichereSpielerSofort`). Each stays a prototype method of `WovServer`. */
 export const METHODEN = [
   'applyCreatureAttack',
   'darfBenutzen',
@@ -124,6 +124,10 @@ export const METHODEN = [
   'handleChatMessage',
   'handleContainerAction',
   'handleCraft',
+  'handleDungeonEditRequest',
+  'handleDungeonEditSave',
+  'handleDungeonModulBau',
+  'handleDungeonModulLoeschen',
   'handleEat',
   'handleEquip',
   'handleInteract',
@@ -132,6 +136,7 @@ export const METHODEN = [
   'handlePlayerInput',
   'handleRemovePiece',
   'handleSetAussehen',
+  'handleSetTimeOfDay',
   'handleTerrainOp',
   'inventarSync',
   'maxHealth',
@@ -201,23 +206,31 @@ export const UEBERSCHRIEBEN = [
 export const TEXT_TESTS: readonly { datei: string; muster: readonly string[]; schritt: number; ziel: string; wirdRot: boolean }[] = [
   {
     datei: 'server/test/modulbau-grenzen.ts',
-    muster: ['case PacketType.DungeonModulBau:', '/baueModul\\(/.test(wovServer)'],
-    schritt: 2, // block G: handleDungeonModulBau moves to spiel/DungeonEditPakete.ts; the case stays, `baueModul(` moves
+    muster: ['case PacketType.DungeonModulBau:', 'this\\.handleDungeonModulBau\\(peer, reader\\)', '\\bbaueModul\\(/.test(dungeonEditPakete)'],
+    schritt: 2, // done in step 2: handleDungeonModulBau moved to spiel/DungeonEditPakete.ts; the test now reads the case and the forwarding in WovServer.ts and the call of `baueModul(` in the module
     ziel: 'server/src/spiel/DungeonEditPakete.ts',
-    wirdRot: true,
+    wirdRot: false,
   },
   {
     datei: 'server/test/modulbau-loeschen.ts',
     muster: [
       'case PacketType.DungeonModulLoeschen:',
-      '/deleteModule\\(/.test(wovServer)',
-      '/private dungeonsWurzel\\(\\)/.test(wovServer)',
+      'this\\.handleDungeonModulLoeschen\\(peer, reader\\)',
+      '\\bdeleteModule\\(/.test(dungeonEditPakete)',
+      '/^  dungeonsWurzel\\(\\): string \\{/m.test(wovServer)',
       '/resolve\\(this\\.dungeonsWurzel\\(\\), this\\.config\\.worldName\\)/.test(wovServer)',
-      '/dungeonsWurzel: this\\.dungeonsWurzel\\(\\)/.test(wovServer)',
+      '/dungeonsWurzel: k\\.dungeonsWurzel\\(\\)/.test(dungeonEditPakete)',
     ],
-    schritt: 2, // `deleteModule(` and `dungeonsWurzel: this.dungeonsWurzel()` move (spelling becomes `k.`); the case, the method `dungeonsWurzel` and its constructor use stay
+    schritt: 2, // done in step 2: `deleteModule(` and `dungeonsWurzel: k.dungeonsWurzel()` are read in spiel/DungeonEditPakete.ts; the case, the method `dungeonsWurzel` (not private any more) and its constructor use are read in WovServer.ts
     ziel: 'server/src/spiel/DungeonEditPakete.ts',
-    wirdRot: true,
+    wirdRot: false,
+  },
+  {
+    datei: 'server/test/i1-form-k.ts',
+    muster: ["join(WURZEL, 'server/src/WovServer.ts')", 'pruefeKlasse(MODULE, klassenText, PUBLIC_MEMBERS)'],
+    schritt: 2, // new in step 2: the guard of Form k reads the class text (forwardings, imports, `onPacket`, the non-private members) and the text of every module of its table MODULE
+    ziel: 'server/src/spiel/*.ts (every module listed in MODULE of that test)',
+    wirdRot: false,
   },
   {
     datei: 'client/test/dungeon-neuer-saal.ts',
@@ -245,6 +258,7 @@ export const TEXT_AUSNAHMEN: readonly { datei: string; grund: string }[] = [
  */
 export const FEHLTREFFER: readonly { name: string; datei: string; grund: string }[] = [
   { name: 'zeigeTreffer', datei: 'client/test/tod-treffer-avatar.ts', grund: 'AvatarRig.zeigeTreffer (Client), nicht das Serverfeld gleichen Namens' },
+  { name: 'onPacket', datei: 'server/test/i1-form-k.ts', grund: 'Name, unter dem das Mitglied im Syntaxbaum der Klasse gesucht wird (Text, kein Zugriff zur Laufzeit)' },
   { name: 'handleParry', datei: 'tools/test/i1-verschiebung.ts', grund: 'Fixture-Name des Verschiebebeweis-Selbsttests, keine Server-Nutzung' },
 ];
 

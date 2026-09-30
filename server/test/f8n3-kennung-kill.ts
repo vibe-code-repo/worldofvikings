@@ -14,6 +14,8 @@
  *   [K3] dasselbe asynchron
  *   [K4] Ereignis WAEHREND des asynchronen Weltspeicherns (nach dem Serialisieren): die Zeile darf das Wegraeumen nicht treffen
  *   [M]  Migration der alten Tabelle in EINER Transaktion: Kill mitten drin, danach vollstaendig migriert, nichts verloren
+ *   [S]  Stempel nach Neustart (SIGKILL und sauberer Stopp): die naechste Vergabe liegt ueber Datei UND Tabellen (N4)
+ *   [H]  Stempel.hebeAuf nimmt nur sichere Ganzzahlen >= 0; ein beschaedigter Kopf (1e300) wird laut ignoriert (N4)
  *
  * Lauf: npx tsx test/f8n3-kennung-kill.ts   (aus server/)   Ephemerer Port, ~4 min.  Nur Teile: F8N3_NUR=k1,k2
  */
@@ -34,6 +36,7 @@ import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import { antwortBerechnen, spielerIdErzeugen, tokenAusstellen } from '../src/net/Identitaet.js';
 import { hakenRegistrieren } from '../src/util/TestHaken.js';
+import { Stempel } from '../src/spiel/Stempel.js';
 import { portVon } from '../../scripts/testport.mjs';
 
 const DATEI = fileURLToPath(import.meta.url);
@@ -76,7 +79,7 @@ if (process.argv[2] === 'kind') {
   console.log(`BEREIT ${portVon(server)}`);
   const alle = (hash: number) => server.zdos.getAllZDOs().filter((z) => z.prefabHash === hash);
   const holz = (n: number) => { const inv = unpackContainer('[]'); inv.addItem(findItem('Wood')!, n); return packContainer(inv); };
-  const intern = server as unknown as { zustandWeltId: string; sichereSpielerSofort(peer: unknown, grund: string, welt: unknown[] | null): void };
+  const intern = server as unknown as { stempel: { naechster(): number }; zustandWeltId: string; sichereSpielerSofort(peer: unknown, grund: string, welt: unknown[] | null): void };
   createInterface({ input: process.stdin }).on('line', (zeile) => {
     const [cmd, a, b, c] = zeile.split(' ');
     if (cmd === 'kiste') {
@@ -116,6 +119,7 @@ if (process.argv[2] === 'kind') {
         holz: peer?.inventar.countOf('Wood') ?? 0,
         kisten: alle(TRUHE).map((k) => ({ userId: k.zdoid.userId.toString(), id: k.zdoid.id, holz: unpackContainer(k.getString('truheInhalt')).countOf('Wood') })),
         weltId: intern.zustandWeltId,
+        naechster: intern.stempel.naechster(),
       }));
     }
   });
@@ -130,6 +134,8 @@ interface Standmeldung {
   da: boolean; x: number; z: number; holz: number;
   kisten: { userId: string; id: number; holz: number }[];
   weltId: string;
+  /** Die naechste Stempelvergabe im Kindprozess (verbraucht eine Nummer je Abfrage). */
+  naechster: number;
 }
 interface Kind {
   proc: ChildProcess;
@@ -444,6 +450,62 @@ async function haupt(): Promise<void> {
       const spalten = sql<{ name: string; pk: number }>(dir, 'PRAGMA table_info(spielerzustand)');
       check('danach vollstaendig migriert: 6 Zeilen, Schluessel (spieler_id, welt_id)', sql(dir, 'SELECT 1 FROM spielerzustand').length === 6 && spalten.filter((c) => c.pk > 0).length === 2, JSON.stringify(spalten.map((c) => c.name + c.pk)));
       check('keine Restdatei `spielerzustand_alt`', !sql<{ name: string }>(dir, "SELECT name FROM sqlite_master WHERE name = 'spielerzustand_alt'").length);
+    }
+
+    console.log('\n[S] Stempel nach Neustart: die naechste Vergabe liegt ueber allem, was auf der Platte steht:');
+    if (laeuft('s')) {
+      const hoechst = (dir: string): number => {
+        const d = weltdatei(dir);
+        let m = Number(d.meta.stempel ?? 0);
+        for (const p of d.players) m = Math.max(m, p.gespeichertAm ?? 0);
+        for (const t of ['spielerzustand', 'weltzdo']) m = Math.max(m, sql<{ m: number | null }>(dir, `SELECT MAX(stand) AS m FROM ${t}`)[0]?.m ?? 0);
+        return m;
+      };
+      const dir = await vorbereite('s');
+      // Sitzung 1: Ereignis, dann SIGKILL (die Tabellen tragen jetzt einen HOEHEREN Stempel als die Datei).
+      const a = await spiel(dir);
+      truhe(a.ws, a.s0.kisten[0]!, 0, 'Wood', 5);
+      await warte(400);
+      await a.k.beende('SIGKILL'); a.ws.terminate();
+      const h1 = hoechst(dir);
+      check('Ausgangslage: die Tabellen tragen einen echten Stempel (> 1)', h1 > 1, `hoechst=${h1}`);
+      const n1 = await neustart(dir);
+      check('nach SIGKILL + Neustart: naechster Stempel > Maximum aus Datei und Tabellen', n1.s.naechster > h1, `naechster=${n1.s.naechster}, hoechst=${h1}`);
+      // Sitzung 2: noch ein Ereignis, dann sauberer Stopp (die Datei bekommt Kopf-Stempel und Spielerstaende).
+      truhe(n1.ws, n1.s.kisten[0]!, 1, 'Wood', 2);
+      await warte(400);
+      n1.ws.terminate(); await warte(300);
+      await n1.k.beende('SIGTERM');
+      const h2 = hoechst(dir);
+      const n2 = await neustart(dir);
+      check('nach sauberem Stopp + Neustart: naechster Stempel > Maximum aus Datei und Tabellen', n2.s.naechster > h2 && h2 > h1, `naechster=${n2.s.naechster}, hoechst=${h2}`);
+      n2.ws.terminate(); await n2.k.beende('SIGTERM');
+      // beschaedigter Kopf: 1e300 darf den Zaehler nicht anhalten
+      const d = weltdatei(dir);
+      d.meta.stempel = 1e300;
+      writeFileSync(resolve(dir, 'world.db.zst'), zstdCompressSync(Buffer.from(JSON.stringify(d), 'utf-8')));
+      const n3 = await neustart(dir);
+      const zweiter = (await n3.k.stand()).naechster;
+      check('meta.stempel = 1e300: der Zaehler laeuft weiter (endlich, jede Vergabe verschieden)', Number.isSafeInteger(n3.s.naechster) && n3.s.naechster < 1e6 && zweiter === n3.s.naechster + 1, `${n3.s.naechster}, ${zweiter}`);
+      n3.ws.terminate(); await n3.k.beende('SIGKILL');
+    }
+
+    console.log('\n[H] Stempel.hebeAuf: nur sichere Ganzzahlen >= 0 (Einheit):');
+    if (laeuft('h')) {
+      const laut: string[] = [];
+      const alt = console.error;
+      console.error = (t: unknown) => { laut.push(String(t)); };
+      const st = new Stempel();
+      for (const w of [1e300, 2 ** 53, -5, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) st.hebeAuf(w);
+      st.hebeAuf(undefined); st.hebeAuf(null);
+      const stumm = laut.length;
+      const a = st.naechster(); const b = st.naechster();
+      st.hebeAuf(Number.MAX_SAFE_INTEGER - 5);
+      const c = st.naechster();
+      console.error = alt;
+      check('sechs unbrauchbare Werte: laut gemeldet und ignoriert; undefined/null still', stumm === 6 && a === 1 && b === 2, `${stumm} Meldung(en), ${a}, ${b}`);
+      check('ein sicherer Wert hebt den Zaehler', c === Number.MAX_SAFE_INTEGER - 4, String(c));
+      check('Startwert im Konstruktor wird gleich geprueft', new Stempel(1e300).aktuell() === 0 && new Stempel(42).aktuell() === 42);
     }
   } finally {
     for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch { /* schon weg */ } }

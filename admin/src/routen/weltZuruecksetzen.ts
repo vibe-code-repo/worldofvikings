@@ -197,6 +197,16 @@ export function spielstandZahlen(umg: ResetUmgebung): ResetZahlen['spielstand'] 
   return { datei: basename(umg.spielstand), bytes: s.size, zdos: zdosZaehlen(umg.spielstand), geaendert: s.mtime.toISOString() };
 }
 
+/** F8 N4: the world id (`meta.weltId`) from the save header; null if the save is missing, unreadable or has none (an old save). */
+export function weltIdAusSpielstand(pfad: string): string | null {
+  try {
+    const meta = (JSON.parse(zstdDecompressSync(readFileSync(pfad)).toString('utf-8')) as { meta?: { weltId?: unknown } }).meta;
+    return typeof meta?.weltId === 'string' && meta.weltId !== '' ? meta.weltId : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The files a reset moves, only those that exist: the save with its `.prev`, and with `konten` the account database with its WAL files. */
 function beiseiteKandidaten(umg: ResetUmgebung, mitKonten: boolean): { spielstand: string[]; konten: string[]; sperre: string[] } {
   const vorhanden = (dateien: string[]): string[] => dateien.filter((d) => existsSync(d));
@@ -434,7 +444,11 @@ const wortZdos = (s: ResetZahlen['spielstand']): string =>
  * else in that database is touched. A missing file or table is fine (nothing to delete); anything else throws, and the
  * caller's rollback puts the moved files back. The database gets a `.bak` first when it holds rows.
  */
-function spielzustandLeeren(umg: ResetUmgebung): { spieler: number; zdos: number } | null {
+function spielzustandLeeren(umg: ResetUmgebung, weltId: string | null): { spieler: number; zdos: number } | null {
+  // F8 N4: only the rows of THIS world (its id from the save header), not those of a parked other world (the dev world while a
+  // test world is running). Without an id (no save, an old save, unreadable) nothing is deleted: rows of an unknown id are
+  // ignored by the game server anyway.
+  if (weltId === null) return null;
   if (!existsSync(umg.kontenDb)) return null;
   // Count first through a READ-ONLY handle: a database without rows (or not a database at all) is not touched in any way,
   // not even by opening it read-write.
@@ -445,7 +459,7 @@ function spielzustandLeeren(umg: ResetUmgebung): { spieler: number; zdos: number
     try {
       const zaehle = (tabelle: string): number => {
         try {
-          return Number((lesen.prepare(`SELECT COUNT(*) AS n FROM ${tabelle}`).get() as { n: number }).n);
+          return Number((lesen.prepare(`SELECT COUNT(*) AS n FROM ${tabelle} WHERE welt_id = ?`).get(weltId) as { n: number }).n);
         } catch (fehler) {
           const text = fehlerText(fehler);
           // No such table: nothing to delete. Not an SQLite file at all (the in-process tests plant a text file): nothing of
@@ -468,8 +482,8 @@ function spielzustandLeeren(umg: ResetUmgebung): { spieler: number; zdos: number
     umg.sichern(umg.kontenDb, SICHERUNGEN_SPIELSTAND);
     db.exec('BEGIN IMMEDIATE');
     try {
-      if (spieler > 0) db.exec('DELETE FROM spielerzustand');
-      if (zdos > 0) db.exec('DELETE FROM weltzdo');
+      if (spieler > 0) db.prepare('DELETE FROM spielerzustand WHERE welt_id = ?').run(weltId);
+      if (zdos > 0) db.prepare('DELETE FROM weltzdo WHERE welt_id = ?').run(weltId);
       db.exec('COMMIT');
     } catch (fehler) {
       try { db.exec('ROLLBACK'); } catch { /* transaction already gone */ }
@@ -571,6 +585,7 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
   const rueckrollFehler: string[] = [];
   let startFehler: unknown = null;
   let geschrieben: Awaited<ReturnType<typeof layoutSchreibenAsync>> | null = null;
+  let weltIdVorher: string | null = null;
   let zustandGeleert: { spieler: number; zdos: number } | null = null;
   let zustandFehler: string | null = null;
   // What the game server left behind when it stopped: THIS is the file to move, and the one to count and back up if
@@ -584,6 +599,8 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
       // Decided NOW, after the stop, not before it.
       const kandidaten = beiseiteKandidaten(umg, mitKonten);
       spielstandBeiseite = spielstandZahlen(umg);
+      // The id of the world being reset, read NOW (after the stop wrote the save, before the save is moved away).
+      weltIdVorher = weltIdAusSpielstand(umg.spielstand);
       if (sicherungSpielstand === null && spielstandBeiseite !== null) {
         sicherungSpielstand = umg.sichern(umg.spielstand, SICHERUNGEN_SPIELSTAND);
         marker.sicherung.spielstand = sicherungSpielstand ? basename(sicherungSpielstand) : null;
@@ -630,7 +647,7 @@ async function zuruecksetzen(umg: ResetUmgebung, seed: SeedWahl, mitKonten: bool
       // new world ignores them). With `konten` the whole database was moved above and the tables went with it.
       if (!mitKonten) {
         try {
-          zustandGeleert = spielzustandLeeren(umg);
+          zustandGeleert = spielzustandLeeren(umg, weltIdVorher);
         } catch (fehler) {
           zustandFehler = fehlerText(fehler);
         }

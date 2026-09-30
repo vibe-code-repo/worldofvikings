@@ -127,7 +127,7 @@ console.log('\n[3] Konfliktpruefung (Befund 5):');
     if (k.art === 'konflikt') {
       const u = k.unterschiede.find((x) => x.feld === 'nameDe');
       check('der Konflikt nennt das Feld mit BEIDEN Fassungen (eigene und Server)', u !== undefined && u.eigen === 'Meine Axt' && u.server === 'Axt vom Server', JSON.stringify(k.unterschiede));
-      check('und nur die Felder, in denen beide sich unterscheiden', k.unterschiede.every((x) => x.eigen !== x.server) && k.unterschiede.length === 1, JSON.stringify(k.unterschiede));
+      check('und nur die Felder, in denen beide sich unterscheiden (der Server aenderte den Namen in beiden Sprachen, das Gewicht blieb gleich)', k.unterschiede.every((x) => x.eigen !== x.server) && gleich(k.unterschiede.map((x) => x.feld), ['nameDe', 'nameEn']), JSON.stringify(k.unterschiede));
       check('die Server-Fassung steht bereit', k.server !== null && k.server.texte['inhalt.gegenstand.Axt.name'].de === 'Axt vom Server');
     }
   }

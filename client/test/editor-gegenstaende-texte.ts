@@ -104,7 +104,7 @@ function klartextFunde(sf: ts.SourceFile): { funde: Fund[]; senken: number } {
     if (ts.isCallExpression(n)) {
       const name = ts.isIdentifier(n.expression) ? n.expression.text : ts.isPropertyAccessExpression(n.expression) ? n.expression.name.text : null;
       if (name === null) return;
-      for (const i of SENKE_AUFRUFE_ARG[name] ?? []) pruefe(`${name}()`, n.arguments[i]);
+      for (const i of (Object.hasOwn(SENKE_AUFRUFE_ARG, name) ? SENKE_AUFRUFE_ARG[name] : [])) pruefe(`${name}()`, n.arguments[i]);
       if (name === 'knopf') {
         const opt = n.arguments[2];
         if (opt && ts.isObjectLiteralExpression(opt)) {

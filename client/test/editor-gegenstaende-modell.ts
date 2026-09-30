@@ -458,7 +458,7 @@ console.log('\n[9] Textfehler am richtigen Feld (N1, Befund 1):');
     const f = gut();
     f.nameDe = '😀'.repeat(101);
     check('202 UTF-16-Einheiten (101 Emoji) = zu lang, so wie der Leser zaehlt', gleich(je(f), [['nameDe', 'text-zu-lang']]) && !serverNimmt(f));
-    f.nameDe = '😀'.repeat(100);
+    f.nameDe = `a${'😀'.repeat(99)}b`;
     check('200 UTF-16-Einheiten (100 Emoji) sind erlaubt', je(f).length === 0 && serverNimmt(f));
   }
   {
@@ -480,7 +480,7 @@ console.log('\n[9] Textfehler am richtigen Feld (N1, Befund 1):');
     check('zwei Fehler an zwei Feldern: beide stehen an ihrem Feld', gleich(je(f), [['nameDe', 'text-zeilenumbruch'], ['beschreibungEn', 'text-zu-lang']]), JSON.stringify(je(f)));
     check('zu-lang nennt die Grenze 200 (fuer den Zaehler)', pruefeFormular(f, []).find((x) => x.code === 'text-zu-lang')?.max === 200);
   }
-  check('textGrund: alles Erlaubte gibt null (Umlaute, CJK, Emoji-Folge, HTML-Zeichen)', ['Äpfel & Öl', '斧', '👨‍🌾', '<b>fett</b>', 'a b'].every((w) => textGrund('name', w) === null));
+  check('textGrund: alles Erlaubte gibt null (Umlaute, CJK, Emoji hinter einem Buchstaben, HTML-Zeichen)', ['Äpfel & Öl', '斧', 'Ax 🌾', '<b>fett</b>', 'a b'].every((w) => textGrund('name', w) === null));
   check('Rundreise: ein Text mit Umlauten und Emoji ist weiter frei von Fehlern', (() => {
     const f = gut();
     f.beschreibungDe = 'Scharfe Klinge — nur für Krieger 🗡️';
@@ -491,13 +491,13 @@ console.log('\n[9] Textfehler am richtigen Feld (N1, Befund 1):');
 // ── [10] dependents ────────────────────────────────────────────────────
 console.log('\n[10] Wer haengt an einem Gegenstand (N1, Befund 6):');
 {
-  const mk = (id: string, zutaten: string[]): GegenstandsEintrag =>
-    eintragAus({ id, nameSchluessel: `inhalt.gegenstand.${id}.name`, typ: 'material', ...(zutaten.length > 0 ? { rezept: { menge: 1, zutaten: zutaten.map((item) => ({ item, menge: 1 })) } } : {}), texte: texte(id, id, id) });
-  const A = mk('Aaa', []);
-  const B = mk('Bbb', ['Aaa']);
-  const C = mk('Ccc', ['Bbb']);
-  const D = mk('Ddd', ['Wood']);
-  const E = mk('Eee', ['Aaa', 'Ccc']);
+  const roh = (id: string, zutaten: string[]): Record<string, unknown> => ({ id, nameSchluessel: `inhalt.gegenstand.${id}.name`, typ: 'material', ...(zutaten.length > 0 ? { rezept: { menge: 1, zutaten: zutaten.map((item) => ({ item, menge: 1 })) } } : {}), texte: texte(id, id, id) });
+  // Recipes refer to each other, so the whole list goes through the reader at once.
+  const gelesen = leseGegenstandsDatei(
+    JSON.stringify({ version: 1, gegenstaende: [roh('Aaa', []), roh('Bbb', ['Aaa']), roh('Ccc', ['Bbb']), roh('Ddd', ['Wood']), roh('Eee', ['Aaa', 'Ccc'])] })
+  );
+  check('Fixture: alle fuenf Eintraege vom Leser angenommen', gelesen.eintraege.length === 5 && gelesen.verworfen.length === 0, JSON.stringify(gelesen.verworfen));
+  const [A, B, C, D, E] = gelesen.eintraege;
   const liste = [A, B, C, D, E];
   check('verwender(Aaa) = direkte Nutzer: Bbb, Eee', gleich(verwender(liste, 'Aaa'), ['Bbb', 'Eee']), JSON.stringify(verwender(liste, 'Aaa')));
   check('abhaengige(Aaa) = Bbb, Eee direkt, dann Ccc ueber Bbb', gleich(abhaengige(liste, 'Aaa'), ['Bbb', 'Eee', 'Ccc']), JSON.stringify(abhaengige(liste, 'Aaa')));

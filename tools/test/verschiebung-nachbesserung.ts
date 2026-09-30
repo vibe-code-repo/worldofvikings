@@ -43,6 +43,7 @@ lauf.fall({ id: 'A2a', name: 'RD2: `x = undefined`', soll: ['B12'], teile: ['B12
 lauf.fall({ id: 'A2b', name: '`x = void 0`', soll: ['B12'], teile: ['B12/vorgabe-this-undefined'], eingabe: () => schnitt(mitVorgabe('x: number | undefined = void 0'), auftrag(['m'])) });
 lauf.fall({ id: 'A2c', name: '`x = (undefined as number | undefined)` (parentheses and a cast do not hide it)', soll: ['B12'], teile: ['B12/vorgabe-this-undefined'], eingabe: () => schnitt(mitVorgabe('x = (undefined as number | undefined)'), auftrag(['m'])) });
 lauf.fall({ id: 'A2d', name: '`x = flag ? undefined : 1` (undefined in one branch)', soll: ['B12'], teile: ['B12/vorgabe-this-undefined'], eingabe: () => schnitt(mitVorgabe('flag = true, x = flag ? undefined : 1'), auftrag(['m'])) });
+lauf.fall({ id: 'A2f', name: '`x = flag ? 1 : undefined` (undefined in the other branch)', soll: ['B12'], teile: ['B12/vorgabe-this-undefined'], eingabe: () => schnitt(mitVorgabe('flag = true, x = flag ? 1 : undefined'), auftrag(['m'])) });
 lauf.fall({ id: 'A2e', name: '`x = 1 ?? undefined` and `x = 0 || void 0` (undefined on the right of a logical operator)', soll: ['B12'], teile: ['B12/vorgabe-this-undefined'], eingabe: () => schnitt(mitVorgabe('x = 1 ?? undefined, y = 0 || void 0'), auftrag(['m'])) });
 for (const [id, vorgabe] of [
   ['A2g1', 'x: number[] = []'],

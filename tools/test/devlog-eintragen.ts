@@ -27,7 +27,8 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as echt from "node:fs";
-import { findeSpuren, schreibeAtomar } from "../devlog/eintragen.mjs";
+import { findeSpuren, normalisiert, schreibeAtomar } from "../devlog/eintragen.mjs";
+import { unerlaubteZeichen } from "../../wov-web/src/lib/devlog.ts";
 
 const WERKZEUG = resolve(import.meta.dirname, "../devlog/eintragen.mjs");
 const ARBEIT = mkdtempSync(join(tmpdir(), "devlog-eintragen-"));
@@ -306,6 +307,10 @@ try {
       ["fe80::1", v6],
       ["2001:db8::1", v6],
       ["2001:db8:0:0:0:0:0:1", v6],
+      ["IP:fe80::1", v6], // N5/3: Doppelpunkt davor
+      ["Adresse:2001:db8::1", v6],
+      ["IP:2001:db8:0:0:0:0:0:1", v6],
+      ["x:1:2:3:4:5:6", v6],
       ["1:2:3:4:5:6", v6], // 6 Gruppen
       ["a:b:c:d:e:f:1:2", v6], // 8 Gruppen
       ["::ffff:127.0.0.1", v6],
@@ -332,12 +337,18 @@ try {
       ["deadbeefcafe123", hash],
       ["abc1234", hash], // N4: bewusste Ablehnung (Kürzel nicht von Wort plus Zahl zu trennen)
       ["Bad1234", hash], // N4: bewusste Ablehnung
-      ["1facade2026", hash], // Jahres-Ausnahme gilt nur ab Wortanfang
+      ["123facade2026", hash], // Tag mit 3 Ziffern: keine Datumsform
       ["Facade202", hash], // Jahres-Ausnahme: nur vier Ziffern (3 Ziffern: gesperrt)
       ["Facade20266", hash], // 5 Ziffern: gesperrt
       ["Facade1899", hash], // Jahr nur 19xx oder 20xx
       ["a1b2c3d", hash], // genau 7 Zeichen: gesperrt
       ["de09eeb", hash], // echtes Kürzel mit einem Wechsel
+      ["Fix1a2b3c4d", hash], // N5/4: Hash innerhalb eines Wortes
+      ["commit1a2b3c4", hash],
+      ["xx" + "a1b2c3d4".repeat(5) + "a", hash], // 41 Zeichen, keine Obergrenze
+      ["a1b2c3d4".repeat(8), hash], // 64 Zeichen
+      ["100Dec2026", hash], // Tag mit 3 Ziffern ist keine Datumsform
+      ["2126Dec", hash], // Jahr nur 19xx oder 20xx
       [`Stand ${"0123456789abcdef".repeat(2)}01234567 erreicht`, hash],
       // Pfade
       ["server\\src", zeichen],
@@ -462,6 +473,15 @@ try {
       "Bad123",
       "a1b2c3", // 6 Zeichen: frei
       "Facade2026 und Fade1999",
+      "30Dec2026", // N5/2: Datumsformen
+      "1Feb2026",
+      "29Feb2028",
+      "2026Dec",
+      "Release 2026Dec",
+      "Dec2026",
+      "99Dec2026",
+      "Zeit:20:00:30", // N5/3: Uhrzeit nach Doppelpunkt bleibt frei
+      "a:b::c:d:e:f", // 7 Gruppen mit leerer Gruppe, nur Buchstaben: frei
       "256.256.256.256 Gold", // Oktett 256: kein IPv4
       "1.2.3.256",
       "1.2.3",
@@ -565,10 +585,24 @@ try {
       ["Lœwe", "loewe", "œ"],
       ["Þorn", "thorn", "þ"],
       ["Straße", "strasse", "ß"],
+      ["baŋŋer", "banner", "ŋ"],
+      ["ıstanbul", "istanbul", "ı"],
     ];
     for (const [text, wort, z] of faltung) {
       const funde = findeSpuren({ de: { titel: "T", punkte: [text] } }, [wort]).join("|");
       pruefe(`Faltung ${z}: ${JSON.stringify(text)} trifft Sperrwort`, funde.includes("Sperrwort"), funde || "keine");
+    }
+    // N5/7: jedes erlaubte Zeichen im Lateinbereich fällt nach der Normalisierung auf Kleinbuchstaben a-z.
+    {
+      const schlecht: string[] = [];
+      let erlaubt = 0;
+      for (let c = 0x41; c <= 0x17f; c++) {
+        const z = String.fromCodePoint(c);
+        if (unerlaubteZeichen(z).length > 0 || !/\p{L}/u.test(z)) continue;
+        erlaubt++;
+        if (!/^[a-z]+$/.test(normalisiert(z))) schlecht.push(`U+${c.toString(16)} ${z}->${normalisiert(z)}`);
+      }
+      pruefe(`N5/7: alle ${erlaubt} erlaubten Lateinbuchstaben falten auf a-z`, schlecht.length === 0, schlecht.join(" "));
     }
     // Gegenprobe: ohne Sperrwort lässt die Faltung harmlose Wörter durch.
     for (const text of ["Łódź ist weit", "Þorn und Æther", "Straße und Öl", "Größe ß"]) {

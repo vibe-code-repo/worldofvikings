@@ -5,12 +5,17 @@ import { parse } from 'svelte/compiler';
 import { describe, expect, it } from 'vitest';
 import {
   DATEI_MAX_BYTES,
+  FALTUNG,
   fuegeEin,
   fuerAnzeige,
   istDatum,
+  LATEIN_AUSGENOMMEN,
+  LATEIN_BIS,
   leseDevlog,
+  PIKTO_ABGELEHNT,
   pruefeEintrag,
   pruefeWortLaenge,
+  SATZZEICHEN,
   serialisiere,
   unerlaubteZeichen,
   WORT_MAX,
@@ -294,40 +299,75 @@ describe('devlog: Zeichen-Positivliste (Allowed text)', () => {
     }
   });
 
-  it('Dokumentation „Allowed text“ und Code stimmen überein', () => {
+  it('jede Liste der Dokumentation „Allowed text“ stimmt mit den exportierten Daten überein', () => {
     const quelle = readFileSync(join(HIER, 'devlog.ts'), 'utf8');
-    const block = quelle.slice(quelle.indexOf('Allowed text'), quelle.indexOf('const BASIS'));
+    const block = quelle.slice(
+      quelle.indexOf('Allowed text'),
+      quelle.indexOf('export const LATEIN_BIS'),
+    );
     const text = block.replace(/\n \* ?/g, ' ').replace(/\s+/g, ' ');
-    // Satzzeichenliste: genau diese ASCII- und Typografie-Zeichen sind neben Buchstaben, Ziffern und Leerzeichen erlaubt.
-    const liste = /Punctuation: (.+?) - Emoji/.exec(text)?.[1].trim().split(' ') ?? [];
-    expect(liste.length).toBeGreaterThan(10);
-    for (const z of liste) expect(unerlaubteZeichen(z), `Satzzeichen ${z}`).toEqual([]);
+    const hex = (t: string | undefined) =>
+      [...(t ?? '').matchAll(/U\+([0-9A-F]{4})/g)].map((m) => Number.parseInt(m[1], 16));
+    const zahlen = (l: readonly number[]) => [...l].sort((x, y) => x - y);
+    const sortiert = (l: string[]) => [...l].sort().join(' ');
+
+    // Satzzeichen
+    const satz = /Punctuation: (.+?) - Emoji/.exec(text)?.[1].trim().split(' ') ?? [];
+    expect(sortiert(satz)).toBe(sortiert([...SATZZEICHEN]));
+    // abgelehnte ASCII-Zeichen: alles Sichtbare, was weder Buchstabe/Ziffer noch Satzzeichen ist
+    const abgelehnt = /Rejected on purpose: (.+?), all Cc/.exec(text)?.[1].trim().split(' ') ?? [];
+    const ascii: string[] = [];
     for (let c = 0x21; c <= 0x7e; c++) {
       const z = String.fromCharCode(c);
-      const erlaubt = /[A-Za-z0-9]/.test(z) || liste.includes(z);
-      expect(unerlaubteZeichen(z).length === 0, `U+${c.toString(16)} ${z}`).toBe(erlaubt);
+      if (!/[A-Za-z0-9]/.test(z) && !SATZZEICHEN.includes(z)) ascii.push(z);
     }
-    // „Rejected on purpose“: jedes genannte ASCII-Zeichen wird abgelehnt.
-    const abgelehnt = /Rejected on purpose: (.+?), all Cc/.exec(text)?.[1].trim().split(' ') ?? [];
-    expect(abgelehnt.length).toBeGreaterThan(10);
-    for (const z of abgelehnt)
-      expect(unerlaubteZeichen(z), `abgelehnt ${z}`).toEqual([
-        `U+${z.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`,
-      ]);
-    // Lateinblock: die genannten Ausnahmen sind genau die abgelehnten Buchstaben zwischen U+00C0 und U+017F (ohne × ÷), darüber ist alles abgelehnt.
-    const raus = new Set<number>();
-    const teil = /Left out of the allowed block: .*?\((.+?)\)\./.exec(text)?.[1] ?? '';
-    for (const m of teil.matchAll(/U\+([0-9A-F]{4})(?:-U\+([0-9A-F]{4}))?/g)) {
-      const von = parseInt(m[1], 16);
-      const bis = m[2] ? parseInt(m[2], 16) : von;
-      for (let c = von; c <= bis; c++) raus.add(c);
-    }
-    expect(raus.size).toBe(3);
+    expect(sortiert(abgelehnt)).toBe(sortiert(ascii));
+    // Lateinbereich, Erweiterung B und Ausnahmen
+    expect(hex(/Latin letters (U\+[0-9A-F]{4}-U\+[0-9A-F]{4})/.exec(text)?.[1])).toEqual([
+      0x41,
+      LATEIN_BIS,
+    ]);
+    expect(hex(/Extended-B \((U\+[0-9A-F]{4}-U\+[0-9A-F]{4})\)/.exec(text)?.[1])).toEqual([
+      LATEIN_BIS + 1,
+      0x24f,
+    ]);
+    expect(zahlen(hex(/Left out of that range: ((?:U\+[0-9A-F]{4} ?)+)/.exec(text)?.[1]))).toEqual(
+      zahlen(LATEIN_AUSGENOMMEN),
+    );
+    // Emoji, die trotz Piktogramm abgelehnt werden
+    expect(
+      zahlen(hex(/Emoji rejected although pictographic: ((?:U\+[0-9A-F]{4} ?)+)/.exec(text)?.[1])),
+    ).toEqual(zahlen(PIKTO_ABGELEHNT));
+    // Faltung: Buchstaben und Ziele
+    const faltText = /Folding [^:]*: (.+?) On top/.exec(text)?.[1] ?? '';
+    const paare = [...faltText.matchAll(/(\S)→(\S+)/g)].map((m) => `${m[1]}→${m[2]}`);
+    expect(sortiert(paare)).toBe(sortiert(Object.entries(FALTUNG).map(([k, v]) => `${k}→${v}`)));
+    // Regeln in Worten: jede Aussage hängt an einem Verhaltenstest (Emoji-Test oben)
+    expect(text).toContain('accepted in pairs only');
+    expect(text).toContain('accepted only directly after an emoji');
+    expect(text).toContain('keycap and tag sequences are rejected');
+    expect(text).toContain('Latin Extended-B');
+
+    // Verhalten gegen die Daten: jeder Codepunkt im Lateinbereich und darüber
     for (let c = 0xc0; c <= 0x24f; c++) {
       if (c === 0xd7 || c === 0xf7) continue;
+      const erlaubt = c <= LATEIN_BIS && !LATEIN_AUSGENOMMEN.includes(c);
       expect(unerlaubteZeichen(String.fromCodePoint(c)).length === 0, `U+${c.toString(16)}`).toBe(
-        c <= 0x17f && !raus.has(c),
+        erlaubt,
       );
+    }
+    for (const z of [...SATZZEICHEN, ...ascii]) {
+      expect(unerlaubteZeichen(z).length === 0, `Zeichen ${z}`).toBe(SATZZEICHEN.includes(z));
+    }
+    for (const c of PIKTO_ABGELEHNT) {
+      expect(unerlaubteZeichen(String.fromCodePoint(c))).toEqual([
+        `U+${c.toString(16).toUpperCase().padStart(4, '0')}`,
+      ]);
+    }
+    // Jedes Faltungsziel sind Kleinbuchstaben, jeder gefaltete Buchstabe ist erlaubt.
+    for (const [k, v] of Object.entries(FALTUNG)) {
+      expect(v, k).toMatch(/^[a-z]+$/);
+      expect(unerlaubteZeichen(k), k).toEqual([]);
     }
   });
 });

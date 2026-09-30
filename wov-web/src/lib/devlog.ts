@@ -69,21 +69,24 @@ export function istDatum(x: unknown): x is string {
  * The insert tool accepts titles and points only from this character list.
  * Everything else is rejected and named as `U+XXXX`; this is deliberate and
  * over-filtering that follows from the list is documented here, not a defect.
+ * The data behind this block (`LATEIN_BIS`, `LATEIN_AUSGENOMMEN`,
+ * `SATZZEICHEN`, `PIKTO_ABGELEHNT`, `FALTUNG`) is exported below, and a test
+ * compares every list in this block with it.
  *
  *   - Latin letters U+0041-U+017F (Basic Latin, Latin-1 Supplement, Latin
  *     Extended-A, so umlauts, ß and é), without × and ÷. Latin Extended-B
  *     (U+0180-U+024F) is not allowed at all. No other script, no IPA or
  *     phonetic letters, no combining marks (write precomposed letters).
- *     Left out of the allowed block: the letters that fold to punctuation
- *     (U+013F U+0140 U+0149).
+ *     Left out of that range: U+013F U+0140 U+0149 (they fold to punctuation).
  *   - Digits 0-9 and the space U+0020 (no other space, no tab, no line break).
  *   - Punctuation: . , ! ? : ; ' " „ “ ” ‚ ‘ ’ ( ) - – — % + & €
- *   - Emoji (Extended_Pictographic, assigned code points only) as a sequence:
- *     an emoji may be followed by one U+FE0F and by one skin-tone modifier;
- *     U+FE0F and skin-tone modifiers are rejected anywhere else. Regional
+ *   - Emoji (Extended_Pictographic, assigned code points only) as a sequence.
+ *     U+FE0F and a skin-tone modifier are accepted only directly after an
+ *     emoji (one of each at most); anywhere else they are rejected. Regional
  *     indicators are accepted in pairs only (a flag); a single one is
  *     rejected. No zero-width joiner, so joined emoji such as a farmer are
- *     rejected. U+2122, U+2139 and U+24C2 are rejected (they fold to letters).
+ *     rejected; keycap and tag sequences are rejected, too.
+ *     Emoji rejected although pictographic: U+2122 U+2139 U+24C2 (they fold to letters).
  *
  * Rejected on purpose: / \ # @ _ = < > ~ ` | * [ ] { } $ ^, all Cc and Cf
  * characters (zero-width joiner, bidi marks, soft hyphen), other dashes and
@@ -91,12 +94,16 @@ export function istDatum(x: unknown): x is string {
  * "Client und Server" instead of "Client/Server", "Platz 1" instead of
  * "Platz #1", no chat commands such as "/heim".
  *
+ * Folding for the pattern and blocklist checks (letters without a
+ * decomposition): ø→o ł→l đ→d ħ→h ŧ→t ð→d ĸ→k ŋ→n ı→i æ→ae œ→oe þ→th ß→ss
+ *
  * On top of the list the tool rejects a few patterns on the normalised text
- * (NFKC, diacritics removed, dotless i and the letters ø ł đ ħ ŧ ð ĸ æ œ þ ß
- * folded to o l d h t b d k ae oe th ss, lower case, – and — as -):
- * hashes (7+ hex characters that contain digits and letters, except the form
- * word + year such as Facade2026; "abc1234" and "Bad1234" are rejected on
- * purpose; or 10+ characters from a-f only), "pr|pull request|issue|commit|gh"
+ * (NFKC, diacritics removed, the folding above, lower case, – and — as -):
+ * hashes (a run of 7 or more of 0-9 a-f that contains digits and letters,
+ * also inside a word such as "Fix1a2b3c4d", except the forms word + year
+ * "Facade2026", day + word "30Dec2026" or "1Feb2026", and year + word
+ * "2026Dec"; "abc1234" and "Bad1234" are rejected on purpose; or a run of 10
+ * or more characters from a-f only), "pr|pull request|issue|commit|gh"
  * followed by a number of 3+ digits, domains (`word.tld` or `word . tld` or
  * `word dot tld` for common TLDs, `localhost`, `www.`, `github`), IPv4
  * addresses (four parts of 1-3 digits with value 0-255, leading zeros
@@ -105,24 +112,66 @@ export function istDatum(x: unknown): x is string {
  * "127.1", "2130706433" and "0177.0.0.1" stay free because they are not the
  * four-part form and are hopeless to tell from versions and gold amounts),
  * IPv6 (a `::` with at least one hex group that has a digit, such as "fe80::1"
- * or "::1"; or 6 to 8 hex groups of 1-4 characters; times such as 20:00:30
- * and words such as "Bad::" stay free), server names (`wov` + any separator
- * + dev|host|lab|live), `port` + number, file endings, and every line of the
- * blocklist file kept outside the repository.
+ * or "::1", also after a colon as in "IP:fe80::1"; or 6 to 8 hex groups of
+ * 1-4 characters; times such as 20:00:30 and words such as "Bad::" stay
+ * free), server names (`wov` + any separator + dev|host|lab|live), `port` +
+ * number, file endings, and every line of the blocklist file kept outside
+ * the repository.
  */
-const BASIS =
-  /^[A-Za-z0-9 .,!?:;'"\u201E\u201C\u201D\u201A\u2018\u2019()\u002D\u2013\u2014%+&\u20AC]$/u;
-const LATEIN = /^[\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u017F]$/u;
-const LATEIN_RAUS = /^[\u013F\u0140\u0149]$/u;
+/** Last code point of the allowed Latin range (Latin Extended-A ends at U+017F). */
+export const LATEIN_BIS = 0x17f;
+/** Code points inside the Latin range that are left out (they fold to punctuation). */
+export const LATEIN_AUSGENOMMEN: readonly number[] = [0x13f, 0x140, 0x149];
+/** The allowed punctuation besides the ASCII letters, digits and the space. */
+export const SATZZEICHEN = '.,!?:;\'"„“”‚‘’()-–—%+&€';
+/** Pictographic code points that are rejected (NFKC turns them into letters). */
+export const PIKTO_ABGELEHNT: readonly number[] = [0x2122, 0x2139, 0x24c2];
+/** Letters without a decomposition and their folding for the pattern and blocklist checks. */
+export const FALTUNG: Readonly<Record<string, string>> = {
+  ø: 'o',
+  ł: 'l',
+  đ: 'd',
+  ħ: 'h',
+  ŧ: 't',
+  ð: 'd',
+  ĸ: 'k',
+  ŋ: 'n',
+  ı: 'i',
+  æ: 'ae',
+  œ: 'oe',
+  þ: 'th',
+  ß: 'ss',
+};
+
 const PIKTO = /^\p{Extended_Pictographic}$/u;
-const PIKTO_RAUS = /^[\u2122\u2139\u24C2]$/u;
 const UNBELEGT = /^\p{Cn}$/u;
 const HAUTTON = /^\p{Emoji_Modifier}$/u;
 const FLAGGE = /^\p{Regional_Indicator}$/u;
 const VARIANTE = '\uFE0F';
 
+function istBasis(z: string): boolean {
+  return /^[A-Za-z0-9 ]$/.test(z) || (z.length === 1 && SATZZEICHEN.includes(z));
+}
+
+function istLatein(z: string): boolean {
+  const cp = z.codePointAt(0) as number;
+  return (
+    cp >= 0xc0 &&
+    cp <= LATEIN_BIS &&
+    cp !== 0xd7 &&
+    cp !== 0xf7 &&
+    !LATEIN_AUSGENOMMEN.includes(cp) &&
+    /^\p{L}$/u.test(z)
+  );
+}
+
 function istPikto(z: string | undefined): boolean {
-  return z !== undefined && PIKTO.test(z) && !PIKTO_RAUS.test(z) && !UNBELEGT.test(z);
+  return (
+    z !== undefined &&
+    PIKTO.test(z) &&
+    !PIKTO_ABGELEHNT.includes(z.codePointAt(0) as number) &&
+    !UNBELEGT.test(z)
+  );
 }
 
 /** Characters of `text` outside the allowed list, each once, as `U+XXXX` (in order of first use). */
@@ -132,8 +181,8 @@ export function unerlaubteZeichen(text: string): string[] {
   for (let i = 0; i < zs.length; i++) {
     const z = zs[i];
     let ok: boolean;
-    if (BASIS.test(z)) ok = true;
-    else if (LATEIN.test(z)) ok = !LATEIN_RAUS.test(z);
+    if (istBasis(z)) ok = true;
+    else if (istLatein(z)) ok = true;
     else if (istPikto(z)) ok = true;
     else if (z === VARIANTE || HAUTTON.test(z)) ok = istPikto(zs[i - 1]);
     else if (FLAGGE.test(z)) {

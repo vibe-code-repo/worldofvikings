@@ -753,6 +753,8 @@ export default [
   // operations, zone reset.
   // Tool registry: the editor's tools behind one interface (start, abort, keys, bar).
   ['client', 'test/werkzeug-registry.ts'],
+  // F9: Wetter vom Server im Client (DOM-frei): Paket lesen, Übergabe an den WeatherManager, Verdrahtung in main.ts.
+  ['client', 'test/wetter-annahme.ts'],
   // Wildwarden clientseitig: Slot-Vertrag, Speicher-Rundlauf, Inventarersatz,
   // Körper-Wiederherstellung. NullEngine.
   ['client', 'test/wildwarden.ts'],

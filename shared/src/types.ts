@@ -468,6 +468,18 @@ export enum PacketType {
    */
   ServerNeustart = 86,
   /**
+   * Server → Client: das Wetter, das DER SERVER für das Biom dieses Spielers
+   * gezogen hat (F9). Payload: String umgebung (Name der Umgebung, die der
+   * Client darstellt), String zustand (Id des Wetterzustands, Schlüssel für
+   * den Anzeigenamen), Int32 fenster (Wetterfenster der Weltzeit). Kommt beim
+   * Anmelden, bei jedem Fensterwechsel und wenn der Spieler das Biom wechselt
+   * oder ein Admin das Wetter setzt; Editor-Verbindungen und Spieler in
+   * Dungeons bekommen es nicht. EIGENES Paket statt Felder an `WeltWetter`
+   * (Begründung dort): Ein alter Client verwirft den unbekannten Typ still und
+   * würfelt weiter selbst. Siehe shared/wetterDefinition.ts, server/spiel/Wetter.ts.
+   */
+  WetterZustand = 87,
+  /**
    * Server → the attacker only, one per `Attack` that carried the D2 fields: Int32 seq (echo of
    * the client's), Int32 schritt (combo step the server counted, 0 = refused), Int32 ergebnis
    * (0 hit, 1 miss, 2 combo refused, 3 cooldown, 4 stamp out of window, 5 stamina).

@@ -784,6 +784,10 @@ export default [
     Fake-Request für ForumApi, kein assets/, keine GPU.
   */
   ['server/test', 'website-urspruenge.ts'],
+  // F9 (Wetter serverautoritativ): Definitionsdatei, Würfel (bitgleich zum alten, Verteilung, Dauer, Tageszeit),
+  // Wetterdienst und Admin-Befehl rein; dann echter Server mit echten Clients: Fensterwechsel, zwei Biome,
+  // Biomwechsel, Override, Editor/Dungeonband ohne Paket. Zwei Server auf ephemeren Ports, ~25 s.
+  ['server', 'test/wetter-server.ts'],
   // Wiedereinstieg nach Neustart mit Layout-Abgleich: das Bett wandert mit dem Gelände (der
   // Punkt zieht mit), ein versetztes oder gelöschtes Bett wird gemeldet. Echte Clients.
   ['server', 'test/wiedereinstieg-bett-wandert.ts'],

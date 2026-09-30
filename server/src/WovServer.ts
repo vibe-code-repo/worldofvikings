@@ -4096,7 +4096,9 @@ export class WovServer {
   /** Revives every dead player whose lying time is over. */
   private belebeFaellige(now: number): void {
     for (const peer of this.net.getPeers()) {
-      if (peer.totBis > 0 && now >= peer.totBis) this.belebeNeu(peer, false);
+      if (peer.totBis > 0 && now >= peer.totBis) {
+        try { this.belebeNeu(peer, false); } catch (e) { console.error(`[WoV] Wiederbelebung von ${peer.name} fehlgeschlagen: ${e}`); }
+      }
     }
   }
 
@@ -4140,6 +4142,7 @@ export class WovServer {
     }
     // Immediate revival is followed by the caller's own PlayerState (one packet, as before).
     if (!sofort) this.sendPlayerState(peer);
+    this.sichereSpielerSofort(peer, 'tod'); // F8: the revived state goes to disk now, not with the next 30 s tick
   }
 
   /**

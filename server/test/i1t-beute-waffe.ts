@@ -29,12 +29,20 @@
  *         `WovServer.ts` a second time, as a module of its own. No file under
  *         `spiel/` has a legitimate use for the module system, so there is
  *         no allowed form of it (N1, finding B1 of the attack).
+ *         Under `spiel/` only `.ts` files are allowed. A `.cts`, `.mts`,
+ *         `.js`, `.cjs` or `.mjs` file is a violation in itself: in a CommonJS
+ *         file `module.require(…)`, `(0, require)(…)` and `require.call(…)`
+ *         open a `require()` the scanner does not see (N2, finding B4).
  *         ONE file is allowed to name the class, and only with `import type`:
  *         the context file (list `ALLOWED`).
  *     2b. No file under `server/src/spiel/` reaches `WovServer.ts` through a
  *         chain of VALUE imports across `server/src`. That chain would be the
  *         cycle at run time. A chain over a type import does not count: it is
- *         erased when the code is built.
+ *         erased when the code is built. The same chain must not end in a
+ *         file that uses the module system (the imports and names of 2a): a
+ *         helper outside `spiel/` that holds `createRequire(import.meta.url)`
+ *         and that a module of `spiel/` imports by value hands that module a
+ *         `require()` for `WovServer.ts` (N2, finding B3).
  *  3. Uniqueness, read on the syntax tree: each of the 14 names is declared
  *     exactly once under `server/src`, at module level, in the file the step
  *     put it in. Every other binding of such a name is a violation: a
@@ -63,6 +71,14 @@
  *  - An alias (`paths` in a tsconfig) is not resolved. There is none today.
  *  - Rule 3 reads declarations, not assignments: `globalThis.TRUHEN = …` is
  *    not seen.
+ *  - A name built at run time is not seen (N2, finding B2): `process['getBuiltin' + 'Module']`,
+ *    `Reflect.get(process, ['get', 'Builtin', 'Module'].join(''))`, `eval('…')` and
+ *    `new Function('…')` reach the module system, and through it `WovServer.ts` as a second module
+ *    instance, while the test stays green. A test on the syntax tree reads the names written in
+ *    the source; what a string expression evaluates to exists only when the program runs, and
+ *    no scanner of the source text can decide that without running it. The guard is review of
+ *    every new file under `spiel/`, and the fact that nothing under `server/src` uses the
+ *    module system today.
  *
  * Run (from server/): npx tsx test/i1t-beute-waffe.ts
  */
@@ -261,7 +277,19 @@ function direction(sources: Sources): Finding[] {
   for (const [file, text] of sources) refs.set(file, references(file, text));
   const inSpiel = [...sources.keys()].filter((f) => f.startsWith(`${SPIEL}/`)).sort();
 
+  /** The first place where a file uses the module system (an import of it or one of its names), or null. Same test as rule 2a. */
+  const moduleSystemUse = (file: string): { line: number; what: string } | null => {
+    for (const r of refs.get(file) ?? []) {
+      if (r.specifier !== null && MODULE_SYSTEM.includes(r.specifier.replace(/[?#].*$/, ''))) return { line: r.line, what: `${r.form} '${r.specifier}'` };
+    }
+    const names = moduleSystemNames(file, sources.get(file)!);
+    return names.length > 0 ? { line: names[0]!.line, what: `the name ${names[0]!.name}` } : null;
+  };
+
   for (const file of inSpiel) {
+    if (!file.endsWith('.ts')) {
+      out.push({ rule: '2a', file, line: 1, text: 'is not a .ts file: under spiel/ only .ts is allowed, other kinds of module can hide a require() this scanner cannot read' });
+    }
     for (const r of refs.get(file)!) {
       if (r.specifier === null) {
         if (r.form === 'import()' || r.form === 'require()') {
@@ -303,17 +331,28 @@ function direction(sources: Sources): Finding[] {
       firstLine.set(e.to, e.line);
       queue.push(e.to);
     }
+    const chainTo = (last: string, end?: string): string[] => {
+      const chain = end === undefined ? [] : [end];
+      for (let f: string | undefined = last; f !== undefined && f !== start; f = via.get(f)) chain.push(f);
+      chain.push(start);
+      return chain.reverse();
+    };
     let found = false;
-    while (queue.length > 0 && !found) {
+    let moduleSystemFound = false;
+    while (queue.length > 0 && !(found && moduleSystemFound)) {
       const file = queue.shift()!;
+      // a reached file under spiel/ that uses the module system is a 2a finding of its own; the helpers outside are the 2b case
+      const use = moduleSystemFound || file.startsWith(`${SPIEL}/`) ? null : moduleSystemUse(file);
+      if (use !== null) {
+        out.push({ rule: '2b', file: start, line: firstLine.get(file)!, text: `reaches the module system (${use.what} at ${file}:${use.line}) through value imports: ${chainTo(file).join(' -> ')}` });
+        moduleSystemFound = true;
+      }
       for (const e of valueEdges(file)) {
         if (e.to === CLASS_FILE) {
-          const chain = [CLASS_FILE];
-          for (let f: string | undefined = file; f !== undefined && f !== start; f = via.get(f)) chain.push(f);
-          chain.push(start);
-          out.push({ rule: '2b', file: start, line: firstLine.get(file)!, text: `reaches WovServer.ts through value imports: ${chain.reverse().join(' -> ')}` });
+          if (found) continue;
+          out.push({ rule: '2b', file: start, line: firstLine.get(file)!, text: `reaches WovServer.ts through value imports: ${chainTo(file, CLASS_FILE).join(' -> ')}` });
           found = true;
-          break;
+          continue;
         }
         if (e.to === start || via.has(e.to)) continue;
         via.set(e.to, file);
@@ -474,6 +513,28 @@ console.log('\n[0] Self-test of the scanner on invented sources');
     ['process.getBuiltinModule', { [X]: "export const r = process.getBuiltinModule('node:module');" }, '2a'],
     ['createRequire as a string key', { [X]: "declare const nm: Record<string, unknown>;\nexport const r = nm['createRequire'];" }, '2a'],
     ['module system in a sub-folder', { 'src/spiel/befehle/Y.ts': "import { createRequire } from 'node:module';\nexport const r = createRequire;" }, '2a'],
+    // a helper outside spiel/ that holds the module system, imported by value from spiel/ (N2, B3)
+    [
+      'helper outside spiel/ with createRequire, imported by value',
+      { [X]: "import { lade } from '../lader.js';\nexport const w = (): unknown => lade('./WovServer.js');", 'src/lader.ts': "import { createRequire } from 'node:module';\nexport const lade = createRequire(import.meta.url);" },
+      '2b',
+    ],
+    [
+      'helper two files away',
+      { [X]: "import { a } from '../a.js';\nexport const w = a;", 'src/a.ts': "export { lade as a } from './lader.js';", 'src/lader.ts': "import * as nm from 'node:module';\nexport const lade = nm.createRequire(import.meta.url);" },
+      '2b',
+    ],
+    ['helper that only names getBuiltinModule', { [X]: "import { g } from '../lader.js';\nexport const w = g;", 'src/lader.ts': "export const g = process.getBuiltinModule;" }, '2b'],
+    ['helper outside spiel/, imported from a sub-folder of spiel/', { 'src/spiel/befehle/Y.ts': "import { lade } from '../../lader.js';\nexport const w = lade;", 'src/lader.ts': "import { createRequire } from 'module';\nexport const lade = createRequire(import.meta.url);" }, '2b'],
+    // only .ts under spiel/ (N2, B4)
+    ['a .cts file with module.require', { 'src/spiel/Y.cts': "export = () => module.require('../WovServer.ts');" }, '2a'],
+    ['a .cts file with (0, require)', { 'src/spiel/Y.cts': "export = () => (0, require)('../WovServer.ts');" }, '2a'],
+    ['a .cts file with require.call', { 'src/spiel/Y.cts': "export = () => require.call(null, '../WovServer.ts');" }, '2a'],
+    ['a .cjs file', { 'src/spiel/Y.cjs': "module.exports = () => module.require('../WovServer.cjs');" }, '2a'],
+    ['a .mjs file', { 'src/spiel/Y.mjs': 'export const a = 1;' }, '2a'],
+    ['a .mts file', { 'src/spiel/Y.mts': 'export const a = 1;' }, '2a'],
+    ['a .js file', { 'src/spiel/Y.js': 'export const a = 1;' }, '2a'],
+    ['a .cts file in a sub-folder', { 'src/spiel/befehle/Y.cts': 'export = 1;' }, '2a'],
   ];
   for (const [name, files, rule] of red) {
     const f = direction(set(files));
@@ -493,6 +554,9 @@ console.log('\n[0] Self-test of the scanner on invented sources');
     ['a file outside the folder may import node:module', { 'src/main.ts': "import { createRequire } from 'node:module';\nexport const r = createRequire(import.meta.url);" }],
     ['a relative module named module is not the module system', { [X]: "import { a } from './module.js';", 'src/spiel/module.ts': 'export const a = 1;' }],
     ['a comment naming createRequire is no import', { [X]: "// createRequire(import.meta.url)('../WovServer.ts') would be a violation\nexport const a = 1;" }],
+    ['main.ts holds the module system, nothing under spiel/ reaches it', { 'src/main.ts': "import { createRequire } from 'node:module';\nexport const r = createRequire(import.meta.url);", [X]: "import { a } from '../hilf.js';\nexport const b = a;", 'src/hilf.ts': 'export const a = 1;' }],
+    ['a helper with the module system reached over a type import only', { [X]: "import type { L } from '../lader.js';\nexport type M = L;", 'src/lader.ts': "import { createRequire } from 'node:module';\nexport const lade = createRequire(import.meta.url);\nexport type L = typeof lade;" }],
+    ['.ts and .d.ts under spiel/ are fine', { [X]: 'export const a = 1;', 'src/spiel/Y.d.ts': 'export declare const a: number;' }],
   ];
   for (const [name, files] of green) {
     const f = direction(set(files));
@@ -606,8 +670,8 @@ console.log('\n[2] Direction: no module under server/src/spiel/ names or reaches
   const found = direction(sources);
   const direct = found.filter((f) => f.rule === '2a');
   const chains = found.filter((f) => f.rule === '2b');
-  check('2a: no file under spiel/ names WovServer.ts or the module system (one named exception: the context file, type-only)', direct.length === 0, show(direct));
-  check('2b: no file under spiel/ reaches WovServer.ts through value imports', chains.length === 0, show(chains));
+  check('2a: no file under spiel/ names WovServer.ts or the module system, only .ts files (one named exception: the context file, type-only)', direct.length === 0, show(direct));
+  check('2b: no file under spiel/ reaches WovServer.ts or the module system through value imports', chains.length === 0, show(chains));
   for (const a of ALLOWED) {
     const used = sources.has(a.file) && references(a.file, sources.get(a.file)!).some((r) => r.specifier !== null && candidates(a.file, r.specifier).includes(CLASS_FILE));
     console.log(`  note: exception ${a.file} (${a.form}; ${a.reason}): ${sources.has(a.file) ? (used ? 'in use' : 'file exists, names no class file') : 'file does not exist'}`);

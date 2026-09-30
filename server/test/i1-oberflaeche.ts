@@ -197,23 +197,24 @@ export const UEBERSCHRIEBEN = [
 export const TEXT_TESTS: readonly { datei: string; muster: readonly string[]; schritt: number; ziel: string; wirdRot: boolean }[] = [
   {
     datei: 'server/test/modulbau-grenzen.ts',
-    muster: ['case PacketType.DungeonModulBau:', '/baueModul\\(/.test(wovServer)'],
-    schritt: 2, // block G: handleDungeonModulBau moves to spiel/DungeonEditPakete.ts; the case stays, `baueModul(` moves
+    muster: ['case PacketType.DungeonModulBau:', 'this\\.handleDungeonModulBau\\(peer, reader\\)', '\\bbaueModul\\(/.test(dungeonEditPakete)'],
+    schritt: 2, // done in step 2: handleDungeonModulBau moved to spiel/DungeonEditPakete.ts; the test now reads the case and the forwarding in WovServer.ts and the call of `baueModul(` in the module
     ziel: 'server/src/spiel/DungeonEditPakete.ts',
-    wirdRot: true,
+    wirdRot: false,
   },
   {
     datei: 'server/test/modulbau-loeschen.ts',
     muster: [
       'case PacketType.DungeonModulLoeschen:',
-      '/deleteModule\\(/.test(wovServer)',
-      '/private dungeonsWurzel\\(\\)/.test(wovServer)',
+      'this\\.handleDungeonModulLoeschen\\(peer, reader\\)',
+      '\\bdeleteModule\\(/.test(dungeonEditPakete)',
+      '/^  dungeonsWurzel\\(\\): string \\{/m.test(wovServer)',
       '/resolve\\(this\\.dungeonsWurzel\\(\\), this\\.config\\.worldName\\)/.test(wovServer)',
-      '/dungeonsWurzel: this\\.dungeonsWurzel\\(\\)/.test(wovServer)',
+      '/dungeonsWurzel: k\\.dungeonsWurzel\\(\\)/.test(dungeonEditPakete)',
     ],
-    schritt: 2, // `deleteModule(` and `dungeonsWurzel: this.dungeonsWurzel()` move (spelling becomes `k.`); the case, the method `dungeonsWurzel` and its constructor use stay
+    schritt: 2, // done in step 2: `deleteModule(` and `dungeonsWurzel: k.dungeonsWurzel()` are read in spiel/DungeonEditPakete.ts; the case, the method `dungeonsWurzel` (not private any more) and its constructor use are read in WovServer.ts
     ziel: 'server/src/spiel/DungeonEditPakete.ts',
-    wirdRot: true,
+    wirdRot: false,
   },
   {
     datei: 'client/test/dungeon-neuer-saal.ts',

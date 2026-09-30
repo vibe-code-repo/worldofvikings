@@ -93,6 +93,22 @@ export function syntaxPhase(manifest: Manifest, alt: Datei, rest: Datei, ziele: 
     vergleicheListe(kopf(ka), kopf(kn), alt, rest, { bezeichner: b }, knotenPaare, 'head of the class');
     knotenPaare.setze(ka, kn, rest);
     for (const m of z.klasse.mitglieder) {
+      if (m.gelockerteParameter) {
+        // The constructor: parameters without `private`/`protected`, then the body.
+        const teile = (c: ts.Node, d: Datei): ts.Node[] => [
+          ...(c as ts.ConstructorDeclaration).parameters.flatMap((par) => par.getChildren(d.sf).flatMap((ch) => (ch.kind === K.SyntaxList ? ch.getChildren(d.sf).filter((x) => x.kind !== K.PrivateKeyword && x.kind !== K.ProtectedKeyword) : [ch]))),
+          ...((c as ts.ConstructorDeclaration).body ? [(c as ts.ConstructorDeclaration).body!] : []),
+        ];
+        vergleicheListe(teile(m.alt.knoten, alt), teile(m.neu.knoten, rest), alt, rest, { bezeichner: b }, knotenPaare, 'parts of the constructor');
+        knotenPaare.setze(m.alt.knoten, m.neu.knoten, rest);
+        // The parameters themselves are declarations: their partners are the parameters of the rest.
+        (m.alt.knoten as ts.ConstructorDeclaration).parameters.forEach((par, i) => {
+          const np = (m.neu.knoten as ts.ConstructorDeclaration).parameters[i];
+          if (np) knotenPaare.setze(par, np, rest);
+        });
+        for (const g of m.gelockerteParameter) erg.gelockert.push({ name: g.name, was: g.was, ort: { datei: rest, pos: g.pos } });
+        continue;
+      }
       if (m.gelockert === null) {
         const v = vergleicheWoertlich(m.alt.knoten, m.neu.knoten, alt, rest, knotenPaare, b);
         if (v.unterschied || m.alt.text !== m.neu.text) stoere(m.alt);

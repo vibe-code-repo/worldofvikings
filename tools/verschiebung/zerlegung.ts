@@ -43,6 +43,8 @@ export interface MitgliedPaar {
   neu: Stueck;
   /** Name of the visibility modifier the member lost, or `null` if the member is byte-identical. */
   gelockert: 'private' | 'protected' | null;
+  /** Parameter properties of a constructor that lost `private` or `protected`, with their place in the rest. */
+  gelockerteParameter?: { name: string; was: 'private' | 'protected'; pos: number }[];
 }
 
 export interface ZielZerlegung {
@@ -113,6 +115,35 @@ function ohneSichtbarkeit(s: Stueck, welcher: ts.SyntaxKind): string | null {
   let bis = m.end - s.von;
   while (bis < s.text.length && (s.text[bis] === ' ' || s.text[bis] === '\t')) bis++;
   return s.text.slice(0, von) + s.text.slice(bis);
+}
+
+/**
+ * Parameter properties of the old constructor whose `private` or `protected` is missing in the
+ * rest, if that is the only difference between the two constructors. `null` otherwise.
+ */
+function parameterLockerung(e: Stueck, r: Stueck, alt: Datei): { name: string; was: 'private' | 'protected' }[] | null {
+  const c = e.knoten as ts.ConstructorDeclaration;
+  const kandidaten: { name: string; was: 'private' | 'protected'; von: number; bis: number }[] = [];
+  for (const par of c.parameters) {
+    const mod = modifikatoren(par).find((x) => x.kind === K.PrivateKeyword || x.kind === K.ProtectedKeyword);
+    if (!mod || !ts.isIdentifier(par.name)) continue;
+    let bis = mod.end;
+    while (alt.text[bis] === ' ') bis++;
+    kandidaten.push({ name: par.name.text, was: mod.kind === K.PrivateKeyword ? 'private' : 'protected', von: mod.getStart(alt.sf) - e.von, bis: bis - e.von });
+  }
+  if (kandidaten.length === 0 || kandidaten.length > 12) return null;
+  for (let maske = 1; maske < 1 << kandidaten.length; maske++) {
+    const gewaehlt = kandidaten.filter((_, i) => maske & (1 << i));
+    let text = e.text;
+    for (const g of [...gewaehlt].sort((x, y) => y.von - x.von)) text = text.slice(0, g.von) + text.slice(g.bis);
+    if (text === r.text) return gewaehlt.map((g) => ({ name: g.name, was: g.was }));
+  }
+  return null;
+}
+
+function parameterStart(r: Stueck, name: string, datei: Datei): number {
+  const par = (r.knoten as ts.ConstructorDeclaration).parameters.find((x) => ts.isIdentifier(x.name) && x.name.text === name);
+  return par ? par.getStart(datei.sf) : r.knoten.getStart(datei.sf);
 }
 
 export function zerlege(manifest: Manifest, alt: Datei, rest: Datei, zielDateien: ReadonlyMap<string, Datei>, p: Protokoll): Zerlegung {
@@ -308,6 +339,18 @@ export function zerlege(manifest: Manifest, alt: Datei, rest: Datei, zielDateien
         if (e && name === null && e.text === r.text) {
           p.zaehle('B2');
           mitglieder.push({ alt: e, neu: r, gelockert: null });
+          a++;
+          continue;
+        }
+        if (e && name === null && ts.isConstructorDeclaration(e.knoten) && ts.isConstructorDeclaration(r.knoten)) {
+          p.zaehle('B2');
+          const lockerung = parameterLockerung(e, r, alt);
+          if (lockerung !== null) {
+            mitglieder.push({ alt: e, neu: r, gelockert: null, gelockerteParameter: lockerung.map((l) => ({ ...l, pos: parameterStart(r, l.name, rest) })) });
+          } else {
+            p.melde({ regel: 'B2', teil: 'mitglied', ort: ortVonKnoten(rest, r.knoten), text: `unmoved constructor differs from the old state, ${ersterUnterschied(e.text, r.text)}` });
+            mitglieder.push({ alt: e, neu: r, gelockert: null });
+          }
           a++;
           continue;
         }

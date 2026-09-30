@@ -71,7 +71,7 @@ exit 2. A name that does not occur in the source, a release that releases nothin
 | B2 | Rest byte-identical: every unmoved statement and member, with the lines before it, in the same order. |
 | B3 | Tree equal: for every moved declaration the old tree with the form applied equals the new tree, node by node, with every token. Form 0 is byte-identical in addition. |
 | B4 | Second line: the JavaScript TypeScript generates from the expected and from the found declaration is equal. Independent code. |
-| B5 | Glue: outside the moved and unchanged parts only imports, re-exports, export lists, forwarders in the declared form, the context type, a header comment per target file and the loosened modifiers. |
+| B5 | Glue: outside the moved and unchanged parts only imports, re-exports, export lists, forwarders in the declared form, the context type, a header comment per target file and the loosened modifiers (a member the context type names may lose `private` or `protected`, a parameter property of the constructor too). |
 | B6 | Comments: equal in moved declarations (form k: indentation may drop). Directive comments only where they stood. A forwarder carries no comment. |
 | B7 | Binding: every identifier of the whole old source file points to the same declaration in the new state. Two programs, type checker. |
 | B8 | Location: `import.meta`, `new URL` with a relative path, `import('./x')`, `require('./x')`, `__dirname`, `__filename`, `fileURLToPath`, `new Worker` in a moved declaration are findings. Release per place. |
@@ -109,10 +109,10 @@ exit 2. A name that does not occur in the source, a release that releases nothin
 | `reihenfolge.ts` | order of evaluation (B10) |
 | `syntaxphase.ts`, `semantikphase.ts` | the two phases of a run |
 | `ausgabe.ts` | output as text and JSON |
-| `pruefstand/` | test bench: a mover built independently of the proof, fixtures in memory |
+| `pruefstand/` | test bench: a mover built independently of the proof (`verschieber.ts`), fixtures in memory (`probe.ts`, `vorlagen.ts`), probe on real files of a commit with the forgeries of both attacks (`echt.ts`, local only) |
 | `zeugen/` | manifests of real steps (run locally, they need the git history) |
 
-Self-tests: `tools/test/verschiebung-*.ts`. They run in the CI, in memory, without git history.
+Self-tests: `tools/test/verschiebung-*.ts`, four files, in the CI: `regeln` (every rule bites, one green and one red fixture per rule), `altbestand` (the 151 fixtures of the earlier proof tool, transferred), `nachangriff` (the forgeries of both attacks on the earlier tool), `aufruf` (command line and the two states on a throwaway git repository). Probe on real files with the git history: `node_modules/.bin/tsx tools/verschiebung/pruefstand/echt.ts [--ref <commit>] [--nur <ids>] [--liste]`, under the build lock.
 
 ## What exit 0 does not prove
 

@@ -13,6 +13,7 @@
  */
 import { Lauf, mit, muss, schnitt, type Eingabe } from '../verschiebung/pruefstand/probe';
 import { statischeImporte } from '../verschiebung/reihenfolge';
+import type { Auftrag } from '../verschiebung/pruefstand/verschieber';
 import { AUFTRAG_BEIDE, AUFTRAG_FORM0, AUFTRAG_FORMK, AUFTRAG_KLEIN, BEUTE, KAMPF, QUELLE, SERVER, UMFELD, ZIEL_KLEIN, kleineKlasse } from '../verschiebung/pruefstand/vorlagen';
 
 const lauf = new Lauf('verschiebung-regeln');
@@ -22,6 +23,7 @@ const form0 = (): Eingabe => schnitt(SERVER, AUFTRAG_FORM0, { dateien: UMFELD })
 const formk = (): Eingabe => schnitt(SERVER, AUFTRAG_FORMK, { dateien: UMFELD });
 const beide = (): Eingabe => schnitt(SERVER, AUFTRAG_BEIDE, { dateien: UMFELD });
 const ersetze = (von: string, nach: string) => (t: string): string => muss(t, t.replace(von, nach), von);
+const klein = (rumpf: string): Eingabe => schnitt(kleineKlasse(rumpf), AUFTRAG_KLEIN);
 
 lauf.abschnitt('base lines');
 lauf.fall({ id: 'G0', name: 'form 0: four declarations move verbatim', soll: [], eingabe: form0 });
@@ -36,6 +38,10 @@ lauf.fall({ id: 'B1c', name: 'a statement stands in the target file that the old
 lauf.fall({ id: 'B1d', name: 'a member stands in the class that the old state does not have', soll: ['B1'], teile: ['B1/mitglied-fremd'], eingabe: () => mit(formk(), { rest: ersetze('\n\n  zweite(): void {', '\n\n  dritte(): void {}\n\n  zweite(): void {') }) });
 lauf.fall({ id: 'B1e', name: 'a name of the manifest does not exist in the source', soll: ['B1'], teile: ['B1/name-fehlt'], eingabe: () => mit(form0(), { manifest: (m) => ({ ...m, ziele: [{ ...m.ziele[0]!, woertlich: [...m.ziele[0]!.woertlich, 'GIBT_ES_NICHT'] }] }) }) });
 lauf.fall({ id: 'B1f', name: 'moved declarations stand in the target file in another order than in the source', soll: ['B1'], teile: ['B1/reihenfolge-im-ziel'], eingabe: () => mit(form0(), { ziel: { [BEUTE]: (t) => muss(t, t.replace('\n// Chests, by size.\nconst TRUHEN = [1, 2, 3];\n', '').replace('\nexport interface Eintrag', '\n// Chests, by size.\nconst TRUHEN = [1, 2, 3];\n\nexport interface Eintrag')) } }) });
+lauf.fall({ id: 'B1g', name: 'the target file named in the manifest does not exist in the new state', soll: ['B1', 'B5', 'B10'], teile: ['B1/ziel-fehlt'], eingabe: () => mit(form0(), { neu: { [BEUTE]: null } }) });
+lauf.fall({ id: 'B1h', name: 'the source file named in the manifest does not exist', soll: ['B1'], teile: ['B1/quelle-fehlt'], eingabe: () => mit(form0(), { manifest: (m) => ({ ...m, quelle: 'src/GibtEsNicht.ts' }) }) });
+lauf.fall({ id: 'B1i', name: 'the source file is gone in the new state', soll: ['B1'], teile: ['B1/quelle-fehlt'], eingabe: () => mit(form0(), { neu: { [QUELLE]: null } }) });
+lauf.fall({ id: 'B1j', name: 'a statement declares two names, the manifest moves one of them', soll: ['B1'], teile: ['B1/geteilt'], eingabe: () => schnitt(SERVER.replace('const TRUHEN = [1, 2, 3];', 'const TRUHEN = [1, 2, 3];\nconst A1 = 1, A2 = 2;'), { quelle: QUELLE, ziele: [{ datei: BEUTE, woertlich: ['KREATUR_DROPS', 'TRUHEN', 'A1', 'wuerfleTruhe', 'Eintrag'] }] }, { dateien: UMFELD }) });
 
 lauf.abschnitt('B2 rest byte-identical');
 lauf.fall({ id: 'B2a', name: 'a blank is added in an unmoved statement', soll: ['B2'], teile: ['B2/anweisung'], eingabe: () => mit(form0(), { rest: ersetze('const PARADE_AUSDAUER = 4;', 'const PARADE_AUSDAUER  = 4;') }) });
@@ -66,6 +72,14 @@ lauf.fall({ id: 'B5e', name: 'the re-export of a moved export is missing', soll:
 lauf.fall({ id: 'B5f', name: 'a value is re-exported as a type only', soll: ['B5'], teile: ['B5/weiterexport-typ'], eingabe: () => mit(form0(), { rest: ersetze("export { KREATUR_DROPS, wuerfleTruhe } from './spiel/Beute';", "export type { KREATUR_DROPS, wuerfleTruhe } from './spiel/Beute';") }) });
 lauf.fall({ id: 'B5g', name: 'a member loses `private` although no context type names it', soll: ['B5'], teile: ['B5/gelockert-ohne-kontext'], eingabe: () => mit(formk(), { rest: ersetze('  private letzteTimeoutPruefung = 0;', '  letzteTimeoutPruefung = 0;') }) });
 lauf.fall({ id: 'B5h', name: 'the context type is `any` behind an alias (the members cannot be bound either)', soll: ['B5', 'B7'], teile: ['B5/kontexttyp-any'], eingabe: () => mit(formk(), { ziel: { [KAMPF]: (t) => muss(t, t.replace(/type KampfKontext = [^;]+;/, 'type KampfKontext = ReturnType<typeof JSON.parse>;')) } }) });
+
+lauf.abschnitt('parameter properties of the constructor are members');
+const PARAM = 'export class P {\n  constructor(\n    private readonly assets: { n: number },\n    public zahl: number,\n  ) {}\n\n  m(a: number): number {\n    return this.assets.n + a + this.zahl;\n  }\n\n  n(): number {\n    return this.zahl;\n  }\n}\n';
+const AUFTRAG_P: Auftrag = { quelle: 'src/P.ts', klasse: 'P', ziele: [{ datei: 'src/teil/Ziel.ts', methoden: ['m'], kontext: { typ: 'Ktx' } }] };
+lauf.pruefe('P0v', 'the mover takes `private` off the parameter property the context names', schnitt(PARAM, AUFTRAG_P).neu['src/P.ts']!.includes('    readonly assets: { n: number },'), schnitt(PARAM, AUFTRAG_P).neu['src/P.ts']!);
+lauf.fall({ id: 'P0', name: 'form k: a moved method reads a parameter property of the constructor, which loses `private`', soll: [], eingabe: () => schnitt(PARAM, AUFTRAG_P) });
+lauf.fall({ id: 'P1', name: 'a parameter property loses `private` although no context type names it', soll: ['B5'], teile: ['B5/gelockert-ohne-kontext'], eingabe: () => mit(schnitt(PARAM.replace('return this.assets.n + a + this.zahl;', 'return a + this.zahl;'), AUFTRAG_P), { rest: ersetze('    private readonly assets: { n: number },', '    readonly assets: { n: number },') }) });
+lauf.fall({ id: 'P2', name: 'the constructor changes in another way (a parameter gets a default value)', soll: ['B2'], teile: ['B2/mitglied'], eingabe: () => mit(schnitt(PARAM, AUFTRAG_P), { rest: ersetze('    public zahl: number,', '    public zahl: number = 1,') }) });
 
 lauf.abschnitt('B6 comments');
 lauf.fall({ id: 'B6a', name: '`// @ts-nocheck` in the first line of a target file', soll: ['B6'], teile: ['B6/wirkung-klebstoff'], eingabe: () => mit(form0(), { ziel: { [BEUTE]: (t) => `// @ts-nocheck\n${t}` } }) });
@@ -102,6 +116,13 @@ lauf.fall({
       'export class S {\n  n = 0;\n  parseInt(wert: string): number {\n    return this.n + wert.length;\n  }\n  kopie(wert: string): number {\n    this.n++;\n    return parseInt(wert);\n  }\n}\n',
       { quelle: 'src/S.ts', klasse: 'S', ziele: [{ datei: 'src/teil/Ziel.ts', methoden: ['parseInt', 'kopie'], kontext: { typ: 'Ktx' } }] },
     ),
+});
+lauf.fall({
+  id: 'B7d',
+  name: 'form k: a callback parameter `k` of the instance type hides the context parameter where the method had `this` (the members still bind, only the context does not)',
+  soll: ['B7', 'B12'],
+  teile: ['B7/kontext', 'B12/kontextname'],
+  eingabe: () => klein('[this].forEach((k) => { void this.config; void k; }); void a;'),
 });
 lauf.fall({
   id: 'B7c',
@@ -169,6 +190,11 @@ const MIT_ABSCHNITT_K = SERVER.replace('\n  weltSpawn(): number {', `\n  ${ABSCH
 const mitAbschnittK = (): Eingabe => schnitt(MIT_ABSCHNITT_K, AUFTRAG_FORMK, { dateien: UMFELD });
 lauf.fall({ id: 'B13e', name: 'form k: a section line in front of a moved method stays in the class', soll: [], eingabe: mitAbschnittK });
 lauf.fall({ id: 'B13f', name: 'form k: the comment of the method stays in front of the forwarder', soll: ['B6', 'B13'], teile: ['B13/vorlauf-weiterleitung'], eingabe: () => mit(mitAbschnittK(), { rest: ersetze(`  ${ABSCHNITT}\n  weltSpawn(): number {`, `  ${ABSCHNITT}\n  /** Spawn. */\n  weltSpawn(): number {`) }) });
+
+lauf.abschnitt('B12 forms of form 0');
+lauf.fall({ id: 'B12a', name: 'form 0: a namespace moves', soll: ['B1', 'B12'], teile: ['B12/art'], eingabe: () => schnitt(SERVER.replace('const TRUHEN = [1, 2, 3];', 'const TRUHEN = [1, 2, 3];\nnamespace Raum {\n  export const X = 1;\n}'), { quelle: QUELLE, ziele: [{ datei: BEUTE, woertlich: ['KREATUR_DROPS', 'TRUHEN', 'Raum', 'wuerfleTruhe', 'Eintrag'] }] }, { dateien: UMFELD }) });
+lauf.fall({ id: 'B12b', name: 'form 0: the default export moves', soll: ['B12'], teile: ['B12/default'], eingabe: () => schnitt(`${SERVER}\nexport default function standard(): number {\n  return 1;\n}\n`, { quelle: QUELLE, ziele: [{ datei: BEUTE, woertlich: ['KREATUR_DROPS', 'TRUHEN', 'wuerfleTruhe', 'Eintrag', 'standard'] }] }, { dateien: UMFELD }) });
+lauf.fall({ id: 'B12c', name: 'form 0: a function with overload signatures moves', soll: ['B12'], teile: ['B12/ueberladung', 'B12/mehrfach'], eingabe: () => schnitt(`${SERVER}\nexport function ueber(a: number): number;\nexport function ueber(a: string): string;\nexport function ueber(a: number | string): number | string {\n  return a;\n}\n`, { quelle: QUELLE, ziele: [{ datei: BEUTE, woertlich: ['KREATUR_DROPS', 'TRUHEN', 'wuerfleTruhe', 'Eintrag', 'ueber'] }] }, { dateien: UMFELD }) });
 
 lauf.abschnitt('B11 nothing unexplained');
 lauf.fall({ id: 'B11a', name: 'a release that releases nothing', soll: ['B11'], teile: ['B11/freigabe-ungenutzt'], eingabe: () => mit(form0(), { freigaben: [{ schluessel: 'laden:TRUHEN', begruendung: GRUND }] }) });

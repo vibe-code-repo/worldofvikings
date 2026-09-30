@@ -358,6 +358,19 @@ export function verschiebe(altText: string, auftrag: Auftrag): Schnitt {
         weiterleitungen[n.text] = weiterleitungen[n.text]!.replace(wort, '');
       } else restErsatz.push(bereich);
     }
+    // Parameter properties of the constructor are members too.
+    for (const m of klasse.members) {
+      if (!ts.isConstructorDeclaration(m)) continue;
+      for (const par of m.parameters) {
+        if (!ts.isIdentifier(par.name) || !alle.has(par.name.text)) continue;
+        const mod = (ts.getModifiers(par) ?? []).find((x) => x.kind === K.PrivateKeyword || x.kind === K.ProtectedKeyword);
+        if (!mod) continue;
+        gelockert.push(par.name.text);
+        let bis = mod.end;
+        while (altText[bis] === ' ') bis++;
+        restErsatz.push({ von: mod.getStart(sf), bis, neu: '' });
+      }
+    }
   }
 
   // ── the rest: text, imports, re-exports ──
@@ -397,8 +410,8 @@ export function verschiebe(altText: string, auftrag: Auftrag): Schnitt {
   }
   for (const z of auftrag.ziele) {
     const spec = relativ(auftrag.quelle, z.datei);
-    const werte = warExportiert.filter((w) => w.ziel === z && !w.typ).map((w) => w.name);
-    const typen = warExportiert.filter((w) => w.ziel === z && w.typ).map((w) => w.name);
+    const werte = [...new Set(warExportiert.filter((w) => w.ziel === z && !w.typ).map((w) => w.name))];
+    const typen = [...new Set(warExportiert.filter((w) => w.ziel === z && w.typ).map((w) => w.name))];
     if (werte.length > 0) neueZeilen.push(`export { ${werte.join(', ')} } from '${spec}';`);
     if (typen.length > 0) neueZeilen.push(`export type { ${typen.join(', ')} } from '${spec}';`);
   }

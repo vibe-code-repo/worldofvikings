@@ -111,7 +111,8 @@ export function pruefeKontexttyp(z: Zerlegung, neu: Programm, klasse: string, p:
     const fremd: string[] = [];
     for (const g of glieder) {
       const dekl = g.declarations ?? [];
-      const ausKlasse = dekl.length > 0 && dekl.every((d) => d.parent === klassenKnoten);
+      // A member is declared in the class body, or as a parameter property of its constructor.
+      const ausKlasse = dekl.length > 0 && dekl.every((d) => d.parent === klassenKnoten || (ts.isParameter(d) && ts.isConstructorDeclaration(d.parent) && d.parent.parent === klassenKnoten));
       if (!ausKlasse) fremd.push(g.name);
       else {
         schluessel.add(g.name);

@@ -455,3 +455,44 @@ Its own npm project inside the same repository, **deliberately not a workspace**
 — otherwise `npm ci` at the root would pull SvelteKit and Vite onto every
 container, including the pure game server. It brings its own `node_modules` and
 its own lockfile. It is deployed with `wov-web/tools/ausrollen.sh`.
+
+## 9. Move proof (`tools/verschiebung/`)
+
+A refactoring step that only moves code is proven, not judged by eye. The proof
+compares an old state (a commit) with a new state (a commit or the working tree)
+on the TypeScript syntax tree and with the type checker. Stage 1 knows two forms:
+declarations of the module level that move verbatim into a new file (form 0), and
+methods of a class that become functions of a new file with the instance as their
+first parameter `k`, while a forwarder stays in the class (form k). The rules of
+both forms are checked by the tool; `tools/verschiebung/README.md` lists them.
+
+The call, on the build host under the build lock (it builds two TypeScript
+programs, 1.5 to 1.7 GB, about 15 s per step):
+
+    tools/sperre.sh build -- node_modules/.bin/tsx tools/verschiebung/verschiebung.ts <manifest.json> [--json]
+
+Everything that influences the proof stands in the manifest: both states, the
+source file, the class, the target files with the names that move into them, the
+entry files from which the order of evaluation is compared, and the releases. A
+release names one finding by its key and gives a reason of at least 20 visible
+characters; the manifest, the releases and the full hashes of both states are
+printed into every output. There are no other switches. Exit 0 is the proof, exit
+1 means findings, exit 2 a broken call or manifest.
+
+**What exit 0 does not prove.** It proves that the source file, its rest and the
+target files differ by nothing but the declared move. It proves nothing about
+other files (tests, test lists, everything a merge brought in between the two
+states), nothing about installed packages that changed between the states, and
+nothing about the order of evaluation from entry files the manifest does not name
+(a module first loaded by a dynamic import or a worker needs its own entry). A
+released finding is not proven, it is explained: the reason is a claim the review
+reads. Program files under test folders are left out of the programs, so a global
+name that only a test declares is not seen. Whitespace between tokens is not
+compared for form k, and that other callers of a new function pass the instance is
+not checked. Behaviour is not executed. The full list stands in every output, and
+exit 0 replaces neither `typecheck` nor the tests nor the review of the releases.
+
+A step is delivered with its manifest under `tools/verschiebung/zeugen/` and the
+output of the proof in the pull request. The self-tests `tools/test/verschiebung-*.ts`
+run in the CI; the probe on real files with the git history,
+`tools/verschiebung/pruefstand/echt.ts`, runs locally only.

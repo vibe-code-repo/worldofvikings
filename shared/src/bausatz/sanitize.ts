@@ -309,7 +309,6 @@ function wertKurz(v: unknown): unknown {
  *  - `eintrag`: instance is not an object;
  *  - `id` / `bausatz`: missing or not an `ID_RE` id;
  *  - `x` / `z`: not a number inside the world frame;
- *  - `yaw`: not a number or outside ±2π;
  *  - `schluessel`: unknown key;
  *  - `id` = `doppelt`: the same id twice with different content;
  *  - `kennungen`: not an object, a value that is no `ID_RE` id, a value equal to
@@ -334,7 +333,6 @@ export function bausatzInstanzenFehler(roh: unknown, platzierungsIds: ReadonlySe
     if (typeof e.bausatz !== 'string' || !ID_RE.test(e.bausatz)) fehler.push({ id, feld: 'bausatz', wert: wertKurz(e.bausatz) });
     if (koordinate(e.x) === null) fehler.push({ id, feld: 'x', wert: wertKurz(e.x) });
     if (koordinate(e.z) === null) fehler.push({ id, feld: 'z', wert: wertKurz(e.z) });
-    if (e.yaw !== undefined && !inBereich(e.yaw, -BAUSATZ_WINKEL_MAX, BAUSATZ_WINKEL_MAX)) fehler.push({ id, feld: 'yaw', wert: wertKurz(e.yaw) });
     for (const k of schluesselFremd(e, INSTANZ_SCHLUESSEL)) fehler.push({ id, feld: 'schluessel', wert: k });
     if (e.kennungen !== undefined) {
       if (!istObjekt(e.kennungen)) fehler.push({ id, feld: 'kennungen', wert: wertKurz(e.kennungen) });

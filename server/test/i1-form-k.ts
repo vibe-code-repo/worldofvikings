@@ -958,6 +958,9 @@ function messeInteraktionAttrappe(): Aufzeichnung3 {
     lauf('handleSetFigur', 23, peerI(a, 'f', { figur: F0 }), paketS(F1));
     charZdo = zdoA(a);
     lauf('handleSetFigur', 24, peerI(a, 'f', { figur: F0 }), new Reader(Buffer.alloc(0)));
+    // H6: long values (over 40 characters) and a packet that is refused with long texts: the console line cuts them
+    lauf('handleSetAussehen', 33, peerI(a, 'lg'), paketS(`${'f'.repeat(40)}+frisur`, '', '', `${'h'.repeat(45)}farbe`, AUGENFARBE_VORGABE, '{}'));
+    lauf('handleSetFigur', 34, peerI(a, 'lf', { figur: F0 }), paketS(`${'d'.repeat(30)}-${'r'.repeat(30)}`));
     // NA2: owned parts in the two fixed slots with different ids (upper body != legs), the same without owning them, an unknown fifth value (a JSON that does not parse)
     const ohneOB = { ...teile };
     delete ohneOB['oberkoerper'];
@@ -1049,6 +1052,7 @@ function messeChatAttrappe(): Aufzeichnung3 {
     for (const t of [ChatMsgType.Normal, ChatMsgType.Whisper, ChatMsgType.Shout, 99]) lauf(ich, chat(t, 'Hallo Welt'));
     lauf(ich, chat(ChatMsgType.Normal, 'Grüße aus Ägir — ß'));
     lauf(ich, chat(ChatMsgType.Normal, 'x'.repeat(5000)));
+    lauf(ich, chat(ChatMsgType.Normal, `   ${'y'.repeat(30)} ${'z'.repeat(30)}   `));
     lauf(ich, chat(ChatMsgType.Normal, ''));
     lauf(chatPeer(a, 'ed', 9, 0, HAUPTWELT_ID, { nurEditor: true }), chat(ChatMsgType.Normal, 'still'));
     lauf(chatPeer(a, 'ed', 9, 0, HAUPTWELT_ID, { nurEditor: true }), new Reader(Buffer.alloc(0)));
@@ -1267,7 +1271,7 @@ const SOLL_INTERAKTION_ATTRAPPE: Aufzeichnung = {
     't:ContainerSync:["u",7,19]:26:bf42688d67219593',
   ],
   aufrufe: { setInt:  3,  setString:  44,  reviseData:  3,  sendeTruheInhalt:  5,  zdosVon:  13,  kappeLeben:  11,  sichereSpielerSofort:  13,  inventarSync:  8 },
-  konsole: { log: 2, warn: 2 },
+  konsole: { log: 2, warn: 4 },
   zustand: [151, 5, 1, 0, 1],
   ausnahmen: ['RangeError', 'RangeError'],
   notizen: [
@@ -1390,6 +1394,10 @@ const SOLL_INTERAKTION_ATTRAPPE: Aufzeichnung = {
     'log 39:4f872ef66ff94e77:[WoV] "f" spielt jetzt als "wikingerin"',
     'peer f frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikingerin" position={"x":3,"y":7,"z":5} inventar=[]',
     'peer f frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'warn 184:215405cd3007b748:[WoV] SetAussehen von "lg" abgelehnt: frisur="ff',
+    'peer lg frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'warn 120:7cd61824dfbf9d40:[WoV] SetFigur von "lf" abgelehnt: "dddddddddddd',
+    'peer lf frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
     'call zdosVon ob',
     'setString frisur=H_01',
     'setString haarfarbe=mittelbraun',
@@ -1473,12 +1481,15 @@ const SOLL_CHAT_ATTRAPPE: Aufzeichnung = {
     'ich:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]:280:0846391d8a9b1c3f',
     'nah:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]:280:0846391d8a9b1c3f',
     'mittel:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]:280:0846391d8a9b1c3f',
+    'ich:ChatMessage:["0","ich",1,"   yyyyyyyyyyy",67]:91:0eaf95e1a00a27c5',
+    'nah:ChatMessage:["0","ich",1,"   yyyyyyyyyyy",67]:91:0eaf95e1a00a27c5',
+    'mittel:ChatMessage:["0","ich",1,"   yyyyyyyyyyy",67]:91:0eaf95e1a00a27c5',
     'ich:ChatMessage:["0","ich",1,"",0]:23:8450172bea627a6f',
     'nah:ChatMessage:["0","ich",1,"",0]:23:8450172bea627a6f',
     'mittel:ChatMessage:["0","ich",1,"",0]:23:8450172bea627a6f',
   ],
-  aufrufe: { getPeers:  9 },
-  konsole: { log: 9, warn: 0 },
+  aufrufe: { getPeers:  10 },
+  konsole: { log: 10, warn: 0 },
   zustand: [2],
   ausnahmen: ['RangeError', 'RangeError'],
   notizen: [
@@ -1493,6 +1504,8 @@ const SOLL_CHAT_ATTRAPPE: Aufzeichnung = {
     'log 30:b911f52ba3b47792:[Chat] ich: Grüße aus Ägir — ß',
     'peer ich position={"x":0,"y":3.5,"z":4} worldId="haupt"',
     'log 268:6bb3354af4135cc9:[Chat] ich: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+    'peer ich position={"x":0,"y":3.5,"z":4} worldId="haupt"',
+    'log 79:27b17c7c819bd56a:[Chat] ich:    yyyyyyyyyyyyyyyyyyyyyyyyyyyyyy zz',
     'peer ich position={"x":0,"y":3.5,"z":4} worldId="haupt"',
     'log 12:4ff4c1c5fc2e3550:[Chat] ich: ',
     'peer ich position={"x":0,"y":3.5,"z":4} worldId="haupt"',

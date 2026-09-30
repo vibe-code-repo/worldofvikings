@@ -217,6 +217,9 @@ export default [
   ['client', 'test/entity-module-oberflaeche.ts'],
   // Draft store: two tabs, one localStorage key; undo stack, evicted ring.
   ['client', 'test/entwurfs-speicher.ts'],
+  // F10: Wiederverbinden nach Serverneustart (client/src/net/Wiederverbinden.ts):
+  // Wartezeiten 1..60 s, Kick gibt auf, Zeitlimit, Zaehler. DOM-frei, Sekunden.
+  ['client', 'test/f10-wiederverbinden.ts'],
   // F6 (Roadmap): seq-Verwerfungsregel für Client-Vorhersage-
   // Reconciliation (client/src/net/Eingabeverwerfung.ts) — reine
   // Funktion. Seit dem Abgleich per Eingabesequenz nicht mehr tot:

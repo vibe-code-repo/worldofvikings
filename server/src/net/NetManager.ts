@@ -12,7 +12,7 @@
  */
 
 import type { WebSocket } from 'ws';
-import { PacketType, ConnectionStatus, MAX_PLAYERS } from '@wov/shared';
+import { PacketType, ConnectionStatus, MAX_PLAYERS, DISCONNECT_NEUSTART, NEUSTART_TEXT_SCHLUESSEL } from '@wov/shared';
 import { Peer } from './Peer.js';
 import { WebSocketAcceptor, type HttpBehandler } from './WebSocketAcceptor.js';
 import { Reader } from '../io/Reader.js';
@@ -198,9 +198,27 @@ export class NetManager {
     this.acceptor.close();
   }
 
+  /**
+   * F10: Kuendigt allen verbundenen Spielern den Neustart an. Muss VOR `stop()` laufen,
+   * solange die Peers noch offen sind; `stop()` trennt danach mit `DISCONNECT_NEUSTART`.
+   * Liefert die Zahl der erreichten Peers.
+   */
+  kuendigeNeustartAn(retryAfterSec: number): number {
+    let erreicht = 0;
+    for (const peer of this.onlinePeers) {
+      if (!peer.isConnected) continue;
+      peer.sendPacketWith(PacketType.ServerNeustart, (w) => {
+        w.writeString(NEUSTART_TEXT_SCHLUESSEL);
+        w.writeInt32(retryAfterSec);
+      });
+      erreicht++;
+    }
+    return erreicht;
+  }
+
   stop(): void {
     for (const peer of this.onlinePeers) {
-      peer.disconnect('Server shutting down');
+      peer.disconnect(DISCONNECT_NEUSTART);
     }
     this.acceptor.close();
   }

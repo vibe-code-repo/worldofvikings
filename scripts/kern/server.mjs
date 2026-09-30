@@ -165,6 +165,11 @@ export default [
   // der Inhalt uebersteht Speichern/Laden. Drei gestartete Server + ein
   // init()-only Reload, ~5s.
   ['server', 'test/f1-truhe.ts'],
+  // F10: Serverstopp kuendigt den Neustart an (Paket ServerNeustart, Grund
+  // "restart", <= 1 s vor dem Trennen), Anna verbindet mit dem Backoff des
+  // Client-Moduls neu und steht <= 1 m an der gesicherten Position; Befund:
+  // anderes Geheimnis = neue Figur. Drei echte Serverprozesse, rund 30 s.
+  ['server/test', 'f10-neustart-ansage.ts'],
   // F14 (Roadmap): Reichweiten-Auswahl der Chat-Empfänger (Whisper/
   // Normal/Shout, Herleitung s. Kopfkommentar von ChatReichweite.ts),
   // Grenzwert exakt auf der Reichweite, Absender immer dabei, sowie die

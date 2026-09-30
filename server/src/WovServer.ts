@@ -59,6 +59,7 @@ import {
   AUGENFARBE_VORGABE,
 } from '@wov/shared';
 import type { Vector3, ZoneID } from '@wov/shared';
+import { NEUSTART_RETRY_SEC } from '@wov/shared';
 import {
   BAU_PREFABS,
   ESSEN,
@@ -1768,6 +1769,14 @@ export class WovServer {
         }`
       );
       strukturLog('world_save_failed_on_stop', { fehler: String(err) });
+    }
+
+    // F10: Ansage NACH dem Speichern (der Stand liegt sicher, "du wirst wieder
+    // verbunden" stimmt dann), unmittelbar vor dem Trennen.
+    try {
+      this.net.kuendigeNeustartAn(NEUSTART_RETRY_SEC);
+    } catch (err) {
+      console.error(`[WoV] Neustart-Ansage fehlgeschlagen: ${err}`);
     }
 
     try {

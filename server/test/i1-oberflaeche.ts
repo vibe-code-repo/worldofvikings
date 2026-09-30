@@ -11,7 +11,7 @@
  *                        stays in `WovServer` (block F, distributor); a case that moves out is a finding.
  *   2. BEFEHLE           the names in the admin command registry after construction (13). The
  *                        registration code moves to `spiel/befehle/*` in step 1; the names stay.
- *   3. METHODEN          33 private methods that tests reach by name (`as unknown as { … }`, `as any`,
+ *   3. METHODEN          38 private methods that tests reach by name (`as unknown as { … }`, `as any`,
  *                        `Object.create(WovServer.prototype)`). After a move each must still be a real
  *                        PROTOTYPE method of the class with the same name (a one-line forwarding).
  *                        Not a field with an arrow function: `Object.create(WovServer.prototype)` (see
@@ -113,7 +113,7 @@ export const BEFEHLE = [
   'zone',
 ] as const;
 
-/** Private methods that tests reach by name (21 of step 0, 11 found by the broadened scan of N1: `tod-treffer-n1.ts` replaces the 11 packet handlers, and `zaehleEigeneBauten` of #153). Each stays a prototype method of `WovServer`. */
+/** Private methods that tests reach by name (21 of step 0, 11 found by the broadened scan of N1: `tod-treffer-n1.ts` replaces the 11 packet handlers, and `zaehleEigeneBauten` of #153; step 2 adds 5: the forwardings of the moved handlers that `i1-form-k.ts` calls by name, `handleAdminCommand` was on the list already). Each stays a prototype method of `WovServer`. */
 export const METHODEN = [
   'applyCreatureAttack',
   'darfBenutzen',
@@ -124,6 +124,10 @@ export const METHODEN = [
   'handleChatMessage',
   'handleContainerAction',
   'handleCraft',
+  'handleDungeonEditRequest',
+  'handleDungeonEditSave',
+  'handleDungeonModulBau',
+  'handleDungeonModulLoeschen',
   'handleEat',
   'handleEquip',
   'handleInteract',
@@ -132,6 +136,7 @@ export const METHODEN = [
   'handlePlayerInput',
   'handleRemovePiece',
   'handleSetAussehen',
+  'handleSetTimeOfDay',
   'handleTerrainOp',
   'inventarSync',
   'maxHealth',
@@ -217,6 +222,13 @@ export const TEXT_TESTS: readonly { datei: string; muster: readonly string[]; sc
     wirdRot: false,
   },
   {
+    datei: 'server/test/i1-form-k.ts',
+    muster: ["join(WURZEL, 'server/src/WovServer.ts')", 'pruefeKlasse(MODULE, klassenText, PUBLIC_MEMBERS)'],
+    schritt: 2, // new in step 2: the guard of Form k reads the class text (forwardings, imports, `onPacket`, the non-private members) and the text of every module of its table MODULE
+    ziel: 'server/src/spiel/*.ts (every module listed in MODULE of that test)',
+    wirdRot: false,
+  },
+  {
     datei: 'client/test/dungeon-neuer-saal.ts',
     muster: ["['server/src/WovServer.ts', 'serverConfigFlags']", '!/^const FLAG_[A-Z_]+\\s*=/m.test(text)'],
     schritt: 6, // block E: `onPeerAuthenticated` moves to spiel/Anmeldung.ts with the import of `serverConfigFlags`. Also: the "no own bit list" check must then read spiel/*.ts as well (coverage, does not turn red)
@@ -242,6 +254,7 @@ export const TEXT_AUSNAHMEN: readonly { datei: string; grund: string }[] = [
  */
 export const FEHLTREFFER: readonly { name: string; datei: string; grund: string }[] = [
   { name: 'zeigeTreffer', datei: 'client/test/tod-treffer-avatar.ts', grund: 'AvatarRig.zeigeTreffer (Client), nicht das Serverfeld gleichen Namens' },
+  { name: 'onPacket', datei: 'server/test/i1-form-k.ts', grund: 'Name, unter dem das Mitglied im Syntaxbaum der Klasse gesucht wird (Text, kein Zugriff zur Laufzeit)' },
   { name: 'handleParry', datei: 'tools/test/i1-verschiebung.ts', grund: 'Fixture-Name des Verschiebebeweis-Selbsttests, keine Server-Nutzung' },
 ];
 

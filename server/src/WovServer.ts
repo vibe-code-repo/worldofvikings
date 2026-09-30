@@ -2061,7 +2061,10 @@ export class WovServer {
       const nahEnde = Math.min(peer.fenster.nahEnde, fenster.length);
       let ferneStart = nahEnde + peer.fenster.cursor;
       if (ferneStart >= fenster.length) ferneStart = nahEnde;
-      const ende = Math.min(fenster.length, ferneStart + SYNC_PRUEFUNGEN_MAX);
+      // F6: Der ferne Teil läuft nur in jedem 2. Tick (s. ZonenFenster.ferneDran).
+      const ferne = peer.fenster.ferneDran();
+      const ende = ferne ? Math.min(fenster.length, ferneStart + SYNC_PRUEFUNGEN_MAX) : nahEnde;
+      let budgetGebrochen = false;
       // Cursor für den nächsten Tick: Deckel (ende) oder Fensterende (0).
       let naechsterCursor = ende >= fenster.length ? 0 : ende - nahEnde;
       for (let i = 0; i < ende; i++) {
@@ -2084,6 +2087,7 @@ export class WovServer {
         // vor F2 — die Pakete sind byte-gleich; die Stelle steht hier, weil
         // der Cursor den Index des ersten ungeschriebenen ZDOs braucht.)
         if (anzahl > 0 && writer.geschrieben >= budget) {
+          budgetGebrochen = true;
           // Im nahen Teil bleibt der Cursor stehen (der nahe Teil wird ohnehin
           // nächsten Tick wieder von vorn geprüft). Im fernen Teil: steht das
           // ZDO noch im vorderen Teil, lieber von vorn (nah zuerst); liegt es
@@ -2098,6 +2102,7 @@ export class WovServer {
         gesendet.push(zdo);
       }
       peer.fenster.cursor = naechsterCursor;
+      if (ferne) peer.fenster.ferneAktiv = budgetGebrochen;
 
       if (anzahl === 0 && zerstoerungen.length === 0) continue;
       writer.patchInt32(zaehlerStelle, anzahl);

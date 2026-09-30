@@ -427,7 +427,7 @@ export class Peer {
     packet.writeUInt8(type, 0);
     payload.copy(packet, 1);
     this.socket.send(packet);
-    erfasseSyncBytes(packet.length);
+    erfasseSyncBytes(packet.length, this.verbindungsId);
   }
 
   /** Send a packet built from a Writer callback. */
@@ -441,7 +441,7 @@ export class Peer {
   sendRaw(data: Buffer): void {
     if (this.socket.readyState !== 1) return;
     this.socket.send(data);
-    erfasseSyncBytes(data.length);
+    erfasseSyncBytes(data.length, this.verbindungsId);
   }
 
   /** Disconnect this peer. */

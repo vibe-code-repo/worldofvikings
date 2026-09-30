@@ -119,6 +119,23 @@ for (const [seite, files] of [
   pruefe((a.get('istFesterKoerperImSpiel') ?? 0) === 1, `${seite}: genau ein Aufruf von istFesterKoerperImSpiel`, String(a.get('istFesterKoerperImSpiel') ?? 0));
   pruefe((a.get('istFesterKoerper') ?? 0) === 0, `${seite}: kein Aufruf des rohen istFesterKoerper mehr`, String(a.get('istFesterKoerper') ?? 0));
 }
+// Client, per file (refactor N4): the one call moved with `rebuildBucketColliders` into kollisionsEimer.ts. The sum above would
+// stay green if the call moved back into EntityManager.ts (or into a third module) and left the module without one, so the
+// place is pinned: exactly one call in kollisionsEimer.ts, none of either name in any other file under the directory.
+{
+  const CALLER = `${CLIENT_DIR}/kollisionsEimer.ts`;
+  pruefe(clientFiles.includes(CALLER), `Client: ${CALLER} existiert`);
+  for (const file of clientFiles) {
+    const a = aufrufe(file);
+    const imSpiel = a.get('istFesterKoerperImSpiel') ?? 0;
+    const roh = a.get('istFesterKoerper') ?? 0;
+    if (file === CALLER) {
+      pruefe(imSpiel === 1 && roh === 0, `Client ${file}: genau ein Aufruf von istFesterKoerperImSpiel, keiner von istFesterKoerper`, `${imSpiel} / ${roh}`);
+    } else {
+      pruefe(imSpiel === 0 && roh === 0, `Client ${file}: kein Aufruf von istFesterKoerperImSpiel oder istFesterKoerper`, `${imSpiel} / ${roh}`);
+    }
+  }
+}
 
 // ── (c) Ladereihenfolge im Client: Registry vor dem EntityManager ─────────────
 {

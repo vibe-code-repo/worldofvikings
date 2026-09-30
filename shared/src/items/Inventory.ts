@@ -36,19 +36,19 @@ export const STAPEL_OBERGRENZE = 9999;
  * The one repair of a saved stack of a KNOWN item, used by `load`, `holeVerwahrteZurueck` and `unpackContainer`.
  * Returns `null` only for what cannot be repaired: an amount that is not a finite number of at least 1 (that stack
  * stays kept raw, never dropped, never in the grid). Everything else is brought into range and flagged `repariert`
- * (the caller warns): amount rounded down and at most `STAPEL_OBERGRENZE` (a stack over the maximum is split
- * later, see `teileUeberstapel`), durability finite and in [0, maximum] (a missing value becomes the maximum), quality
- * a whole number from 1.
+ * (the caller warns): amount rounded down (never cut: an amount over the maximum is split by `teileUeberstapel`, what
+ * finds no cell is kept), quality a whole number from 1, durability finite and not negative, and at most the item's
+ * own maximum if it has one. No value is invented: without a maximum a missing or broken durability stays missing.
  */
 export function repariereStapel(s: SavedItemStack, shared: ItemShared): { stack: SavedItemStack; repariert: boolean } | null {
   if (typeof s.stack !== 'number' || !Number.isFinite(s.stack) || s.stack < 1) return null;
-  const stack = Math.min(Math.floor(s.stack), STAPEL_OBERGRENZE);
+  const stack = Math.floor(s.stack);
   const quality = typeof s.quality === 'number' && Number.isFinite(s.quality) ? Math.max(1, Math.floor(s.quality)) : 1;
   const max = shared.maxDurability;
-  let durability = typeof s.durability === 'number' && Number.isFinite(s.durability) ? Math.max(0, s.durability) : (max ?? 100);
-  if (max !== undefined) durability = Math.min(durability, max);
+  let durability: number | undefined = typeof s.durability === 'number' && Number.isFinite(s.durability) ? Math.max(0, s.durability) : max;
+  if (durability !== undefined && max !== undefined) durability = Math.min(durability, max);
   const repariert = stack !== s.stack || quality !== s.quality || durability !== s.durability;
-  return { stack: { ...s, stack, quality, durability }, repariert };
+  return { stack: { ...s, stack, quality, durability: durability as number }, repariert };
 }
 
 let unbekannteVerwahren = false;
@@ -307,6 +307,15 @@ export class Inventory {
         it.stack -= max;
         this.items.push({ ...it, stack: max, gridX: slot[0], gridY: slot[1], equipped: false });
       }
+    }
+    // A stack that stays over the maximum for lack of cells still holds at most STAPEL_OBERGRENZE; what is above goes
+    // to the kept stacks (nothing is cut), and the next `rebind` brings it back when a cell is free.
+    for (const it of this.items) {
+      if (it.stack <= STAPEL_OBERGRENZE) continue;
+      const rest = it.stack - STAPEL_OBERGRENZE;
+      console.warn(`[Inventory] ${wo}: ${it.shared.name} x${it.stack} over ${STAPEL_OBERGRENZE}, ${rest} kept apart`);
+      it.stack = STAPEL_OBERGRENZE;
+      this.verwahrt.push({ name: it.shared.name, stack: rest, durability: it.durability, quality: it.quality, gridX: it.gridX, gridY: it.gridY, equipped: false });
     }
   }
 

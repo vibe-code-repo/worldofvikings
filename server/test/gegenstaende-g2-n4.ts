@@ -150,8 +150,8 @@ function main(): void {
         const { warnungen } = ohneWarnung(() => inv.rebind());
         check('the three without a usable amount (x, 0, -4) stay kept, one warning each', inv.verwahrte.length === 3 && warnungen.filter((w) => w.includes('unusable')).length === 3, `${inv.verwahrte.length} kept, ${warnungen.length} warnings`);
         check('the five repairable ones came back, repaired with a warning each', inv.all.length === 5 && warnungen.filter((w) => w.includes('repaired')).length === 4, `${inv.all.length} back`);
-        check('every stack in the grid is usable: whole amount >= 1, finite durability >= 0, whole quality >= 1', inv.all.every((i) => Number.isInteger(i.stack) && i.stack >= 1 && Number.isFinite(i.durability) && i.durability >= 0 && Number.isInteger(i.quality) && i.quality >= 1));
-        check('1.5 became 1, the infinite durability the maximum, -5 became 0', inv.all.some((i) => i.stack === 1) && inv.all.some((i) => i.durability === 0) && inv.all.every((i) => i.durability <= (i.shared.maxDurability ?? 1e9)));
+        check('every stack in the grid is usable: whole amount >= 1, durability finite >= 0 or absent, whole quality >= 1', inv.all.every((i) => Number.isInteger(i.stack) && i.stack >= 1 && (i.durability === undefined || (Number.isFinite(i.durability) && i.durability >= 0)) && Number.isInteger(i.quality) && i.quality >= 1));
+        check('1.5 became 1, -5 became 0, the infinite durability stays absent (Datenaxt has no maximum: no invented number)', inv.all.some((i) => i.stack === 1) && inv.all.some((i) => i.durability === 0) && inv.all.some((i) => i.durability === undefined) && inv.all.every((i) => i.durability === undefined || i.durability <= (i.shared.maxDurability ?? 1e9)));
         check('nothing is equipped that came back', inv.all.every((i) => i.equipped === false));
         check('the kept ones are still written back unchanged', inv.verwahrte.some((s) => (s.stack as unknown) === 'x') && inv.serialize().length === 8);
       } finally {
@@ -235,14 +235,24 @@ function main(): void {
       const rep = new Inventory();
       const r = ohneWarnung(() => rep.load(reparierbar.map((x, n) => gespeichert('Wood', { ...x, gridX: n % 8, gridY: (n / 8) | 0 }))));
       check('load: a repairable stack is repaired, not kept (9 in the grid, none kept, one warning each)', rep.all.length === 9 && rep.verwahrte.length === 0 && r.warnungen.filter((w) => w.includes('repaired')).length === 9, `${rep.all.length} in grid, ${rep.verwahrte.length} kept`);
-      check('quality is a whole number >= 1, durability finite and >= 0, amount a whole number >= 1', rep.all.every((i) => Number.isInteger(i.quality) && i.quality >= 1 && Number.isFinite(i.durability) && i.durability >= 0 && Number.isInteger(i.stack) && i.stack >= 1));
-      const ausnahmen = new Inventory();
-      ohneWarnung(() => ausnahmen.load([gespeichert('Wood', { stack: 1e308 })]));
-      check('an absurd amount (1e308) is brought to 9999 and split, not kept and not an endless loop', ausnahmen.verwahrte.length === 0 && ausnahmen.countOf('Wood') === STAPEL_OBERGRENZE, `${ausnahmen.countOf('Wood')}`);
+      check('quality is a whole number >= 1, durability finite >= 0 or absent (never invented), amount a whole number >= 1', rep.all.every((i) => Number.isInteger(i.quality) && i.quality >= 1 && (i.durability === undefined || (Number.isFinite(i.durability) && i.durability >= 0)) && Number.isInteger(i.stack) && i.stack >= 1));
+      const summe = (v: Inventory): number => v.countOf('Wood') + v.verwahrte.filter((x) => x.name === 'Wood').reduce((a, x) => a + x.stack, 0);
+      const gross = new Inventory();
+      ohneWarnung(() => gross.load([gespeichert('Wood', { stack: 25000 })]));
+      check('N6b: 25000 Wood lose nothing: grid + kept add up to 25000, no stack in the grid over 9999', summe(gross) === 25000 && gross.all.every((i) => i.stack <= STAPEL_OBERGRENZE), `${summe(gross)}`);
+      const nochmal = new Inventory();
+      nochmal.load(JSON.parse(JSON.stringify(gross.serialize())) as never);
+      check('N6b: after a save and the next login the sum is still 25000', summe(nochmal) === 25000, `${summe(nochmal)}`);
+      const absurd = new Inventory();
+      ohneWarnung(() => absurd.load([gespeichert('Wood', { stack: 1e308 })]));
+      check('an absurd amount (1e308) is not cut to a small number and no endless loop: the rest is kept apart', absurd.all.every((i) => i.stack <= STAPEL_OBERGRENZE) && absurd.verwahrte.some((x) => x.stack >= 1e300), `${absurd.verwahrte.length} kept`);
       const hoch = new Inventory();
       ohneWarnung(() => hoch.load([gespeichert('Wood', { durability: 99999 })]));
       const max = findItem('Wood')!.maxDurability;
-      check('durability over the maximum is brought to it (when the item has one)', max === undefined || hoch.all[0].durability === max, `${hoch.all[0].durability} / ${max}`);
+      check('durability over the maximum is brought to it; without a maximum it stays as it is (no invented cap)', max === undefined ? hoch.all[0].durability === 99999 : hoch.all[0].durability === max, `${hoch.all[0].durability} / ${max}`);
+      const fehlt = new Inventory();
+      ohneWarnung(() => fehlt.load([gespeichert('Wood', { durability: undefined })]));
+      check('a missing durability of an item without a maximum stays missing (no invented 100)', max !== undefined || fehlt.all[0].durability === undefined, `${fehlt.all[0].durability}`);
 
       const gut = new Inventory();
       gut.load([

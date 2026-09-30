@@ -219,7 +219,7 @@ async function main(): Promise<void> {
   const server = createWovServer({
     port: 0, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'g2-live',
     saveIntervalMs: 3600_000, everyoneAdmin: true, worldCreatures: false, worldFeatures: false, worldVegetation: false,
-    gegenstandsDatei: ARBEIT, gegenstandsStart: start.eintraege, gegenstandsStartQuittung: start.startQuittung,
+    gegenstandsDatei: ARBEIT, gegenstandsStart: start.eintraege, gegenstandsStartQuittung: start.startQuittung, gegenstandsOhneGutenStand: start.ohneGutenStand,
   });
   server.start();
   PORT = portVon(server);

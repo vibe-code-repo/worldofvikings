@@ -50,9 +50,38 @@ export function zaehleGehalten(q: BestandsQuellen, ids: ReadonlySet<string>): Re
     summe.set(name, (summe.get(name) ?? 0) + n);
   };
   const online = [...q.online()];
-  for (const o of online) for (const it of o.inventar.all) zaehle(it.shared.name, it.stack);
+  for (const o of online) {
+    for (const it of o.inventar.all) zaehle(it.shared.name, it.stack);
+    for (const s of o.inventar.verwahrte) zaehle(s.name, s.stack);
+  }
   for (const p of q.gespeichert()) {
     if (istOnline(p, online)) continue; // the live copy counts, not its older saved twin
+    for (const s of p.inventar ?? []) zaehle(s?.name, s?.stack);
+  }
+  for (const zdo of q.zdos()) {
+    const tupel = truhenTupel(zdo.getString(TRUHE_INHALT_MEMBER));
+    if (!tupel) continue;
+    for (const t of tupel) if (Array.isArray(t)) zaehle(t[0], t[1]);
+  }
+  return Object.fromEntries([...summe].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
+/**
+ * Names that are held but are not known (`istBekannt`): what a working copy lost that nobody
+ * can name any more (start without a usable last good state). `istBekannt` says which names do not count as unknown
+ * (a definition exists or the file about to be applied defines it). Only names with more than 0 copies appear.
+ */
+export function zaehleUnbekannteGehalten(q: BestandsQuellen, istBekannt: (name: string) => boolean): Record<string, number> {
+  const summe = new Map<string, number>();
+  const zaehle = (name: unknown, menge: unknown): void => {
+    if (typeof name !== 'string' || istBekannt(name)) return;
+    const n = typeof menge === 'number' && Number.isFinite(menge) && menge > 0 ? menge : 1;
+    summe.set(name, (summe.get(name) ?? 0) + n);
+  };
+  const online = [...q.online()];
+  for (const o of online) for (const s of o.inventar.verwahrte) zaehle(s.name, s.stack);
+  for (const p of q.gespeichert()) {
+    if (istOnline(p, online)) continue;
     for (const s of p.inventar ?? []) zaehle(s?.name, s?.stack);
   }
   for (const zdo of q.zdos()) {
@@ -79,6 +108,7 @@ export interface EntferntStand {
 export function entferneGehalten(q: BestandsQuellen, ids: ReadonlySet<string>, stempel: () => number): EntferntStand {
   const ergebnis: EntferntStand = { lebend: 0, gespeichert: [], truhen: [] };
   for (const o of q.online()) {
+    ergebnis.lebend += o.inventar.verwahrteEntfernen(ids);
     for (const it of [...o.inventar.all]) {
       if (!ids.has(it.shared.name)) continue;
       o.inventar.removeItem(it);

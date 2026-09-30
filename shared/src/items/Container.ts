@@ -35,7 +35,7 @@
  * zu D9.
  */
 
-import { Inventory } from './Inventory.js';
+import { Inventory, unbekannteWerdenVerwahrt } from './Inventory.js';
 import { findItem } from './itemDefs.js';
 import type { SavedItemStack } from './ItemData.js';
 
@@ -57,12 +57,11 @@ export function neueTruheInventory(): Inventory {
 
 /** Truhen-Inhalt → kompakte Zeichenkette für den ZDO-Member. */
 export function packContainer(inv: Inventory): string {
-  const packed: PackedStack[] = inv.all.map((it) => [
-    it.shared.name,
-    it.stack,
-    it.durability,
-    it.quality,
-  ]);
+  const packed: PackedStack[] = [
+    ...inv.all.map((it): PackedStack => [it.shared.name, it.stack, it.durability, it.quality]),
+    // Stacks kept without a definition (item watch, start without a last good state) stay in the chest.
+    ...inv.verwahrte.map((s): PackedStack => [s.name, s.stack, s.durability, s.quality]),
+  ];
   return JSON.stringify(packed);
 }
 
@@ -96,7 +95,7 @@ export function unpackContainer(json: string): Inventory {
     if (!Array.isArray(eintrag) || eintrag.length !== 4) continue;
     const [name, stack, durability, quality] = eintrag as unknown[];
     if (typeof name !== 'string' || typeof stack !== 'number' || stack <= 0) continue;
-    if (!findItem(name)) continue; // unbekanntes Item (alter/fremder Save) — verwerfen
+    if (!findItem(name) && !unbekannteWerdenVerwahrt()) continue; // unbekanntes Item (alter/fremder Save) — verwerfen
     const slot = saved.length;
     saved.push({
       name,

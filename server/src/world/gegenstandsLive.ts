@@ -33,6 +33,7 @@
  * `interneFehler` counts the cases where the sanitiser swallowed an exception of its own
  * (reason `eintrag-ungueltig`, which no JSON input can produce) plus the errors of the watch itself.
  */
+import { findItem } from '@wov/shared';
 import { readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import {
   MAX_DATEI_BYTES,
@@ -139,6 +140,12 @@ export interface LadeErgebnis {
   hash: string | null;
   /** `letzter-guter`: the receipt the watch writes at its start for the (rejected) working copy. */
   startQuittung?: { status: 'abgelehnt'; hash: string };
+  /**
+   * There was no usable last good state, so the start cannot tell what the working copy lost. The watch then compares
+   * the working copy with what is HELD (names without a definition) at its first check, and the last good state is NOT
+   * written until that check is through.
+   */
+  ohneGutenStand?: boolean;
 }
 
 export interface GegenstandsLog {
@@ -173,6 +180,12 @@ export function ladeGegenstandsDatei(pfad: string, log: GegenstandsLog = console
         }
       }
     }
+    if (guter === null) {
+      // No usable last good state (missing, 0 byte, broken): the file cannot be checked against it. The watch checks
+      // it against what is held and writes the last good state only after that; until then a restart repeats this path.
+      log.warn(`[Gegenstaende] kein brauchbarer letzter guter Stand: die Wache vergleicht die Arbeitsdatei mit dem Besitz, der letzte gute Stand wird erst danach geschrieben`);
+      return { ...r, ohneGutenStand: true };
+    }
     letzterGuterSchreiben(pfad, r.eintraege, log);
     return r;
   }
@@ -184,7 +197,7 @@ export function ladeGegenstandsDatei(pfad: string, log: GegenstandsLog = console
 /** The working copy is broken, rejected or gone: load the last good state if there is one. */
 function fallbackLetzterGuter(pfad: string, r: LadeErgebnis, log: GegenstandsLog): LadeErgebnis {
   const guter = letzterGuterLesen(pfad, log);
-  if (guter === null) return r;
+  if (guter === null) return r.art === 'fehlt' ? r : { ...r, ohneGutenStand: true };
   try {
     wendeGegenstandsDatenAn(guter);
   } catch (fehler) {
@@ -239,6 +252,12 @@ export interface GegenstandsWacheAbhaengigkeiten {
   readonly bestaetigenPfad: string;
   /** The state the start applied (`ladeGegenstandsDatei`); empty if nothing was applied. */
   readonly angewendet?: readonly GegenstandsEintrag[];
+  /** The start had no usable last good state (`LadeErgebnis.ohneGutenStand`). */
+  readonly ohneGutenStand?: boolean;
+  /** Names that are held but unknown (no definition, not in `istBekannt`): copies in inventories, saved players, chests. */
+  readonly unbekanntGehalten?: (istBekannt: (name: string) => boolean) => Record<string, number>;
+  /** Keep unknown stacks raw when a player or chest is loaded (on while `ohneGutenStand` is open). */
+  readonly verwahren?: (an: boolean) => void;
   /** Start fell back to the last good state: the receipt for the rejected working copy (written at once). */
   readonly startQuittung?: { status: 'abgelehnt'; hash: string };
   /** A save is running: do not apply now. */
@@ -257,6 +276,8 @@ export class GegenstandsWache {
   private letzterAnfrageStand: string | null = null;
   private angewendet: readonly GegenstandsEintrag[];
   private angewendetJson: string;
+  /** Start without a usable last good state and the check against the held names is still open. */
+  private ohneGutenStand: boolean;
   /** The last receipt `bestaetigung-noetig`: a confirmation covers exactly this hash and these ids (plus more copies of them). */
   private quittiert: { hash: string; ids: ReadonlySet<string> } | null = null;
   /** Sanitiser exceptions swallowed as `eintrag-ungueltig`, plus errors of the watch itself. */
@@ -265,6 +286,8 @@ export class GegenstandsWache {
   constructor(private readonly d: GegenstandsWacheAbhaengigkeiten) {
     this.angewendet = d.angewendet ?? [];
     this.angewendetJson = JSON.stringify(this.angewendet);
+    this.ohneGutenStand = d.ohneGutenStand === true;
+    if (this.ohneGutenStand) d.verwahren?.(true);
     // The receipt and a confirmation of the previous run do not apply to this one.
     for (const p of [d.quittungsPfad, d.bestaetigenPfad]) {
       try {
@@ -346,6 +369,32 @@ export class GegenstandsWache {
       this.log.warn(`[Gegenstaende] ${lesung.verworfen.length} Eintrag/Eintraege verworfen (${beschreibe(lesung.verworfen)}), nichts angewendet, der alte Stand bleibt`);
       this.quittiere('verworfen', hash, { verworfen: lesung.verworfen.map((v) => ({ index: v.index, id: v.id, grund: v.grund })) });
       return;
+    }
+    if (this.ohneGutenStand) {
+      // Start without a last good state: what is held under a name that neither a definition nor this file knows is
+      // a removal nobody can see, so it needs the confirmation like any other. The copies stay (kept raw) until then.
+      const neu = new Set(lesung.eintraege.map((e) => e.id));
+      const unbekannt = this.d.unbekanntGehalten?.((name) => neu.has(name) || findItem(name) !== undefined) ?? {};
+      const ids = Object.keys(unbekannt);
+      if (ids.length > 0) {
+        const q = this.quittiert;
+        const gedeckt = bestaetigt && q !== null && q.hash === hash && ids.every((id) => q.ids.has(id));
+        if (!gedeckt) {
+          this.log.warn(`[Gegenstaende] Bestaetigung noetig (kein letzter guter Stand), nichts entfernt: ${Object.entries(unbekannt).map(([id, n]) => `${n}x ${id}`).join(', ')} gehalten, in der Datei unbekannt`);
+          this.quittiert = { hash, ids: new Set(ids) };
+          this.quittiere('bestaetigung-noetig', hash, { gehalten: unbekannt });
+          return;
+        }
+        this.d.entfernen(new Set(ids));
+      }
+      this.ohneGutenStand = false;
+      this.quittiert = null;
+      this.d.verwahren?.(false);
+      if (JSON.stringify(lesung.eintraege) === this.angewendetJson) {
+        letzterGuterSchreiben(this.d.pfad, lesung.eintraege, this.log);
+        this.quittiere('angewendet', hash);
+        return;
+      }
     }
     if (JSON.stringify(lesung.eintraege) === this.angewendetJson) {
       this.quittiere('angewendet', hash); // nothing to do (also a re-formatted file)

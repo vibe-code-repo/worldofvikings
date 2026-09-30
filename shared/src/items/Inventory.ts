@@ -24,8 +24,23 @@ export const INVENTORY_HEIGHT = 4;
 /** Hotbar is row 0 of the inventory. */
 export const HOTBAR_SIZE = INVENTORY_WIDTH;
 
+/**
+ * While on, `load` keeps stacks whose name resolves to no definition (as raw data in `verwahrt`, written back by
+ * `serialize`) instead of dropping them. The item watch switches it on at a start without a usable last good state:
+ * then it cannot tell which data items the working copy lost, so nothing unknown may vanish until it is confirmed.
+ */
+let unbekannteVerwahren = false;
+export function setzeUnbekannteVerwahren(an: boolean): void {
+  unbekannteVerwahren = an;
+}
+export function unbekannteWerdenVerwahrt(): boolean {
+  return unbekannteVerwahren;
+}
+
 export class Inventory {
   private items: ItemStack[] = [];
+  /** Stacks without a definition kept on purpose (see `setzeUnbekannteVerwahren`); not part of `all`. */
+  private verwahrt: SavedItemStack[] = [];
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -45,6 +60,18 @@ export class Inventory {
 
   get all(): readonly ItemStack[] {
     return this.items;
+  }
+
+  /** The kept stacks without a definition. */
+  get verwahrte(): readonly SavedItemStack[] {
+    return this.verwahrt;
+  }
+
+  /** Drops the kept stacks of these names for good; returns how many stacks went. */
+  verwahrteEntfernen(namen: ReadonlySet<string>): number {
+    const vorher = this.verwahrt.length;
+    this.verwahrt = this.verwahrt.filter((s) => !namen.has(s.name));
+    return vorher - this.verwahrt.length;
   }
 
   itemAt(x: number, y: number): ItemStack | null {
@@ -195,24 +222,32 @@ export class Inventory {
       const neu = findItem(it.shared.name);
       if (neu) it.shared = neu;
     }
-    // A stack over the new maximum is split onto free slots; if none is free the excess stays (nothing is lost).
+    this.teileUeberstapel('rebind');
+    this.emit();
+  }
+
+  /**
+   * A stack over its maximum is split onto free slots (same sum, same weight, no duplicates); if none is free the
+   * excess stays with a warning (nothing is lost). One function for `rebind` (new definitions) and `load` (saved
+   * state with a maximum that shrank since).
+   */
+  private teileUeberstapel(wo: string): void {
     for (const it of [...this.items]) {
       const max = it.shared.maxStackSize;
       while (max >= 1 && it.stack > max) {
         const slot = this.findEmptySlot(topFirst(it.shared));
         if (!slot) {
-          console.warn(`[Inventory] rebind: ${it.shared.name} x${it.stack} over the maximum ${max}, no free slot, the excess stays`);
+          console.warn(`[Inventory] ${wo}: ${it.shared.name} x${it.stack} over the maximum ${max}, no free slot, the excess stays`);
           break;
         }
         it.stack -= max;
         this.items.push({ ...it, stack: max, gridX: slot[0], gridY: slot[1], equipped: false });
       }
     }
-    this.emit();
   }
 
   serialize(): SavedItemStack[] {
-    return this.items.map((it) => ({
+    return [...this.items.map((it) => ({
       name: it.shared.name,
       stack: it.stack,
       durability: it.durability,
@@ -220,15 +255,19 @@ export class Inventory {
       gridX: it.gridX,
       gridY: it.gridY,
       equipped: it.equipped,
-    }));
+    })), ...this.verwahrt];
   }
 
-  /** Unknown item names are dropped rather than failing the whole load. */
+  /** Unknown item names are dropped rather than failing the whole load (kept raw while `setzeUnbekannteVerwahren`). */
   load(saved: readonly SavedItemStack[]): void {
     this.items = [];
+    this.verwahrt = [];
     for (const s of saved) {
       const shared = findItem(s.name);
-      if (!shared) continue;
+      if (!shared) {
+        if (unbekannteVerwahren) this.verwahrt.push({ ...s });
+        continue;
+      }
       this.items.push({
         shared,
         stack: s.stack,
@@ -239,6 +278,7 @@ export class Inventory {
         equipped: s.equipped,
       });
     }
+    this.teileUeberstapel('load');
     this.emit();
   }
 }

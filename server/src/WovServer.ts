@@ -109,7 +109,7 @@ import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
 import { bootLoeschRegel, liveAbgleich, wuerdeEntfernen } from './world/layoutLiveAbgleich.js';
 import { GegenstandsWache } from './world/gegenstandsLive.js';
-import { entferneGehalten, zaehleGehalten, type BestandsQuellen } from './spiel/Gegenstandsbestand.js';
+import { entferneGehalten, zaehleGehalten, zaehleUnbekannteGehalten, type BestandsQuellen } from './spiel/Gegenstandsbestand.js';
 import { datenRezepte, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { gegenstandsBestaetigenDatei, gegenstandsQuittungsDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 import { bestaetigungsZdos, sperreAbgleichen, sperreBestaetigenPlan, sperreErweitern, sperreFreigeben } from './world/layoutBootSchutz.js';
@@ -145,6 +145,7 @@ import {
   findItem, ITEM_DEFS,
   REZEPTE,
   packContainer,
+  setzeUnbekannteVerwahren,
   unpackContainer,
   TRUHE_INHALT_MEMBER,
   TRUHE_LOOTED_MEMBER,
@@ -312,6 +313,8 @@ export interface ServerConfig {
   gegenstandsDatei?: string;
   gegenstandsStart?: readonly GegenstandsEintrag[];
   gegenstandsStartQuittung?: { status: 'abgelehnt'; hash: string };
+  /** Der Start hatte keinen brauchbaren letzten guten Stand (`LadeErgebnis.ohneGutenStand`). */
+  gegenstandsOhneGutenStand?: boolean;
   /**
    * F3 (Security-Review): Servergeheimnis fuer die SessionToken-Signatur.
    * NUR fuer Tests (deterministischer Lauf, zwei Server-Instanzen mit
@@ -1297,6 +1300,9 @@ export class WovServer {
       bestaetigenPfad: gegenstandsBestaetigenDatei(pfad),
       angewendet: this.config.gegenstandsStart,
       startQuittung: this.config.gegenstandsStartQuittung,
+      ohneGutenStand: this.config.gegenstandsOhneGutenStand,
+      unbekanntGehalten: (istBekannt) => zaehleUnbekannteGehalten(this.bestandsQuellen(), istBekannt),
+      verwahren: (an) => setzeUnbekannteVerwahren(an),
       speichertGerade: () => this.speichertGerade,
       gehalten: (ids) => zaehleGehalten(this.bestandsQuellen(), ids),
       entfernen: (ids) => this.entferneGegenstaende(ids),

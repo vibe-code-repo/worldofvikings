@@ -45,19 +45,16 @@ import {
   // `storeKollision`, was der Speicher selbst ueber seine Kollision
   // sagt. Alle liest der Server ebenfalls — daran haengt, dass Bild und
   // Serverrechnung dieselben Hindernisse sehen.
-  BEGEHBAR_NAME,
-  formUebersteuerung,
-  istFesterKoerperImSpiel,
-  kollisionsForm,
   kollisionsModellPfad,
   storeKollision,
 } from '@wov/shared';
-import type { KollisionsForm, NpcEinordnung, SteinKitConfig } from '@wov/shared';
+import type { NpcEinordnung, SteinKitConfig } from '@wov/shared';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
 import { weiseSteinMaterialZu, setzeDokumentSteinKit, holeSteinMaterial } from './steinMaterial';
 import { faerbeHaar } from '../player/haarfarbe.js';
 import { faerbeAugen } from '../player/augenfarbe.js';
 import { StaticColliderSet } from '../engine/Physics';
+import '../engine/Physics';
 
 import {
   IMPOSTOR_GRENZE_M_VORGABE,
@@ -91,7 +88,6 @@ import {
   COLLIDER_REBUILD_STEP,
   VEGETATIONS_NEUPACK_M,
   vegetationsMatrizenImRadius,
-  SHOW_COLLIDERS,
   zellenSchluessel,
   RENDER_ZELLE_M,
   ZELL_MAX_INSTANZEN,
@@ -117,7 +113,6 @@ import {
 } from './lod';
 import { INSTANZ_TOENUNG_AN, darfGetoentWerden, schreibeToenung } from './toenung';
 import {
-  netzAusMastern,
   schreibeInstanzen,
   alsOrtsfestEinfrieren,
   zellMeshAusPrototyp,
@@ -125,6 +120,7 @@ import {
 import { composeZdoWorld } from './zdoMatrix';
 import { makePlaceholder } from './platzhalter';
 import { nearbyInstances, indexSetzen, ausZelleLoesen, indexEntfernen } from './raumIndex';
+import { enablePhysics, rebuildBucketColliders } from './kollisionsEimer';
 // Re-exports: these names moved into the modules next to this file; importers keep their path.
 export { vegetationsMatrizenImRadius } from './konstanten';
 export type { StatischeInstanz, DynamischeInstanz } from './typen';
@@ -147,7 +143,7 @@ export {
 /** Is `anim` the lying pose of a dead player figure? */
 const istTodAnim = (anim: string | undefined): anim is string => anim !== undefined && (TOD_CLIPS as readonly string[]).includes(anim);
 export class EntityManager {
-  private readonly buckets = new Map<string, StaticBucket>();
+  readonly buckets = new Map<string, StaticBucket>();
   /**
    * Bewusster Qualitätstausch des gemessenen 100-FPS-Profils.
    *
@@ -659,8 +655,8 @@ export class EntityManager {
    * baut buildMeshCollider/deriveCollider aus genau diesen beiden Maps —
    * der Kollisionspfad bleibt prefabweise und merkt vom Schnitt nichts).
    */
-  private masterMeshes = new Map<string, import('@babylonjs/core/Meshes/mesh').Mesh[]>();
-  private masterLocals = new Map<string, Matrix[]>();
+  masterMeshes = new Map<string, import('@babylonjs/core/Meshes/mesh').Mesh[]>();
+  masterLocals = new Map<string, Matrix[]>();
   /**
    * Die REINEN KOLLISIONSNETZE je masterKey (`_col`-Meshes der GLB, s.
    * AssetManager-Kopf) — bewusst NEBEN `masterMeshes`, nicht darin.
@@ -675,8 +671,8 @@ export class EntityManager {
    * `buildMeshCollider()` liest nur Positionen, Indizes und `local`,
    * und die Weltlagen kommen ohnehin aus den ZDO-Matrizen.
    */
-  private kollisionsMasters = new Map<string, import('@babylonjs/core/Meshes/mesh').Mesh[]>();
-  private kollisionsLocals = new Map<string, Matrix[]>();
+  kollisionsMasters = new Map<string, import('@babylonjs/core/Meshes/mesh').Mesh[]>();
+  kollisionsLocals = new Map<string, Matrix[]>();
   /**
    * KI-Steinmaterialien der 1.0-Kits, gecacht je Konfiguration (Master leben die
    * ganze Sitzung, also EIN Material je Kit). Ein gemeinsames Material für alle
@@ -814,7 +810,7 @@ export class EntityManager {
    */
   onMasterEntsorgt: ((mesh: Mesh, endgueltig: boolean) => void) | null = null;
   /** Invisible collision carriers, one per prefab — see rebuildBucketColliders. */
-  private readonly colliders = new Map<
+  readonly colliders = new Map<
     string,
     { carrier: Mesh; set: StaticColliderSet; signature: string }
   >();
@@ -822,12 +818,12 @@ export class EntityManager {
   readonly colliderSpecs = new Map<string, unknown>();
   /** Prefabs whose meshes yielded no usable shape — never retried, because
    *  deriveCollider walks every vertex and repeating that stalls frames. */
-  private readonly colliderless = new Set<string>();
+  readonly colliderless = new Set<string>();
   /** Set once Havok is up; before that collider building is skipped. */
-  private physicsEnabled = false;
+  physicsEnabled = false;
   /** Centre of the collision window — see setPlayerPosition. */
-  private colliderCenterX = 0;
-  private colliderCenterZ = 0;
+  colliderCenterX = 0;
+  colliderCenterZ = 0;
 
   /**
    * Ob nahe (x,z) bereits ein Kollisionskörper steht. Ladeprüfung nach dem
@@ -908,11 +904,8 @@ export class EntityManager {
     return out;
   }
 
-  /** Enable collision once initPhysics() resolved; catches existing buckets up. */
   enablePhysics(): void {
-    if (this.physicsEnabled) return;
-    this.physicsEnabled = true;
-    for (const bucket of this.buckets.values()) bucket.dirty = true;
+    return enablePhysics(this);
   }
 
   /**
@@ -1162,157 +1155,8 @@ export class EntityManager {
     return { grenzeM: this.vegetationsGrenzeM, auswahlRadiusM: radius, gesamt, sichtbar };
   }
 
-  /**
-   * Mirror a bucket's NEARBY instances onto an invisible collision carrier.
-   *
-   * The carrier takes the RAW zdo matrices, not the per-master products: the
-   * visible masters are one per GLB submesh with their own local offsets,
-   * while collision wants a single simple shape at the prefab's origin.
-   */
   private rebuildBucketColliders(bucket: StaticBucket, zdoMats: readonly Matrix[]): void {
-    if (!this.physicsEnabled) return;
-    if (this.colliderless.has(bucket.prefabName)) return;
-    // Dungeon-Räume (Phase G) sind IMMER solide — ihre Flags sind 0n, weil
-    // sie keine Netzwerk-Prefabs des Originals sind; das Flag-Gate unten griffe nicht.
-    const dungeonRoom = getRoomByHash(bucket.prefabHash) !== undefined;
-    // Begehbare Bauwerke umgehen das Flag-Gatter aus DEMSELBEN Grund wie
-    // Dungeon-Räume: Sie tragen nur PERSISTENT, und das steht nicht in
-    // KOLLIDIERENDE_FLAGS. Ohne diese Ausnahme landeten sie in
-    // `colliderless`, noch bevor die Netz-Zweige weiter unten je
-    // erreicht wurden — gemessen am laufenden Client hatte deshalb auch
-    // der Steinkreis gar keine Kollision, man lief mitten hindurch.
-    const begehbar = BEGEHBAR_NAME.test(bucket.prefabName);
-    // Nur solide Klassen bekommen überhaupt einen Körper. Die Regel steht
-    // in `shared` und nicht mehr hier: Der Server muss dieselbe Menge
-    // „fest" haben, sonst zieht seine Korrektur den Spieler durch etwas
-    // hindurch, vor dem er im Bild steht.
-    if (!istFesterKoerperImSpiel(findPrefabByHash(bucket.prefabHash), bucket.prefabName, {
-      dungeonRaum: dungeonRoom,
-      begehbar,
-    })) {
-      this.colliderless.add(bucket.prefabName);
-      return;
-    }
-    const masters = this.masterMeshes.get(bucket.masterKey);
-    // Ein eigenes Kollisionsnetz aus der GLB (`_col`) ERSETZT die
-    // Kollision des Prefabs vollständig — s. AssetManager-Kopf. Deshalb
-    // reicht es auch allein: ein Prefab, das NUR aus `_col` besteht, hat
-    // keine sichtbaren Master und trotzdem Kollision.
-    const kollMasters = this.kollisionsMasters.get(bucket.masterKey);
-    /*
-      Eine Form aus der HANDTABELLE (`shared/src/kollision/
-      formUebersteuerung.ts`) braucht überhaupt keine Geometrie — sie
-      steht in der Zeile. Sie wird deshalb hier abgefragt und nicht erst
-      unten in `kollisionsForm()`: Die grossen Büsche haben 4 426 bis
-      8 133 Dreiecke, und `netzAusMastern()` kopierte davon bei jedem
-      ersten Aufbau eines Buckets sämtliche Vertexpositionen zusammen,
-      nur um sie an eine Funktion zu geben, die sie wegwirft.
-
-      Sie steht auch VOR der Master-Abfrage: Ein Bucket, dessen Master
-      noch nicht geladen sind, bekäme sonst keinen Körper, obwohl seine
-      Form von keinem Master abhängt.
-    */
-    const handform = formUebersteuerung(bucket.prefabName);
-    if (
-      handform === null &&
-      (!masters || masters.length === 0) &&
-      (!kollMasters || kollMasters.length === 0)
-    )
-      return;
-
-    // Kollisionseintrag je BUCKET (masterKey), nicht je Prefabname: Zwei
-    // Buckets desselben Prefabs teilten sich sonst Träger UND Signatur und
-    // bauten sich gegenseitig die Nah-Auswahl ab. Die Form ist dieselbe —
-    // geteilt wird trotzdem nichts, weil `signature` je Auswahl gilt.
-    let entry = this.colliders.get(bucket.masterKey);
-    if (!entry) {
-      const def = findPrefabByHash(bucket.prefabHash);
-      /*
-        Die FORM entscheidet `shared/src/kollision/formen.ts` — dieselbe
-        Funktion, die der Server aufruft. Hier wird nur noch geliefert,
-        was sie nicht selbst wissen kann: die zusammengelegte Geometrie,
-        das Baum-Flag, der Dungeon-Raum und ob ein EIGENES Kollisionsnetz
-        vorliegt.
-
-        Ein eigenes Netz (`_col` aus der GLB oder die `…-collision.glb`
-        des Speichers) ERSETZT die Kollision vollständig: gebacken wird
-        nur aus ihm, die sichtbaren Master kollidieren dann nicht mehr.
-        Genau das ist sein Zweck — eine Treppe, deren Kollision aus den
-        gerenderten Stufen kommt, ist für die 0,4-m-Kapsel unbegehbar
-        (Herleitung im AssetManager-Kopf), das `_col`-Netz legt die
-        glatte Rampe darunter.
-
-        Kommt daraus keine Geometrie zusammen, gilt der normale Weg mit
-        den sichtbaren Mastern — deshalb das `??` und nicht ein `if`.
-      */
-      const stammartig = def ? (def.flags & PrefabFlag.TREE_BASE) !== 0n : false;
-      const katalog = storeKollision(bucket.prefabName);
-      const optionen = { stammartig, dungeonRaum: dungeonRoom };
-      let form: KollisionsForm | null = handform;
-      if (form === null) {
-        const eigen = netzAusMastern(
-          kollMasters ?? [],
-          this.kollisionsLocals.get(bucket.masterKey) ?? []
-        );
-        const sicht = netzAusMastern(masters ?? [], this.masterLocals.get(bucket.masterKey) ?? []);
-        form =
-          (eigen
-            ? kollisionsForm(eigen.positionen, eigen.indizes, bucket.prefabName, katalog, {
-                ...optionen,
-                eigenesNetz: true,
-              })
-            : null) ??
-          (sicht
-            ? kollisionsForm(sicht.positionen, sicht.indizes, bucket.prefabName, katalog, optionen)
-            : null);
-      }
-      if (!form) {
-        this.colliderless.add(bucket.prefabName);
-        return;
-      }
-      const carrier = new Mesh(`col_${bucket.masterKey}`, this.scene);
-      carrier.isVisible = false;
-      carrier.isPickable = false;
-      // Ortsfest, aus demselben Grund wie der Zell-Master: Der Träger
-      // steht im Ursprung, die Auswahl der nahen Kollisionskörper kommt
-      // ausschliesslich über seinen Thin-Instance-Puffer weiter unten.
-      alsOrtsfestEinfrieren(carrier);
-      entry = { carrier, set: new StaticColliderSet(carrier, form, this.scene), signature: '' };
-      this.colliders.set(bucket.masterKey, entry);
-      this.colliderSpecs.set(bucket.masterKey, form);
-    }
-
-    // Keep only what is close enough to walk into. Translation lives at
-    // matrix elements 12/13/14.
-    const near: number[] = [];
-    const r2 = COLLIDER_RANGE * COLLIDER_RANGE;
-    for (let i = 0; i < zdoMats.length; i++) {
-      const m = zdoMats[i]!.m;
-      const dx = m[12]! - this.colliderCenterX;
-      const dz = m[14]! - this.colliderCenterZ;
-      if (dx * dx + dz * dz <= r2) near.push(i);
-    }
-    // Signatur der Auswahl: nur bei echter Änderung neu bauen.
-    //
-    // sync() verwirft die Havok-Bodies und legt sie neu an. Bei jedem
-    // dirty-Bucket auszuführen hiess: Solange ZDO-Updates hereinkamen,
-    // wurden die Kollisionskörper laufend zerstört und neu erzeugt — und
-    // in genau diesen Lücken lief der Spieler durch Bäume hindurch
-    // (gemessen: 0,37 m Abstand zu einem Stamm mit 0,79 m Radius). Das
-    // HUD zeigte es als auseinanderlaufende Zähler "36 inst / 84 havok".
-    let sig = `${near.length}`;
-    for (let k = 0; k < near.length; k++) {
-      const m = zdoMats[near[k]!]!.m;
-      sig += `|${m[12]!.toFixed(2)},${m[14]!.toFixed(2)}`;
-    }
-    if (sig === entry.signature) return;
-    entry.signature = sig;
-
-    const data = new Float32Array(near.length * 16);
-    for (let k = 0; k < near.length; k++) zdoMats[near[k]!]!.toArray(data, k * 16);
-    entry.carrier.thinInstanceSetBuffer('matrix', data, 16, false);
-    entry.set.sync();
-    if (SHOW_COLLIDERS) entry.set.showDebug();
+    return rebuildBucketColliders(this, bucket, zdoMats);
   }
 
   private applyStatic(u: ZDOEntityUpdate, prefabName: string, model: string | null): void {

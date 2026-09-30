@@ -89,10 +89,6 @@ import { SYNC_PRUEFUNGEN_MAX } from './zdo/ZonenFenster.js';
 import { DungeonManager } from './world/dungeon/DungeonManager.js';
 import {
   GENERIERT_DIR,
-  baueModul,
-  deleteModule,
-  registryChecksum,
-  registryPruefsumme,
 } from './world/dungeon/ModuleBuild.js';
 import { ZDO } from './zdo/ZDO.js';
 import { ZDOID } from './zdo/ZDOID.js';
@@ -173,6 +169,8 @@ import { pickableItem, ZWEIT_DROPS, wuerfleDrop, wuerfleTruhe } from './spiel/Be
 import { waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
 import { EIKTHYR_HASH, BOSS_ENTRY, NPC_ENTRY } from './spiel/Sondereintraege.js';
 import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
+import { handleDungeonEditRequest, handleDungeonEditSave, handleDungeonModulBau, handleDungeonModulLoeschen } from './spiel/DungeonEditPakete.js';
+import { handleAdminCommand, handleSetTimeOfDay } from './spiel/AdminPakete.js';
 // Tests import the weapon helpers from this file, so it keeps exporting them.
 export { gepruefteWaffe, waffeTragbar, WAFFE_PAKETNAME_OHNE_EQUIP, wirksameWaffe } from './spiel/Waffe.js';
 
@@ -597,7 +595,7 @@ export class WovServer {
   // ── Time (world time, start time, etc.) ───────────────────────
   private startTime: number;
   private prevUpdateTime: number;
-  private worldTime: number; // seconds
+  worldTime: number; // seconds
   private worldTimeMultiplier: number;
 
   // ── Run state ──────────────────────────────────────────────────
@@ -1931,7 +1929,7 @@ export class WovServer {
   }
 
   /** The world clock is sent periodically; see update() for why. */
-  private sendTimeSync(peer: Peer): void {
+  sendTimeSync(peer: Peer): void {
     peer.sendPacketWith(PacketType.TimeSync, (w) => {
       w.writeFloat64(this.worldTime);
       w.writeFloat64(this.getTimeOfDay());
@@ -2647,177 +2645,16 @@ export class WovServer {
     }
   }
 
-  /** Editor: aktuelles Dungeon-Dokument als JSON ausliefern (admin-gated). */
   private handleDungeonEditRequest(peer: Peer, reader: Reader): void {
-    const requested = reader.readString();
-    const sendData = (ok: boolean, message: string, json = '') => {
-      peer.sendPacketWith(PacketType.DungeonEditData, (w) => {
-        w.writeBool(ok);
-        w.writeString(message);
-        w.writeString(json);
-      });
-    };
-    if (!peer.isAdmin) return sendData(false, 'Keine Berechtigung');
-    const id = requested || peer.dungeonId || '';
-    // AP13: Beide Formate reisen als JSON durch DASSELBE Paket. Der Editor
-    // erkennt an `version >= 10`, welches er vor sich hat — dieselbe Weiche
-    // wie im Sanitizer, und deshalb braucht es kein zweites Paket.
-    // AP13: both formats travel as JSON through THE SAME packet.
-    const doc2 = id ? this.dungeons.getDokument2(id) : undefined;
-    if (doc2) return sendData(true, doc2.id, JSON.stringify(doc2));
-    const doc = id ? this.dungeons.getDocument(id) : undefined;
-    if (!doc) return sendData(false, `Unbekannter Dungeon: ${id || '(keiner)'}`);
-    sendData(true, doc.id, JSON.stringify(doc));
+    return handleDungeonEditRequest(this, peer, reader);
   }
 
-  /**
-   * Editor: hochgeladenes Dokument sanitisieren, speichern und — wenn der
-   * Peer gerade in diesem Dungeon steht — die Instanz neu materialisieren
-   * und ihn wieder hineinteleportieren, damit die Änderung sofort sichtbar
-   * ist (upsertDocument reisst die alte Instanz ab).
-   */
   private handleDungeonEditSave(peer: Peer, reader: Reader): void {
-    const json = reader.readString();
-    // E6: Die Registry-Prüfsumme reist HINTER dem Dokument — ein Feld, das
-    // ein Client von vor E6 gar nicht schickt. `isValidOffset(1)` fragt
-    // deshalb erst, ob überhaupt noch Bytes da sind (dasselbe Muster wie
-    // beim nachträglich angehängten `seq` in PlayerState); ein blindes
-    // `readString()` liefe über das Ende des Puffers und beendete die
-    // Verbindung mit einer RangeError-Meldung, die nichts erklärt.
-    const gesendeteSumme = reader.isValidOffset(1) ? reader.readString() : '';
-    const sendData = (ok: boolean, message: string, docJson = '') => {
-      peer.sendPacketWith(PacketType.DungeonEditData, (w) => {
-        w.writeBool(ok);
-        w.writeString(message);
-        w.writeString(docJson);
-      });
-    };
-    if (!peer.isAdmin) return sendData(false, 'Keine Berechtigung');
-    if (json.length > 2_000_000) return sendData(false, 'Dokument zu groß (max 2 MB)');
-
-    // ── E6: Kennen beide Seiten dieselben Module? ──────────────────────
-    //
-    // Diese Frage MUSS vor `sanitizeDungeonDocument` stehen, denn dieser
-    // verwirft unbekannte Räume STILL (`shared/src/dungeons.ts`, Kopf:
-    // „Unknown rooms are dropped"). Für eine Datei von der Platte ist das
-    // richtig; für ein Dokument aus dem Editor ist es der teuerste aller
-    // Fehler — der Nutzer bekommt ein Häkchen und ein Grab mit einem
-    // Loch, und das Loch fällt erst beim Betreten auf.
-    //
-    // Ein FEHLENDES Feld ist kein Sonderfall, sondern die wörtliche
-    // Wahrheit über den Absender: Ein Bündel von vor E6 registriert keine
-    // generierten Module, seine Registry IST leer. Kennt der Server auch
-    // keine, sind sich beide einig und das Speichern geht durch; kennt er
-    // welche, ist die Seite im Browser älter als er — und genau dann darf
-    // sie nicht speichern.
-    const eigeneSumme = registryChecksum();
-    const clientSumme = gesendeteSumme || registryPruefsumme([]);
-    if (clientSumme !== eigeneSumme) {
-      console.warn(
-        `[Dungeon] '${peer.name}' hat eine veraltete Modulregistry ` +
-          `(Client ${clientSumme}, Server ${eigeneSumme}) — Speichern abgelehnt.`
-      );
-      return sendData(
-        false,
-        `Registry veraltet — Seite neu laden (Client ${clientSumme}, Server ${eigeneSumme})`
-      );
-    }
-
-    let raw: unknown;
-    try {
-      raw = JSON.parse(json);
-    } catch {
-      return sendData(false, 'Ungültiges JSON');
-    }
-    // Die Weiche, ein zweites Mal (AP13). Sie steht hier und nicht in
-    // `upsertDocument`, weil die beiden Rückgabetypen verschieden sind —
-    // und weil ein 2.0-Dokument im Alt-Sanitizer als „ungültig" gemeldet
-    // würde statt als „falscher Weg".
-    // The switch, a second time.
-    if (dungeon2.istDokument2(raw)) {
-      const erg2 = this.dungeons.upsertDokument2(raw);
-      if (!erg2) return sendData(false, 'Dokument 2.0 abgelehnt (Thema/ID/Seeds ungültig)');
-      const { doc: d2, instanzErhalten: erhalten2 } = erg2;
-      if (peer.dungeonId === d2.id && !erhalten2) this.enterDungeon(peer, d2.id);
-      sendData(
-        true,
-        `Gespeichert: ${d2.id} (2.0, Thema ${d2.thema}, Prüfsumme ${d2.pruefsumme})`,
-        JSON.stringify(d2)
-      );
-      console.log(
-        `[Dungeon] '${peer.name}' saved 2.0 document '${d2.id}' ` +
-          `(${d2.thema}, ${d2.pruefsumme}${erhalten2 ? ', instance kept' : ''})`
-      );
-      return;
-    }
-    const ergebnis = this.dungeons.upsertDocument(raw);
-    if (!ergebnis) return sendData(false, 'Dokument abgelehnt (Basis/ID/Räume ungültig)');
-    const { doc, instanzErhalten } = ergebnis;
-
-    // Zurückteleportieren NUR, wenn die Instanz abgerissen wurde. Hat sich
-    // bloss die Deko geändert, steht sie noch — und der Spieler soll dort
-    // bleiben, wo er gerade eine Fackel gesetzt hat, statt am Eingang
-    // aufzuwachen. Genau das machte das Setzen vorher unbenutzbar.
-    if (peer.dungeonId === doc.id && !instanzErhalten) {
-      this.enterDungeon(peer, doc.id);
-    }
-    sendData(
-      true,
-      `Gespeichert: ${doc.id} (${doc.layout.rooms.length} Räume, ${doc.layout.props.length} Deko)`,
-      JSON.stringify(doc)
-    );
-    console.log(
-      `[Dungeon] '${peer.name}' saved document '${doc.id}' ` +
-        `(${doc.layout.rooms.length} rooms, ${doc.layout.props.length} props` +
-        `${instanzErhalten ? ', instance kept' : ''})`
-    );
+    return handleDungeonEditSave(this, peer, reader);
   }
 
-  /**
-   * Editor: einen Saal bauen (E5). Der Client schickt VIER ZAHLEN —
-   * Breite, Tiefe, Pfeilerraster, Gewicht —, sonst nichts. Namen,
-   * Pfade und jede Klemme liegen in `ModuleBuild.baueModul`; dieser
-   * Handler übersetzt nur zwischen Paket und Funktion.
-   *
-   * Warum hier KEINE zweite Prüfung steht: Zwei Klemmenlisten für
-   * dieselbe Sache laufen auseinander, sobald eine von beiden angefasst
-   * wird — und die im Socket-Handler wäre die, die kein Test fährt.
-   */
   private handleDungeonModulBau(peer: Peer, reader: Reader): void {
-    const cellsX = reader.readInt32();
-    const cellsZ = reader.readInt32();
-    const raster = reader.readInt32();
-    const weight = reader.readFloat32();
-
-    const antwort = baueModul(
-      {
-        istAdmin: peer.isAdmin,
-        modulbauErlaubt: this.config.dungeonsModulbau,
-        verzeichnis: this.config.generiertDir,
-      },
-      { cellsX, cellsZ, raster, weight }
-    );
-
-    peer.sendPacketWith(PacketType.DungeonModulBauErgebnis, (w) => {
-      w.writeBool(antwort.ok);
-      w.writeString(
-        antwort.ok
-          ? `Gebaut: ${antwort.ergebnis.name} — ${antwort.ergebnis.tris} Dreiecke, ` +
-              `${antwort.ergebnis.sizeX} x ${antwort.ergebnis.sizeZ} m`
-          : antwort.meldung
-      );
-      // Die Zahlen als JSON und nicht als Einzelfelder: Das Formular
-      // zeigt sie an, und ein zusaetzliches Feld spaeter verschoebe
-      // sonst den Aufbau eines Pakets, das ein offener Tab noch kennt.
-      w.writeString(antwort.ok ? JSON.stringify(antwort.ergebnis) : '');
-    });
-
-    console.log(
-      antwort.ok
-        ? `[Dungeon] '${peer.name}' built module '${antwort.ergebnis.name}' ` +
-            `(${antwort.ergebnis.tris} tris, registry ${antwort.ergebnis.pruefsumme})`
-        : `[Dungeon] '${peer.name}' — Modulbau abgelehnt: ${antwort.meldung}`
-    );
+    return handleDungeonModulBau(this, peer, reader);
   }
 
 
@@ -2831,116 +2668,20 @@ export class WovServer {
    * Welten teilen. Ein Server auf `dev`, der nur `dev` durchsähe, löschte
    * ein Modell weg, das `world` benutzt — und erführe davon nie.
    */
-  private dungeonsWurzel(): string {
+  dungeonsWurzel(): string {
     return resolve(this.config.worldsDir, '..', 'dungeons');
   }
 
-  /**
-   * Editor: einen gebauten Saal wieder entfernen (E9).
-   *
-   * Wie beim Bauen steht hier KEINE eigene Prüfung: Tore, Namensform,
-   * Bestandsfrage und Reihenfolge des Entfernens liegen vollständig in
-   * `ModuleBuild.deleteModule`. Der Handler übersetzt zwischen Paket und
-   * Funktion und reicht die Dokumentwurzel herein — das Einzige, was der
-   * Bauweg nicht schon kennt.
-   */
   private handleDungeonModulLoeschen(peer: Peer, reader: Reader): void {
-    const name = reader.readString();
-
-    const antwort = deleteModule(
-      {
-        istAdmin: peer.isAdmin,
-        modulbauErlaubt: this.config.dungeonsModulbau,
-        verzeichnis: this.config.generiertDir,
-        dungeonsWurzel: this.dungeonsWurzel(),
-      },
-      name
-    );
-
-    peer.sendPacketWith(PacketType.DungeonModulLoeschErgebnis, (w) => {
-      w.writeBool(antwort.ok);
-      w.writeString(
-        antwort.ok
-          ? `Entfernt: ${antwort.ergebnis.name}` +
-              `${antwort.ergebnis.dateiEntfernt ? '' : ' (die GLB-Datei fehlte bereits)'} — ` +
-              `${antwort.ergebnis.verbleibend} Modul(e) verbleiben`
-          : antwort.meldung
-      );
-      // Die Zahlen als JSON, aus demselben Grund wie beim Bauergebnis: ein
-      // spaeteres Feld verschoebe sonst den Aufbau eines Pakets, das ein
-      // offener Tab noch kennt.
-      w.writeString(antwort.ok ? JSON.stringify(antwort.ergebnis) : '');
-    });
-
-    console.log(
-      antwort.ok
-        ? `[Dungeon] '${peer.name}' deleted module '${antwort.ergebnis.name}' ` +
-            `(registry ${antwort.ergebnis.pruefsumme}, ${antwort.ergebnis.verbleibend} left)`
-        : `[Dungeon] '${peer.name}' — Modul löschen abgelehnt: ${antwort.meldung}`
-    );
+    return handleDungeonModulLoeschen(this, peer, reader);
   }
 
-  /**
-   * Client sent an admin command line (e.g. "fly"). Dispatched to the
-   * AdminCommandRegistry; the result goes back to the requesting peer as
-   * AdminEvent (command / active / message) so the client HUD mirrors the
-   * server state. Permission gate lives in AdminCommands.canUseAdminCommands.
-   */
   private handleAdminCommand(peer: Peer, reader: Reader): void {
-    const line = reader.readString();
-    const result = this.adminCommands.execute(peer, line);
-
-    const command = line.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
-    peer.sendPacketWith(PacketType.AdminEvent, (w) => {
-      w.writeString(command);
-      w.writeBool(result.active);
-      w.writeString(result.message);
-    });
-
-    console.log(`[Admin] "${peer.name}" ran "${line}" → ${result.message}`);
+    return handleAdminCommand(this, peer, reader);
   }
 
-  /**
-   * Client requested a new time of day (angeboten auf dem Verbindungsbildschirm,
-   * client/src/main.ts — dort für JEDEN Spieler, nicht nur Admins). Ändert
-   * die Zeit für ALLE Peers, deshalb wie die anderen Admin-Pfade gegated
-   * (Zeile 1142/1164 DungeonEdit*, Zeile 1200 AdminCommand). Anders als bei
-   * denen gibt es hier noch kein eigenes Antwortpaket — der Client kennt
-   * InteractResult bereits (nur message wird angezeigt, s. main.ts), das
-   * reicht für die Ablehnung, ohne ein neues Paket einzuführen.
-   *
-   * Kein Sonderfall beim ERSTEN Verbinden: Der Client schickt dieses Paket
-   * nur, wenn auf dem Verbindungsbildschirm aktiv eine Uhrzeit gewählt wurde
-   * (main.ts `zeitWunsch`) — bei "Serverzeit übernehmen" (Default) bleibt es
-   * ganz aus. Die Sperre kann den normalen Verbindungsaufbau also nicht
-   * brechen.
-   */
   private handleSetTimeOfDay(peer: Peer, reader: Reader): void {
-    let timeOfDay = reader.readFloat64();
-    if (!Number.isFinite(timeOfDay)) return;
-
-    if (!peer.isAdmin) {
-      console.log(`[Admin] "${peer.name}" — SetTimeOfDay abgelehnt: keine Berechtigung`);
-      peer.sendPacketWith(PacketType.InteractResult, (w) => {
-        w.writeBool(false);
-        w.writeString('Keine Berechtigung, die Weltzeit zu ändern');
-        w.writeString('');
-        w.writeInt32(0);
-      });
-      return;
-    }
-
-    // Wrap into [0, WORLD_TIME_LENGTH)
-    timeOfDay = ((timeOfDay % WORLD_TIME_LENGTH) + WORLD_TIME_LENGTH) % WORLD_TIME_LENGTH;
-
-    this.worldTime += timeOfDay - this.getTimeOfDay();
-
-    console.log(`[WoV] "${peer.name}" set time of day to ${timeOfDay.toFixed(0)}s (day ${this.getDay()})`);
-
-    // Broadcast the new time to all peers
-    for (const p of this.net.getPeers()) {
-      this.sendTimeSync(p);
-    }
+    return handleSetTimeOfDay(this, peer, reader);
   }
 
   private handlePlayerInput(peer: Peer, reader: Reader): void {

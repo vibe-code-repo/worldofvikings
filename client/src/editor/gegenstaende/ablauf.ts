@@ -11,8 +11,8 @@
  */
 import { ID_MUSTER, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { STAT_IDS } from '@wov/shared/src/items/stats.js';
-import { ladeStand, speichernMitBestaetigung, type ApiOptionen, type LadeErgebnis, type SpeicherAblauf } from './api';
-import { eintragZuFormular, type Formular } from './modell';
+import { ladeStand, speichernMitBestaetigung, type ApiOptionen, type LadeErgebnis, type SpeicherAblauf, type Stand } from './api';
+import { abhaengige, eintragZuFormular, ohneEintrag, type Formular } from './modell';
 import type { BestaetigungInfo } from './texte';
 
 // ── Save button ────────────────────────────────────────────────────────
@@ -26,6 +26,64 @@ export function speicherSperre(z: { laedt: boolean; speichert: boolean; konflikt
   if (z.konflikt) return 'konflikt';
   if (z.fehlerAnzahl > 0) return 'fehler';
   return null;
+}
+
+// ── One state, one hash ────────────────────────────────────────────────
+
+/**
+ * The list a PUT is built from, and the hash of the very state it came from, frozen together. A PUT sends
+ * `hash` of the snapshot and never the hash of a state loaded later: if the file changed in between, the route
+ * answers 412 instead of overwriting the other author's entries with an old list.
+ */
+export interface Schnappschuss {
+  readonly eintraege: readonly GegenstandsEintrag[];
+  readonly hash: string;
+}
+
+export function schnappschuss(stand: Pick<Stand, 'eintraege' | 'hash'>): Schnappschuss {
+  return Object.freeze({ eintraege: Object.freeze([...stand.eintraege]), hash: stand.hash });
+}
+
+/** Saves `liste` (built from `s.eintraege`) with the hash of `s`. */
+export function speichereSchnappschuss(
+  o: ApiOptionen,
+  s: Schnappschuss,
+  liste: readonly GegenstandsEintrag[],
+  frage: (info: BestaetigungInfo) => Promise<boolean>
+): Promise<SpeicherAblauf | Ausnahme> {
+  return speichereGefangen(o, liste, s.hash, frage);
+}
+
+/** The author said no to the dependents dialog: nothing was sent. */
+export interface DialogNein {
+  art: 'dialog-nein';
+}
+
+/**
+ * Removes `id`. The snapshot is taken when the flow starts, BEFORE the dependents dialog; list and hash come from it
+ * and from nothing that is loaded while the dialog is open. `bestaetige` gets the ids that would go with it.
+ */
+export async function entferneGegenstand(
+  o: ApiOptionen,
+  holeStand: () => Pick<Stand, 'eintraege' | 'hash'> | null,
+  id: string,
+  bestaetige: (abhaengigeIds: string[]) => Promise<boolean>,
+  frage: (info: BestaetigungInfo) => Promise<boolean>
+): Promise<SpeicherAblauf | Ausnahme | DialogNein> {
+  try {
+    const stand = holeStand();
+    if (stand === null) return { art: 'ausnahme' };
+    const s = schnappschuss(stand);
+    const abh = abhaengige(s.eintraege, id);
+    let liste = ohneEintrag(s.eintraege, id);
+    if (abh.length > 0) {
+      if (!(await bestaetige(abh))) return { art: 'dialog-nein' };
+      liste = liste.filter((e) => !abh.includes(e.id));
+    }
+    return await speichereSchnappschuss(o, s, liste, frage);
+  } catch {
+    return { art: 'ausnahme' };
+  }
 }
 
 // ── Nothing escapes ────────────────────────────────────────────────────

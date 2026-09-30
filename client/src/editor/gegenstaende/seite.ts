@@ -18,7 +18,7 @@ import type { TranslationKey } from '../../i18n';
 import { F, M, SCHRIFT, beschriftungStil, el, grundregelnEinhaengen, knopf, stil, zierTitel } from '../design';
 import { aktuelleSprache, t } from '../i18n';
 import { ladeQuittung, type ApiOptionen, type Stand } from './api';
-import { ladeGefangen, pruefeKonflikt, speichereGefangen, speicherSperre, type KonfliktErgebnis } from './ablauf';
+import { entferneGegenstand, ladeGefangen, pruefeKonflikt, schnappschuss, speichereSchnappschuss, speicherSperre, type KonfliktErgebnis } from './ablauf';
 import {
   ANIMATIONSSAETZE,
   GEGENSTANDS_TYPEN,
@@ -26,7 +26,6 @@ import {
   SELTENHEITEN,
   STAT_IDS,
   TEXT_MAX,
-  abhaengige,
   andereOhne,
   eintragZuFormular,
   formularZuEintrag,
@@ -34,7 +33,6 @@ import {
   kopie,
   leeresFormular,
   mitEintrag,
-  ohneEintrag,
   pruefeFormular,
   setzeId,
   type FeldFehler,
@@ -126,6 +124,7 @@ class GegenstandsSeite {
   private readonly bannerEl: HTMLDivElement;
   private readonly quittungEl: HTMLDivElement;
   private speichernKnopf: HTMLButtonElement | null = null;
+  private entfernenKnopf: HTMLButtonElement | null = null;
   private zaehlerEls: Array<{ el: HTMLElement; text: () => string }> = [];
   private fehlerEls = new Map<string, HTMLElement>();
   private allgemeinFehlerEl: HTMLElement | null = null;
@@ -419,6 +418,13 @@ class GegenstandsSeite {
     for (const [feld, elem] of this.fehlerEls) elem.textContent = (je.get(feld) ?? []).join(' ');
     for (const z of this.zaehlerEls) z.el.textContent = z.text();
     if (this.allgemeinFehlerEl) this.allgemeinFehlerEl.textContent = uebrig.join(' ');
+    // "Remove" is locked by the same function as "Save" (form errors do not matter to it: the saved entry goes, not the draft).
+    const entfernenEl = this.entfernenKnopf;
+    if (entfernenEl) {
+      entfernenEl.disabled = speicherSperre({ laedt: this.laedt, speichert: this.speichert, konflikt: this.konflikt !== null, fehlerAnzahl: 0 }) !== null;
+      entfernenEl.style.opacity = entfernenEl.disabled ? '0.45' : '1';
+      entfernenEl.style.cursor = entfernenEl.disabled ? 'not-allowed' : 'pointer';
+    }
     const knopfEl = this.speichernKnopf;
     if (!knopfEl) return;
     // Loading locks the button and says so; a click on it does nothing, so it must not look clickable.
@@ -583,7 +589,11 @@ class GegenstandsSeite {
     const leiste = el('div', stil({ display: 'flex', gap: '10px', padding: '16px 0', 'align-items': 'center' }));
     this.speichernKnopf = knopf(t('editor.gegenstand.seite.speichern'), () => this.sicher(this.speichern()), { art: 'bronze' });
     leiste.appendChild(this.speichernKnopf);
-    if (this.ausgewaehlt !== null) leiste.appendChild(knopf(t('editor.gegenstand.seite.entfernen'), () => this.sicher(this.entfernen()), { art: 'leise' }));
+    this.entfernenKnopf = null;
+    if (this.ausgewaehlt !== null) {
+      this.entfernenKnopf = knopf(t('editor.gegenstand.seite.entfernen'), () => this.sicher(this.entfernen()), { art: 'leise' });
+      leiste.appendChild(this.entfernenKnopf);
+    }
     this.formEl.appendChild(leiste);
     this.aktualisiere();
   }
@@ -650,16 +660,23 @@ class GegenstandsSeite {
   }
 
   /**
-   * Sends `neueListe`, answers the route's refusals in words; true if it was written. Nothing throws out of here
-   * (`speichereGefangen`). After a 412 the file is reloaded at once, and if it changed THIS entry the author chooses.
+   * Runs a save (`lauf` builds its list and its hash from ONE snapshot, see `ablauf.ts`), answers the route's refusals
+   * in words; true if it was written. Nothing throws out of here. After a 412 the file is reloaded at once, and if it
+   * changed THIS entry the author chooses. If the page is locked (loading, saving, conflict) nothing is sent and the
+   * author is told why.
    */
-  private async senden(neueListe: GegenstandsEintrag[]): Promise<boolean> {
-    if (!this.stand || this.speichert || this.laedt || this.konflikt !== null) return false;
+  private async senden(lauf: () => ReturnType<typeof entferneGegenstand>): Promise<boolean> {
+    if (!this.stand) return false;
+    const sperre = speicherSperre({ laedt: this.laedt, speichert: this.speichert, konflikt: this.konflikt !== null, fehlerAnzahl: 0 });
+    if (sperre === 'laedt') this.meldung(t('editor.gegenstand.seite.gesperrt_laedt'), true);
+    else if (sperre === 'speichert') this.meldung(t('editor.gegenstand.seite.gesperrt_speichert'), true);
+    else if (sperre === 'konflikt') this.meldung(t('editor.gegenstand.seite.gesperrt_konflikt'), true);
+    if (sperre !== null) return false;
     this.speichert = true;
     this.aktualisiere();
-    let erg: Awaited<ReturnType<typeof speichereGefangen>>;
+    let erg: Awaited<ReturnType<typeof lauf>>;
     try {
-      erg = await speichereGefangen(this.api, neueListe, this.stand.hash, (info) => this.frage(info));
+      erg = await lauf();
     } finally {
       this.speichert = false;
     }
@@ -689,6 +706,7 @@ class GegenstandsSeite {
         ]);
         this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
         break;
+      case 'dialog-nein':
       case 'abgebrochen':
         this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'));
         break;
@@ -712,7 +730,8 @@ class GegenstandsSeite {
   private async speichern(): Promise<void> {
     if (!this.form || !this.stand || this.fehlerListe().length > 0) return;
     const eintrag = formularZuEintrag(this.form);
-    const geschrieben = await this.senden(mitEintrag(this.stand.eintraege, this.ausgewaehlt, eintrag));
+    const s = schnappschuss(this.stand);
+    const geschrieben = await this.senden(() => speichereSchnappschuss(this.api, s, mitEintrag(s.eintraege, this.ausgewaehlt, eintrag), (info) => this.frage(info)));
     if (!geschrieben) return;
     await this.nachSpeichern(eintrag.id);
   }
@@ -724,21 +743,13 @@ class GegenstandsSeite {
   private async entfernen(): Promise<void> {
     if (this.ausgewaehlt === null || !this.stand) return;
     const id = this.ausgewaehlt;
-    const liste = this.stand.eintraege;
-    const abh = abhaengige(liste, id);
-    let neueListe = ohneEintrag(liste, id);
-    if (abh.length > 0) {
-      const name = (x: string): string | null => {
-        const e = liste.find((y) => y.id === x);
-        return e ? anzeigeName(e) : null;
-      };
-      if (!(await fragenDialog(abhaengigkeitsInhalt(id, abh, name)))) {
-        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'));
-        return;
-      }
-      neueListe = neueListe.filter((e) => !abh.includes(e.id));
-    }
-    const geschrieben = await this.senden(neueListe);
+    const name = (x: string): string | null => {
+      const e = this.stand?.eintraege.find((y) => y.id === x);
+      return e ? anzeigeName(e) : null;
+    };
+    const geschrieben = await this.senden(() =>
+      entferneGegenstand(this.api, () => this.stand, id, (abh) => fragenDialog(abhaengigkeitsInhalt(id, abh, name)), (info) => this.frage(info))
+    );
     if (!geschrieben) return;
     await this.nachSpeichern(null);
   }

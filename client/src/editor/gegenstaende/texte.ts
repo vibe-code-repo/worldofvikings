@@ -191,27 +191,39 @@ export function zugangText(status: number | 'netz', uebersetze: Uebersetzer = t)
   return uebersetze('editor.gegenstand.http.andere', { status });
 }
 
-/** The text of a receipt (`GET /api/gegenstaende/quittung`): status, and for a held-back one the counts. */
+/**
+ * The text of a receipt (`GET /api/gegenstaende/quittung`): status, and for a held-back one the counts. The receipt can be
+ * hand-written, so it is shortened like a dialog list: at most `MAX_DIALOG_ZEILEN` lines then "and N more", every
+ * id / name / status shortened and made visible (`sichtbarKuerzen`). The longest text is under 3000 characters
+ * whatever the file holds.
+ */
 export function quittungText(q: { status: string; gehalten?: unknown; verworfen?: unknown }, name: (id: string) => string, uebersetze: Uebersetzer = t): string {
+  const status = sichtbarKuerzen(String(q.status));
   const basis = hatSchluessel(QUITTUNG_SCHLUESSEL, q.status)
     ? uebersetze(QUITTUNG_SCHLUESSEL[q.status])
-    : uebersetze('editor.gegenstand.quittung.unbekannt', { status: q.status });
-  const teile: string[] = [];
+    : uebersetze('editor.gegenstand.quittung.unbekannt', { status });
+  const zeilen: Array<() => string> = [];
   if (typeof q.gehalten === 'object' && q.gehalten !== null && !Array.isArray(q.gehalten)) {
     for (const id of Object.keys(q.gehalten).sort()) {
       const anzahl = (q.gehalten as Record<string, unknown>)[id];
-      if (typeof anzahl === 'number' && Number.isFinite(anzahl)) teile.push(uebersetze('editor.gegenstand.quittung.gehalten', { name: name(id), anzahl }));
+      if (typeof anzahl === 'number' && Number.isFinite(anzahl)) zeilen.push(() => uebersetze('editor.gegenstand.quittung.gehalten', { name: sichtbarKuerzen(name(id), MAX_KENNUNG_ANZEIGE * 2), anzahl }));
     }
   }
   if (Array.isArray(q.verworfen)) {
     for (const v of q.verworfen) {
       if (typeof v === 'object' && v !== null && typeof (v as { grund?: unknown }).grund === 'string') {
         const id = (v as { id?: unknown }).id;
-        teile.push(uebersetze('editor.gegenstand.quittung.verworfen_eintrag', { name: typeof id === 'string' ? name(id) : '?', grund: grundText((v as { grund: string }).grund, uebersetze) }));
+        const grund = sichtbarKuerzen((v as { grund: string }).grund);
+        zeilen.push(() =>
+          uebersetze('editor.gegenstand.quittung.verworfen_eintrag', { name: typeof id === 'string' ? sichtbarKuerzen(name(id), MAX_KENNUNG_ANZEIGE * 2) : '?', grund: grundText(grund, uebersetze) })
+        );
       }
     }
   }
-  return teile.length > 0 ? `${basis} ${teile.join('; ')}` : basis;
+  if (zeilen.length === 0) return basis;
+  const sichtbar = zeilen.slice(0, MAX_DIALOG_ZEILEN).map((z) => z());
+  if (zeilen.length > MAX_DIALOG_ZEILEN) sichtbar.push(uebersetze('editor.gegenstand.bestaetigung.weitere', { anzahl: zeilen.length - MAX_DIALOG_ZEILEN }));
+  return `${basis} ${sichtbar.join('; ')}`;
 }
 
 /** Longest run of one id / name shown in a dialog; a hand-written id can be any length. */

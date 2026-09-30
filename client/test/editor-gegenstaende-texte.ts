@@ -255,6 +255,25 @@ console.log('\n[3] fehler-Codes der Route (am Syntaxbaum gelesen):');
   }
   check('Quittung mit Zaehlern nennt Namen und Anzahl', quittungText({ status: 'bestaetigung-noetig', gehalten: { Holzaxt: 3 } }, () => 'Holzaxt (Axt)', uebersetzer('de')).includes('3') && quittungText({ status: 'verworfen', verworfen: [{ id: 'X', grund: 'id-doppelt' }] }, (id) => id, uebersetzer('en')).includes(en[GRUND_SCHLUESSEL['id-doppelt']]));
   check('Quittung mit unbekanntem Zustand nennt ihn', quittungText({ status: 'seltsam' }, (id) => id, uebersetzer('de')).includes('seltsam'));
+  {
+    // EG2 N2, finding 3: a hand-written receipt must not flood the header; same helpers as the dialog
+    const GRENZE = 3000; // worst case: every character invisible, each shown as `<U+XXXX>` (8 characters): about 2100
+    const gross: Record<string, number> = {};
+    for (let n = 0; n < 100000; n++) gross[`Eintrag${String(n).padStart(6, '0')}`] = n;
+    const t1 = quittungText({ status: 'bestaetigung-noetig', gehalten: gross }, (id) => id, uebersetzer('de'));
+    const viele = Array.from({ length: 100000 }, (_, n) => ({ id: `Kennung${n}`, grund: 'id-doppelt' }));
+    const t2 = quittungText({ status: 'verworfen', verworfen: viele }, (id) => id, uebersetzer('de'));
+    check(`Quittung mit 100000 gehaltenen Eintraegen bleibt unter ${GRENZE} Zeichen`, t1.length < GRENZE, String(t1.length));
+    check(`Quittung mit 100000 verworfenen Eintraegen bleibt unter ${GRENZE} Zeichen`, t2.length < GRENZE, String(t2.length));
+    check('... hoechstens 10 Zeilen, dann "und 99990 weitere"', t1.split('; ').length === 11 && t1.endsWith('… und 99990 weitere') && t2.split('; ').length === 11 && t2.endsWith('… und 99990 weitere'), t1.slice(-60));
+    const rlo = '‮'.repeat(500);
+    const t3 = quittungText({ status: rlo, gehalten: { [rlo]: 1 }, verworfen: [{ id: rlo, grund: rlo }] }, (id) => id, uebersetzer('de'));
+    check('Umkehrzeichen sichtbar ersetzt, nichts davon roh, Laenge fest', !/[‪-‮⁦-⁩]/.test(t3) && t3.includes('<U+202E>') && t3.length < GRENZE, String(t3.length));
+    const lang = 'x'.repeat(5000);
+    const t4 = quittungText({ status: lang, gehalten: { [lang]: 2 } }, (id) => id, uebersetzer('en'));
+    check('lange Kennungen und Namen werden gekuerzt', t4.length < GRENZE && !t4.includes('x'.repeat(200)), String(t4.length));
+    check('kleine Quittung bleibt wie vorher (keine Kuerzung, kein "weitere")', quittungText({ status: 'bestaetigung-noetig', gehalten: { Holzaxt: 3 } }, () => 'Holzaxt', uebersetzer('de')) === `${de['editor.gegenstand.quittung.bestaetigung_noetig']} Holzaxt: 3 vorhanden.`);
+  }
   for (const s of [401, 403, 502, 'netz'] as const) {
     check(`Zugangstext ${s}: nicht leer, ohne offenen Platzhalter, beide Sprachen`, [zugangText(s, uebersetzer('de')), zugangText(s, uebersetzer('en'))].every((x) => x.length > 10 && !x.includes('{')));
   }

@@ -9,6 +9,7 @@
  *      `frage` never leads to the confirmed PUT
  *  [3] finding 5: `pruefeKonflikt` for every case (server changed / removed / same, draft changed / not, new entry)
  *  [4] finding 5 end to end against an in-memory server with the route's `If-Match` rule: 412, reload, both choices
+ *  [6] EG2 N2: removal builds list and hash from ONE snapshot; a foreign PUT and a reload in the dialog give 412
  *  [5] the wiring in `seite.ts` on the syntax tree: the conflict blocks saving, the load runs the check, every
  *      promise of a button goes through `sicher`, the removal asks about dependents BEFORE it sends
  *
@@ -20,7 +21,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
 import { leseGegenstandsDatei, schreibeGegenstandsDatei, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
-import { ladeGefangen, pruefeKonflikt, speichereGefangen, speicherSperre, unterschiede } from '../src/editor/gegenstaende/ablauf';
+import { entferneGegenstand, ladeGefangen, pruefeKonflikt, schnappschuss, speichereGefangen, speicherSperre, unterschiede } from '../src/editor/gegenstaende/ablauf';
 import { ladeStand, speichernMitBestaetigung, speichere } from '../src/editor/gegenstaende/api';
 import { eintragZuFormular, formularZuEintrag, mitEintrag, type Formular } from '../src/editor/gegenstaende/modell';
 
@@ -231,6 +232,91 @@ console.log('\n[4] 412 -> Neu laden -> Wahl, gegen einen Server mit der If-Match
   check('das Neuladen selbst schrieb nichts (nur der eine gezielte PUT)', putsVorher === 2, String(putsVorher));
 }
 
+// ── [6] EG2 N2 finding 2: list and hash are ONE snapshot ─────────────
+console.log('\n[6] Entfernen: Liste und Hash aus einem Schnappschuss, Neuladen waehrend des Dialogs (EG2 N2, Befund 2):');
+{
+  const hashVon = (t: string): string => createHash('sha256').update(t).digest('hex');
+  const bau = (start: GegenstandsEintrag[]) => {
+    const z = { text: schreibeGegenstandsDatei(start), puts: 0, hashes: [] as string[] };
+    const fetcher = async (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const h = new Headers(init?.headers);
+      if ((init?.method ?? 'GET') === 'GET') return new Response(JSON.stringify({ ok: true, text: z.text, hash: hashVon(z.text), quelle: 'arbeit' }), { status: 200 });
+      z.puts++;
+      const basis = (h.get('If-Match') ?? '').replaceAll('"', '');
+      z.hashes.push(basis);
+      if (basis !== hashVon(z.text)) return new Response(JSON.stringify({ ok: false, fehler: 'veraltet', hash: hashVon(z.text) }), { status: 412 });
+      z.text = String(init?.body);
+      return new Response(JSON.stringify({ ok: true, hash: hashVon(z.text), eintraege: leseGegenstandsDatei(z.text).eintraege.length, entfernt: [], entferntOhneId: [] }), { status: 200 });
+    };
+    return { z, o: { fetcher } as const };
+  };
+  const BB: GegenstandsEintrag = { ...eintrag('Bb', 'Bb'), rezept: { menge: 1, zutaten: [{ item: 'Axt', menge: 1 }] } };
+  const ja = async (): Promise<boolean> => true;
+  const laden = async (o: ReturnType<typeof bau>['o']) => {
+    const l = await ladeStand(o);
+    if (l.art !== 'ok') throw new Error('load failed');
+    return l.stand;
+  };
+
+  // the attack of the night: a foreign PUT and a reload while the dependents dialog is open
+  {
+    const { z, o } = bau([AXT, BB, FEDER]);
+    let aktuell = await laden(o);
+    const alterHash = aktuell.hash;
+    const fremd = schreibeGegenstandsDatei([AXT, BB, eintrag('Feder', 'Feder', { gewicht: 9 })]);
+    const erg = await entferneGegenstand(o, () => aktuell, 'Axt', async () => {
+      z.text = fremd; // another author saves
+      aktuell = await laden(o); // and this page reloads (the hash of `aktuell` is now the new one)
+      return true;
+    }, ja);
+    check('fremder PUT + Neuladen waehrend des Dialogs: 412 (veraltet), kein 200 mit alter Liste', erg.art === 'veraltet', JSON.stringify(erg));
+    check('es ging genau ein PUT raus, mit dem Hash des Stands, aus dem die Liste gebaut wurde', z.puts === 1 && z.hashes[0] === alterHash && z.hashes[0] !== aktuell.hash, z.hashes.join());
+    check('die fremde Aenderung steht bytegleich in der Datei', z.text === fremd);
+    check('... und der Stand der Seite ist der neue (Neu-laden-Weg fuer den Nutzer: die Seite laedt nach 412)', aktuell.hash === hashVon(fremd));
+  }
+  // without the reload, only the foreign PUT
+  {
+    const { z, o } = bau([AXT, BB, FEDER]);
+    const s0 = await laden(o);
+    const fremd = schreibeGegenstandsDatei([AXT, BB, eintrag('Feder', 'Feder', { gewicht: 9 })]);
+    const erg = await entferneGegenstand(o, () => s0, 'Axt', async () => { z.text = fremd; return true; }, ja);
+    check('nur ein fremder PUT im Dialog: 412, Datei bytegleich', erg.art === 'veraltet' && z.text === fremd);
+  }
+  // controls: nothing in between -> it is removed, with its dependents
+  {
+    const { z, o } = bau([AXT, BB, FEDER]);
+    const s0 = await laden(o);
+    const erg = await entferneGegenstand(o, () => s0, 'Axt', ja, ja);
+    check('Kontrolle: nichts dazwischen, Dialog ja: Axt und Bb sind weg, Feder bleibt', erg.art === 'ok' && gleich(leseGegenstandsDatei(z.text).eintraege.map((e) => e.id), ['Feder']));
+  }
+  {
+    const { z, o } = bau([AXT, FEDER]);
+    const s0 = await laden(o);
+    const erg = await entferneGegenstand(o, () => s0, 'Feder', async () => { throw new Error('kein Dialog erwartet'); }, ja);
+    check('Kontrolle: ohne Abhaengige kein Dialog, Hash aus dem Stand, Erfolg', erg.art === 'ok' && z.hashes[0] === s0.hash && gleich(leseGegenstandsDatei(z.text).eintraege.map((e) => e.id), ['Axt']));
+  }
+  {
+    const { z, o } = bau([AXT, BB, FEDER]);
+    const s0 = await laden(o);
+    const vorher = z.text;
+    const nein = await entferneGegenstand(o, () => s0, 'Axt', async () => false, ja);
+    check('Dialog "nein": nichts gesendet, Datei unberuehrt', nein.art === 'dialog-nein' && z.puts === 0 && z.text === vorher);
+    const wirft = await entferneGegenstand(o, () => s0, 'Axt', async () => { throw new Error('Dialog kaputt'); }, ja);
+    check('Dialog wirft: ausnahme, nichts gesendet', wirft.art === 'ausnahme' && z.puts === 0 && z.text === vorher);
+    const leer = await entferneGegenstand(o, () => null, 'Axt', ja, ja);
+    check('ohne Stand: ausnahme, nichts gesendet', leer.art === 'ausnahme' && z.puts === 0);
+  }
+  // the snapshot itself is frozen: a list that changes later does not change what was taken
+  {
+    const liste = [AXT, FEDER];
+    const stand = { eintraege: liste, hash: 'a'.repeat(64) };
+    const s = schnappschuss(stand);
+    liste.push(BB);
+    stand.hash = 'b'.repeat(64);
+    check('Schnappschuss: spaetere Aenderung an Liste und Hash aendert ihn nicht und er ist eingefroren', s.eintraege.length === 2 && s.hash === 'a'.repeat(64) && Object.isFrozen(s) && Object.isFrozen(s.eintraege));
+  }
+}
+
 // ── [5] wiring in seite.ts ─────────────────────────────────────────────
 console.log('\n[5] Verdrahtung in seite.ts (Syntaxbaum):');
 {
@@ -247,14 +333,16 @@ console.log('\n[5] Verdrahtung in seite.ts (Syntaxbaum):');
   });
   const rumpf = (name: string): string => methoden.get(name)?.getText(sf) ?? '';
   check('die Methoden sind da (Scanner ist nicht leer)', ['laden', 'senden', 'speichern', 'entfernen', 'aktualisiere', 'sicher'].every((m) => methoden.has(m)), [...methoden.keys()].join());
-  check('senden(): kein Speichern, solange geladen wird, gespeichert wird oder ein Konflikt wartet', /this\.laedt/.test(rumpf('senden')) && /this\.speichert/.test(rumpf('senden')) && /this\.konflikt\s*!==\s*null/.test(rumpf('senden')));
-  check('senden(): benutzt den gefangenen Aufruf, nicht den rohen', /speichereGefangen\(/.test(rumpf('senden')) && !/speichernMitBestaetigung\(/.test(rumpf('senden')));
+  check('senden(): die Sperre kommt aus speicherSperre (laedt, speichert, konflikt), bei gesperrt wird NICHT gesendet und eine uebersetzte Meldung gezeigt', /speicherSperre\(/.test(rumpf('senden')) && /this\.laedt/.test(rumpf('senden')) && /this\.speichert/.test(rumpf('senden')) && /this\.konflikt\s*!==\s*null/.test(rumpf('senden')) && /gesperrt_laedt/.test(rumpf('senden')) && /gesperrt_speichert/.test(rumpf('senden')) && /gesperrt_konflikt/.test(rumpf('senden')) && rumpf('senden').indexOf('gesperrt_konflikt') < rumpf('senden').indexOf('await lauf()'));
+  check('senden(): sendet nur ueber den Schnappschuss-Ablauf (lauf), nie selbst mit this.stand.hash', /await lauf\(\)/.test(rumpf('senden')) && !/\.hash/.test(rumpf('senden')) && !/speichernMitBestaetigung\(|speichereGefangen\(/.test(rumpf('senden')));
   check('laden(): prueft den Entwurf gegen den neuen Stand (pruefeKonflikt) und benutzt den gefangenen Aufruf', /pruefeKonflikt\(/.test(rumpf('laden')) && /ladeGefangen\(/.test(rumpf('laden')));
   check('aktualisiere(): Sperre kommt aus speicherSperre, Beschriftung "laedt" wird gesetzt', /speicherSperre\(/.test(rumpf('aktualisiere')) && /speichern_laedt/.test(rumpf('aktualisiere')));
   check('laden(): sperrt den Knopf sofort (aktualisiere() vor dem ersten await)', rumpf('laden').indexOf('this.aktualisiere()') !== -1 && rumpf('laden').indexOf('this.aktualisiere()') < rumpf('laden').indexOf('await'));
   const ent = rumpf('entfernen');
-  check('entfernen(): fragt nach Abhaengigen VOR dem Senden', ent.indexOf('abhaengige(') !== -1 && ent.indexOf('abhaengige(') < ent.indexOf('this.senden(') && ent.indexOf('abhaengigkeitsInhalt(') < ent.indexOf('this.senden('));
-  check('entfernen(): bei "Abbrechen" wird nichts gesendet (return vor senden)', /if \(!\(await fragenDialog\(abhaengigkeitsInhalt/.test(ent) && ent.indexOf('return;', ent.indexOf('fragenDialog')) < ent.indexOf('this.senden('));
+  check('entfernen(): Liste und Hash kommen aus entferneGegenstand (ein Schnappschuss), die Seite baut keine eigene Liste und liest keinen Hash', /entferneGegenstand\(/.test(ent) && !/\.hash/.test(ent) && !/ohneEintrag\(|abhaengige\(/.test(ent) && /this\.senden\(/.test(ent));
+  check('speichern(): Liste und Hash aus EINEM Schnappschuss (schnappschuss + speichereSchnappschuss), kein this.stand.hash', /schnappschuss\(this\.stand\)/.test(rumpf('speichern')) && /speichereSchnappschuss\(/.test(rumpf('speichern')) && !/\.hash/.test(rumpf('speichern')));
+  check('seite.ts liest this.stand.hash nirgends (nur der Schnappschuss traegt den Hash)', !/this\.stand\??\.hash/.test(sf.getText()));
+  check('Entfernen-Knopf: wird in aktualisiere() mit speicherSperre gesperrt wie Speichern', (rumpf('aktualisiere').match(/speicherSperre\(/g) ?? []).length === 2 && /entfernenKnopf/.test(rumpf('aktualisiere')) && /entfernenKnopf\s*=\s*knopf\(/.test(sf.getText()));
   const vielleicht: string[] = [];
   besuche(sf, (n) => {
     if (ts.isVoidExpression(n) && ts.isCallExpression(n.expression) && ts.isPropertyAccessExpression(n.expression.expression) && n.expression.expression.expression.kind === ts.SyntaxKind.ThisKeyword) vielleicht.push(n.expression.expression.name.text);

@@ -231,11 +231,12 @@ export default [
   // Original), und die einzige verdrahtete Anwendung: Eikthyr besiegen
   // setzt defeated_eikthyr, ein Reh NICHT (Regressionswache). ~2s.
   ['server', 'test/f5-weltmarken.ts'],
-  // F6: second AoI layer, sync cadence by ring. Real client parser over the private syncZDOs (fake socket):
-  // ring 0 change arrives the next tick (100 runs), ring 3 within 2 ticks and at most every 2nd tick carries
-  // ring-3 records, ring 4 unchanged = 0 records, a ring-4 arrival/destruction comes the next tick, idle checks
-  // drop below 65 % of the full window, first transfer after zone/world change is full in all groups, per-peer
-  // byte counter equals the socket bytes; prints bytes per peer and tickSyncMs with 25 peers, 48,000 ZDOs. ~15 s.
+  // F6: the far part of the sync window (beyond ring 1) is checked only every 2nd tick. Real client parser over the
+  // private syncZDOs (fake socket): ring 0 change arrives the next tick (100 runs), ring 3/4 changes within 2 ticks
+  // and at most every 2nd tick carries ring-3 records, destroys in ring 2 and 4 the next tick, idle checks between
+  // 45 % and 65 % of the full window (fixed numbers, so "far never" and "far every tick" both turn it red), the
+  // first transfer after zone/world change is full in all groups, per-peer byte counter equals the socket bytes;
+  // prints bytes per peer and tickSyncMs with 25 peers, 48,000 ZDOs. ~15 s.
   ['server', 'test/f6-aoi-ringe.ts'],
   /*
     F8 N2 (2026-09-29): Truhen und Bauten im selben Schreibvorgang wie der

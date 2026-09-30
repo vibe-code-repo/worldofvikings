@@ -12,7 +12,7 @@
  *   `z' = −dx·sinθ + dz·cosθ`.
  * - the result is sorted by id, so the order of the parts inside a kit file does not matter.
  * - `kennungen` that is no plain object (raw input: a string, array, null, number, boolean, function, or a boxed
- *   String/Number/Boolean object) counts as none.
+ *   String/Number/Boolean object, or any object with a `Symbol.toStringTag`) counts as none.
  * - `kennungen` is read as own properties only (a part id `constructor` is an ordinary string id).
  * - the resolver checks what it is given: a part or instance with a non-finite number is left out with a named
  *   `fehler`, never a NaN in the result.
@@ -42,8 +42,11 @@ const kopiereSkala = (a: readonly number[]): BausatzSkala => {
 /**
  * The `kennungen` of a RAW (unsanitized) instance: only a plain object counts. A string, array, null, number, boolean and
  * function, and a boxed String/Number/Boolean object (also one from another realm), are "no kennungen" (never an address
- * taken from a string's characters, never a TypeError). Objects with a null prototype or frozen ones count. The test is the
- * object's class tag, not `instanceof`, so it does not depend on the realm. Shared by this resolver and `pruefeLayout`.
+ * taken from a string's characters, never a TypeError). So is any object with a `Symbol.toStringTag` (own or inherited):
+ * its class tag is not `Object`. Objects with a null prototype or frozen ones count. The test is the object's class tag
+ * (`Object.prototype.toString`), not `instanceof`, so it does not depend on the realm. That call reads `Symbol.toStringTag`
+ * exactly once (on a Proxy this triggers its `get` trap once); nothing else is read from the object here. Shared by this
+ * resolver and `pruefeLayout`.
  */
 export function rohKennungen(roh: unknown): Readonly<Record<string, unknown>> | undefined {
   if (typeof roh !== 'object' || roh === null || Object.prototype.toString.call(roh) !== '[object Object]') return undefined;

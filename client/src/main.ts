@@ -724,15 +724,18 @@ async function main() {
   let spawnEditorOffen: () => boolean = () => false;
   /** Routen-Editor des Testflugs offen? (dito — Liste/Regler brauchen den Zeiger) */
   let routenEditorOffen: () => boolean = () => false;
-  /** Auto-Reconnect (Review-Punkt 9, F10): Zähler, Backoff, Ansage — Reset bei erfolgreicher Verbindung. */
+  /** Way back to the website sign-in; the only exit after a kick and after the last reconnect attempt (F10). */
   const zurueckZurAnmeldung = (reason?: string): void => {
     document.body.classList.remove('ui-versteckt');
     const message = reason ? `Getrennt: ${reason}` : 'Verbindung zum Server verloren';
     hud.meldeFehler(`${message} — zurück zur Anmeldung …`, 'schwer');
-    // Das Spiel hat keine eigene Anmeldung mehr: Nach dem letzten Versuch ist die Webseite,
-    // die die Sitzung ausgestellt hat, der einzige ehrliche Weg.
+    // The game no longer owns an account or character picker. Once all
+    // reconnect attempts are exhausted, the only honest recovery path is
+    // the website that issued the session. Keeping a second login here
+    // would recreate the legacy layer this flow removes.
     window.setTimeout(() => window.location.replace(websiteLoginUrl(Boolean(reason))), 1_200);
   };
+  /** Auto-Reconnect (Review-Punkt 9, F10): Zähler, Backoff, Ansage — Reset bei erfolgreicher Verbindung. */
   const wiederverbinden = new WiederverbindenSteuerung({
     aufgegeben: () => zurueckZurAnmeldung(),
     verbinde: () => connectOnline(playerName, `${wsProto}://${location.host}/ws`),

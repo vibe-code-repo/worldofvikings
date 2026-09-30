@@ -118,13 +118,18 @@ export interface Nahfeld extends BodenAbfrage, HindernisAbfrage {
    * an ihr) — dann die Stelle, an die ihn der kuerzeste Weg waagerecht ins
    * Freie fuehrt (8 Richtungen, eine Handbreit Luft); sonst `null`.
    *
+   * `gueltig` (optional) sagt, ob eine Zielstelle betreten werden darf (Wasser,
+   * Mindesthoehe): eine Richtung, die dort endet, gilt nicht. Steckt der Koerper
+   * in einer Form, aber keine der acht Richtungen fuehrt an eine gueltige Stelle,
+   * ist die Antwort `'keinAusweg'`.
+   *
    * Noetig, weil die Hindernisabfrage einen Koerper im Fels als frei in jede
    * Richtung sieht (Fluchttuer, s. `sweepKiste`): Wer hineingeraten ist — Fels
    * nachgeladen, in den Fels gesetzt —, laeuft sonst hindurch. Eine blosse
    * Beruehrung (Mittelpunkt ausserhalb der Form, innerhalb des Halbmessers) ist
    * kein Steckenbleiben und liefert `null`.
    */
-  ausDemFels(von: Vek3, radius: number): { x: number; z: number } | null;
+  ausDemFels(von: Vek3, radius: number, gueltig?: (x: number, z: number) => boolean): { x: number; z: number } | 'keinAusweg' | null;
 }
 
 /**
@@ -133,6 +138,9 @@ export interface Nahfeld extends BodenAbfrage, HindernisAbfrage {
  * Wandnormalen (1 / cos 22,5 = 1,08).
  */
 const HERAUS_TIEFE = 1.15;
+
+/** Wie oft ein Schub in derselben Richtung weitergeht, wenn er im Nachbarfels landet. */
+const HERAUS_SCHRITTE = 8;
 
 /** Luft hinter der Formflaeche, wenn ein Koerper herausgeschoben wird, in m. */
 const HERAUS_LUFT = 0.05;
@@ -1161,40 +1169,90 @@ export class Kollisionswelt {
        * trifft die aufgeblasene Form an ihrer Aussenseite; der Abstand
        * dieser Stelle zur Figur ist der Weg, den die Figur in DIESE Richtung
        * bis ins Freie braeuchte. Gilt nur, wenn der Vorwaertsweg darueber
-       * frei ist (sonst liegt eine andere Form davor) — dann ist die Figur in
-       * der Form, und die kleinste Laenge gewinnt.
+       * frei ist (sonst liegt dieselbe Form davor) — dann ist die Figur in
+       * der Form.
+       *
+       * Je FORM einzeln gerechnet (nicht alle zusammen): In einem Haufen
+       * ueberlappender Felsen liegt in jeder Richtung ein anderer Fels im
+       * Weg, und ein gemeinsamer Sweep fand dann nirgends einen Ausweg. Steckt
+       * die Figur in mehreren Formen, verlaesst sie in jeder Richtung ALLE (die
+       * groesste Laenge).
+       *
+       * Landet der Schub in einem Nachbarfels, geht er in DERSELBEN Richtung
+       * weiter (hoechstens HERAUS_SCHRITTE Mal). Von Fels zu Fels die Richtung
+       * neu zu waehlen pendelte zwischen zwei Stellen hin und her (gemessen:
+       * 3 von 200 Figuren in einem Felshaufen, nie frei).
        */
-      ausDemFels(von: Vek3, radius: number): { x: number; z: number } | null {
-        if (koerper.length === 0) return null;
-        const drin = koerper.filter(
-          (k) =>
-            von.x >= k.hx0 - radius && von.x <= k.hx1 + radius &&
-            von.z >= k.hz0 - radius && von.z <= k.hz1 + radius &&
-            k.hy1 >= von.y + STRAHL_HOEHEN[0]! &&
-            k.hy0 <= von.y + STRAHL_HOEHEN[STRAHL_HOEHEN.length - 1]! + radius
-        );
-        if (drin.length === 0) return null;
-        const enger = selbst.baueNahfeld(drin);
-        let beste: { e: number; dx: number; dz: number } | null = null;
-        for (let i = 0; i < 8; i += 1) {
+      ausDemFels(von: Vek3, radius: number, gueltig?: (x: number, z: number) => boolean): { x: number; z: number } | 'keinAusweg' | null {
+        /** Laenge je Richtung, um alle Formen zu verlassen, in denen `p` steckt; null = steckt nirgends. */
+        const laengen = (px: number, pz: number): Float64Array | null => {
+          // Billiger Test zuerst: Der MITTELPUNKT muss in der Huellbox einer Form liegen
+          // (wer drinsteckt, tut es auch dort); die Sweeps laufen nur dann.
+          let drin: Koerper[] | null = null;
+          for (const k of koerper) {
+            if (
+              px >= k.hx0 && px <= k.hx1 && pz >= k.hz0 && pz <= k.hz1 &&
+              k.hy1 >= von.y + STRAHL_HOEHEN[0]! &&
+              k.hy0 <= von.y + STRAHL_HOEHEN[STRAHL_HOEHEN.length - 1]! + radius
+            ) (drin ??= []).push(k);
+          }
+          if (drin === null) return null;
+          const laenge = new Float64Array(8);
+          let steckt = false;
+          for (const k of drin) {
+            const eins = selbst.baueNahfeld([k]);
+            const e = new Float64Array(8).fill(Infinity);
+            let kuerzeste = Infinity;
+            for (let i = 0; i < 8; i += 1) {
+              const a = (i * Math.PI) / 4;
+              const dx = Math.cos(a);
+              const dz = Math.sin(a);
+              const t = eins.ersterTreffer(
+                { x: px + dx * HERAUS_STRECKE, y: von.y, z: pz + dz * HERAUS_STRECKE },
+                { x: px, y: von.y, z: pz },
+                radius
+              );
+              if (t === null) continue;
+              const l = HERAUS_STRECKE - t.abstand;
+              if (l <= 0 || l >= HERAUS_STRECKE - 1) continue;
+              if (eins.ersterTreffer({ x: px, y: von.y, z: pz }, { x: px + dx * (l + HERAUS_LUFT), y: von.y, z: pz + dz * (l + HERAUS_LUFT) }, radius) !== null) continue;
+              e[i] = l;
+              if (l < kuerzeste) kuerzeste = l;
+            }
+            // Beruehrung ist kein Steckenbleiben: Wer mit dem Mittelpunkt ausserhalb der
+            // Form steht, kommt in Richtung Wand-weg auf hoechstens einen Halbmesser
+            // (plus die Schraege der acht Richtungen) ins Freie. Eine Tangente kann
+            // laenger sein, sie gewinnt nie gegen die kuerzeste Richtung. Keine einzige
+            // freie Richtung: ausserhalb der Form (jeder Sweep verfehlt sie, der Vorwaertsweg
+            // ist blockiert).
+            if (!Number.isFinite(kuerzeste) || kuerzeste <= radius * HERAUS_TIEFE) continue;
+            steckt = true;
+            for (let i = 0; i < 8; i += 1) laenge[i] = Math.max(laenge[i]!, e[i]!);
+          }
+          return steckt ? laenge : null;
+        };
+
+        const l0 = laengen(von.x, von.z);
+        if (l0 === null) return null;
+        const reihenfolge = [0, 1, 2, 3, 4, 5, 6, 7].filter((i) => Number.isFinite(l0[i]!) && l0[i]! > 0).sort((a, b) => l0[a]! - l0[b]!);
+        for (const i of reihenfolge) {
           const a = (i * Math.PI) / 4;
           const dx = Math.cos(a);
           const dz = Math.sin(a);
-          const aussen: Vek3 = { x: von.x + dx * HERAUS_STRECKE, y: von.y, z: von.z + dz * HERAUS_STRECKE };
-          const t = enger.ersterTreffer(aussen, von, radius);
-          if (t === null) continue;
-          const e = HERAUS_STRECKE - t.abstand;
-          if (e <= 0 || e >= HERAUS_STRECKE - 1) continue;
-          const ziel: Vek3 = { x: von.x + dx * (e + HERAUS_LUFT), y: von.y, z: von.z + dz * (e + HERAUS_LUFT) };
-          if (enger.ersterTreffer(von, ziel, radius) !== null) continue;
-          if (beste === null || e < beste.e) beste = { e, dx, dz };
+          let qx = von.x;
+          let qz = von.z;
+          let l: Float64Array | null = l0;
+          for (let n = 0; n < HERAUS_SCHRITTE && l !== null; n += 1) {
+            const schritt = l[i]!;
+            if (!Number.isFinite(schritt) || schritt <= 0) break;
+            qx += dx * (schritt + HERAUS_LUFT);
+            qz += dz * (schritt + HERAUS_LUFT);
+            if (gueltig && !gueltig(qx, qz)) break;
+            l = laengen(qx, qz);
+            if (l === null) return { x: qx, z: qz };
+          }
         }
-        // Beruehrung ist kein Steckenbleiben: Wer mit dem Mittelpunkt ausserhalb der
-        // Form steht, kommt in Richtung Wand-weg auf hoechstens einen Halbmesser
-        // (plus die Schraege der acht Richtungen) ins Freie. Eine Tangente kann
-        // laenger sein, sie gewinnt nie gegen die kuerzeste Richtung.
-        if (beste === null || beste.e <= radius * HERAUS_TIEFE) return null;
-        return { x: von.x + beste.dx * (beste.e + HERAUS_LUFT), z: von.z + beste.dz * (beste.e + HERAUS_LUFT) };
+        return 'keinAusweg';
       },
 
       /**

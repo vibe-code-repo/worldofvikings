@@ -10,7 +10,7 @@
 
 import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
-import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
+import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, SERVER_MELDUNG_UNVERWUNDBAR, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 import {
   EVENT_CHANCE,
@@ -3740,6 +3740,7 @@ export class WovServer {
     // Paketname; der gilt nur fuer Clients, die noch nie ein Equip geschickt
     // haben (wirksameWaffe). handleHarvest bekommt dieselbe Waffe weitergereicht.
     waffe = this.waffeFuerSchlag(peer, waffe);
+    const staminaVorher = { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht };
     const nachSchlag = ausdauerAbzug(
       { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
       schlagKosten(this.werteVon(peer).agility),
@@ -3769,6 +3770,7 @@ export class WovServer {
     const von = peer.position;
     let ziel: import('./zdo/ZDO.js').ZDO | null = null;
     let best = WovServer.NAHKAMPF_REICHWEITE ** 2;
+    let abgewehrt = false;
     for (const zdo of this.zdosVon(peer).getZDOsInRadius(von, WovServer.NAHKAMPF_REICHWEITE)) {
       const def = this.prefabs.getByHash(zdo.prefabHash);
       const flags = def?.flags ?? 0n;
@@ -3778,14 +3780,18 @@ export class WovServer {
       // Ein sterbendes Wesen (Todesclip laeuft) ist nicht mehr zu treffen:
       // sein Leben steht auf 0, und der Schlag risse es als „frisch" hoch.
       if (this.spawns?.stirbt(zdo)) continue;
-      // Wer heimkehrt (aufgegeben, Leben gefüllt), ist kein Ziel: sonst träfe
-      // ein Spieler mit 3,5 m Reichweite den Wolf an der Leine ohne Risiko.
-      if (this.spawns?.unverwundbar(zdo)) continue;
       const d = (zdo.position.x - von.x) ** 2 + (zdo.position.z - von.z) ** 2;
       if (d >= best) continue;
       // Der Kegel steht NACH dem Abstand, nicht davor: Er kostet einen
       // Wurzelzug je Kandidat, der Abstand nur zwei Multiplikationen.
       if (!this.imTrefferkegel(von, yaw, zdo.position)) continue;
+      // Wer heimkehrt (aufgegeben, Leben gefüllt), ist kein Ziel: sonst träfe
+      // ein Spieler mit 3,5 m Reichweite den Wolf an der Leine ohne Risiko.
+      // Der Schlag gilt als abgewehrt (s. unten), nicht als Fehlschlag.
+      if (this.spawns?.unverwundbar(zdo)) {
+        abgewehrt = true;
+        continue;
+      }
       best = d;
       ziel = zdo;
     }
@@ -3797,6 +3803,19 @@ export class WovServer {
       und ein Fehlschlag beim Faellen ist kein Kampfgefuehl, sondern nur
       Aerger. Die Ernte hat ihre eigenen, engeren Reichweiten (3,2 m).
     */
+    if (!ziel && abgewehrt) {
+      // Ein Schlag auf einen Heimkehrer kostet keine Ausdauer, erntet nichts und sagt, warum.
+      peer.stamina = staminaVorher.wert;
+      peer.staminaZuletztVerbraucht = staminaVorher.zuletztVerbraucht;
+      this.sendPlayerState(peer);
+      peer.sendPacketWith(PacketType.InteractResult, (w) => {
+        w.writeBool(false);
+        w.writeString(SERVER_MELDUNG_UNVERWUNDBAR);
+        w.writeString('');
+        w.writeInt32(0);
+      });
+      return;
+    }
     if (!ziel) return this.handleHarvest(peer, von, waffe);
     const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
     this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 1, peer.worldId, peer);

@@ -24,9 +24,14 @@
  *  [17] Kettenaggro ist nicht transitiv (N1 B3).
  *  [18] Im Fels: herausgeschoben, nicht hindurch; kein Spawn im Fels (N1 B4).
  *  [19] Schrittdeckel der Simulation; nichts Totes exportiert (N1 B9, B8).
+ *  [20] Lange Ticks werden in Teilschritten nachgeholt (N2 N1-7).
+ *  [21] Der Anker wandert nicht aus der Leine des Ursprungs (N2 N1-4).
+ *  [22] Herausschieben: kein Wasser, kein Ausweg ⇒ abgeräumt, Felshaufen (N2 N1-5).
+ *  [23] Heimkehr-Fortschrittsschwelle; [24] Grenze Leine + Sicht bei `aufgegeben` (N2 N1-8).
  *
  * Run: npx tsx server/test/ki-zustaende.ts   (from the repo root or server/)
  */
+import { readFileSync } from 'node:fs';
 import * as SHARED from '@wov/shared';
 import {
   AGGRO_VERFALL_SEC,
@@ -574,7 +579,7 @@ const KISTE_HALB = 10;
 type StateMap = Map<string, { home: Vector3; steck: KiSteckbrief }>;
 const creaturesVon = (spawns: SpawnSystem): StateMap => (spawns as unknown as { creatures: StateMap }).creatures;
 
-function felsRahmen(table: readonly SpawnEntry[], seed = 1, ki?: Partial<KiSteckbrief>, mitKollision = true) {
+function felsRahmen(table: readonly SpawnEntry[], seed = 1, ki?: Partial<KiSteckbrief>, mitKollision = true, hoehe: (x: number, z: number) => number = () => BODEN_Y) {
   const felsHash = getStableHash(FELS_NAME);
   const kisteHash = getStableHash(KISTE_NAME);
   const prefabs = new PrefabManager();
@@ -589,8 +594,8 @@ function felsRahmen(table: readonly SpawnEntry[], seed = 1, ki?: Partial<KiSteck
           : null,
   };
   const zdos = new ZDOManager(1n);
-  const kollision = new Kollisionswelt(zdos, prefabs, () => BODEN_Y, quelle);
-  const hm = { getGroundHeight: (): number => BODEN_Y };
+  const kollision = new Kollisionswelt(zdos, prefabs, hoehe, quelle);
+  const hm = { getGroundHeight: hoehe };
   const geo = { getBiome: (): number => -1 };
   const spawns = new SpawnSystem(zdos, geo as never, hm as never, { isZoneGenerated: () => true } as never, {
     rng: new XorShiftRandom(seed),
@@ -951,7 +956,7 @@ console.log('\n[18] Steckt der Wolf im Fels, wird er auf dem kürzesten Weg hera
 }
 
 // ── [19] Schrittdeckel (B9), nichts Totes (B8) ─────────────────────
-console.log('\n[19] Ein Schritt der Simulation ist höchstens 0,25 s lang; `kiBlockt` (ohne Aufrufer) ist entfernt');
+console.log('\n[19] Ein Stau wird höchstens 2 s nachgeholt; `kiBlockt` (ohne Aufrufer) ist entfernt');
 {
   const { zdos, spawns } = baue([ruhigerWolf()], 91);
   const wolf = setzeWolf(zdos, 0, 0, 0);
@@ -962,9 +967,206 @@ console.log('\n[19] Ein Schritt der Simulation ist höchstens 0,25 s lang; `kiBl
   const z0 = wolf.position.z;
   spawns.update(10, [spieler], [spieler], [{ id: 'p0', blick: null }]); // ein einziger Stau von 10 s
   const weg = wolf.position.z - z0;
-  // 4,9 m/s × 0,25 s = 1,2 m; ungekappt wären es bis zum Spieler 14 m.
-  check('ein Schritt von 10 s wird auf 0,25 s gekappt: der Wolf läuft höchstens 4,9 × 0,25 m', weg > 0 && weg <= 4.9 * 0.25 + 1e-6, `Weg ${f(weg, 3)} m`);
+  // Nachgeholt werden höchstens 2 s (in Teilschritten zu 0,25 s): 4,9 × 2 = 9,8 m; ungekappt wären es bis zum Spieler 14 m.
+  check('ein Stau von 10 s holt höchstens 2 s nach: der Wolf läuft höchstens 4,9 × 2 m', weg > 4.9 && weg <= 4.9 * 2 + 1e-6, `Weg ${f(weg, 3)} m`);
+  // Die Meldung auf einen Schlag gegen einen Heimkehrer ist ein Katalogschlüssel mit Text in beiden Sprachen.
+  const katalog = (l: string): Record<string, string> => JSON.parse(readFileSync(new URL(`../../client/src/i18n/katalog/${l}.json`, import.meta.url), 'utf8'));
+  const schluessel = SHARED.SERVER_MELDUNG_UNVERWUNDBAR.slice(SHARED.SERVER_MELDUNG_SCHLUESSEL_PRAEFIX.length);
+  const de = katalog('de')[schluessel];
+  const en = katalog('en')[schluessel];
+  check('Schlag auf einen Heimkehrer: die Meldung ist der Schlüssel „@kampf.unverwundbar“ mit deutschem und englischem Text', SHARED.SERVER_MELDUNG_UNVERWUNDBAR === '@kampf.unverwundbar' && !!de && !!en && de !== en, `de „${de}“, en „${en}“`);
   check('`kiBlockt` hatte keinen Aufrufer und ist entfernt (kein totes Export)', !('kiBlockt' in SHARED));
+}
+
+// ── [20] Nachholen langer Ticks (N2 N1-7) ──────────────────────────
+console.log('\n[20] Lange Ticks (0,5 s, 1 s) holen in Teilschritten nach: mindestens 95 % der Wanduhr; ein Hänger von 30 s nur 2 s');
+{
+  /** Wolf jagt einen Spieler 30 m vor sich (ohne Leine, ohne Strecken- und Zeitgrenze); Weg nach 2 s Wanduhr. */
+  const wegNach = (dt: number, takte: number): number => {
+    const { zdos, spawns } = baue([ruhigerWolf()], 95, { ki: { leine: Infinity, verfolgungM: Infinity, verfolgungSec: Infinity } });
+    const wolf = setzeWolf(zdos, 0, 0, 0);
+    spawns.adoptPersisted();
+    const spieler: Vector3 = { x: 0, y: BODEN_Y, z: 30 };
+    const info = [{ id: 'p0', blick: null }];
+    spawns.treffer(wolf, { id: 'p0', schaden: 1 });
+    for (let i = 0; i < takte; i++) spawns.update(dt, [spieler], [spieler], info);
+    return wolf.position.z;
+  };
+  const ref = wegNach(0.05, 40);
+  const halb = wegNach(0.5, 4);
+  const ganz = wegNach(1, 2);
+  check('Referenz: 2 s Wanduhr in Schritten zu 0,05 s (0,25 s Reaktionszeit, dann 4,9 m/s)', ref > 7 && ref < 9.5, `${f(ref, 2)} m`);
+  check('Ticks zu 0,5 s erreichen mindestens 95 % der Wanduhr', halb >= ref * 0.95, `${f(halb, 2)} m = ${f((halb / ref) * 100, 1)} %`);
+  check('Ticks zu 1 s erreichen mindestens 95 % der Wanduhr', ganz >= ref * 0.95, `${f(ganz, 2)} m = ${f((ganz / ref) * 100, 1)} %`);
+  const haenger = wegNach(30, 1);
+  check('Ein Hänger von 30 s holt höchstens 2 s nach (keine Lawine): höchstens 4,9 × 2 m', haenger <= 4.9 * 2 + 1e-6 && haenger > 7, `${f(haenger, 2)} m`);
+}
+
+// ── [21] Der Anker wandert nicht davon (N2 N1-4) ───────────────────
+console.log('\n[21] Dichtes Feld, Spieler kreist 1800 s: der Anker bleibt in der Leine des Ursprungs');
+{
+  const r = felsRahmen([wolfEintrag()], 101);
+  const zufall = new XorShiftRandom(31);
+  for (let i = 0; i < 150; i++) r.fels(zufall.rangeFloat(-35, 35), zufall.rangeFloat(-35, 35));
+  const wolfe: ZDO[] = [];
+  const urspruenge: { x: number; z: number }[] = [];
+  for (let i = 0; i < 30; i++) {
+    const x = zufall.rangeFloat(-35, 35);
+    const z = zufall.rangeFloat(-35, 35);
+    urspruenge.push({ x, z });
+    wolfe.push(setzeWolf(r.zdos, x, z, zufall.rangeFloat(0, Math.PI * 2)));
+  }
+  r.spawns.adoptPersisted();
+  const info = [{ id: 'p0', blick: null }];
+  let t = 0;
+  let ankerVersetzt = 0;
+  for (let i = 0; i < 18000; i++) {
+    t += 0.1;
+    const a = (t * 4.5) / 25;
+    const spieler: Vector3 = { x: Math.cos(a) * 25, y: BODEN_Y, z: Math.sin(a) * 25 };
+    r.spawns.update(0.1, [spieler], [spieler], info);
+  }
+  let maxAnker = 0;
+  let maxOrt = 0;
+  let lebend = 0;
+  const staten = creaturesVon(r.spawns) as unknown as Map<string, { zdo: ZDO; home: Vector3; ursprung: Vector3 }>;
+  for (const c of staten.values()) {
+    lebend++;
+    maxAnker = Math.max(maxAnker, Math.hypot(c.home.x - c.ursprung.x, c.home.z - c.ursprung.z));
+    maxOrt = Math.max(maxOrt, Math.hypot(c.zdo.position.x - c.ursprung.x, c.zdo.position.z - c.ursprung.z));
+  }
+  ankerVersetzt = 30 - lebend;
+  check(`Kein Anker liegt weiter als die Leine (${WOLF_KI.leine} m) vom Ursprung (30 Wölfe, 150 Felsen, 1800 s)`, lebend > 0 && maxAnker <= WOLF_KI.leine + 1e-6, `größter Anker-Abstand ${f(maxAnker, 2)} m, ${lebend} von 30 am Leben`);
+  check('… und kein Wolf steht weiter als Anker + Leine (2 × 12 m) vom Ursprung', maxOrt <= 2 * WOLF_KI.leine + 0.5, `größter Abstand zum Ursprung ${f(maxOrt, 2)} m`);
+  console.log(`      (aus dem Spiel genommen, weil der neue Anker zu weit lag: ${ankerVersetzt})`);
+}
+
+// ── [22] Wasser und Felshaufen beim Herausschieben (N2 N1-5) ───────
+console.log('\n[22] Herausschieben betritt kein Wasser; ohne gültigen Ausweg verschwindet der Wolf; Felshaufen werden verlassen');
+{
+  // Wasser nur im Osten: der kürzeste Weg (Osten) ist ungültig, der Wolf geht in eine andere Richtung.
+  const r = felsRahmen([ruhigerWolf()], 111, undefined, true, (x) => (x > 1.0 ? -5 : BODEN_Y));
+  r.fels(0, 0);
+  const wolf = setzeWolf(r.zdos, 0.4, 0, 0);
+  r.spawns.adoptPersisted();
+  const spieler: Vector3 = { x: -8, y: BODEN_Y, z: 0 };
+  r.spawns.treffer(wolf, { id: 'p0', schaden: 1 });
+  for (let i = 0; i < 40; i++) r.spawns.update(0.05, [spieler], [spieler], [{ id: 'p0', blick: null }]);
+  check('Wasser im Osten: der Wolf landet nicht im Wasser (Boden unter ihm ≥ Mindesthöhe 30,5), kein Fels unter ihm', !wolf.destroyed && wolf.position.y >= 30.5 && Math.hypot(wolf.position.x, wolf.position.z) >= FELS_RADIUS + WOLF.koerperRadius - 0.03, `Position (${f(wolf.position.x)}; ${f(wolf.position.z)}), y ${f(wolf.position.y, 1)}`);
+}
+{
+  // Rundum Wasser (Land nur unter dem Fels): kein gültiger Ausweg, der Wolf wird aus dem Spiel genommen.
+  const r = felsRahmen([ruhigerWolf()], 112, undefined, true, (x, z) => (Math.hypot(x, z) <= 1.6 ? BODEN_Y : -5));
+  r.fels(0, 0);
+  const wolf = setzeWolf(r.zdos, 0.4, 0, 0);
+  r.spawns.adoptPersisted();
+  const spieler: Vector3 = { x: -8, y: BODEN_Y, z: 0 };
+  r.spawns.treffer(wolf, { id: 'p0', schaden: 1 });
+  let weg = -1;
+  for (let i = 0; i < 40 && weg < 0; i++) {
+    r.spawns.update(0.05, [spieler], [spieler], [{ id: 'p0', blick: null }]);
+    if (wolf.destroyed) weg = i;
+  }
+  check('Rundum Wasser: kein gültiger Ausweg ⇒ der Wolf wird abgeräumt (ZDO zerstört, nicht mehr in der Simulation)', weg >= 0 && weg <= 8 && r.spawns.creatureCount === 0, `abgeräumt im Schritt ${weg}, Kreaturen ${r.spawns.creatureCount}`);
+}
+{
+  // Felshaufen: 40 Wölfe, je mitten in 3–10 überlappenden Felsen, je ein Spieler 8 m daneben; alle jagen.
+  const r = felsRahmen([wolfEintrag()], 113);
+  const zufall = new XorShiftRandom(9);
+  const wolfe: ZDO[] = [];
+  const felsen: { x: number; z: number }[] = [];
+  const spieler: Vector3[] = [];
+  for (let i = 0; i < 40; i++) {
+    const cx = (i % 8) * 30;
+    const cz = Math.floor(i / 8) * 30;
+    const n = 3 + Math.floor(zufall.nextFloat() * 8);
+    for (let k = 0; k < n; k++) {
+      const x = cx + zufall.rangeFloat(-1.5, 1.5);
+      const z = cz + zufall.rangeFloat(-1.5, 1.5);
+      r.fels(x, z);
+      felsen.push({ x, z });
+    }
+    wolfe.push(setzeWolf(r.zdos, cx, cz, 0));
+    spieler.push({ x: cx + 8, y: BODEN_Y, z: cz });
+  }
+  r.spawns.adoptPersisted();
+  const info = spieler.map((_, i) => ({ id: `P${i}`, blick: null }));
+  wolfe.forEach((w, i) => r.spawns.treffer(w, { id: `P${i}`, schaden: 1 }));
+  for (let i = 0; i < 200; i++) r.spawns.update(0.05, spieler, spieler, info);
+  const drin = wolfe.filter((w) => !w.destroyed && felsen.some((k) => Math.hypot(k.x - w.position.x, k.z - w.position.z) < FELS_RADIUS - 0.1)).length;
+  const weg = wolfe.filter((w) => w.destroyed).length;
+  check('Felshaufen (40 Wölfe in 3–10 überlappenden Felsen, 10 s Jagd): keiner steckt noch im Fels, keiner musste gehen', drin === 0 && weg === 0, `${drin} im Fels, ${weg} abgeräumt`);
+}
+
+{
+  // Ein einziger Aufruf führt aus einem Felshaufen ins Freie (kein Hin- und Herpendeln zwischen zwei Felsen).
+  const kw = new Kollisionswelt(new ZDOManager(1n), new PrefabManager(), () => BODEN_Y);
+  const kapsel = { art: 'kapsel' as const, x: 0, z: 0, radius: FELS_RADIUS, yMin: -1, yMax: 3 };
+  const zufall = new XorShiftRandom(9);
+  let geschoben = 0;
+  let nichtFrei = 0;
+  let keinAusweg = 0;
+  for (let i = 0; i < 200; i++) {
+    const n = 3 + Math.floor(zufall.nextFloat() * 8);
+    const nf = kw.nahfeldAus(Array.from({ length: n }, () => ({ form: kapsel, position: { x: zufall.rangeFloat(-1.5, 1.5), y: BODEN_Y, z: zufall.rangeFloat(-1.5, 1.5) } })));
+    const res = nf.ausDemFels({ x: 0, y: BODEN_Y, z: 0 }, WOLF.koerperRadius);
+    if (res === 'keinAusweg') keinAusweg++;
+    else if (res) {
+      geschoben++;
+      if (nf.ausDemFels({ x: res.x, y: BODEN_Y, z: res.z }, WOLF.koerperRadius) !== null) nichtFrei++;
+    }
+  }
+  check('200 Felshaufen (3–10 überlappende Felsen um den Wolf): ein Aufruf führt ins Freie, nie „kein Ausweg“ auf freiem Land', geschoben >= 150 && nichtFrei === 0 && keinAusweg === 0, `${geschoben} geschoben, danach ${nichtFrei} noch im Fels, ${keinAusweg} ohne Ausweg`);
+  // Ein dicker Block (7 × 7 Felsen im Abstand 1,5 m, rund 12 m breit): ein Schub reicht nicht, er geht in derselben Richtung weiter.
+  const block = kw.nahfeldAus(Array.from({ length: 49 }, (_, k) => ({ form: kapsel, position: { x: ((k % 7) - 3) * 1.5, y: BODEN_Y, z: (Math.floor(k / 7) - 3) * 1.5 } })));
+  const ausBlock = block.ausDemFels({ x: 0, y: BODEN_Y, z: 0 }, WOLF.koerperRadius);
+  const weit = ausBlock && ausBlock !== 'keinAusweg' ? Math.hypot(ausBlock.x, ausBlock.z) : 0;
+  check('Block aus 49 Felsen, Wolf in der Mitte: der Schub geht in einer Richtung bis ins Freie (mehr als 5 m) und ist dort frei', weit > 5 && block.ausDemFels({ x: (ausBlock as { x: number }).x, y: BODEN_Y, z: (ausBlock as { z: number }).z }, WOLF.koerperRadius) === null, `Weg ${f(weit, 2)} m`);
+}
+
+// ── [23] Heimkehr: Fortschrittsschwelle (N2 N1-8) ──────────────────
+console.log('\n[23] Die Heimkehr zählt nur Fortschritt ab 0,25 m: ein Schleicher mit 0,04 m/s sitzt fest, einer mit 0,1 m/s nicht');
+{
+  const lauf = (tempo: number): { ankerNeu: number; angekommen: number } => {
+    const z = neuerKiZustand();
+    const fig: Figur = { x: 0, z: -12.5, yaw: 0, gelaufen: 0 };
+    kiLaerm(z, 'p0');
+    const ziel: KiZiel = { key: 'p0', x: 0, z: -30 }; // ausser Sicht, nur gehört
+    const dt = 0.1;
+    let ankerNeu = -1;
+    let angekommen = -1;
+    let t = 0;
+    // Erst in die Heimkehr bringen (jenseits der Leine ⇒ heimkehren im ersten Schritt).
+    kiSchritt(z, WOLF_KI, welt(fig, [ziel]), dt, () => 0.5);
+    for (let i = 0; i < 400 && ankerNeu < 0 && angekommen < 0; i++) {
+      t += dt;
+      const b = kiSchritt(z, WOLF_KI, welt(fig, [ziel]), dt, () => 0.5);
+      if (b.ankerNeu) ankerNeu = t;
+      else if (b.phase === 'wandern') angekommen = t;
+      else if (b.phase === 'heimkehren') fig.z += tempo * dt; // nach +z, dem Anker (0,0) zu
+    }
+    return { ankerNeu, angekommen };
+  };
+  const langsam = lauf(0.04);
+  check(`Schleicher 0,04 m/s (0,25 m Fortschritt erst nach 6,25 s): nach ${HEIMKEHR_FESTSITZEN_SEC} s gilt er als festsitzend`, langsam.ankerNeu >= HEIMKEHR_FESTSITZEN_SEC - 0.2 && langsam.ankerNeu <= HEIMKEHR_FESTSITZEN_SEC + 0.3, `Anker neu bei ${f(langsam.ankerNeu, 1)} s`);
+  const mittel = lauf(0.1);
+  check('Wer mit 0,1 m/s vorankommt (0,25 m je 2,5 s), ist nicht festgesessen: Anker bleibt (er kommt an oder läuft noch)', mittel.ankerNeu < 0, `Anker neu bei ${f(mittel.ankerNeu, 1)} s`);
+}
+
+// ── [24] aufgegeben: Grenze Leine + Sicht (N2 N1-8) ────────────────
+console.log('\n[24] Ein aufgegebenes Ziel wird vergessen, wenn es weiter als Leine + Sicht (29 m) vom Anker weg ist');
+{
+  const z = neuerKiZustand();
+  z.aufgegeben.add('p0');
+  const fig: Figur = { x: 0, z: 0, yaw: 0, gelaufen: 0 }; // Wolf zu Hause, blickt +z
+  const dt = 0.1;
+  const schritt = (zz: number): KiBefehl => kiSchritt(z, WOLF_KI, welt(fig, [{ key: 'p0', x: 0, z: zz }]), dt, () => 0.5);
+  schritt(14); // 14 m: im Sicht-, aber ausser Reviers: bleibt ignoriert
+  check('14 m vom Anker (ausserhalb der Leine, in Sicht): bleibt aufgegeben und unbemerkt', z.aufgegeben.has('p0') && z.phase === 'wandern');
+  schritt(40); // weit weg (40 m > Leine + Sicht)
+  check('40 m vom Anker (weiter als Leine + Sicht): wird vergessen', !z.aufgegeben.has('p0'));
+  const b = schritt(14);
+  check('kommt er danach wieder auf 14 m, ist er ein neuer Anlass: der Wolf bemerkt ihn', b.phase !== 'wandern', `Phase ${b.phase}`);
 }
 
 console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAILED`);

@@ -571,19 +571,34 @@ async function main(): Promise<void> {
     server.zdos.updateZDOZone(wolf4, dort);
     const hpSicht: number[] = [wolf4.getInt(HEALTH_MEMBER)];
     let unverwundbarGesehen = false;
+    // N2 (N1-3): a blow on a creature that is going home costs no stamina, harvests nothing and says why.
+    let abgewehrtGeprueft = 0;
+    let abgewehrtFehler = '';
     for (let i = 0; i < 4 && !wolf4.destroyed; i++) {
       peer.stamina = 100;
       server.zdos.updateZDOZone(wolf4, dort); // keep it in reach; the test counts hits, it does not chase
       await blicke(ws, 0, 100);
+      const heim = spawns.unverwundbar(wolf4);
+      meldungen.length = 0;
       sendAttack(ws, mitte, 'AxeFlint', 0);
       await warte(420);
       if (!wolf4.destroyed && spawns.unverwundbar(wolf4)) unverwundbarGesehen = true;
+      if (heim && !wolf4.destroyed) {
+        abgewehrtGeprueft++;
+        if (peer.stamina !== 100) abgewehrtFehler += ` stamina ${peer.stamina};`;
+        if (meldungen.length !== 1 || meldungen[0] !== '@kampf.unverwundbar') abgewehrtFehler += ` Meldungen [${meldungen.join('|')}];`;
+      }
       hpSicht.push(wolf4.destroyed ? 0 : wolf4.getInt(HEALTH_MEMBER));
     }
     check(
       'wolf beyond the leash: four flint-axe hits (15 each, 30 HP) do not kill it — it goes home, HP is full again',
       !wolf4.destroyed && wolf4.getInt(HEALTH_MEMBER) === maxLeben('Wolf') && unverwundbarGesehen,
       `HP ${hpSicht.join(' -> ')}, unverwundbar gesehen ${unverwundbarGesehen}`
+    );
+    check(
+      'blows on the homing wolf: no stamina cost, exactly one message "@kampf.unverwundbar", no harvest message',
+      abgewehrtGeprueft >= 1 && abgewehrtFehler === '',
+      `${abgewehrtGeprueft} blows checked${abgewehrtFehler}`
     );
     ws.close();
   } finally {

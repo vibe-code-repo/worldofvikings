@@ -35,6 +35,13 @@
  */
 
 import type { NpcKampf } from './npc.js';
+import { SERVER_MELDUNG_SCHLUESSEL_PRAEFIX } from './todTreffer.js';
+
+/**
+ * Ein Schlag auf eine heimkehrende (unverwundbare) Kreatur: Der Server antwortet mit
+ * diesem Schlüssel (Katalog `kampf.unverwundbar`, de/en) statt mit Schaden oder Ernte.
+ */
+export const SERVER_MELDUNG_UNVERWUNDBAR = `${SERVER_MELDUNG_SCHLUESSEL_PRAEFIX}kampf.unverwundbar`;
 
 export type KiPhase =
   | 'wandern'

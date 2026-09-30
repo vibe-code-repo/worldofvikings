@@ -117,6 +117,10 @@ interface CreatureState {
   gelaufen?: number;
   /** Der Heimatpunkt wurde gegen die Formen geprüft (einmal, beim ersten Schritt). */
   ankerGeprueft?: boolean;
+  /** Wo die Kreatur aufgenommen wurde (Spawn, Adoption): Ein neuer Anker bleibt in ihrer Leine. */
+  ursprung?: Vector3;
+  /** Aus dem Spiel nehmen (kein Ausweg aus dem Fels): der nächste Schritt räumt sie ab. */
+  entfernen?: boolean;
 }
 
 /** Ein Angreifer, wie das Spawnsystem ihn kennt: Kennung und Schaden. */
@@ -207,6 +211,15 @@ const MAX_GLEICHZEITIGE_ANGREIFER = 2;
  * (Die Eingabe der Spieler kappt bei 0,5 s, WovServer.handlePlayerInput.)
  */
 const MAX_SCHRITT_SEC = 0.25;
+
+/**
+ * Wie viel eines langen Ticks die Simulation in Teilschritten nachholt, in Sekunden.
+ * Ein Tick von 0,5 oder 1 s läuft so in Schritten zu höchstens 0,25 s ab, statt die
+ * Kreaturen auf einen Bruchteil der Wanduhr zu bremsen (0,25 s je 1 s = 25 %).
+ * 2 s sind acht Teilschritte; was darüber liegt (ein Hänger von 30 s), wird verworfen,
+ * damit der Stau keine Lawine aus Schritten auslöst.
+ */
+const MAX_NACHHOL_SEC = 2;
 
 export class SpawnSystem {
   private readonly table: readonly SpawnEntry[];
@@ -422,6 +435,7 @@ export class SpawnSystem {
   private nimmAuf(key: string, c: CreatureState): void {
     if (c.entry.clips) nimmAnim(c.zdo, 'kreatur');
     const brief = steckbriefFuer(c.entry.prefab);
+    c.ursprung = { ...c.home };
     c.radius = brief?.koerperRadius ?? KI_VORGABE.koerperRadius;
     // Aggressive Kreaturen (weder fliehend noch friedlich) bekommen die
     // Zustandsmaschine; ohne eigenen Steckbrief gilt das Verhalten von früher.
@@ -518,20 +532,22 @@ export class SpawnSystem {
     ziele: readonly Vector3[] = peerPositions,
     zielInfo: readonly SpawnZielInfo[] = []
   ): void {
-    deltaSec = Math.min(deltaSec, MAX_SCHRITT_SEC);
-    this.simTime += deltaSec;
     this.zielInfo = zielInfo;
     this.letzteZiele = ziele;
-
-    if (peerPositions.length === 0) {
+    // Ein langer Tick läuft in Teilschritten zu höchstens MAX_SCHRITT_SEC ab, insgesamt
+    // höchstens MAX_NACHHOL_SEC (der Rest eines Staus wird verworfen).
+    let rest = Math.min(deltaSec, MAX_NACHHOL_SEC);
+    do {
+      const dt = Math.min(rest, MAX_SCHRITT_SEC);
+      rest -= dt;
+      this.simTime += dt;
       // Nobody online: nothing simulates, nothing despawns (reference parity:
       // persistent creatures simply sleep with no clients connected).
-      return;
-    }
-
-    this.despawnFar(peerPositions);
-    this.spawnTick(deltaSec, peerPositions);
-    this.simulateTick(deltaSec, ziele);
+      if (peerPositions.length === 0) continue;
+      this.despawnFar(peerPositions);
+      this.spawnTick(dt, peerPositions);
+      this.simulateTick(dt, ziele);
+    } while (rest > 1e-9);
   }
 
   // ── Despawn ──────────────────────────────────────────────────────
@@ -633,6 +649,13 @@ export class SpawnSystem {
     for (const [key, c] of this.creatures) {
       // Extern getötet (Spieler-Angriff): Zustand aufräumen.
       if (c.zdo.destroyed) {
+        this.creatures.delete(key);
+        continue;
+      }
+      // Kein Ausweg aus dem Fels: wie beim Wegzug des Spielers aus dem Spiel nehmen,
+      // die Spawn-Würfe setzen sie normal neu (kein Kampf, kein Tod, keine Beute).
+      if (c.entfernen) {
+        this.zdos.destroyZDO(c.zdo.zdoid);
         this.creatures.delete(key);
         continue;
       }
@@ -750,8 +773,9 @@ export class SpawnSystem {
     // sonst käme die Heimkehr nie an. Einmal, beim ersten Schritt mit Formen.
     if (!c.ankerGeprueft && this.kollision?.hatFormen) {
       c.ankerGeprueft = true;
-      const raus = this.kollision.nahfeld(c.home, 0).ausDemFels(c.home, c.radius ?? KI_VORGABE.koerperRadius);
-      if (raus) c.home = { x: raus.x, y: c.home.y, z: raus.z };
+      const raus = this.kollision.nahfeld(c.home, 0).ausDemFels(c.home, c.radius ?? KI_VORGABE.koerperRadius, this.betretbar(c));
+      if (raus === 'keinAusweg') c.home = { x: p.x, y: p.y, z: p.z };
+      else if (raus) c.home = { x: raus.x, y: c.home.y, z: raus.z };
     }
     const befehl: KiBefehl = kiSchritt(
       ki,
@@ -771,7 +795,20 @@ export class SpawnSystem {
     );
     c.gelaufen = 0;
     // Festgesessen auf dem Heimweg: hier ist jetzt der Anker (kiSchritt: `ankerNeu`).
-    if (befehl.ankerNeu) c.home = { x: p.x, y: p.y, z: p.z };
+    if (befehl.ankerNeu) {
+      // Der neue Anker bleibt in der Leine des Ursprungs, sonst wanderte das Revier mit
+      // jedem Hindernis weiter (dichtes Feld: 21–34 m in 30–120 min). Liegt er weiter weg,
+      // wird die Kreatur aus dem Spiel genommen und spawnt normal neu: verworfen wird ein
+      // Wolf, der ohnehin fern von seinem Revier festsitzt, ohne Spieleffekt (kein Tod, keine Beute).
+      const u = c.ursprung ?? c.home;
+      const fern = Math.hypot(p.x - u.x, p.z - u.z) > (c.steck?.leine ?? Infinity);
+      if (fern) {
+        this.zdos.destroyZDO(c.zdo.zdoid);
+        this.creatures.delete(key);
+        return true;
+      }
+      c.home = { x: p.x, y: p.y, z: p.z };
+    }
     // Beim Aufgeben füllt sie ihre Lebenspunkte (wie ein Zurücksetzen), und bis
     // zur Ankunft trifft sie niemand (`unverwundbar`).
     if (befehl.phase === 'heimkehren' && vorher !== 'heimkehren') this.fuelleLeben(c);
@@ -827,6 +864,11 @@ export class SpawnSystem {
     return this.kollision.nahfeld(pos, 0).ausDemFels(pos, radius) !== null;
   }
 
+  /** Darf die Kreatur diese Stelle betreten? (Mindesthöhe der Art: kein Wasser, kein Tal.) */
+  private betretbar(c: CreatureState): (x: number, z: number) => boolean {
+    return (x, z) => this.heightmaps.getGroundHeight(x, z) >= c.entry.minAltitude;
+  }
+
   /** Blickrichtung setzen, erst ab 3° Änderung (jede Schreibung kostet Sync). */
   private richte(c: CreatureState, bx: number, bz: number): void {
     const yaw = Math.atan2(bx, bz);
@@ -855,7 +897,12 @@ export class SpawnSystem {
       if (nah.anzahl > 0) {
         // Steckt sie schon im Fels (nachgeladen, hineingesetzt), läuft sie sonst
         // hindurch: Erst auf dem kürzesten Weg hinaus, dann weiter.
-        const raus = nah.ausDemFels(p, c.radius ?? KI_VORGABE.koerperRadius);
+        const raus = nah.ausDemFels(p, c.radius ?? KI_VORGABE.koerperRadius, this.betretbar(c));
+        if (raus === 'keinAusweg') {
+          // Kein gültiger Weg hinaus (Wasser oder Fels ringsum): aus dem Spiel nehmen.
+          c.entfernen = true;
+          return false;
+        }
         if (raus) {
           this.applyMove(c, raus.x, raus.z, 0, 0);
           return true;

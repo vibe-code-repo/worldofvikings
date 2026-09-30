@@ -460,7 +460,26 @@ export enum PacketType {
    * see the same event on the victim's character ZDO (`animEinmal`).
    */
   PlayerTreffer = 85,
+  /**
+   * Server → all connected clients, right before a planned stop (F10): the server is going
+   * away and will be back. Payload: String textKey (client catalogue key of the announcement),
+   * Int32 retryAfterSec (first reconnect attempt no sooner than this). The following
+   * `Disconnect` carries the reason `DISCONNECT_NEUSTART`. Old clients ignore the packet.
+   */
+  ServerNeustart = 86,
 }
+
+/**
+ * `Disconnect` reason of a planned server stop (F10). A client treats it like a dropped
+ * connection (reconnect with back-off); any other non-empty reason is a kick and ends the game.
+ */
+export const DISCONNECT_NEUSTART = 'restart';
+
+/** Client catalogue key of the restart announcement (`ServerNeustart` payload). */
+export const NEUSTART_TEXT_SCHLUESSEL = 'netz.neustart.ansage';
+
+/** Seconds a client waits before its first reconnect attempt after the announcement. */
+export const NEUSTART_RETRY_SEC = 3;
 
 // === Vector3 ===
 export interface Vector3 {

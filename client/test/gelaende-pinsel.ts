@@ -719,7 +719,8 @@ const zieheStrich = (a: Aufbau, von: [number, number], bis: [number, number], bi
   }
   // wiring in the flight
   const tf = readFileSync(resolve(HIER, '../src/editor/testflug/Testflug.ts'), 'utf-8');
-  pruefe(/addEventListener\('storage'[^]*?ENTWURF_KEY[^]*?gelaende\.entwurfGeaendert\(\)/.test(tf), '13: Verdrahtung: das storage-Ereignis des Entwurfs ruft entwurfGeaendert()');
+  // Since T3 the listener is `gelaendeHoerer.ts`; its behaviour (closed tab, `key === null`, other keys) is run in `gelaende-t3.ts`.
+  pruefe(/verdrahteEntwurfHoerer\([^]*?ENTWURF_KEY[^]*?gelaende\.entwurfGeaendert\(\)/.test(tf), '13: Verdrahtung: das storage-Ereignis des Entwurfs ruft über den Hörer entwurfGeaendert()');
 }
 
 // ── 14. enthaelt() und der Ring der verdrängten Entwürfe (B2) ─────────────────

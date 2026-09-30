@@ -651,7 +651,6 @@ export class SpawnPanel {
     ziel.step = '0.1';
     ziel.min = String(ZIEL_MIN);
     ziel.max = String(ZIEL_MAX);
-    ziel.placeholder = '—';
     ziel.style.cssText = this.feldStil();
     ziel.onchange = () => {
       this.gelaendeEinstellung.ziel = ziel.value.trim() === '' ? null : klemmeZiel(Number(ziel.value));

@@ -365,7 +365,7 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   const p = punktVon(40, 40);
   fremd.setze(p.zx, p.zz, p.index, 300);
   c.entwurf.setze({ ...LAYOUT, heightDeltas: fremd.alsZonen() });
-  pruefe(c.steuerung.rueckgaengig() === false, '5: hat ein anderer Tab den Entwurf geändert, gibt es nichts zurückzunehmen');
+  pruefe(c.steuerung.rueckgaengig() === false && c.meldungen.at(-1)!.includes('Nichts zum Rückgängigmachen'), '5: hat ein anderer Tab den Entwurf geändert, ist der Verlauf leer („Nichts zum Rückgängigmachen“, kein Konflikt)');
   pruefe(ebene(c).includes('"zx":1') || ebene(c).includes('"zx":0'), '5: … und der fremde Stand bleibt stehen');
 
   // An open stroke is not torn by Ctrl+Z

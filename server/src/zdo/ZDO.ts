@@ -376,6 +376,22 @@ export class ZDO {
     this.dirty = true;
   }
 
+  /**
+   * F8 N2: den Zustand eines anderen ZDO (aus einem Schnappschuss) uebernehmen —
+   * Mitglieder, Revision, Flags, Besitzer, Drehung. Position und Zone bleiben,
+   * das ZDO liegt schon im Sektorindex. Nur fuer das Laden (kein Peer verbunden).
+   */
+  uebernehmeSchnappschuss(quelle: ZDO): void {
+    this.members = new Map(quelle.members);
+    this.revision.raw = quelle.revision.raw;
+    this.flags = quelle.flags;
+    this.owner = quelle.owner;
+    this.rotation = quelle.rotation;
+    this.dirty = false;
+    // Die Mitglieder kamen ohne setMember herein: den Index der Spielerbauten (F2) trotzdem informieren.
+    if (this.getInt('spieler') === 1) this.beiSpielerMember?.(this);
+  }
+
   /** Restore from a snapshot (persistence load). */
   static fromSnapshot(data: Record<string, unknown>): ZDO {
     const idData = data.id as { userId: string; id: number };

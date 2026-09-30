@@ -100,6 +100,11 @@
 #   4. Zurückkopieren (Rechte bleiben 0600):
 #        cp "$L/konten/<instanz>.db" konten/ ; cp "$L/forum/<instanz>.db" forum/
 #   5. Server starten, in der Oberfläche Konten und Charaktere prüfen.
+#   ACHTUNG (F8): Weltdatei (worlds/<instanz>.db.zst) und Konten-DB (konten/<instanz>.db) immer
+#   ZUSAMMEN zurueckspielen. Die Konten-DB traegt den laufenden Spielerzustand und die Truhen-/Bau-
+#   Zeilen der Welt (Tabellen spielerzustand, weltzdo, unter der Kennung der Weltdatei); ist sie
+#   NEUER als die zurueckgespielte Weltdatei, ueberlagern ihre Zeilen die aeltere Welt (neuere
+#   Spielerstaende, Truhen und Grabsteine der Gegenwart).
 #   Spielstand: "$L/worlds/<instanz>.db.zst" nach server/data/worlds/ (bei
 #   gestopptem Server, die alte .db.zst und .prev vorher beiseite legen).
 #   Weltdokument: "$L/welten/<instanz>.json" UND "$L/welten/<instanz>.basis" nach

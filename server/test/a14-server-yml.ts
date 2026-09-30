@@ -165,9 +165,11 @@ async function speichertaktPruefen(): Promise<void> {
   const savePfad = resolve(datenDir, 'worlds', 'a14welt.db.zst');
   try {
     server.start();
-    // Vor dem ersten Takt darf nichts liegen — sonst bewiese ein spaeter
-    // vorhandener Save nur, dass ueberhaupt gespeichert wird.
-    pruefe('vor dem ersten Takt existiert kein Save', !existsSync(savePfad));
+    // F8 N3: start() speichert einmal, damit die Weltkennung auf der Platte steht. Dieser eine Save ist NICHT der Takt-Save:
+    // sein Schreibzeitpunkt wird gemerkt und unten nicht mitgezaehlt, sonst bewiese ein vorhandener Save nur, dass
+    // ueberhaupt gespeichert wird.
+    const startMtime = existsSync(savePfad) ? statSync(savePfad).mtimeMs : -1;
+    pruefe('beim Start liegt genau der Kennungs-Save (Takt hat noch nicht gespeichert)', startMtime > 0);
 
     // Deadline instead of a fixed window: server.start() blocks for about
     // a second and the saves land at roughly +1x and +2x the interval, so a
@@ -179,7 +181,7 @@ async function speichertaktPruefen(): Promise<void> {
       await new Promise((f) => setTimeout(f, 25));
       if (existsSync(savePfad)) {
         const m = statSync(savePfad).mtimeMs;
-        if (!beobachtet.has(m)) beobachtet.set(m, Date.now());
+        if (m !== startMtime && !beobachtet.has(m)) beobachtet.set(m, Date.now());
       }
     }
     // With the default (30 min) nothing would appear here. Two distinct

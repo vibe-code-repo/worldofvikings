@@ -224,6 +224,23 @@ export default [
   // setzt defeated_eikthyr, ein Reh NICHT (Regressionswache). ~2s.
   ['server', 'test/f5-weltmarken.ts'],
   /*
+    F8 N2 (2026-09-29): Truhen und Bauten im selben Schreibvorgang wie der
+    Spielerzustand. Echte Serverprozesse mit SIGKILL, ein echter WebSocket-
+    Spieler: Truhe nehmen/legen, Bauen/Abreissen, Kill zwischen zwei Takten,
+    Ereignis; dazu welt_id (nur Seed + Modus, fremde Zeilen bleiben), die
+    Takt-Klemme, der Offline-Stempel und die Stopp-Zeile. Keine Assets.
+    Ephemerer Port, ~2 min.
+  */
+  ['server', 'test/f8n2-truhen-takt.ts'],
+  /*
+    F8 N3 (2026-09-30): Weltkennung in der Weltdatei (Testwelt hin und zurueck, alte Datei ohne
+    Kennung), monotoner Stempel (Uhrsprung rueckwaerts/vorwaerts) und deterministische Kill-Proben
+    ueber Test-Haken (NODE_ENV=test + WOV_KILL_PUNKT): in der Transaktion, vor der Datei
+    (synchron/asynchron), Ereignis waehrend des Speicherns, Migration in einer Transaktion.
+    Echte Serverprozesse mit SIGKILL. Keine Assets. Ephemerer Port, ~4 min.
+  */
+  ['server', 'test/f8n3-kennung-kill.ts'],
+  /*
     Das Thing, M1: die lesende API (Wege, Blaettern, 404 statt leerer
     Liste). Fake-Request/Response, kein Netz — dieselbe Weiche wie oben.
   */
@@ -642,6 +659,13 @@ export default [
   // identity — real WS clients, strict wire reader (checks the packet is fully
   // consumed after the known fields).
   ['server', 'test/spielerliste-privat.ts'],
+  /*
+    F8 (2026-09-29): Spielerzustand write-behind in die Konten-SQLite. Echte
+    Serverprozesse mit SIGKILL, ein echter WebSocket-Spieler: Takt, Ereignis,
+    Stopp, neuester Stand gewinnt, fremde Welt, Fehlerweg. Keine Assets.
+    Ephemerer Port, ~60 s.
+  */
+  ['server', 'test/spielerzustand-writebehind.ts'],
   // Standardkonto: Ausprobieren ohne Registrierung (server.yml
   // `standard-konto:`) -- Konto+Charakter entstehen einmal, ein zweiter
   // Start legt nichts doppelt an und laesst das Passwort unveraendert,

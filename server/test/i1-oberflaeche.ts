@@ -140,6 +140,7 @@ export const METHODEN = [
   'registerSpawnCommand',
   'sendPlayerState',
   'sendeTrefferEffekt',
+  'sichereSpielerSofort', // F8 (#146): f8n3-kennung-kill ruft die Ereignis-Sicherung im Kindprozess
   'syncZDOs',
   'teleportPeer',
   'update',
@@ -160,9 +161,12 @@ export const FELDER = [
   'saveTimer',
   'savedPlayers',
   'speichertGerade',
+  'spielerSicherung', // F8 (#146): spielerzustand-writebehind liest die Zaehler der Spielersicherung
+  'stempel', // F8 (#146): f8n3-kennung-kill liest den naechsten Stempel des Servers
   'timeSyncAccumulator',
   'updateTimer',
   'worldTime',
+  'zustandWeltId', // F8 (#146): f8n3-kennung-kill liest die Weltkennung des Servers
 ] as const;
 
 /**

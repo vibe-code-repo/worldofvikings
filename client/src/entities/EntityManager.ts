@@ -25,7 +25,6 @@ import {
   isRenderable,
   getFeatureByHash,
   getRoomByHash,
-  getKitByPrefabHash,
   getStableHash,
   getTerrainLeveling,
   FOLIAGE_HASHES,
@@ -55,7 +54,7 @@ import {
 } from '@wov/shared';
 import type { KollisionsForm, NpcEinordnung, SteinKitConfig } from '@wov/shared';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
-import { erzeugeSteinKitMaterial, mergeSteinKit } from '../engine/DungeonSteinMaterial.js';
+import { weiseSteinMaterialZu, setzeDokumentSteinKit, holeSteinMaterial } from './steinMaterial';
 import { faerbeHaar } from '../player/haarfarbe.js';
 import { faerbeAugen } from '../player/augenfarbe.js';
 import { StaticColliderSet } from '../engine/Physics';
@@ -213,7 +212,7 @@ export class EntityManager {
   readonly indexVon = new Map<string, IndexEintrag>();
 
   constructor(
-    private readonly scene: Scene,
+    readonly scene: Scene,
     private readonly world: ClientWorld,
     private readonly assets: AssetManager,
     private readonly terrain: TerrainManager
@@ -684,7 +683,7 @@ export class EntityManager {
    * Kit-Teile heißt: die Verwitterungs-Masken leben in EINEM Weltraum und laufen
    * nahtlos über Teilgrenzen. Siehe `DungeonSteinMaterial.ts`.
    */
-  private steinMaterials = new Map<string, PBRMaterial>();
+  steinMaterials = new Map<string, PBRMaterial>();
   /**
    * Die Steinteile je prefabHash — die Master, die `weiseSteinMaterialZu`
    * beim Dokumentwechsel ERNEUT bemalen muss.
@@ -698,7 +697,7 @@ export class EntityManager {
    * hash per session, so re-painting these is the only way a second
    * document can look different.
    */
-  private steinMasters = new Map<
+  steinMasters = new Map<
     string,
     { bucket: StaticBucket; masters: readonly import('@babylonjs/core/Meshes/mesh').Mesh[] }
   >();
@@ -706,7 +705,7 @@ export class EntityManager {
    * Das Steinmaterial des BETRETENEN Dokuments (1.0), sonst null. Liegt
    * über der Kit-Vorgabe und unter dem Raum-Override.
    */
-  private dokumentSteinKit: Partial<SteinKitConfig> | null = null;
+  dokumentSteinKit: Partial<SteinKitConfig> | null = null;
   /**
    * Übergibt fertige Vegetations-Matrixpuffer an Shadows. Wert-Callback
    * statt Modulimport: EntityManager bleibt ohne Szene testbar und der
@@ -1456,70 +1455,19 @@ export class EntityManager {
     });
   }
 
-  /**
-   * 1.0-Steingrab-Kit: das gebackene GLB-Material durch das konfigurierte
-   * KI-Steinmaterial ersetzen. Nur Teile eines Kits mit `steinKit` — Bäume,
-   * Requisiten und Räume anderer Kits bleiben unberührt. Das Material wird
-   * beim PBRMaterial-Ctor automatisch vom Fackel-Pool erfasst.
-   *
-   * MISCHREIHENFOLGE (unten gewinnt): Kit-Vorgabe → Dokument → RoomDef →
-   * PLATZIERTER Raum. Das Dokument steht in der Mitte, weil es „dieses Grab
-   * sieht anders aus" sagt, der Raumtyp aber „diese Kammer sieht anders aus
-   * als der Gang" — und das Feinere darf das Gröbere nicht verlieren. Zuunterst
-   * die einzelne Platzierung: Sie meint GENAU DIESE Kammer, nicht ihren Typ.
-   * Merge order (last wins): kit default → document → RoomDef → placed room.
-   */
-  private weiseSteinMaterialZu(
+  weiseSteinMaterialZu(
     bucket: StaticBucket,
     masters: readonly import('@babylonjs/core/Meshes/mesh').Mesh[]
   ): void {
-    const kitCfg = getKitByPrefabHash(bucket.prefabHash)?.steinKit;
-    if (!kitCfg) return;
-    // Für den Dokumentwechsel merken — `prepareMasters` kommt nie wieder.
-    this.steinMasters.set(bucket.schluessel, { bucket, masters: [...masters] });
-    // Türen sind keine Räume → getRoomByHash undefined → kein Raum-Override.
-    const merged = mergeSteinKit(
-      mergeSteinKit(
-        mergeSteinKit(kitCfg, this.dokumentSteinKit ?? undefined),
-        getRoomByHash(bucket.prefabHash)?.steinKit
-      ),
-      bucket.steinKitCfg
-    );
-    const mat = this.holeSteinMaterial(merged);
-    for (const m of masters) m.material = mat;
+    return weiseSteinMaterialZu(this, bucket, masters);
   }
 
-  /**
-   * Das Steinmaterial des betretenen Dokuments setzen (null = zurück auf die
-   * Kit-Vorgabe) und ALLE schon geladenen Steinteile neu bemalen.
-   *
-   * Ohne dieses Nachziehen sähe das zweite Grab einer Sitzung aus wie das
-   * erste: Die Master werden je prefabHash nur EINMAL geladen und bemalt,
-   * und ein zweiter Ladevorgang kommt nie (`pending` wird nie geleert).
-   * Without this re-paint the second barrow of a session would look like the
-   * first — masters are loaded and painted exactly once per hash.
-   */
   setzeDokumentSteinKit(cfg: Partial<SteinKitConfig> | null): void {
-    const neu = cfg && Object.keys(cfg).length > 0 ? cfg : null;
-    if (JSON.stringify(this.dokumentSteinKit) === JSON.stringify(neu)) return;
-    this.dokumentSteinKit = neu;
-    // ALLE Buckets, auch die mit Raum-Override und deren eigenen Klonen —
-    // sonst bliebe die zweite Kammer desselben Prefabs beim Dokumentwechsel
-    // auf ihrem alten Material stehen.
-    for (const { bucket, masters } of this.steinMasters.values()) {
-      this.weiseSteinMaterialZu(bucket, masters);
-    }
+    return setzeDokumentSteinKit(this, cfg);
   }
 
-  /** Ein Steinmaterial je Konfiguration (Master sind sitzungs-gecacht). */
-  private holeSteinMaterial(cfg: SteinKitConfig): PBRMaterial {
-    const key = JSON.stringify(cfg);
-    let mat = this.steinMaterials.get(key);
-    if (!mat) {
-      mat = erzeugeSteinKitMaterial(this.scene, `steinKit_${this.steinMaterials.size}`, cfg);
-      this.steinMaterials.set(key, mat);
-    }
-    return mat;
+  holeSteinMaterial(cfg: SteinKitConfig): PBRMaterial {
+    return holeSteinMaterial(this, cfg);
   }
 
   /** bucket.matrices (flach) in Matrix-Objekte entpacken — von beiden

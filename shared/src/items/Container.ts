@@ -85,23 +85,34 @@ export function unpackContainer(json: string): Inventory {
   }
   if (!Array.isArray(roh)) return inv;
 
-  const saved: SavedItemStack[] = [];
-  // Deckel auf CONTAINER_SLOTS: Inventory.load() ignoriert Positionen
-  // ausserhalb des Rasters ohnehin nicht selbst — der Deckel hier ist die
-  // Absicherung gegen manipulierte/fremde Daten mit mehr Einträgen, als
-  // ein Container je legitim erreichen kann (s. Kopfkommentar).
-  for (let i = 0; i < roh.length && saved.length < CONTAINER_SLOTS; i++) {
-    const eintrag = roh[i];
+  // Raw (kept) tuples are never cut: they count against the chest size, and only the known stacks give way when
+  // the list is longer than the chest. Positions follow the list order, so every stack owns its own cell.
+  const kandidaten: { name: string; stack: number; durability: number; quality: number; roh: boolean }[] = [];
+  for (const eintrag of roh) {
     if (!Array.isArray(eintrag) || eintrag.length !== 4) continue;
     const [name, stack, durability, quality] = eintrag as unknown[];
     if (typeof name !== 'string' || typeof stack !== 'number' || stack <= 0) continue;
-    if (!findItem(name) && !unbekannteWerdenVerwahrt()) continue; // unbekanntes Item (alter/fremder Save) — verwerfen
-    const slot = saved.length;
-    saved.push({
+    const bekannt = findItem(name) !== undefined;
+    if (!bekannt && !unbekannteWerdenVerwahrt()) continue; // unbekanntes Item (alter/fremder Save) — verwerfen
+    kandidaten.push({
       name,
       stack,
       durability: typeof durability === 'number' ? durability : 0,
       quality: typeof quality === 'number' ? quality : 1,
+      roh: !bekannt,
+    });
+  }
+  // Deckel: manipulierte/fremde Daten mit mehr Einträgen, als ein Container je legitim erreichen kann (s. Kopfkommentar).
+  let platzFuerBekannte = Math.max(0, CONTAINER_SLOTS - kandidaten.filter((k) => k.roh).length);
+  const saved: SavedItemStack[] = [];
+  for (const k of kandidaten) {
+    if (!k.roh && platzFuerBekannte-- <= 0) continue;
+    const slot = saved.length;
+    saved.push({
+      name: k.name,
+      stack: k.stack,
+      durability: k.durability,
+      quality: k.quality,
       gridX: slot % CONTAINER_WIDTH,
       gridY: (slot / CONTAINER_WIDTH) | 0,
       equipped: false,

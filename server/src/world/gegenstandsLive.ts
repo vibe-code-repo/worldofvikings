@@ -197,7 +197,9 @@ export function ladeGegenstandsDatei(pfad: string, log: GegenstandsLog = console
 /** The working copy is broken, rejected or gone: load the last good state if there is one. */
 function fallbackLetzterGuter(pfad: string, r: LadeErgebnis, log: GegenstandsLog): LadeErgebnis {
   const guter = letzterGuterLesen(pfad, log);
-  if (guter === null) return r.art === 'fehlt' ? r : { ...r, ohneGutenStand: true };
+  // Also a missing working copy: the last good state exists but is unusable (this function runs for `fehlt` only
+  // then), so the held data items must stay kept until the watch has checked them.
+  if (guter === null) return { ...r, ohneGutenStand: true };
   try {
     wendeGegenstandsDatenAn(guter);
   } catch (fehler) {

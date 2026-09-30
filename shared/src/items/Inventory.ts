@@ -174,6 +174,7 @@ export class Inventory {
     const target = this.itemAt(x, y);
 
     if (target === item) return true;
+    if (!target && this.zelleBelegt(x, y)) return false; // the cell of a kept raw stack is not free
 
     if (target && canStack(target, item.shared, item.quality)) {
       const room = item.shared.maxStackSize - target.stack;
@@ -205,10 +206,15 @@ export class Inventory {
       : [...Array(this.height).keys()].reverse();
     for (const y of rows) {
       for (let x = 0; x < this.width; x++) {
-        if (!this.itemAt(x, y)) return [x, y];
+        if (!this.zelleBelegt(x, y)) return [x, y];
       }
     }
     return null;
+  }
+
+  /** A cell is taken by a stack of `items` or by a kept raw stack (which the grid does not show, but which owns its cell). */
+  private zelleBelegt(x: number, y: number): boolean {
+    return this.itemAt(x, y) !== null || this.verwahrt.some((s) => s.gridX === x && s.gridY === y);
   }
 
   /**
@@ -222,8 +228,33 @@ export class Inventory {
       const neu = findItem(it.shared.name);
       if (neu) it.shared = neu;
     }
+    this.holeVerwahrteZurueck();
     this.teileUeberstapel('rebind');
     this.emit();
+  }
+
+  /**
+   * Kept raw stacks whose name resolves to a definition again come back into `items` (online players do not have
+   * to log in again). The stack keeps its cell if it is free, else it takes a free one; without a free cell it stays
+   * kept (nothing is lost) and the next `rebind` tries again.
+   */
+  private holeVerwahrteZurueck(): void {
+    for (const s of [...this.verwahrt]) {
+      const shared = findItem(s.name);
+      if (!shared) continue;
+      this.verwahrt = this.verwahrt.filter((v) => v !== s);
+      let slot: [number, number] | null = null;
+      const imRaster =
+        Number.isInteger(s.gridX) && Number.isInteger(s.gridY) && s.gridX >= 0 && s.gridY >= 0 && s.gridX < this.width && s.gridY < this.height;
+      if (imRaster && !this.zelleBelegt(s.gridX, s.gridY)) slot = [s.gridX, s.gridY];
+      else slot = this.findEmptySlot(topFirst(shared));
+      if (!slot) {
+        this.verwahrt.push(s);
+        console.warn(`[Inventory] rebind: kept ${s.name} x${s.stack} has no free slot, it stays kept`);
+        continue;
+      }
+      this.items.push({ shared, stack: s.stack, durability: s.durability, quality: s.quality, gridX: slot[0], gridY: slot[1], equipped: s.equipped });
+    }
   }
 
   /**

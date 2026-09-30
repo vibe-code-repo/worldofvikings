@@ -1840,6 +1840,9 @@ export class WovServer {
       console.error(`[WoV] net.stop fehlgeschlagen: ${err}`);
     }
 
+    // The keep-unknown switch is process-wide: this server's item watch may have left it on (F5).
+    if (this.gegenstandsWache) setzeUnbekannteVerwahren(false);
+
     console.log(`[WoV] Server stopped${gespeichert ? '' : ' (OHNE Endstand)'}`);
     return gespeichert;
   }

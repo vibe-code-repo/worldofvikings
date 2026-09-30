@@ -44,7 +44,7 @@ const inst = (extra: Record<string, unknown> = {}): Record<string, unknown> => (
   pruefe('yaw 0 entfällt', s[0]!.yaw === undefined && !('yaw' in s[0]!));
   pruefe('kennungen sortiert', Object.keys(s[1]!.kennungen!).join() === 'a,b');
   pruefe('kaputte Instanz verschwindet', sanitizeBausatzInstanzen([5, null, { id: 'ok', bausatz: 'k', x: 1e9, z: 0 }, inst()]).length === 1);
-  pruefe('yaw außerhalb ±2π wird geklemmt (keine Regel)', sanitizeBausatzInstanzen([inst({ yaw: 100 })])[0]!.yaw === 6.283185);
+  pruefe('yaw außerhalb ±2π wird geklemmt (keine Regel)', sanitizeBausatzInstanzen([inst({ yaw: 100 })])[0]!.yaw === 2 * Math.PI);
   pruefe('kennungen = Platzierungs-id wird verworfen', sanitizeBausatzInstanzen([inst({ kennungen: { t: eineId, u: 'frei' } })], platzierungsIds)[0]!.kennungen!.t === undefined);
   const zwei = sanitizeBausatzInstanzen([inst({ kennungen: { t: 'x1' } }), inst({ id: 'dorf-2', kennungen: { t: 'x1', u: 'x2' } })]);
   pruefe('kennungen zweimal vergeben: die zweite Instanz verliert den Wert', zwei.find((i) => i.id === 'dorf-2')!.kennungen!.t === undefined && zwei.find((i) => i.id === 'dorf-2')!.kennungen!.u === 'x2' && zwei.find((i) => i.id === 'dorf-1')!.kennungen!.t === 'x1');

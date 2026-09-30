@@ -41,7 +41,7 @@ const k = sanitizeBausatz(datei())!;
 pruefe('Teile nach id sortiert', k.teile.map((t) => t.id).join() === 'a,b');
 pruefe('Schlüsselreihenfolge fest', Object.keys(JSON.parse(t1)).join() === 'bausatzVersion,id,name,grundflaeche,gruppen,teile');
 pruefe('Teil-Schlüsselreihenfolge fest', Object.keys(k.teile[0]!).join() === 'id,prefab,dx,dz,dy,yaw,pitch,scale,gruppe', Object.keys(k.teile[0]!).join());
-pruefe('Rundung: dx 1e-3, yaw 1e-6', k.teile[1]!.dx === 1.235 && k.teile[1]!.yaw === 0.123457);
+pruefe('Rundung: dx 1e-3; yaw und scale unverändert (Regel der Platzierungen)', k.teile[1]!.dx === 1.235 && k.teile[1]!.yaw === 0.1234567891);
 pruefe('roll 0 entfällt', k.teile[0]!.roll === undefined);
 pruefe('Skala-Tripel negativ bleibt', JSON.stringify(k.teile[0]!.scale) === '[1,-2,3]');
 

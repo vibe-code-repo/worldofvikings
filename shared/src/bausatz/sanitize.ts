@@ -11,7 +11,7 @@
  */
 
 import { ID_RE } from '../worldlayout/platzierungsId.js';
-import { LAYOUT_MAX_EXTENT } from '../worldlayout/types.js';
+import { klemm, koordinate as weltKoordinate } from '../worldlayout/zahlen.js';
 import {
   BAUSATZ_BOESCHUNG_MAX,
   BAUSATZ_BOESCHUNG_MIN,
@@ -37,10 +37,12 @@ const EINEBNEN_MAX = 100;
 const PREFAB_LAENGE_MAX = 64;
 const NAME_LAENGE_MAX = 128;
 
-/** Position values: millimetres, like the world sanitizer. `+ 0` turns -0 into 0. */
+/**
+ * Position values: millimetres, exactly the rounding of the world sanitizer's `koordinate` (a test compares
+ * the two). `+ 0` turns -0 into 0. Angles and scale are NOT rounded: the world sanitizer only clamps them, and a
+ * kit part must come out byte-equal to the placement it replaces.
+ */
 export const rundePosition = (v: number): number => Math.round(v * 1000) / 1000 + 0;
-/** Angles and scale: 1e-6, like the world sanitizer. */
-export const rundeWinkel = (v: number): number => Math.round(v * 1e6) / 1e6 + 0;
 
 const istZahl = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const istObjekt = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -69,16 +71,16 @@ export interface BausatzBericht {
 
 function skalaPruefen(roh: unknown): BausatzSkala | null {
   const komponente = (v: unknown): boolean => istZahl(v) && Math.abs(v) >= BAUSATZ_SKALA_MIN && Math.abs(v) <= BAUSATZ_SKALA_MAX;
-  if (komponente(roh)) return rundeWinkel(roh as number);
+  if (komponente(roh)) return roh as number;
   if (Array.isArray(roh) && roh.length === 3 && roh.every(komponente)) {
-    return roh.map((v) => rundeWinkel(v as number)) as [number, number, number];
+    return [roh[0] as number, roh[1] as number, roh[2] as number];
   }
   return null;
 }
 
 /**
- * Checks a raw kit file and returns it in canonical form: rounded (position
- * 1e-3, angle and scale 1e-6), parts and groups sorted by id, fixed key order.
+ * Checks a raw kit file and returns it in canonical form: position rounded to
+ * the millimetre (angle and scale untouched, like placements), parts and groups sorted by id, fixed key order.
  * Any violation makes the whole file unusable and is named in `fehler`.
  */
 export function sanitizeBausatzMitBericht(input: unknown, optionen: BausatzOptionen = {}): BausatzBericht {
@@ -188,9 +190,9 @@ export function sanitizeBausatzMitBericht(input: unknown, optionen: BausatzOptio
         dx: rundePosition(t.dx as number),
         dz: rundePosition(t.dz as number),
         ...(t.dy !== undefined ? { dy: rundePosition(t.dy as number) } : {}),
-        yaw: rundeWinkel(t.yaw as number),
-        ...(t.pitch !== undefined && rundeWinkel(t.pitch as number) !== 0 ? { pitch: rundeWinkel(t.pitch as number) } : {}),
-        ...(t.roll !== undefined && rundeWinkel(t.roll as number) !== 0 ? { roll: rundeWinkel(t.roll as number) } : {}),
+        yaw: (t.yaw as number) + 0,
+        ...(t.pitch !== undefined && t.pitch !== 0 ? { pitch: t.pitch as number } : {}),
+        ...(t.roll !== undefined && t.roll !== 0 ? { roll: t.roll as number } : {}),
         scale: skala,
         ...(t.einebnen !== undefined ? { einebnen: Math.round((t.einebnen as number) * 10) / 10 } : {}),
         ...(t.gruppe !== undefined ? { gruppe: t.gruppe as string } : {}),
@@ -235,17 +237,21 @@ export function bausatzText(datei: unknown): string {
 
 const INSTANZ_SCHLUESSEL = new Set(['id', 'bausatz', 'x', 'z', 'yaw', 'kennungen']);
 
+/** The world sanitizer's own `koordinate` (number inside the frame, millimetres); `+ 0` only turns -0 into 0. */
 function koordinate(v: unknown): number | null {
-  if (!istZahl(v) || Math.abs(v) > LAYOUT_MAX_EXTENT) return null;
-  return rundePosition(v);
+  const k = weltKoordinate(v);
+  return k === null ? null : k + 0;
 }
 
 /** `belegt` = the values already taken in the document (by earlier instances and by placements). */
 function kennungenBereinigen(roh: unknown, belegt: ReadonlySet<string>): Record<string, string> | undefined {
   if (!istObjekt(roh)) return undefined;
+  const schluessel = Object.keys(roh);
+  // More entries than a kit has parts is never a valid address list; the write path names it (`kennungen`).
+  if (schluessel.length > BAUSATZ_TEILE_MAX) return undefined;
   const aus: Record<string, string> = {};
   const hier = new Set<string>();
-  for (const teilId of Object.keys(roh).sort()) {
+  for (const teilId of schluessel.sort()) {
     const wert = roh[teilId];
     if (!ID_RE.test(teilId) || typeof wert !== 'string' || !ID_RE.test(wert) || belegt.has(wert) || hier.has(wert)) continue;
     hier.add(wert);
@@ -260,7 +266,9 @@ function instanzEinzeln(roh: unknown, belegt: ReadonlySet<string> = new Set()): 
   const x = koordinate(roh.x);
   const z = koordinate(roh.z);
   if (x === null || z === null) return null;
-  const yaw = roh.yaw === undefined ? 0 : rundeWinkel(Math.min(BAUSATZ_WINKEL_MAX, Math.max(-BAUSATZ_WINKEL_MAX, Number.isFinite(Number(roh.yaw)) ? Number(roh.yaw) : 0)));
+  // Same rule as a placement's yaw: clamped to ±2π, not rounded. What is no finite number counts as 0 here;
+  // the write path refuses it before (`bausatzInstanzenFehler`, feld `yaw`).
+  const yaw = typeof roh.yaw === 'number' ? klemm(roh.yaw, -BAUSATZ_WINKEL_MAX, BAUSATZ_WINKEL_MAX, 0) + 0 : 0;
   const kennungen = kennungenBereinigen(roh.kennungen, belegt);
   return { id: roh.id, bausatz: roh.bausatz, x, z, ...(yaw !== 0 ? { yaw } : {}), ...(kennungen ? { kennungen } : {}) };
 }
@@ -316,7 +324,8 @@ function wertKurz(v: unknown): unknown {
  *  - `x` / `z`: not a number inside the world frame;
  *  - `schluessel`: unknown key;
  *  - `id` = `doppelt`: the same id twice with different content;
- *  - `kennungen`: not an object, a value that is no `ID_RE` id, a value equal to
+ *  - `yaw`: set, but no finite number (`true`, `"1.5"`, `null`, `[]`); a finite number outside ±2π is only clamped;
+ *  - `kennungen`: not an object, more than `BAUSATZ_TEILE_MAX` entries, a key or value that is no `ID_RE` id, a value equal to
  *    an id in `platzierungsIds` (the placement ids of the same document), or a value given twice
  *    (in one instance or across instances).
  * An unknown KIT is not among them: that is a finding of `pruefeLayout`, so the
@@ -342,10 +351,14 @@ export function bausatzInstanzenFehler(roh: unknown, platzierungsIds: ReadonlySe
     if (koordinate(e.x) === null) fehler.push({ id, feld: 'x', wert: wertKurz(e.x) });
     if (koordinate(e.z) === null) fehler.push({ id, feld: 'z', wert: wertKurz(e.z) });
     for (const k of schluesselFremd(e, INSTANZ_SCHLUESSEL)) fehler.push({ id, feld: 'schluessel', wert: k });
+    if (e.yaw !== undefined && !istZahl(e.yaw)) fehler.push({ id, feld: 'yaw', wert: wertKurz(e.yaw) });
     if (e.kennungen !== undefined) {
       if (!istObjekt(e.kennungen)) fehler.push({ id, feld: 'kennungen', wert: wertKurz(e.kennungen) });
-      else {
+      else if (Object.keys(e.kennungen).length > BAUSATZ_TEILE_MAX) {
+        fehler.push({ id, feld: 'kennungen', wert: `${Object.keys(e.kennungen).length} Einträge (höchstens ${BAUSATZ_TEILE_MAX})` });
+      } else {
         for (const teilId of Object.keys(e.kennungen).sort()) {
+          if (!ID_RE.test(teilId)) fehler.push({ id, feld: 'kennungen', wert: `${wertKurz(teilId)} (Schlüssel ist keine Kennung)` });
           const wert = e.kennungen[teilId];
           if (typeof wert !== 'string' || !ID_RE.test(wert)) fehler.push({ id, feld: 'kennungen', wert: `${teilId}: ${JSON.stringify(wertKurz(wert))}` });
           else if (platzierungsIds.has(wert)) fehler.push({ id, feld: 'kennungen', wert: `${teilId}: ${wert} (Platzierungs-id)` });

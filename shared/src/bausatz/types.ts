@@ -101,6 +101,13 @@ export interface BausatzInstanzDef {
   kennungen?: Readonly<Record<string, string>>;
 }
 
+/**
+ * Contract for C4a (no code here): the resolver adds the yaws (`yaw_instanz + yaw_teil`) and passes `pitch` and
+ * `roll` through unchanged. That is only right if the consumer composes a part's rotation as
+ * `R_y(yaw) · R_x(pitch) · R_z(roll)`, yaw outermost (like `Quaternion.RotationYawPitchRoll`). Kit files must be
+ * loaded through `sanitizeBausatz` before they reach the resolver.
+ */
+
 /** A part after resolving: world position and angle, final id. */
 export interface AufgeloestesTeil {
   /** `<instanz>#<teilId>`, or the id given by `kennungen`. */

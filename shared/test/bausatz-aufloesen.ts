@@ -38,7 +38,7 @@ const katalog = (...k: Bausatz[]): Map<string, Bausatz> => new Map(k.map((b) => 
   // rechtshändig um +Y: (dx,dz)=(3,0) → (x',z') = (0,−3); (0,2) → (2,0)
   pruefe('90°: (3,0) → (100, 197)', t.x === 100 && t.z === 197, `${t.x},${t.z}`);
   pruefe('90°: (0,2) → (102, 200)', u.x === 102 && u.z === 200, `${u.x},${u.z}`);
-  pruefe('Winkel = yaw_instanz + yaw_teil (1e-6)', t.yaw === 1.820796 && u.yaw === 1.570796, `${t.yaw} ${u.yaw}`);
+  pruefe('Winkel = yaw_instanz + yaw_teil, ungerundet', t.yaw === Math.PI / 2 + 0.25 && u.yaw === Math.PI / 2, `${t.yaw} ${u.yaw}`);
   const r0 = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'd', x: 100, z: 200 }] }, katalog(k));
   pruefe('yaw 0: reine Verschiebung', r0.teile.find((p) => p.teilId === 't')!.x === 103 && r0.teile.find((p) => p.teilId === 'u')!.z === 202);
   const r180 = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'd', x: 0, z: 0, yaw: Math.PI }] }, katalog(k));
@@ -83,7 +83,7 @@ const katalog = (...k: Bausatz[]): Map<string, Bausatz> => new Map(k.map((b) => 
   pruefe('dy/pitch/roll/scale-Tripel/einebnen/gruppe werden durchgereicht', t.dy === 1.5 && t.pitch === 0.1 && t.roll === 0.2 && JSON.stringify(t.scale) === '[1,-2,3]' && t.einebnen === 6 && t.gruppe === 'g');
   const ohne = loeseBausaetzeAuf({ bausaetze: [{ id: 'i', bausatz: 'f2', x: 0, z: 0 }] }, katalog(kit('f2', [teil('t')]))).teile[0]!;
   pruefe('fehlendes dy bleibt fehlend (bodenfolgend)', !('dy' in ohne) && !('pitch' in ohne));
-  pruefe('Ergebnis ist Rundlauf-stabil (Zahlen bereits gerundet)', t.yaw === 0.123457);
+  pruefe('Winkel wird nicht gerundet (Regel der Platzierungen)', t.yaw === 0.1234567891, String(t.yaw));
 }
 // Grenze 10 000
 {

@@ -5,17 +5,21 @@
  * - id: `<instanz>#<teilId>` (`#` is outside `ID_RE`, so it never collides with a placement id);
  *   a part listed in the instance's `kennungen` gets the placement id given there instead.
  * - position: `anchor + rot(yaw_instanz)·(dx, dz)`, angle `yaw_instanz + yaw_teil`; position rounded
- *   to 1e-3, angle and scale to 1e-6 — exactly like the world sanitizer, so a resolved part
- *   equals the placement it replaces to the millimetre.
+ *   to the millimetre, angle and scale passed on unrounded — the rule of the world sanitizer for placements,
+ *   so a part whose anchor is a millimetre value and whose instance yaw is 0 equals the placement it replaces
+ *   byte for byte (test: every placement of the real `dev.json`).
  * - rotation is right-handed around +Y (as `yawQuaternion`): `x' = dx·cosθ + dz·sinθ`,
  *   `z' = −dx·sinθ + dz·cosθ`.
  * - the result is sorted by id, so the order of the parts inside a kit file does not matter.
+ * - `kennungen` is read as own properties only (a part id `constructor` is an ordinary string id).
+ * - the resolver checks what it is given: a part or instance with a non-finite number is left out with a named
+ *   `fehler`, never a NaN in the result.
  * - an unknown kit is no error: the instance lands in `unbekannt`. More than
  *   `BAUSATZ_AUFLOESUNG_MAX` parts, or a duplicate resolved id, is a named `fehler`, never capping.
  */
 
 import type { PlacementDef, WorldLayout } from '../worldlayout/types.js';
-import { rundePosition, rundeWinkel } from './sanitize.js';
+import { rundePosition } from './sanitize.js';
 import {
   BAUSATZ_AUFGELOEST_MAX,
   type AufgeloestesTeil,
@@ -27,8 +31,8 @@ import {
 
 export type BausatzKatalog = ReadonlyMap<string, Bausatz> | readonly Bausatz[];
 
-const skalaRunden = (s: BausatzSkala): BausatzSkala =>
-  typeof s === 'number' ? rundeWinkel(s) : [rundeWinkel(s[0]), rundeWinkel(s[1]), rundeWinkel(s[2])];
+const endlich = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const skalaEndlich = (s: BausatzSkala): boolean => (typeof s === 'number' ? endlich(s) : Array.isArray(s) && s.length === 3 && s.every(endlich));
 
 export function loeseBausaetzeAuf(
   layout: Pick<WorldLayout, 'bausaetze'> & { placements?: readonly Pick<PlacementDef, 'id'>[] },
@@ -61,10 +65,20 @@ export function loeseBausaetzeAuf(
       continue;
     }
     const yaw = i.yaw ?? 0;
+    if (!endlich(i.x) || !endlich(i.z) || !endlich(yaw)) {
+      fehler.push(`Bausatz-Instanz "${i.id}": x, z oder yaw ist keine endliche Zahl — Instanz ausgelassen`);
+      continue;
+    }
     const c = Math.cos(yaw);
     const s = Math.sin(yaw);
     for (const t of bausatz.teile) {
-      const id = i.kennungen?.[t.id] ?? `${i.id}#${t.id}`;
+      const adresse = i.kennungen !== undefined && Object.hasOwn(i.kennungen, t.id) ? i.kennungen[t.id] : undefined;
+      const id = typeof adresse === 'string' ? adresse : `${i.id}#${t.id}`;
+      const teilYaw = t.yaw;
+      if (!endlich(t.dx) || !endlich(t.dz) || !endlich(teilYaw) || !skalaEndlich(t.scale) || [t.dy, t.pitch, t.roll].some((w) => w !== undefined && !endlich(w))) {
+        fehler.push(`Bausatz-Teil "${t.id}" der Instanz "${i.id}": dx, dz, dy, yaw, pitch, roll oder scale ist keine endliche Zahl — Teil ausgelassen`);
+        continue;
+      }
       if (ids.has(id) || platzierungsIds.has(id)) {
         fehler.push(`Bausatz-Teil "${t.id}" der Instanz "${i.id}": id "${id}" ist schon vergeben — Teil ausgelassen`);
         continue;
@@ -79,10 +93,10 @@ export function loeseBausaetzeAuf(
         x: rundePosition(i.x + t.dx * c + t.dz * s),
         z: rundePosition(i.z - t.dx * s + t.dz * c),
         ...(t.dy !== undefined ? { dy: t.dy } : {}),
-        yaw: rundeWinkel(yaw + t.yaw),
+        yaw: yaw + teilYaw + 0,
         ...(t.pitch !== undefined ? { pitch: t.pitch } : {}),
         ...(t.roll !== undefined ? { roll: t.roll } : {}),
-        scale: skalaRunden(t.scale),
+        scale: typeof t.scale === 'number' ? t.scale : [t.scale[0], t.scale[1], t.scale[2]],
         ...(t.einebnen !== undefined ? { einebnen: t.einebnen } : {}),
         ...(t.gruppe !== undefined ? { gruppe: t.gruppe } : {}),
       });

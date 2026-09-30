@@ -19,7 +19,6 @@ import {
 } from '../npc.js';
 import {
   BIOME_BY_NAME,
-  LAYOUT_MAX_EXTENT,
   ROUTE_DEFAULT_SPEED,
   ROUTE_MAX_PAUSE,
   WORLD_LAYOUT_VERSION,
@@ -36,6 +35,7 @@ import {
   type WorldLayout,
 } from './types.js';
 import { sanitizeBausatzInstanzen } from '../bausatz/sanitize.js';
+import { klemm, koordinate } from './zahlen.js';
 import { gleicherInhalt, ID_RE, merkeZusammengefasst, platzierungenNormalisieren } from './platzierungsId.js';
 
 // Über diese Datei nach außen (index.ts lässt sie ohnehin durch): die Werkzeuge, die eine Platzierung anlegen.
@@ -51,21 +51,6 @@ const MAX_CONTINENTS = 32;
 const MAX_POLYGON_POINTS = 512;
 const MAX_KURATIERT = 256;
 const MAX_ROUTEN = 256;
-
-function klemm(v: unknown, min: number, max: number, fallback: number): number {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, n));
-}
-
-function koordinate(v: unknown): number | null {
-  // Nur eine ZAHL ist eine Koordinate: `Number(null)` und `Number('')` sind 0
-  // und hätten einen Eintrag mit `"x": null` still an den Ursprung gesetzt.
-  if (typeof v !== 'number' || !Number.isFinite(v) || Math.abs(v) > LAYOUT_MAX_EXTENT) return null;
-  const n = v;
-  // Auf Millimeter runden — stabilisiert JSON-Roundtrips und Kompilierung.
-  return Math.round(n * 1000) / 1000;
-}
 
 function sanitizeShape(input: unknown): RegionShape | null {
   if (typeof input !== 'object' || input === null) return null;

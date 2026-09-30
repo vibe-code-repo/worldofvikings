@@ -694,6 +694,10 @@ export default [
   // (0 = voll), den eingeschlossenen Rand und die X/Z-Distanz ab.
   ['client', 'test/vegetations-grenze.ts'],
   ['client', 'test/village-biome.ts'],
+  // Waldambiente (2026-09-29): Walddichte gegen die echte Streuung der dev.json
+  // (Korrelation, Drift-Waechter, ~40 s) und Lautstaerke-Regeln der Schleifen
+  // (Dichte, Glaettung, Tag/Nacht, Aus-Faelle, Regler). Rein, keine Assets noetig.
+  ['client', 'test/wald-ambiente.ts'],
   ['client', 'test/wasser-farben.ts'],
   // Der Wasser-Refraktionspass darf gestreute Vegetation nicht anhand der
   // weltweiten Thin-Instance-Hülle als "eingetaucht" einstufen. Auf der

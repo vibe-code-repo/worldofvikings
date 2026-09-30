@@ -19,7 +19,6 @@ import {
 } from '../npc.js';
 import {
   BIOME_BY_NAME,
-  LAYOUT_MAX_EXTENT,
   ROUTE_DEFAULT_SPEED,
   ROUTE_MAX_PAUSE,
   WORLD_LAYOUT_VERSION,
@@ -35,6 +34,8 @@ import {
   type ZoneHeightDelta,
   type WorldLayout,
 } from './types.js';
+import { sanitizeBausatzInstanzen } from '../bausatz/sanitize.js';
+import { klemm, koordinate } from './zahlen.js';
 import { gleicherInhalt, ID_RE, merkeZusammengefasst, platzierungenNormalisieren } from './platzierungsId.js';
 
 // Über diese Datei nach außen (index.ts lässt sie ohnehin durch): die Werkzeuge, die eine Platzierung anlegen.
@@ -50,21 +51,6 @@ const MAX_CONTINENTS = 32;
 const MAX_POLYGON_POINTS = 512;
 const MAX_KURATIERT = 256;
 const MAX_ROUTEN = 256;
-
-function klemm(v: unknown, min: number, max: number, fallback: number): number {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(max, Math.max(min, n));
-}
-
-function koordinate(v: unknown): number | null {
-  // Nur eine ZAHL ist eine Koordinate: `Number(null)` und `Number('')` sind 0
-  // und hätten einen Eintrag mit `"x": null` still an den Ursprung gesetzt.
-  if (typeof v !== 'number' || !Number.isFinite(v) || Math.abs(v) > LAYOUT_MAX_EXTENT) return null;
-  const n = v;
-  // Auf Millimeter runden — stabilisiert JSON-Roundtrips und Kompilierung.
-  return Math.round(n * 1000) / 1000;
-}
 
 function sanitizeShape(input: unknown): RegionShape | null {
   if (typeof input !== 'object' || input === null) return null;
@@ -789,6 +775,11 @@ export function sanitizeWorldLayoutMitBericht(input: unknown, _optionen: Sanitiz
   // Exakte Duplikate zusammenfassen, jedem Eintrag eine eindeutige `id` geben,
   // nach `id` sortieren (platzierungsId.ts).
   const { placements, zusammengefasst } = platzierungenNormalisieren(roheEintraege);
+  // Bausatz-Instanzen (C2): geklemmt/verworfen wie Routen; `kennungen` darf keine Platzierungs-id des Dokuments nehmen.
+  const bausaetze = sanitizeBausatzInstanzen(
+    d.bausaetze,
+    new Set(placements.flatMap((p) => (p.id === undefined ? [] : [p.id])))
+  );
 
   const rivers: RiverDef[] = [];
   if (Array.isArray(d.rivers)) {
@@ -894,6 +885,7 @@ export function sanitizeWorldLayoutMitBericht(input: unknown, _optionen: Sanitiz
     ...(rivers.length > 0 ? { rivers } : {}),
     ...(lakes.length > 0 ? { lakes } : {}),
     ...(routes.length > 0 ? { routes } : {}),
+    ...(bausaetze.length > 0 ? { bausaetze } : {}),
     ...(heightDeltas.length > 0 ? { heightDeltas } : {}),
   };
   merkeZusammengefasst(layout, zusammengefasst);

@@ -121,10 +121,10 @@ const WELT_ROH = {
 };
 const WELT_TEXT = layoutText(sanitizeWorldLayout(WELT_ROH)!);
 
-function saveBytes(zdos = ZDOS): Buffer {
+function saveBytes(zdos = ZDOS, weltId?: string): Buffer {
   const umschlag = {
     version: 3,
-    meta: { worldName: 'dev', worldSeed: 1, worldGenVersion: 1, savedAt: '2026-09-20T20:00:00.000Z' },
+    meta: { worldName: 'dev', worldSeed: 1, worldGenVersion: 1, savedAt: '2026-09-20T20:00:00.000Z', ...(weltId ? { weltId } : {}) },
     zdos: Array.from({ length: zdos }, (_, i) => ({ id: i, prefab: 'Beech1' })),
   };
   return zstdCompressSync(Buffer.from(JSON.stringify(umschlag), 'utf-8'));
@@ -453,6 +453,28 @@ try {
   const a6b = await reset(port, { bestaetigung: 'dev', seed: 'neu' });
   const neu6b = JSON.parse(readFileSync(resolve(WELTEN, 'dev.json'), 'utf-8')) as { detailSeed: string };
   check('noch einmal seed neu: wieder ein anderer Seed', a6b.code === 200 && neu6b.detailSeed !== neu6.detailSeed, `${neu6.detailSeed} → ${neu6b.detailSeed}`);
+
+  // ── A6c. F8 N2: the running player/container state is deleted by the reset, and only by it ──
+  console.log('\n[A6c] Zustandstabellen (spielerzustand, weltzdo) ohne konten:');
+  fixturenSchreiben('dev');
+  kontenDb.exec(`
+    CREATE TABLE IF NOT EXISTS spielerzustand (spieler_id TEXT NOT NULL COLLATE NOCASE, welt_id TEXT NOT NULL, stand INTEGER NOT NULL, daten TEXT NOT NULL, PRIMARY KEY (spieler_id, welt_id));
+    CREATE TABLE IF NOT EXISTS weltzdo (zdo_id TEXT NOT NULL, welt_id TEXT NOT NULL, stand INTEGER NOT NULL, daten TEXT, PRIMARY KEY (zdo_id, welt_id));
+  `);
+  // F8 N4: the reset empties only the rows of ITS world id (from the save header); the rows of another world stay.
+  writeFileSync(resolve(SAVES, 'dev.db.zst'), saveBytes(50, 'w1'));
+  kontenDb.prepare('INSERT INTO spielerzustand VALUES (?, ?, ?, ?)').run('spieler-a', 'w1', 1, '{}');
+  kontenDb.prepare('INSERT INTO spielerzustand VALUES (?, ?, ?, ?)').run('spieler-b', 'w2', 2, '{}');
+  kontenDb.prepare('INSERT INTO weltzdo VALUES (?, ?, ?, ?)').run('1:5', 'w1', 1, '{}');
+  const bakVorher = readdirSync(KONTEN).filter((f) => f.endsWith('.bak')).length;
+  const a6c = await reset(port, { bestaetigung: 'dev', seed: 'behalten' });
+  const zaehle = (t: string) => (kontenDb!.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
+  check('200 ohne konten', a6c.code === 200, `= ${a6c.code} ${a6c.text.slice(0, 200)}`);
+  check('nur die Zeilen der eigenen Welt (w1) sind weg: spielerzustand 1 (w2 bleibt), weltzdo 0', zaehle('spielerzustand') === 1 && zaehle('weltzdo') === 0, `${zaehle('spielerzustand')} / ${zaehle('weltzdo')}`)
+  check('Konten und Charaktere unberuehrt (3 / 5)', zaehle('konten') === 3 && zaehle('charaktere') === 5);
+  check('vorher wurde eine .bak der Kontendatenbank gezogen', readdirSync(KONTEN).filter((f) => f.endsWith('.bak')).length > bakVorher, readdirSync(KONTEN).join(' '));
+  const a6d = await reset(port, { bestaetigung: 'dev', seed: 'behalten' });
+  check('leere Tabellen: noch ein Reset geht ohne Fehler, keine weitere .bak', a6d.code === 200 && readdirSync(KONTEN).filter((f) => f.endsWith('.bak')).length === bakVorher + 1, `= ${a6d.code}`);
 
   // ── A7. With accounts ────────────────────────────────────────────────
   console.log('\n[A7] konten: true:');
@@ -853,6 +875,90 @@ if (modul) {
     const r = (await weltZuruecksetzenBehandeln(gut, h.umg)) as { code: number; daten: Record<string, any> };
     const leer = (sanitizeWorldLayout(JSON.parse(readFileSync(h.umg.layoutDatei, 'utf-8')))?.regions.length ?? -1) === 0;
     check('B11: nicht-leeres Verzeichnis am Sperrpfad: „wie vorher“ nur, wenn das Dokument nicht leer ist', !(String(r.daten.message).includes('wie vorher') && leer), `= ${r.code} leer=${leer} ${String(r.daten.message).slice(0, 160)}`);
+  }
+  {
+    // F8 N3 (B4): the state rows (`spielerzustand`, `weltzdo`) are emptied LAST. A failed swap rolls the files back and the rows are
+    // still there (the message "Alles steht wieder wie vorher" is true for them too); a successful reset empties them and says so.
+    const echteKonten = (b: ReturnType<typeof bauen>): string => {
+      for (const s of ['', '-wal', '-shm']) rmSync(resolve(b.konten, `dev.db${s}`), { force: true });
+      const pfad = resolve(b.konten, 'dev.db');
+      const d = new DatabaseSync(pfad);
+      d.exec('CREATE TABLE spielerzustand (spieler_id TEXT NOT NULL COLLATE NOCASE, welt_id TEXT NOT NULL, stand INTEGER NOT NULL, daten TEXT NOT NULL, PRIMARY KEY (spieler_id, welt_id))');
+      d.exec('CREATE TABLE weltzdo (zdo_id TEXT NOT NULL, welt_id TEXT NOT NULL, stand INTEGER NOT NULL, daten TEXT, PRIMARY KEY (zdo_id, welt_id))');
+      d.prepare('INSERT INTO spielerzustand VALUES (?, ?, ?, ?)').run('a', 'w1', 1, '{}');
+      d.prepare('INSERT INTO spielerzustand VALUES (?, ?, ?, ?)').run('b', 'w2', 2, '{}');
+      d.prepare('INSERT INTO weltzdo VALUES (?, ?, ?, ?)').run('1:5', 'w1', 1, '{}');
+      d.close();
+      return pfad;
+    };
+    const zeilen = (pfad: string): string => {
+      const d = new DatabaseSync(pfad, { readOnly: true });
+      try {
+        const n = (t: string) => (d.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
+        return `${n('spielerzustand')}/${n('weltzdo')}`;
+      } finally { d.close(); }
+    };
+    const b = bauen({ vorSchritt: (s) => { if (s === 'dokument') throw new Error('dokument kaputt'); } });
+    writeFileSync(b.umg.spielstand, saveBytes(5, 'w1'));
+    const pfad = echteKonten(b);
+    const f = (await weltZuruecksetzenBehandeln(gut, b.umg)) as { code: number; daten: Record<string, any> };
+    check('B4[N3]: Fehler beim Dokument → 500, zurückgerollt', f.code === 500 && f.daten.zurueckgerollt === true, `= ${f.code} ${JSON.stringify(f.daten).slice(0, 120)}`);
+    check('B4[N3]: die Zustandszeilen sind NICHT gelöscht (2/1), die Meldung „wie vorher“ stimmt also', zeilen(pfad) === '2/1', zeilen(pfad));
+    const g = bauen();
+    writeFileSync(g.umg.spielstand, saveBytes(5, 'w1'));
+    const pfadG = echteKonten(g);
+    const ok = (await weltZuruecksetzenBehandeln(gut, g.umg)) as { code: number; daten: Record<string, any> };
+    check('B4[N3]: gelungener Reset leert die Zeilen SEINER Welt (w1: 1 Spieler, 1 ZDO), die von w2 bleiben (1/0), und meldet es', ok.code === 200 && zeilen(pfadG) === '1/0' && ok.daten.zustandszeilen?.geleert?.spieler === 1 && ok.daten.zustandszeilen?.geleert?.zdos === 1, `= ${ok.code} ${JSON.stringify(ok.daten.zustandszeilen)} ${zeilen(pfadG)}`);
+  }
+  {
+    // F8 N4 (Nachangriff 4): a test world's reset leaves the rows of the parked dev world; the dev reset empties only dev.
+    const zustandZeilen = (pfad: string): string => {
+      const d = new DatabaseSync(pfad, { readOnly: true });
+      try {
+        const n = (t: string, w: string) => (d.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE welt_id = ?`).get(w) as { n: number }).n;
+        return `dev ${n('spielerzustand', 'wDev')}/${n('weltzdo', 'wDev')}, test ${n('spielerzustand', 'wTest')}/${n('weltzdo', 'wTest')}`;
+      } finally { d.close(); }
+    };
+    const vorbereiten = (weltId: string): { b: ReturnType<typeof bauen>; pfad: string } => {
+      const b = bauen();
+      writeFileSync(b.umg.spielstand, saveBytes(5, weltId));
+      for (const s of ['', '-wal', '-shm']) rmSync(resolve(b.konten, `dev.db${s}`), { force: true });
+      const pfad = resolve(b.konten, 'dev.db');
+      const d = new DatabaseSync(pfad);
+      d.exec('CREATE TABLE spielerzustand (spieler_id TEXT NOT NULL COLLATE NOCASE, welt_id TEXT NOT NULL, stand INTEGER NOT NULL, daten TEXT NOT NULL, PRIMARY KEY (spieler_id, welt_id))');
+      d.exec('CREATE TABLE weltzdo (zdo_id TEXT NOT NULL, welt_id TEXT NOT NULL, stand INTEGER NOT NULL, daten TEXT, PRIMARY KEY (zdo_id, welt_id))');
+      for (const w of ['wDev', 'wTest']) {
+        d.prepare('INSERT INTO spielerzustand VALUES (?, ?, ?, ?)').run('a', w, 1, '{}');
+        d.prepare('INSERT INTO weltzdo VALUES (?, ?, ?, ?)').run('1:5', w, 1, '{}');
+      }
+      d.close();
+      return { b, pfad };
+    };
+    const t = vorbereiten('wTest');
+    const rt = (await weltZuruecksetzenBehandeln(gut, t.b.umg)) as { code: number; daten: Record<string, any> };
+    check('N4: Reset der Testwelt: nur test leer, dev-Zeilen stehen', rt.code === 200 && zustandZeilen(t.pfad) === 'dev 1/1, test 0/0', `= ${rt.code} ${zustandZeilen(t.pfad)}`);
+    const dv = vorbereiten('wDev');
+    const rd = (await weltZuruecksetzenBehandeln(gut, dv.b.umg)) as { code: number; daten: Record<string, any> };
+    check('N4: Reset von dev: nur dev leer, test-Zeilen stehen', rd.code === 200 && zustandZeilen(dv.pfad) === 'dev 0/0, test 1/1', `= ${rd.code} ${zustandZeilen(dv.pfad)}`);
+    const ohne = vorbereiten('wDev');
+    writeFileSync(ohne.b.umg.spielstand, saveBytes(5)); // alte Datei ohne Kennung
+    const ro = (await weltZuruecksetzenBehandeln(gut, ohne.b.umg)) as { code: number; daten: Record<string, any> };
+    check('N4: Datei ohne Kennung: nichts wird geloescht (unbekannte Kennung), Reset gelingt', ro.code === 200 && zustandZeilen(ohne.pfad) === 'dev 1/1, test 1/1', `= ${ro.code} ${zustandZeilen(ohne.pfad)}`);
+
+    // F8 N4 (Nachangriff 5): emptying fails (accounts database locked by a second connection): code 200, hint in the message, rows stay.
+    const l = vorbereiten('wDev');
+    const sperre = new DatabaseSync(l.pfad);
+    sperre.exec('BEGIN IMMEDIATE');
+    let rl: { code: number; daten: Record<string, any> };
+    try {
+      rl = (await weltZuruecksetzenBehandeln(gut, l.b.umg)) as { code: number; daten: Record<string, any> };
+    } finally {
+      sperre.exec('ROLLBACK');
+      sperre.close();
+    }
+    const doc = sanitizeWorldLayout(JSON.parse(readFileSync(l.b.umg.layoutDatei, 'utf-8')));
+    check('N4: Leeren scheitert (Konten-DB gesperrt): Code 200, Dokument leer, Hinweis in der Meldung', rl.code === 200 && rl.daten.ok === true && doc !== null && doc.regions.length === 0 && String(rl.daten.message).includes('Hinweis') && String(rl.daten.message).includes('locked') && typeof rl.daten.zustandszeilen?.fehler === 'string', `= ${rl.code} ${String(rl.daten.message).slice(0, 200)}`);
+    check('N4: … und die Zeilen stehen (dev 1/1, test 1/1)', zustandZeilen(l.pfad) === 'dev 1/1, test 1/1', zustandZeilen(l.pfad));
   }
   {
     // A copy of the world document from an earlier attempt in the same minute (a reset that failed leaves its copies):

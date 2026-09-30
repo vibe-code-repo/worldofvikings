@@ -177,7 +177,8 @@ not memory, is the limit (load 12 on 8 cores with two full runs). So:
 | What | Places | Take it with |
 |---|---|---|
 | `typecheck`, `build`, `npm ci` | 2 | `tools/sperre.sh build -- <command>` |
-| full test run (`npm test`) | 2, each in its own worktree | `tools/sperre.sh test -- npm test` |
+| full test run (`npm test`), DEV rollout (`tools/wov-update.sh`) | 2, each in its own worktree | `tools/sperre.sh test -- npm test` |
+| one test file or a short probe run (not a full `npm test`) | 4 | `tools/sperre.sh einzeltest -- <command>` |
 | frame-time measurement | 1 | the four `tools/pw-*` measurement tools (`pw-fps-bench`, `pw-testflug-bench`, `pw-schatten-g18-g20`, `pw-schatten-ii-zuordnung`) lock `~/.cache/wov-mess.lock` themselves: start them plainly. `tools/sperre.sh measure -- <command>` (one place) is for any other measurement without its own lock |
 | workers per orchestrator on wov-dev | 4 | (a rule, not a lock) |
 
@@ -189,12 +190,13 @@ ignores `WOV_SPERREN`. A test run that is timing-sensitive (a measurement, a sus
 red) is repeated alone.
 
 The name must fit the work: `typecheck`, `build` and `npm ci` always under `build`, full
-test runs under `test`. The tool binds the number of places per name, not which work
+test runs and the rollout under `test`, single test files and short probes under
+`einzeltest`. Mutant and probe series take the lock per run, not for the whole series. Worktrees whose `tools/sperre.sh` does not know `einzeltest` yet (branched before this change) use `test` until they merge main. The tool binds the number of places per name, not which work
 goes under which name (`sperre.sh test -- npm run typecheck` works and would sneak
 past the build limit), so that part is a promise of the caller.
 
 `tools/sperre.sh <name> -- <command>` is a counting semaphore on `flock`. The number
-of places is fixed in the tool (`build` 2, `test` 2, `measure` 1), not chosen by the
+of places is fixed in the tool (`build` 2, `test` 2, `measure` 1, `einzeltest` 4), not chosen by the
 caller: an unknown name, or a number that does not match (`build 3`), exits 64 with a
 `sperre: usage:` line. The old form `<name> <n> -- <command>` is accepted only while
 `<n>` equals the table. It takes the first free place (`<name>.lock`, then
@@ -229,7 +231,7 @@ What the lock covers, and what it does not:
   name run past the lock (12 at once measured), each with its stderr line; the pass costs
   no place and is no protection against misuse. It exists so that a commit under a lock
   cannot wait for itself.
-- **Never take one lock under the other** (`build` inside `test`, `test` inside `build`):
+- **Never take one lock under the other** (`build` inside `test`, `test` inside `build`, and likewise `einzeltest` inside either, or either inside `einzeltest`):
   two of each, crossed, wait on each other for ever without a message. Release the first
   lock, then take the second. The tool does not refuse it, so that the hook (`build`)
   keeps working under any caller. The lock files in `.slots` are part of the contract: deleting one lifts the lock,
@@ -353,7 +355,7 @@ tools/sperre.sh build -- npm run build
 ```
 
 plus the tests **affected** by your change, one file at a time under
-`tools/sperre.sh test --` (see the next section) — not the collective `npm test`.
+`tools/sperre.sh einzeltest --` (see the next section) — not the collective `npm test`.
 "Affected" means: every test file you added or changed, the tests of the
 modules you touched (`git grep` the changed file's path or its exports under
 `*/test/`), and `scripts/pruefe-runner-liste.mjs` whenever you added a test
@@ -395,7 +397,7 @@ runs with `cwd: client`. To run one file exactly the way the collective run
 does, read its package and its file off the matching `KERN` entry and:
 
 ```bash
-tools/sperre.sh test -- bash -c 'cd <package> && "$OLDPWD/node_modules/.bin/tsx" <file>'
+tools/sperre.sh einzeltest -- bash -c 'cd <package> && "$OLDPWD/node_modules/.bin/tsx" <file>'
 ```
 
 (`$OLDPWD` is the repository root here, because `sperre.sh` runs the command
@@ -420,15 +422,10 @@ Playwright based measurements (`tools/pw-*`) are deliberately NOT part of
 Chromium starts in a plain runner container. If your task depends on one of
 them, say so in the pull request and give the measured numbers.
 
-### Move proof tool (restricted)
+### Move proof tool
 
-`tools/i1-verschiebung.mjs` (I1, step 0) compares the old and the new state of a move
-and reports differences. **EINGESCHRÄNKT: Exit 0 ist noch kein Verschiebebeweis.**
-Bekannte Lücken: siehe `Berichte/2026-09-30 I1 Schritt 0 N1 — Nachangriff.md`
-(H1–H4, M1–M4). Umbau folgt als eigene Karte. Until then a cut is checked by hand
-as well (`git diff -w` of the rest shows only forwardings and import lines) and the
-pull request text says so. Every output of the tool carries this sentence; on exit 0
-it says "keine Abweichung gefunden (eingeschränkt)", never "proved".
+The proof of a mechanical move is `tools/verschiebung/`; see section 9, "Move proof", and the
+README there.
 
 ### File size guard
 
@@ -495,3 +492,75 @@ Its own npm project inside the same repository, **deliberately not a workspace**
 — otherwise `npm ci` at the root would pull SvelteKit and Vite onto every
 container, including the pure game server. It brings its own `node_modules` and
 its own lockfile. It is deployed with `wov-web/tools/ausrollen.sh`.
+
+## 9. Move proof (`tools/verschiebung/`)
+
+A refactoring step that only moves code is proven, not judged by eye. The proof
+compares an old state (a commit) with a new state (a commit or the working tree)
+on the TypeScript syntax tree and with the type checker. Stage 1 knows two forms:
+declarations of the module level that move verbatim into a new file (form 0), and
+methods of a class that become functions of a new file with the instance as their
+first parameter `k`, while a forwarder stays in the class (form k). The rules of
+both forms are checked by the tool; `tools/verschiebung/README.md` lists them.
+
+The call, on the build host under the build lock (it builds two TypeScript
+programs, 1.5 to 1.7 GB, about 15 s per step):
+
+    tools/sperre.sh build -- node_modules/.bin/tsx tools/verschiebung/verschiebung.ts <manifest.json> [--json]
+
+Everything that influences the proof stands in the manifest: both states, the
+source file, the class, the target files with the names that move into them, the
+entry files from which the order of evaluation is compared, and the releases. A
+release names one finding by its key and gives a reason of at least 20 visible
+characters; the manifest, the releases and the full hashes of both states are
+printed into every output. There are no other switches. Exit 0 is the proof, exit
+1 means findings, exit 2 a broken call or manifest.
+
+**What exit 0 does not prove.** It proves that the source file, its rest and the
+target files differ by nothing but the declared move. It proves nothing about
+other files (tests, test lists, everything a merge brought in between the two
+states), nothing about installed packages that changed between the states, and
+nothing about the order of evaluation from entry files the manifest does not name
+(a module first loaded by a dynamic import or a worker needs its own entry). A
+released finding is not proven, it is explained: the reason is a claim the review
+reads. Program files under test folders are left out of the programs, so a global
+name that only a test declares is not seen. Whitespace between tokens is not
+compared for form k, and that other callers of a new function pass the instance is
+not checked. Behaviour is not executed. The full list stands in every output, and
+exit 0 replaces neither `typecheck` nor the tests nor the review of the releases.
+
+Since the attack on version 1.0 the tool also refuses, in form k: a default value of
+a parameter that reads `this` or can yield `undefined` (the forwarder would pass
+`undefined` on and the function would evaluate its own default a second time),
+`this` as a type or as a value, and `this` in a computed name, a decorator or an
+`extends` clause of a nested class or member (that `this` belongs to the method).
+In form 0 it refuses a moved `let`/`var` that the rest assigns to, and it reports
+a read of a moved name by a statement of the rest that runs while the module
+loads, in front of the old place, directly or through a called function (release
+`lesen:<name>`). Import attributes of a target file are compared, names with
+umlauts are valid in the manifest, a release reason needs words (10 letters or
+digits, 4 different ones, besides the 20 visible characters), and the output marks
+a rule that checked 0 places.
+
+Version 1.2 (second fix round) turned the two weakest rules into free lists: a default
+value of a form k parameter passes only as a plain literal (a name, member access, cast,
+conditional or template with a substitution is B12), and rule B9 reports every read of a
+moved name that a statement of the rest in front of the old place can reach by any mention
+of a function, member name or computed access (release `lesen:<name>`, all sites listed).
+An assignment to a moved `let`/`var` is found through casts and judged by its binding with
+the type checker.
+
+Version 1.3 (third fix round): a function or class value as a default value of a
+form k parameter is no plain literal and is no longer free: the forwarder creates it
+in the scope of its own parameters, so it needs a release `vorgabe:<method>.<parameter>`
+and never passes if it mentions a parameter of the method or itself. Rule B9 counts the
+mention of a variable that carries a function, method, getter or class (and an object
+literal used at once) as a read, which covers the implicit calls of the language (spread,
+template, `+`, `await`, `for of`, `Object.*`, `JSON.stringify`). A side-effect import
+`import '<module>';` directly behind the unchanged import of the same module is glue
+(form k rule 4.6b), any other one is a finding (release `seiteneffekt:<module>`).
+
+A step is delivered with its manifest under `tools/verschiebung/zeugen/` and the
+output of the proof in the pull request. The self-tests `tools/test/verschiebung-*.ts`
+run in the CI; the probe on real files with the git history,
+`tools/verschiebung/pruefstand/echt.ts`, runs locally only.

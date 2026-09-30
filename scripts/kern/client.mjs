@@ -217,6 +217,9 @@ export default [
   ['client', 'test/entity-module-oberflaeche.ts'],
   // Draft store: two tabs, one localStorage key; undo stack, evicted ring.
   ['client', 'test/entwurfs-speicher.ts'],
+  // F10: Wiederverbinden nach Serverneustart (client/src/net/Wiederverbinden.ts):
+  // Wartezeiten 1..60 s, Kick gibt auf, Zeitlimit, Zaehler. DOM-frei, Sekunden.
+  ['client', 'test/f10-wiederverbinden.ts'],
   // F6 (Roadmap): seq-Verwerfungsregel für Client-Vorhersage-
   // Reconciliation (client/src/net/Eingabeverwerfung.ts) — reine
   // Funktion. Seit dem Abgleich per Eingabesequenz nicht mehr tot:
@@ -748,6 +751,8 @@ export default [
   // operations, zone reset.
   // Tool registry: the editor's tools behind one interface (start, abort, keys, bar).
   ['client', 'test/werkzeug-registry.ts'],
+  // F9: Wetter vom Server im Client (DOM-frei): Paket lesen, Übergabe an den WeatherManager, Verdrahtung in main.ts.
+  ['client', 'test/wetter-annahme.ts'],
   // Wildwarden clientseitig: Slot-Vertrag, Speicher-Rundlauf, Inventarersatz,
   // Körper-Wiederherstellung. NullEngine.
   ['client', 'test/wildwarden.ts'],

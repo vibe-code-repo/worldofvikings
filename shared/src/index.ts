@@ -120,6 +120,7 @@ export * from './gravethorn.js';
 export * from './crowshade.js';
 export * from './legacyFemaleRegions.js';
 export * from './wetterVorgabe.js';
+export * from './wetterDefinition.js';
 export * from './lookProfil.js';
 // Die Himmelsfelder aus A5/A12. Eigene Datei, solange `lookProfil.ts`
 // dem Integrator gehört — s. den Kopf von `lookHimmel.ts`.

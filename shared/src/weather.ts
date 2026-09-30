@@ -110,7 +110,7 @@ const BIOME_ORDER: readonly Biome[] = [
  * single bit the same way environmentForBiome does, so weather and
  * lighting never disagree about which biome the player is in.
  */
-function resolveBiomeBit(biome: Biome): Biome | null {
+export function resolveBiomeBit(biome: Biome): Biome | null {
   for (const bit of BIOME_ORDER) {
     if ((biome & bit) !== 0) return bit;
   }

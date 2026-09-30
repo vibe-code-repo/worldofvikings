@@ -146,6 +146,12 @@ check(
   main.includes('the website that issued the session') &&
     main.includes('window.location.replace(websiteLoginUrl(Boolean(reason)))'),
 );
+check(
+  'both ways out go through that one recovery function: the disconnect handler and the give-up after the reconnect limit (F10)',
+  main.includes('zurueckZurAnmeldung(reason);') &&
+    main.includes('aufgegeben: () => zurueckZurAnmeldung(),') &&
+    main.split('window.location.replace(websiteLoginUrl(').length === 2,
+);
 
 console.log(`\n${failures === 0 ? 'OK' : `${failures} FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);

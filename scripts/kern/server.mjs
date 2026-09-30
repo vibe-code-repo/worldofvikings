@@ -170,6 +170,11 @@ export default [
   // der Inhalt uebersteht Speichern/Laden. Drei gestartete Server + ein
   // init()-only Reload, ~5s.
   ['server', 'test/f1-truhe.ts'],
+  // F12 (Roadmap): Zonenbudget je Spieler statt einer globalen Schlange nach
+  // Abstand: Spieler mit wenigen offenen Zonen kommt in <= 2 Ticks dran
+  // (simulierte Uhr), keine O(Q×P)-Sortierung, dieselbe Menge Zonen/ZDOs wie
+  // vorher (Golden), Abgang ohne Leck. Layoutwelt, ~20 s.
+  ['server', 'test/f12-zonenbudget.ts'],
   // F14 (Roadmap): Reichweiten-Auswahl der Chat-Empfänger (Whisper/
   // Normal/Shout, Herleitung s. Kopfkommentar von ChatReichweite.ts),
   // Grenzwert exakt auf der Reichweite, Absender immer dabei, sowie die

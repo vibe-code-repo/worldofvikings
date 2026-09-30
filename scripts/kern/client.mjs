@@ -378,6 +378,13 @@ export default [
   // service with stand-in workers (centre first, stale views never sent,
   // stale world generations dropped, 50 steps without growth). DOM-free, ~3 s.
   ['client', 'test/karte-kacheln.ts'],
+  // Boundary of client/src/editor/katalog/ (refactoring step G1): kategorien.ts derives its
+  // lists from the registries when it loads, so value imports of katalog/* may only stand in
+  // GegenstandsKatalog.ts (loaded dynamically after the registrations) and in katalog/ itself,
+  // and nothing imports GegenstandsKatalog.ts statically as a value. Read on the syntax tree,
+  // with a teeth check of the scanner; plus the behaviour of fmt/fmtBytes and of the derived
+  // lists. DOM-free, ~1 s.
+  ['client', 'test/katalog-module-grenze.ts'],
   ['client', 'test/kollision-formen.ts', brauchtStore()],
   // Die `_col`-Konvention (ein GLB-Mesh ist NUR Kollision): unsichtbar,
   // kein Schattenwerfer, und es ERSETZT die Kollision des Prefabs. Beide

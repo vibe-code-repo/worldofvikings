@@ -175,6 +175,8 @@ import {
   serverStatusAnzeige,
   type DienstZustand,
 } from './serverSteuerung';
+// Gegenstands-Maske (Editor EG2): eine eigene Ansicht ueber dem Viewport, ein Knopf in der Werkzeugleiste.
+import { gegenstandsKnopf } from './gegenstaende/seite';
 
 // ── E6: die Modulregistry, BEVOR der erste Katalog gebaut wird ────────
 //
@@ -2977,6 +2979,7 @@ function weltFeldBauen(): void {
       titel: 'Öffnet das Spiel offline mit dem Entwurf. Die Welt auf dem Server bleibt unberührt.',
     })
   );
+  ansicht.appendChild(gegenstandsKnopf(shell.viewport));
   ansicht.appendChild(
     knopf('Inselwahl', () => inselwahl.toggle(), {
       pfad: PFAD.inselForm,

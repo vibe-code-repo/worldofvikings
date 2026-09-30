@@ -1,0 +1,668 @@
+/**
+ * Item mask (Editor card EG2): the "Gegenstände" view. A list on the left, the form on the right; it lies over the
+ * viewport like the catalogue does and is opened by one toolbar button (`gegenstandsKnopf`).
+ * Gegenstands-Maske (EG2): Liste links, Formular rechts, als Ansicht ueber dem Viewport.
+ *
+ * This is the only DOM file of the mask. What decides anything is DOM-free and tested on its own: the form
+ * and its check in `modell.ts`, the route calls in `api.ts`, every text of a code in `texte.ts`. Every text the
+ * author reads goes through `t()` (keys `editor.gegenstand.*`); a scanner test keeps German or English literals out.
+ *
+ * Loading this module runs nothing: no registry read, no `await`, nothing written to an import. The upload list
+ * is read when the view opens (`uploadedModelRegistry.uploadedModelEntries()`), the items when it loads.
+ *
+ * No hand preview at the Viking here (EG3), no "accept" by pull request (EG4).
+ */
+import { ITEM_DEFS, uploadedModelRegistry } from '@wov/shared';
+import type { GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
+import type { TranslationKey } from '../../i18n';
+import { F, M, SCHRIFT, beschriftungStil, el, grundregelnEinhaengen, knopf, stil, zierTitel } from '../design';
+import { aktuelleSprache, t } from '../i18n';
+import {
+  ladeQuittung,
+  ladeStand,
+  speichernMitBestaetigung,
+  type ApiOptionen,
+  type SpeicherAblauf,
+  type Stand,
+} from './api';
+import {
+  ANIMATIONSSAETZE,
+  GEGENSTANDS_TYPEN,
+  MAX_GEGENSTAENDE,
+  SELTENHEITEN,
+  STAT_IDS,
+  andereOhne,
+  eintragZuFormular,
+  formularZuEintrag,
+  idAenderbar,
+  kopie,
+  leeresFormular,
+  mitEintrag,
+  ohneEintrag,
+  pruefeFormular,
+  setzeId,
+  type FeldFehler,
+  type Formular,
+  type Vektor3,
+} from './modell';
+import { bestaetigungsInhalt, feldFehlerText, fehlerErgebnisText, grundText, quittungText, routeFehlerText, zugangText, type BestaetigungInfo } from './texte';
+
+const Z = 9000;
+
+const TYP_SCHLUESSEL: Record<(typeof GEGENSTANDS_TYPEN)[number], TranslationKey> = {
+  einhaendigWaffe: 'editor.gegenstand.typ.einhaendig_waffe',
+  zweihaendigWaffe: 'editor.gegenstand.typ.zweihaendig_waffe',
+  werkzeug: 'editor.gegenstand.typ.werkzeug',
+  material: 'editor.gegenstand.typ.material',
+};
+const SATZ_SCHLUESSEL: Record<(typeof ANIMATIONSSAETZE)[number], TranslationKey> = {
+  sword: 'editor.gegenstand.satz.sword',
+  staff: 'editor.gegenstand.satz.staff',
+  spear: 'editor.gegenstand.satz.spear',
+};
+const RARITY_SCHLUESSEL: Record<(typeof SELTENHEITEN)[number], TranslationKey> = {
+  common: 'editor.gegenstand.rarity.common',
+  uncommon: 'editor.gegenstand.rarity.uncommon',
+  rare: 'editor.gegenstand.rarity.rare',
+  epic: 'editor.gegenstand.rarity.epic',
+  legendary: 'editor.gegenstand.rarity.legendary',
+};
+const WERT_SCHLUESSEL: Record<(typeof STAT_IDS)[number], TranslationKey> = {
+  damage: 'editor.gegenstand.feld.wert_damage',
+  armor: 'editor.gegenstand.feld.wert_armor',
+  strength: 'editor.gegenstand.feld.wert_strength',
+  vitality: 'editor.gegenstand.feld.wert_vitality',
+  agility: 'editor.gegenstand.feld.wert_agility',
+};
+
+/** Display name of an entry in the current language; its id if it has no text. */
+function anzeigeName(e: GegenstandsEintrag): string {
+  const tx = Object.hasOwn(e.texte, e.nameSchluessel) ? e.texte[e.nameSchluessel] : undefined;
+  const lang = aktuelleSprache();
+  return (lang === 'en' ? tx?.en ?? tx?.de : tx?.de ?? tx?.en) ?? e.id;
+}
+
+/** True if the upload is gone from the registry ("Modell fehlt"). */
+const modellFehlt = (upload: string | null): boolean =>
+  upload !== null && upload !== '' && uploadedModelRegistry.uploadedModelEntry(upload.slice(uploadedModelRegistry.UPLOAD_MODEL_PREFIX.length)) === undefined;
+
+/** Modal question dialog with two answers; resolves `true` on the confirm button, `false` on cancel. No Esc, no click outside. */
+function fragenDialog(inhalt: { titel: string; satz: string; punkte: string[]; bestaetigen: string; abbrechen: string }): Promise<boolean> {
+  return new Promise((aufloesen) => {
+    grundregelnEinhaengen();
+    const huelle = el(
+      'div',
+      stil({ position: 'fixed', inset: '0', 'z-index': String(Z), display: 'grid', 'place-items': 'center', background: F.vorhang, 'backdrop-filter': 'blur(3px)', 'font-family': SCHRIFT.text, color: F.text, 'font-size': '13px' })
+    );
+    huelle.setAttribute('data-gegenstand-dialog', '');
+    const tafel = el(
+      'div',
+      stil({ 'max-width': '560px', width: 'calc(100% - 48px)', 'max-height': 'calc(100vh - 48px)', display: 'flex', 'flex-direction': 'column', background: F.flaeche, border: `1px solid ${F.warnRand}`, 'border-radius': '12px', 'box-shadow': '0 30px 80px rgba(0,0,0,.6)', overflow: 'hidden' })
+    );
+    const kopf = el('div', stil({ padding: '16px 18px', 'border-bottom': `1px solid ${F.randLeise}`, flex: 'none' }));
+    kopf.appendChild(zierTitel(inhalt.titel, 15));
+    const mitte = el('div', stil({ padding: '18px', display: 'flex', 'flex-direction': 'column', gap: '10px', 'overflow-y': 'auto' }));
+    mitte.appendChild(el('div', stil({ 'line-height': '1.55', color: F.textRuhig }), inhalt.satz));
+    if (inhalt.punkte.length > 0) {
+      const ul = el('ul', stil({ margin: '0', 'padding-left': '20px', color: F.warnText, 'line-height': '1.6' }));
+      for (const p of inhalt.punkte) ul.appendChild(el('li', '', p));
+      mitte.appendChild(ul);
+    }
+    const fuss = el('div', stil({ padding: '12px 18px', display: 'flex', 'justify-content': 'flex-end', gap: '10px', 'border-top': `1px solid ${F.randLeise}` }));
+    const antwort = (ja: boolean): void => {
+      huelle.remove();
+      aufloesen(ja);
+    };
+    // The highlighted answer is "cancel": the way out is never the destructive one.
+    fuss.append(knopf(inhalt.bestaetigen, () => antwort(true), { art: 'leise' }), knopf(inhalt.abbrechen, () => antwort(false), { art: 'bronze' }));
+    tafel.append(kopf, mitte, fuss);
+    huelle.appendChild(tafel);
+    document.body.appendChild(huelle);
+  });
+}
+
+class GegenstandsSeite {
+  private readonly wurzel: HTMLDivElement;
+  private readonly listeEl: HTMLDivElement;
+  private readonly formEl: HTMLDivElement;
+  private readonly hinweisEl: HTMLDivElement;
+  private readonly bannerEl: HTMLDivElement;
+  private readonly quittungEl: HTMLDivElement;
+  private speichernKnopf!: HTMLButtonElement;
+  private fehlerEls = new Map<string, HTMLElement>();
+  private allgemeinFehlerEl: HTMLElement | null = null;
+
+  private stand: Stand | null = null;
+  private form: Formular | null = null;
+  /** Id of the SAVED entry the form edits, null for a new one. */
+  private ausgewaehlt: string | null = null;
+  /** The form as it was loaded, to notice unsaved edits. */
+  private formAusgang = '';
+  private beschaeftigt = false;
+  private offen = false;
+  private readonly taste = (e: KeyboardEvent): void => {
+    if (e.code === 'Escape' && !document.querySelector('[data-gegenstand-dialog]')) {
+      e.stopPropagation();
+      this.schliessen();
+    }
+  };
+
+  constructor(
+    viewport: HTMLElement,
+    private readonly api: ApiOptionen
+  ) {
+    grundregelnEinhaengen();
+    this.wurzel = el(
+      'div',
+      stil({ position: 'absolute', inset: '0', 'z-index': '40', display: 'none', 'flex-direction': 'column', background: F.grund, color: F.text, 'font-family': SCHRIFT.text, 'font-size': '13px' })
+    );
+    const kopf = el('div', stil({ display: 'flex', 'align-items': 'center', gap: '12px', padding: '10px 16px', 'border-bottom': `1px solid ${F.rand}`, flex: 'none' }));
+    kopf.appendChild(zierTitel(t('editor.gegenstand.seite.titel'), 15));
+    this.quittungEl = el('div', stil({ 'font-size': '11.5px', color: F.gedimmt, flex: '1', 'min-width': '0' }));
+    kopf.append(
+      this.quittungEl,
+      knopf(t('editor.gegenstand.seite.neu_laden'), () => void this.laden(), { art: 'leise', hoehe: M.knopfHoeheKlein }),
+      knopf(t('editor.gegenstand.seite.schliessen'), () => this.schliessen(), { hoehe: M.knopfHoeheKlein })
+    );
+    this.bannerEl = el('div', stil({ display: 'none', 'flex-direction': 'column', gap: '6px', padding: '10px 16px', background: F.warnFlaeche, 'border-bottom': `1px solid ${F.warnRand}`, color: F.warnText, 'font-size': '12.5px' }));
+    const koerper = el('div', stil({ display: 'flex', flex: '1', 'min-height': '0' }));
+    const links = el('div', stil({ width: '280px', flex: 'none', display: 'flex', 'flex-direction': 'column', 'border-right': `1px solid ${F.rand}`, background: F.flaeche }));
+    const linksKopf = el('div', stil({ display: 'flex', gap: '8px', padding: '10px' }));
+    linksKopf.append(
+      knopf(t('editor.gegenstand.seite.neu'), () => this.neuerEintrag(), { art: 'bronze', hoehe: M.knopfHoeheKlein }),
+      knopf(t('editor.gegenstand.seite.kopieren'), () => this.kopieren(), { hoehe: M.knopfHoeheKlein })
+    );
+    this.listeEl = el('div', stil({ flex: '1', 'overflow-y': 'auto', padding: '0 6px 10px' }));
+    links.append(linksKopf, this.listeEl);
+    this.formEl = el('div', stil({ flex: '1', 'min-width': '0', 'overflow-y': 'auto', padding: '16px 20px 80px' }));
+    koerper.append(links, this.formEl);
+    this.hinweisEl = el('div', stil({ padding: '8px 16px', 'font-size': '12px', color: F.gedimmt, 'border-top': `1px solid ${F.rand}`, flex: 'none', 'min-height': '18px' }));
+    this.wurzel.append(kopf, this.bannerEl, koerper, this.hinweisEl);
+    viewport.appendChild(this.wurzel);
+  }
+
+  get istOffen(): boolean {
+    return this.offen;
+  }
+
+  umschalten(): void {
+    if (this.offen) this.schliessen();
+    else this.oeffnen();
+  }
+
+  private oeffnen(): void {
+    this.offen = true;
+    this.wurzel.style.display = 'flex';
+    document.addEventListener('keydown', this.taste, true);
+    void this.laden();
+  }
+
+  private schliessen(): void {
+    if (this.form && this.veraendert() && !window.confirm(t('editor.gegenstand.seite.verwerfen_frage'))) return;
+    this.offen = false;
+    this.wurzel.style.display = 'none';
+    document.removeEventListener('keydown', this.taste, true);
+  }
+
+  // ── Loading ────────────────────────────────────────────────────────
+
+  private meldung(text: string, fehler = false): void {
+    this.hinweisEl.textContent = text;
+    this.hinweisEl.style.color = fehler ? F.fehler : F.gedimmt;
+  }
+
+  private banner(zeilen: string[], knoepfe: HTMLElement[] = []): void {
+    this.bannerEl.replaceChildren(...zeilen.map((z) => el('div', '', z)), ...knoepfe);
+    this.bannerEl.style.display = zeilen.length > 0 || knoepfe.length > 0 ? 'flex' : 'none';
+  }
+
+  /** Loads the items and the receipt. A draft in the form is kept (`neu laden` never discards it). */
+  private async laden(): Promise<void> {
+    if (this.beschaeftigt) return;
+    this.beschaeftigt = true;
+    this.meldung(t('editor.gegenstand.seite.laedt'));
+    try {
+      const erg = await ladeStand(this.api);
+      if (erg.art !== 'ok') {
+        this.banner([erg.art === 'netz' ? zugangText('netz') : fehlerErgebnisText(erg)]);
+        this.meldung('', true);
+        return;
+      }
+      this.stand = erg.stand;
+      const zeilen: string[] = [];
+      if (erg.stand.dateiFehler !== null) {
+        zeilen.push(t('editor.gegenstand.seite.datei_kaputt', { grund: routeFehlerText(erg.stand.dateiFehler) }));
+      }
+      if (erg.stand.verworfen.length > 0) {
+        zeilen.push(
+          t('editor.gegenstand.seite.verworfen_hinweis', {
+            anzahl: erg.stand.verworfen.length,
+            liste: erg.stand.verworfen.map((v) => `${v.id ?? `#${v.index}`}: ${grundText(v.grund)}`).join('; '),
+          })
+        );
+      }
+      this.banner(zeilen);
+      // The selected saved entry follows the new state (its form keeps the draft as typed).
+      if (this.ausgewaehlt !== null && !erg.stand.eintraege.some((e) => e.id === this.ausgewaehlt) && this.form) this.form.neu = true;
+      this.meldung('');
+      this.zeichneListe();
+      this.zeichneForm();
+      void this.ladeQuittungAnzeige();
+    } finally {
+      this.beschaeftigt = false;
+    }
+  }
+
+  private async ladeQuittungAnzeige(): Promise<void> {
+    const erg = await ladeQuittung(this.api);
+    if (erg.art !== 'ok') {
+      this.quittungEl.textContent = '';
+      return;
+    }
+    const liste = this.stand?.eintraege ?? [];
+    const name = (id: string): string => {
+      const e = liste.find((x) => x.id === id);
+      return e ? anzeigeName(e) : id;
+    };
+    this.quittungEl.textContent = `${t('editor.gegenstand.quittung.titel')} ${quittungText(erg.quittung, name)}`;
+  }
+
+  // ── List ───────────────────────────────────────────────────────────
+
+  private zeichneListe(): void {
+    const liste = this.stand?.eintraege ?? [];
+    this.listeEl.replaceChildren();
+    if (liste.length === 0) {
+      this.listeEl.appendChild(el('div', stil({ padding: '12px 8px', color: F.gedimmt, 'font-size': '12px' }), t('editor.gegenstand.seite.leer')));
+      return;
+    }
+    for (const e of liste) {
+      const aktiv = e.id === this.ausgewaehlt;
+      const zeile = el(
+        'div',
+        stil({ padding: '8px 10px', 'border-radius': `${M.radiusKlein}px`, cursor: 'pointer', border: `1px solid ${aktiv ? F.wahlRand : 'transparent'}`, background: aktiv ? F.wahlFlaeche : 'transparent' })
+      );
+      zeile.appendChild(el('div', stil({ 'font-weight': '500' }), anzeigeName(e)));
+      const unten = el('div', stil({ display: 'flex', gap: '8px', 'font-size': '11px', color: F.gedimmt, 'font-family': SCHRIFT.mono }));
+      unten.appendChild(el('span', '', e.id));
+      if (modellFehlt(e.modell.upload)) unten.appendChild(el('span', stil({ color: F.warnText, 'font-family': SCHRIFT.text }), t('editor.gegenstand.seite.modell_fehlt')));
+      zeile.appendChild(unten);
+      zeile.onclick = () => this.waehle(e.id);
+      this.listeEl.appendChild(zeile);
+    }
+  }
+
+  private veraendert(): boolean {
+    return this.form !== null && JSON.stringify(this.form) !== this.formAusgang;
+  }
+
+  private darfWechseln(): boolean {
+    return !this.veraendert() || window.confirm(t('editor.gegenstand.seite.verwerfen_frage'));
+  }
+
+  private setzeForm(f: Formular | null, ausgewaehlt: string | null): void {
+    this.form = f;
+    this.ausgewaehlt = ausgewaehlt;
+    this.formAusgang = f ? JSON.stringify(f) : '';
+    this.zeichneListe();
+    this.zeichneForm();
+  }
+
+  private waehle(id: string): void {
+    if (id === this.ausgewaehlt || !this.darfWechseln()) return;
+    const e = this.stand?.eintraege.find((x) => x.id === id);
+    if (e) this.setzeForm(eintragZuFormular(e), id);
+  }
+
+  private neuerEintrag(): void {
+    if (!this.stand || !this.darfWechseln()) return;
+    if (this.stand.eintraege.length >= MAX_GEGENSTAENDE) {
+      this.meldung(grundText('zu-viele-eintraege'), true);
+      return;
+    }
+    this.setzeForm(leeresFormular(), null);
+  }
+
+  private kopieren(): void {
+    if (!this.stand || !this.form || !this.darfWechseln()) return;
+    this.setzeForm(kopie(this.form, this.stand.eintraege), null);
+    this.formAusgang = '';
+  }
+
+  // ── Form ───────────────────────────────────────────────────────────
+
+  private fehlerListe(): FeldFehler[] {
+    if (!this.form || !this.stand) return [];
+    return pruefeFormular(this.form, andereOhne(this.stand.eintraege, this.ausgewaehlt));
+  }
+
+  /** Field errors under their fields, the rest in the general line, and the state of the save button. */
+  private aktualisiere(): void {
+    const fehler = this.fehlerListe();
+    const je = new Map<string, string[]>();
+    const uebrig: string[] = [];
+    for (const f of fehler) {
+      const text = feldFehlerText(f);
+      if (this.fehlerEls.has(f.feld)) je.set(f.feld, [...(je.get(f.feld) ?? []), text]);
+      else uebrig.push(text);
+    }
+    for (const [feld, elem] of this.fehlerEls) elem.textContent = (je.get(feld) ?? []).join(' ');
+    if (this.allgemeinFehlerEl) this.allgemeinFehlerEl.textContent = uebrig.join(' ');
+    this.speichernKnopf.disabled = fehler.length > 0 || this.beschaeftigt;
+    this.speichernKnopf.style.opacity = this.speichernKnopf.disabled ? '0.45' : '1';
+    this.speichernKnopf.style.cursor = this.speichernKnopf.disabled ? 'not-allowed' : 'pointer';
+  }
+
+  private zeile(feld: string | null, beschriftung: TranslationKey, inhalt: HTMLElement, hinweis?: string): HTMLElement {
+    const z = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '4px', 'min-width': '0' }));
+    z.appendChild(el('span', beschriftungStil(), t(beschriftung)));
+    z.appendChild(inhalt);
+    if (hinweis) z.appendChild(el('div', stil({ 'font-size': '11px', color: F.gedimmt }), hinweis));
+    if (feld !== null) {
+      const f = el('div', stil({ 'font-size': '11.5px', color: F.fehler, 'min-height': '0' }));
+      this.fehlerEls.set(feld, f);
+      z.appendChild(f);
+    }
+    return z;
+  }
+
+  private eingabe(wert: string, bei: (v: string) => void, o: { gesperrt?: boolean; mono?: boolean; liste?: string; breite?: string } = {}): HTMLInputElement {
+    const i = el(
+      'input',
+      stil({ width: o.breite ?? '100%', 'box-sizing': 'border-box', height: '32px', padding: '0 10px', background: F.feld, border: `1px solid ${F.randFeld}`, 'border-radius': `${M.radiusKlein}px`, color: o.gesperrt ? F.gedimmt : F.text, 'font-family': o.mono ? SCHRIFT.mono : SCHRIFT.text, 'font-size': '13px' })
+    );
+    i.type = 'text';
+    i.value = wert;
+    i.disabled = o.gesperrt === true;
+    if (o.liste) i.setAttribute('list', o.liste);
+    i.oninput = () => {
+      bei(i.value);
+      this.aktualisiere();
+    };
+    return i;
+  }
+
+  private textFeld(wert: string, bei: (v: string) => void): HTMLTextAreaElement {
+    const a = el(
+      'textarea',
+      stil({ width: '100%', 'box-sizing': 'border-box', 'min-height': '54px', padding: '6px 10px', background: F.feld, border: `1px solid ${F.randFeld}`, 'border-radius': `${M.radiusKlein}px`, color: F.text, 'font-family': SCHRIFT.text, 'font-size': '13px', resize: 'vertical' })
+    );
+    a.value = wert;
+    a.oninput = () => {
+      bei(a.value);
+      this.aktualisiere();
+    };
+    return a;
+  }
+
+  private auswahl<T extends string>(werte: ReadonlyArray<{ id: T; name: string }>, gewaehlt: T, bei: (id: T) => void): HTMLSelectElement {
+    const s = el(
+      'select',
+      stil({ width: '100%', height: '32px', padding: '0 8px', background: F.feld, border: `1px solid ${F.randFeld}`, 'border-radius': `${M.radiusKlein}px`, color: F.text, 'font-family': SCHRIFT.text, 'font-size': '13px' })
+    );
+    for (const w of werte) {
+      const o = el('option', '', w.name);
+      o.value = w.id;
+      s.appendChild(o);
+    }
+    s.value = gewaehlt;
+    s.onchange = () => {
+      bei(s.value as T);
+      this.aktualisiere();
+    };
+    return s;
+  }
+
+  private vektor(v: Vektor3): HTMLElement {
+    const reihe = el('div', stil({ display: 'flex', gap: '6px' }));
+    for (let i = 0; i < 3; i++) reihe.appendChild(this.eingabe(v[i], (w) => (v[i] = w), { mono: true }));
+    return reihe;
+  }
+
+  private abschnitt(titel: TranslationKey, ...zeilen: HTMLElement[]): HTMLElement {
+    const a = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '10px', padding: '14px 0', 'border-bottom': `1px solid ${F.randLeise}` }));
+    a.appendChild(zierTitel(t(titel), 12));
+    const raster = el('div', stil({ display: 'grid', 'grid-template-columns': 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px 14px' }));
+    raster.append(...zeilen);
+    a.appendChild(raster);
+    return a;
+  }
+
+  private zeichneForm(): void {
+    this.fehlerEls = new Map();
+    this.allgemeinFehlerEl = null;
+    this.formEl.replaceChildren();
+    const f = this.form;
+    if (!f || !this.stand) {
+      this.formEl.appendChild(el('div', stil({ color: F.gedimmt, padding: '20px 0' }), t('editor.gegenstand.seite.waehle')));
+      this.speichernKnopf = knopf(t('editor.gegenstand.seite.speichern'), () => undefined, { art: 'bronze' });
+      this.speichernKnopf.disabled = true;
+      return;
+    }
+    const stand = this.stand;
+    this.allgemeinFehlerEl = el('div', stil({ color: F.fehler, 'font-size': '12px', 'min-height': '0' }));
+    this.formEl.appendChild(this.allgemeinFehlerEl);
+
+    // General
+    const idFeld = this.eingabe(f.id, (v) => Object.assign(f, setzeId(f, v)), { gesperrt: !idAenderbar(f), mono: true });
+    const allgemein = this.abschnitt(
+      'editor.gegenstand.abschnitt.allgemein',
+      this.zeile('id', 'editor.gegenstand.feld.id', idFeld, idAenderbar(f) ? t('editor.gegenstand.feld.id_hinweis_neu') : t('editor.gegenstand.feld.id_hinweis_fest')),
+      this.zeile('typ', 'editor.gegenstand.feld.typ', this.auswahl(GEGENSTANDS_TYPEN.map((id) => ({ id, name: t(TYP_SCHLUESSEL[id]) })), f.typ, (v) => (f.typ = v))),
+      this.zeile('stapel', 'editor.gegenstand.feld.stapel', this.eingabe(f.stapel, (v) => (f.stapel = v), { mono: true })),
+      this.zeile('gewicht', 'editor.gegenstand.feld.gewicht', this.eingabe(f.gewicht, (v) => (f.gewicht = v), { mono: true })),
+      this.zeile('itemLevel', 'editor.gegenstand.feld.item_level', this.eingabe(f.itemLevel, (v) => (f.itemLevel = v), { mono: true })),
+      this.zeile('rarity', 'editor.gegenstand.feld.rarity', this.auswahl(SELTENHEITEN.map((id) => ({ id, name: t(RARITY_SCHLUESSEL[id]) })), f.rarity, (v) => (f.rarity = v))),
+      this.zeile('symbol', 'editor.gegenstand.feld.symbol', this.eingabe(f.symbol, (v) => (f.symbol = v), { mono: true }))
+    );
+
+    // Texts (name in both languages is required)
+    const texte = this.abschnitt(
+      'editor.gegenstand.abschnitt.texte',
+      this.zeile('nameDe', 'editor.gegenstand.feld.name_de', this.eingabe(f.nameDe, (v) => (f.nameDe = v))),
+      this.zeile('nameEn', 'editor.gegenstand.feld.name_en', this.eingabe(f.nameEn, (v) => (f.nameEn = v))),
+      this.zeile(null, 'editor.gegenstand.feld.beschreibung_de', this.textFeld(f.beschreibungDe, (v) => (f.beschreibungDe = v))),
+      this.zeile(null, 'editor.gegenstand.feld.beschreibung_en', this.textFeld(f.beschreibungEn, (v) => (f.beschreibungEn = v)))
+    );
+
+    // Model
+    const uploads = uploadedModelRegistry.uploadedModelEntries();
+    const optionen: Array<{ id: string; name: string }> = [{ id: '', name: t('editor.gegenstand.modell.keins') }];
+    for (const u of uploads) optionen.push({ id: `${uploadedModelRegistry.UPLOAD_MODEL_PREFIX}${u.name}`, name: `${u.anzeigename} (${u.name})` });
+    if (f.upload !== '' && !optionen.some((o) => o.id === f.upload)) optionen.push({ id: f.upload, name: t('editor.gegenstand.modell.fehlt_option', { upload: f.upload }) });
+    const modell = this.abschnitt(
+      'editor.gegenstand.abschnitt.modell',
+      this.zeile('upload', 'editor.gegenstand.feld.upload', this.auswahl(optionen, f.upload, (v) => (f.upload = v)), modellFehlt(f.upload) ? t('editor.gegenstand.seite.modell_fehlt') : undefined),
+      this.zeile('skala', 'editor.gegenstand.feld.skala', this.eingabe(f.skala, (v) => (f.skala = v), { mono: true })),
+      this.zeile('haltePosition', 'editor.gegenstand.feld.halte_position', this.vektor(f.haltePosition)),
+      this.zeile('halteRotation', 'editor.gegenstand.feld.halte_rotation', this.vektor(f.halteRotation)),
+      this.zeile('hiebVersatz', 'editor.gegenstand.feld.hieb_versatz', this.eingabe(f.hiebVersatz, (v) => (f.hiebVersatz = v), { mono: true })),
+      this.zeile(
+        'animationsSatz',
+        'editor.gegenstand.feld.animations_satz',
+        this.auswahl<string>(
+          [{ id: '', name: t('editor.gegenstand.satz.keiner') }, ...ANIMATIONSSAETZE.map((id) => ({ id: id as string, name: t(SATZ_SCHLUESSEL[id]) }))],
+          f.animationsSatz,
+          (v) => (f.animationsSatz = v as Formular['animationsSatz'])
+        )
+      )
+    );
+    const werte = this.abschnitt(
+      'editor.gegenstand.abschnitt.werte',
+      ...STAT_IDS.map((s) => this.zeile(`wert.${s}`, WERT_SCHLUESSEL[s], this.eingabe(f.werte[s], (v) => (f.werte[s] = v), { mono: true })))
+    );
+    const ernte = this.abschnitt(
+      'editor.gegenstand.abschnitt.ernte',
+      this.zeile('ernteBaum', 'editor.gegenstand.feld.ernte_baum', this.eingabe(f.ernteBaum, (v) => (f.ernteBaum = v), { mono: true })),
+      this.zeile('ernteFels', 'editor.gegenstand.feld.ernte_fels', this.eingabe(f.ernteFels, (v) => (f.ernteFels = v), { mono: true }))
+    );
+    const haltbarkeit = this.abschnitt(
+      'editor.gegenstand.abschnitt.haltbarkeit',
+      this.zeile('haltbarkeitMax', 'editor.gegenstand.feld.haltbarkeit_max', this.eingabe(f.haltbarkeitMax, (v) => (f.haltbarkeitMax = v), { mono: true })),
+      this.zeile('haltbarkeitVerbrauch', 'editor.gegenstand.feld.haltbarkeit_verbrauch', this.eingabe(f.haltbarkeitVerbrauch, (v) => (f.haltbarkeitVerbrauch = v), { mono: true })),
+      this.zeile('haltbarkeitAusdauer', 'editor.gegenstand.feld.haltbarkeit_ausdauer', this.eingabe(f.haltbarkeitAusdauer, (v) => (f.haltbarkeitAusdauer = v), { mono: true }))
+    );
+    this.formEl.append(allgemein, texte, modell, werte, ernte, haltbarkeit, this.rezeptAbschnitt(f, stand));
+
+    // Buttons
+    const leiste = el('div', stil({ display: 'flex', gap: '10px', padding: '16px 0', 'align-items': 'center' }));
+    this.speichernKnopf = knopf(t('editor.gegenstand.seite.speichern'), () => void this.speichern(), { art: 'bronze' });
+    leiste.appendChild(this.speichernKnopf);
+    if (this.ausgewaehlt !== null) leiste.appendChild(knopf(t('editor.gegenstand.seite.entfernen'), () => void this.entfernen(), { art: 'leise' }));
+    this.formEl.appendChild(leiste);
+    this.aktualisiere();
+  }
+
+  private rezeptAbschnitt(f: Formular, stand: Stand): HTMLElement {
+    // Ingredients: every code item plus the other data items of this document.
+    const listeId = 'wov-gegenstand-zutaten';
+    const daten = el('datalist', '');
+    daten.id = listeId;
+    const namen = new Set<string>(ITEM_DEFS.map((d) => d.name));
+    for (const e of stand.eintraege) if (e.id !== f.id) namen.add(e.id);
+    for (const n of [...namen].sort()) {
+      const o = el('option', '');
+      o.value = n;
+      daten.appendChild(o);
+    }
+    const schalter = el('input', '');
+    schalter.type = 'checkbox';
+    schalter.checked = f.hatRezept;
+    schalter.onchange = () => {
+      f.hatRezept = schalter.checked;
+      if (f.hatRezept && f.zutaten.length === 0) f.zutaten.push({ item: '', menge: '1' });
+      this.zeichneForm();
+    };
+    const zeilen: HTMLElement[] = [this.zeile(null, 'editor.gegenstand.feld.hat_rezept', schalter)];
+    if (f.hatRezept) {
+      zeilen.push(this.zeile('rezeptMenge', 'editor.gegenstand.feld.rezept_menge', this.eingabe(f.rezeptMenge, (v) => (f.rezeptMenge = v), { mono: true })));
+      zeilen.push(el('div', stil({ 'grid-column': '1 / -1', color: F.fehler, 'font-size': '11.5px' })));
+      this.fehlerEls.set('rezept', zeilen[zeilen.length - 1]);
+      f.zutaten.forEach((z, i) => {
+        const reihe = el('div', stil({ 'grid-column': '1 / -1', display: 'flex', gap: '8px', 'align-items': 'flex-start' }));
+        const item = this.zeile(`zutat.${i}.item`, 'editor.gegenstand.feld.zutat', this.eingabe(z.item, (v) => (z.item = v), { mono: true, liste: listeId }));
+        const menge = this.zeile(`zutat.${i}.menge`, 'editor.gegenstand.feld.zutat_menge', this.eingabe(z.menge, (v) => (z.menge = v), { mono: true, breite: '90px' }));
+        item.style.flex = '1';
+        const weg = knopf(t('editor.gegenstand.feld.zutat_weg'), () => {
+          f.zutaten.splice(i, 1);
+          this.zeichneForm();
+        }, { art: 'leise', hoehe: M.knopfHoeheKlein });
+        weg.style.marginTop = '18px';
+        reihe.append(item, menge, weg);
+        zeilen.push(reihe);
+      });
+      zeilen.push(
+        knopf(t('editor.gegenstand.feld.zutat_hinzu'), () => {
+          f.zutaten.push({ item: '', menge: '1' });
+          this.zeichneForm();
+        }, { hoehe: M.knopfHoeheKlein })
+      );
+    }
+    const a = this.abschnitt('editor.gegenstand.abschnitt.rezept', ...zeilen);
+    a.appendChild(daten);
+    return a;
+  }
+
+  // ── Saving ─────────────────────────────────────────────────────────
+
+  private frage(info: BestaetigungInfo): Promise<boolean> {
+    const liste = this.stand?.eintraege ?? [];
+    const inhalt = bestaetigungsInhalt(info, (id) => {
+      const e = liste.find((x) => x.id === id);
+      return e ? anzeigeName(e) : null;
+    });
+    return fragenDialog(inhalt);
+  }
+
+  /** Sends `neueListe`, answers the route's refusals in words; true if it was written. */
+  private async senden(neueListe: GegenstandsEintrag[]): Promise<boolean> {
+    if (!this.stand || this.beschaeftigt) return false;
+    this.beschaeftigt = true;
+    this.aktualisiere();
+    let erg: SpeicherAblauf;
+    try {
+      erg = await speichernMitBestaetigung(this.api, neueListe, this.stand.hash, (info) => this.frage(info));
+    } finally {
+      this.beschaeftigt = false;
+    }
+    switch (erg.art) {
+      case 'ok':
+        this.banner([]);
+        this.meldung(t('editor.gegenstand.seite.gespeichert', { anzahl: erg.eintraege }));
+        return true;
+      case 'veraltet':
+        this.banner(
+          [t('editor.gegenstand.seite.veraltet')],
+          [knopf(t('editor.gegenstand.seite.veraltet_neu_laden'), () => void this.laden(), { hoehe: M.knopfHoeheKlein })]
+        );
+        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
+        break;
+      case 'gesperrt':
+        this.banner([t('editor.gegenstand.seite.gesperrt', { sekunden: erg.retryAfter })]);
+        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
+        break;
+      case 'verworfen':
+        this.banner([
+          t('editor.gegenstand.seite.verworfen_liste', { anzahl: erg.verworfen.length }),
+          ...erg.verworfen.map((v) => `${v.id ?? `#${v.index}`}: ${grundText(v.grund)}`),
+        ]);
+        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
+        break;
+      case 'abgebrochen':
+        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'));
+        break;
+      case 'bestaetigung':
+        // `speichernMitBestaetigung` never returns this one; kept so a future change fails loudly.
+        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
+        break;
+      case 'netz':
+        this.banner([zugangText('netz')]);
+        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
+        break;
+      case 'fehler':
+        this.banner([fehlerErgebnisText(erg)]);
+        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
+        break;
+    }
+    this.aktualisiere();
+    return false;
+  }
+
+  private async speichern(): Promise<void> {
+    if (!this.form || !this.stand || this.fehlerListe().length > 0) return;
+    const eintrag = formularZuEintrag(this.form);
+    const geschrieben = await this.senden(mitEintrag(this.stand.eintraege, this.ausgewaehlt, eintrag));
+    if (!geschrieben) return;
+    await this.nachSpeichern(eintrag.id);
+  }
+
+  private async entfernen(): Promise<void> {
+    if (this.ausgewaehlt === null || !this.stand) return;
+    const geschrieben = await this.senden(ohneEintrag(this.stand.eintraege, this.ausgewaehlt));
+    if (!geschrieben) return;
+    await this.nachSpeichern(null);
+  }
+
+  /** Reloads the saved state (the writer may have changed the bytes) and selects the entry that was saved. */
+  private async nachSpeichern(id: string | null): Promise<void> {
+    const erg = await ladeStand(this.api);
+    if (erg.art !== 'ok') return;
+    this.stand = erg.stand;
+    const e = id === null ? undefined : erg.stand.eintraege.find((x) => x.id === id);
+    this.setzeForm(e ? eintragZuFormular(e) : null, e ? e.id : null);
+    void this.ladeQuittungAnzeige();
+  }
+}
+
+/** The one toolbar button that opens the mask; the editor calls this once (see `editorMain.ts`). */
+export function gegenstandsKnopf(viewport: HTMLElement, api: ApiOptionen = {}): HTMLButtonElement {
+  let seite: GegenstandsSeite | null = null;
+  return knopf(
+    t('editor.gegenstand.knopf.titel'),
+    () => {
+      seite ??= new GegenstandsSeite(viewport, api);
+      seite.umschalten();
+    },
+    { art: 'flaeche', titel: t('editor.gegenstand.knopf.hinweis') }
+  );
+}

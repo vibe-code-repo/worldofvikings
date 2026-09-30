@@ -224,6 +224,23 @@ export default [
   // setzt defeated_eikthyr, ein Reh NICHT (Regressionswache). ~2s.
   ['server', 'test/f5-weltmarken.ts'],
   /*
+    F8 N2 (2026-09-29): Truhen und Bauten im selben Schreibvorgang wie der
+    Spielerzustand. Echte Serverprozesse mit SIGKILL, ein echter WebSocket-
+    Spieler: Truhe nehmen/legen, Bauen/Abreissen, Kill zwischen zwei Takten,
+    Ereignis; dazu welt_id (nur Seed + Modus, fremde Zeilen bleiben), die
+    Takt-Klemme, der Offline-Stempel und die Stopp-Zeile. Keine Assets.
+    Ephemerer Port, ~2 min.
+  */
+  ['server', 'test/f8n2-truhen-takt.ts'],
+  /*
+    F8 N3 (2026-09-30): Weltkennung in der Weltdatei (Testwelt hin und zurueck, alte Datei ohne
+    Kennung), monotoner Stempel (Uhrsprung rueckwaerts/vorwaerts) und deterministische Kill-Proben
+    ueber Test-Haken (NODE_ENV=test + WOV_KILL_PUNKT): in der Transaktion, vor der Datei
+    (synchron/asynchron), Ereignis waehrend des Speicherns, Migration in einer Transaktion.
+    Echte Serverprozesse mit SIGKILL. Keine Assets. Ephemerer Port, ~4 min.
+  */
+  ['server', 'test/f8n3-kennung-kill.ts'],
+  /*
     Das Thing, M1: die lesende API (Wege, Blaettern, 404 statt leerer
     Liste). Fake-Request/Response, kein Netz — dieselbe Weiche wie oben.
   */
@@ -388,6 +405,25 @@ export default [
   ['server', 'test/height-correction-boot.ts'],
   // The client address is the trusted hop's (rightmost X-Forwarded-For), never a visitor-supplied prefix (F3).
   ['server', 'test/herkunft-xff.ts'],
+  /*
+    I1 step 0 (N1): the surface of WovServer that the cuts of steps 1-10 must not lose: the 20 `case PacketType` labels of
+    `onPacket`, the 13 admin command names, the 33 private methods and 11 fields that tests reach by name, the 19
+    methods tests replace on the instance, the text tests that read WovServer.ts, and a scan of all test folders that
+    fails (with the line to add) when a test reaches a new private name. Builds one server without starting it, in a
+    temp folder.
+    Schritt 0 von I1: die Oberfläche, die die Schnitte nicht verlieren dürfen.
+  */
+  ['server', 'test/i1-oberflaeche.ts'],
+  /*
+    Refactoring I1, step 0b: the loot tables, the weapon helpers, the special spawn entries and one constant moved
+    unchanged from WovServer.ts into four modules under server/src/spiel/. Holds what the step promises: WovServer.ts
+    still exports the four weapon names and they are the same objects (no copy); no module under spiel/ names
+    WovServer.ts (one named exception: the context file, type-only) or reaches it through value imports, which
+    would be the import cycle; each of the 14 names is declared once, at module level, in its file; the dice give
+    what they gave before the move. Reads the syntax tree, starts no server. Seconds.
+    Schritt 0b von I1: Oberfläche, Importrichtung und Eindeutigkeit der ersten Module unter spiel/.
+  */
+  ['server', 'test/i1t-beute-waffe.ts'],
   // A dropped dungeon instance moves its players out first (no stale character id in another world); player list per connection.
   ['server', 'test/instanz-verwurf.ts'],
   // Der echte Trennungs-Handler: Inventar und angelegte Teile überleben das Abmelden.
@@ -623,6 +659,13 @@ export default [
   // identity — real WS clients, strict wire reader (checks the packet is fully
   // consumed after the known fields).
   ['server', 'test/spielerliste-privat.ts'],
+  /*
+    F8 (2026-09-29): Spielerzustand write-behind in die Konten-SQLite. Echte
+    Serverprozesse mit SIGKILL, ein echter WebSocket-Spieler: Takt, Ereignis,
+    Stopp, neuester Stand gewinnt, fremde Welt, Fehlerweg. Keine Assets.
+    Ephemerer Port, ~60 s.
+  */
+  ['server', 'test/spielerzustand-writebehind.ts'],
   // Standardkonto: Ausprobieren ohne Registrierung (server.yml
   // `standard-konto:`) -- Konto+Charakter entstehen einmal, ein zweiter
   // Start legt nichts doppelt an und laesst das Passwort unveraendert,

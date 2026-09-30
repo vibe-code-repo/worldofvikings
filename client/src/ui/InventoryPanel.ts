@@ -10,11 +10,13 @@
  * stacks and swaps otherwise — same rule as the original.
  */
 
-import type { Inventory, ItemStack } from '@wov/shared';
+import type { AusruestungsSlot, Inventory, ItemStack } from '@wov/shared';
 import type { Equipment } from '../player/Equipment';
 import type { GameI18n } from '../i18n';
 import { UI, overlayStyle, panelStyle, slotStyle, titleStyle } from './theme';
 import { itemVisual } from './Hotbar';
+import { konfiguriereTooltip, mitTooltip, versteckeTooltip } from './ItemTooltip';
+import { getragenAmSlot } from './itemTooltipInhalt';
 
 const SLOT = 56;
 const GAP = 4;
@@ -85,6 +87,12 @@ export class InventoryPanel {
     document.body.appendChild(root);
     this.root = root;
 
+    // The one item tooltip of the UI: language and "worn in the same slot" comparison.
+    konfiguriereTooltip({
+      i18n: this.i18n,
+      vergleich: (shared, stack) => getragenAmSlot(shared, stack, (slot) => this.equipment.imSlot(slot as AusruestungsSlot)),
+    });
+
     // Drag is tracked on the document so it survives leaving a slot.
     document.addEventListener('pointermove', this.onPointerMove);
     document.addEventListener('pointerup', this.onPointerUp);
@@ -145,6 +153,7 @@ export class InventoryPanel {
 
   private render(): void {
     if (!this.visible) return;
+    versteckeTooltip();
     this.grid.replaceChildren();
 
     for (let y = 0; y < this.inventory.height; y++) {
@@ -158,6 +167,7 @@ export class InventoryPanel {
 
         if (item) {
           cell.appendChild(itemVisual(item));
+          mitTooltip(cell, () => item);
           cell.style.cursor = 'grab';
           cell.addEventListener('pointerdown', (e) => this.startDrag(e, item));
           cell.addEventListener('dblclick', () => this.equipment.toggle(item));

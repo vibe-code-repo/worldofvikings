@@ -282,6 +282,15 @@ export default [
   */
   ['tools', 'test/generiert-getrennt.ts'],
   /*
+    I1 step 0 (N1): the proof tool `tools/i1-verschiebung.mjs` proves itself with 151 fixtures: real moves and every
+    forgery of the attack on #155 (forwarding form, the whole rest of the source file, the whole target file, free
+    names bound with scopes, local `k`, `arguments`, replacement table, effect comments, `k: any`), for a class method
+    (`this.` -> `k.`), a free function (form a) and verbatim moves (form 0); plus the command line (exit 0, 1, 2).
+    Node only, ~2 s.
+    Der Verschiebebeweis probt sich selbst: echt, gefälscht, unvollständig, je Form.
+  */
+  ['tools', 'test/i1-verschiebung.ts'],
+  /*
     Der Boden gegen das VORBILD (10.09.2026, `design/original-boden.md`).
     `tools/test/look-referenz.ts` ist dabei umgedreht worden, und das ist
     der Kern der Sache: Bis dahin hat er vier TOENUNGEN bewacht, die am
@@ -395,6 +404,14 @@ export default [
     Text, ~0.1 s.
   */
   ['tools/test', 'npm-weiterleitung-vikings-vorlage.ts'],
+  /*
+    I1 step 0 (N3): the size guard must not touch the surrounding repository when it runs from a git hook. Runs
+    `scripts/pruefe-groessen.mjs` from a pre-commit hook in a linked worktree (GIT_DIR and GIT_INDEX_FILE set), from
+    `git rebase --exec` and with GIT_DIR set by hand, in a throwaway clone under /var/tmp, and compares HEAD, refs, index and
+    the shallow file of the real repo before and after. Red on the guard of `feeccea6` (WOV_GUARD_SKRIPT). ~3 s.
+    Der Größenwächter darf aus einem Git-Hook heraus das Repo nicht verändern.
+  */
+  ['tools', 'test/pruefe-groessen-hook.ts'],
   // G10 (Modul-Generierung 2.0): der BEGEHUNGSPLAN fuer die Spielprobe.
   // Prueft rein rechnerisch, dass die Route aus `tools/raster-begehungsplan.ts`
   // wirklich eine Begehung ist: jeder Schritt eine echte Zellkante, jede

@@ -27,11 +27,30 @@ const BASIS_VERLANGT = (weltdokument as { BASIS_VERLANGT?: string }).BASIS_VERLA
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '../..');
+/**
+ * The modules cut out of `editorMain.ts`, relative to client/src/editor. Their code lay under the boundaries of
+ * `editorMain.ts` before it moved, so a boundary check on `editorMain.ts` as a whole runs on each of them as well, one
+ * file at a time. test/editor-module-grenze.ts holds the list of modules and fails when one is missing here.
+ * Each module adds three checks to SOLL.
+ */
+const CUT_OUT_MODULES = ['biome.ts', 'formen.ts', 'seite/helfer.ts'];
 
 let fehler = 0;
+let gut = 0;
+// Expected number of checks. A cut-short run (`process.exit(0)`, an exception, a loop that reads fewer files than the list
+// names) prints no ✗ line -- counted as "0 red" it would pass. So the exit hook prints a red line and sets the exit code,
+// and the end compares ✓ + ✗ with this number.
+const SOLL = 96;
+let fertig = false;
+process.on('exit', () => {
+  if (fertig) return;
+  console.log(`  ✗ abgebrochen: nur ${gut + fehler} von ${SOLL} Prüfungen liefen`);
+  process.exitCode = 1; // also after process.exit(0) in the middle of the run
+});
 function check(name: string, ok: boolean, zusatz = ''): void {
   console.log(`  ${ok ? '✓' : '✗'} ${name}${zusatz ? ` (${zusatz})` : ''}`);
   if (!ok) fehler++;
+  else gut++;
 }
 
 const echt = sanitizeWorldLayout(
@@ -218,6 +237,11 @@ console.log('▶ Nicht-dev: „Ja, überschreiben" mit frischer Basis');
   check('Vorprüfung ohne Hash (Server vor K0.2): bisherige Basis bleibt', basisNachBestaetigung('h1', ohneHash) === 'h1' && basisNachBestaetigung(null, ohneHash) === null);
 }
 
+// The modules cut out of editorMain.ts, each file read once and on its own. A boundary that holds for editorMain.ts as a
+// whole (sections 8 and 10) runs on each of them as well. Each pattern stands once, directly before its check: the check on
+// editorMain.ts and the checks on the modules use this one constant.
+const cutOutTexts = CUT_OUT_MODULES.map((file) => ({ file, text: readFileSync(resolve(HIER, '../src/editor', file), 'utf-8') }));
+
 // ── 8. Quelltextprüfung: der Editor benutzt den Speicherweg ──────────
 console.log('▶ Quelltextprüfung editorMain.ts');
 {
@@ -232,7 +256,9 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('inDieWeltSpeichern und veraltetAbgleichen gefunden', von > 0 && bis > von && ende > bis);
 
   // — Speichern: die Basis ist die des ENTWURFS, ohne Basis geht nichts hinaus —
-  check('inDieWeltSpeichern: die Basis beginnt bei der Basis des Entwurfs (entwurfsSpeicher.basisLesen), nicht bei einem „zuletzt gelesenen" Stand', /let basis = entwurfsSpeicher\.basisLesen\(\);/.test(speichern) && !/serverHash/.test(q));
+  const LAST_READ_STATE = /serverHash/;
+  check('inDieWeltSpeichern: die Basis beginnt bei der Basis des Entwurfs (entwurfsSpeicher.basisLesen), nicht bei einem „zuletzt gelesenen" Stand', /let basis = entwurfsSpeicher\.basisLesen\(\);/.test(speichern) && !LAST_READ_STATE.test(q));
+  for (const { file, text } of cutOutTexts) check(`${file}: kein „zuletzt gelesener" Stand neben der Basis des Entwurfs (kein serverHash)`, !LAST_READ_STATE.test(text));
   check('… schickt sie: schreibeWeltdokument(sauber, basis)', /schreibeWeltdokument\(sauber, basis\)/.test(speichern));
   check('… und nimmt nach bestätigter Frischprüfung deren Hash (basisNachBestaetigung(basis, stand)) — erst NACH dem „ja"', /if \(wahl !== 'ja'\) \{[\s\S]*?return false;\s*\}\s*[^]*?basis = basisNachBestaetigung\(basis, stand\);/.test(speichern));
   const iNull = speichern.indexOf('if (basis === null)');
@@ -249,7 +275,9 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('… 428 (art basis-fehlt) fällt in `shell.meldung(antwort.message, true)`: kein POST-Wiederholen, keine Basis erfunden', /shell\.meldung\(antwort\.message, true\);\s*return false;\s*\}/.test(speichern) && !/basis-fehlt/.test(speichern));
 
   // — Abgleich: HOLEN ändert die Basis nicht —
-  check('Kein serverHash und kein setzeServerHash mehr im Editor (die Basis ist die des Entwurfs, nicht der zuletzt gelesene Serverstand)', !/serverHash|setzeServerHash/.test(q));
+  const SERVER_HASH_NAMES = /serverHash|setzeServerHash/;
+  check('Kein serverHash und kein setzeServerHash mehr im Editor (die Basis ist die des Entwurfs, nicht der zuletzt gelesene Serverstand)', !SERVER_HASH_NAMES.test(q));
+  for (const { file, text } of cutOutTexts) check(`${file}: kein serverHash und kein setzeServerHash (die Basis ist die des Entwurfs, nicht der zuletzt gelesene Serverstand)`, !SERVER_HASH_NAMES.test(text));
   check('basisMerken wird nur in setzeEntwurfBasis aufgerufen (Editor UND Begleitzettel), an keiner anderen Stelle', zaehle(/entwurfsSpeicher\.basisMerken\(/g, q) === 1 && /function setzeEntwurfBasis\(hash: string \| null\): void \{\s*entwurfsSpeicher\.basisMerken\(hash\);\s*\}/.test(q));
   check('setzeEntwurfBasis hat genau sieben Aufrufer: Start-Abgleich (Übernahme, Behalten), Speichern, 409-Abgleich (Laden, Behalten), Import (null), Welt zurücksetzen (K4.0: nur wenn der leere Entwurf im Speicher steht)', zaehle(/\bsetzeEntwurfBasis\(/g, q) === 1 + 7, String(zaehle(/\bsetzeEntwurfBasis\(/g, q)));
   const iWahl = start.indexOf('const wahl = await frage(');
@@ -340,8 +368,15 @@ console.log('▶ 200 angewendet / 202 nicht angewendet: die Meldung');
   const alt = await schreibeWeltdokument(echt, 'h1', attrappe([{ status: 200, rumpf: { ok: true, message: 'Gespeichert in dev.json', hash: 'h9' } }]).fetchFn);
   check('200 ohne Auskunft (ältere Gegenstelle): angewendet=null, Meldung wie früher', alt.art === 'ok' && alt.angewendet === null && typeof wirkungsText === 'function' && /Server neu starten/.test(wirkungsText(alt)));
   const quelle = readFileSync(resolve(WURZEL, 'client/src/editor/editorMain.ts'), 'utf-8');
-  check('editorMain zeigt die Meldung über wirkungsText, nicht mehr fest „Server neu starten“', /wirkungsText\(antwort\)/.test(quelle) && !/— Server neu starten, damit die Welt sie lädt/.test(quelle));
+  const FIXED_RESTART_TEXT = /— Server neu starten, damit die Welt sie lädt/;
+  check('editorMain zeigt die Meldung über wirkungsText, nicht mehr fest „Server neu starten“', /wirkungsText\(antwort\)/.test(quelle) && !FIXED_RESTART_TEXT.test(quelle));
+  for (const { file, text } of cutOutTexts) check(`${file}: keine feste Meldung „Server neu starten“ (die Meldung kommt aus wirkungsText)`, !FIXED_RESTART_TEXT.test(text));
 }
 
+fertig = true;
+if (gut + fehler !== SOLL) {
+  console.log(`  ✗ Sollzahl: ${gut + fehler} Prüfungen statt ${SOLL}`);
+  fehler++;
+}
 console.log(fehler === 0 ? '\nalle Prüfungen bestanden' : `\n${fehler} Prüfung(en) FEHLGESCHLAGEN`);
 process.exit(fehler === 0 ? 0 : 1);

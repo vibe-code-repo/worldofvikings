@@ -105,22 +105,14 @@ import type { AssetContainer } from '@babylonjs/core/assetContainer';
 */
 import '@babylonjs/loaders/glTF/2.0';
 import {
-  BAU_PREFABS,
-  EIGENE_MODELLE,
-  FOLIAGE,
-  ITEM_DEFS,
-  NPC_VORGABEN,
   PREFABS_BY_NAME,
-  PREFAB_DEFS,
   STORE_BASIS,
   cmVerdacht,
-  isRenderable,
   istEigenesModell,
   schlageZielgroesseVor,
   uploadedModelRegistry,
   type Groessenvorschlag,
   type PrefabDef,
-  type Vorschlagsquelle,
   type Zieldimension,
 } from '@wov/shared';
 import { ladeHochgeladeneRegistrierung } from '../net/UploadedModelRegistryLoad';
@@ -129,7 +121,7 @@ import { sendeGrundskalaGeaendert } from './testflug/grundskalaLive';
 // zieht `kollision/glb.ts` sonst in jedes Spiel-Bundle, s. Kopfkommentar
 // `uploadedModelRohmasse.ts`. Nur der Editor braucht diese Messung.
 import { rohMasseAusGlb } from '@wov/shared/src/uploadedModelRohmasse.js';
-import { AssetManager, modelUrl } from '../engine/AssetManager';
+import { AssetManager } from '../engine/AssetManager';
 import { toeneStoreMeshes } from '../engine/StoreToenung';
 import { laubSpitzenMeshes } from '../engine/LaubSpitzen';
 import {
@@ -139,7 +131,6 @@ import {
   SCHRIFT,
   auswahl,
   beiUeberfahren,
-  beschriftungStil,
   el,
   feld,
   grundregelnEinhaengen,
@@ -157,7 +148,6 @@ import {
 } from './design';
 import {
   SPEICHER_WURZEL,
-  STORE_ARTEN,
   gruppenDerArt,
   ladeStoreKatalog,
   sucheSpeicher,
@@ -165,206 +155,23 @@ import {
   type StoreArt,
   type StoreEintrag,
 } from './StoreKatalogDaten';
-import { aktuelleSprache, t } from './i18n';
-import type { TranslationKey } from '../i18n';
-
-/** Zeilen je Listenseite — s. Kopf („Warum Seiten"). */
-const SEITE_GROESSE = 60;
-
-/**
- * Uebersetzungsschluessel je `Vorschlagsquelle` (Auftrag Punkt 4, N1 Befund
- * B1) — `schlageZielgroesseVor` liefert seit N1 nur noch Zahlen und (bei den
- * ersten beiden Quellen) einen Namen, keinen fertigen Satz mehr.
- */
-const VORSCHLAG_SCHLUESSEL: Readonly<Record<Vorschlagsquelle, TranslationKey>> = {
-  'aehnliches-modell': 'editor.upload.vorschlag.aehnliches_modell',
-  kategorie: 'editor.upload.vorschlag.kategorie',
-  rohgroesse: 'editor.upload.vorschlag.rohgroesse',
-};
-
-/** Vorschlagszeile für das Zielgrößenfeld — s. `VORSCHLAG_SCHLUESSEL`. */
-function vorschlagText(vorschlag: Groessenvorschlag): string {
-  return t(VORSCHLAG_SCHLUESSEL[vorschlag.quelle], {
-    name: vorschlag.begruendungName ?? '',
-    meter: vorschlag.meter.toFixed(2),
-  });
-}
-
-/**
- * N1 (Angriff „Editor T0a", Befund B4): `eintrag.kollisionsart` ist ein
- * interner Wert (`'fest' | 'durchlaessig'`), keine Anzeige — die passenden
- * Anzeigenamen gibt es schon als Katalogschlüssel (dieselben, die die
- * Kollisions-Auswahl im Formular benutzt).
- */
-function kollisionsartText(art: uploadedModelRegistry.Kollisionsart): string {
-  return t(art === 'fest' ? 'editor.upload.kollision.fest' : 'editor.upload.kollision.durchlaessig');
-}
-
-/**
- * N1 (Befund B4): `toLocaleString('de-DE')` blieb auch bei `lang=en` fest
- * deutsch (Punkt statt Komma als Tausendertrennzeichen). Zahlen folgen jetzt
- * der aktiven Sprache wie der restliche Text.
- */
-function zahlLocale(): 'de-DE' | 'en-US' {
-  return aktuelleSprache() === 'de' ? 'de-DE' : 'en-US';
-}
-
-/**
- * Geduld für EIN Modell (ms). Großzügig, weil einzelne GLBs des Exports
- * zweistellige Megabyte haben (Grabhügel: 17 MB) — aber endlich, damit
- * eine hängende Anfrage nicht als Dauerzustand erscheint.
- */
-const LADE_TIMEOUT = 30_000;
-
-/** Gleichzeitige HEAD-Anfragen der Verfügbarkeitsprüfung. */
-const PRUEF_PARALLEL = 6;
-
-/** Breite der Listenspalte (Entwurf). */
-const SPALTE_BREITE = 322;
-
-/** Schnellzugriff auf Item-Angaben (Icon, Gewicht, Stapel) je Prefabname. */
-const ITEMS_NACH_NAME = new Map(ITEM_DEFS.map((i) => [i.name, i]));
-
-/**
- * Anzeigetexte der ItemType-Werte.
- *
- * Bewusst eine Zahlentabelle statt `import { ItemType }`: Der Typ ist ein
- * `const enum`, und die werden von esbuild/Vite über Modulgrenzen hinweg
- * nicht zuverlässig aufgelöst. Für eine reine Beschriftung ist das die
- * Mühe nicht wert.
- */
-const ITEM_TYP_TEXT: Readonly<Record<number, string>> = {
-  1: 'Material',
-  14: 'Zweihandwaffe',
-  19: 'Werkzeug',
-};
-
-/** Nur Prefabs, die im Spiel überhaupt ein Bild bekommen (s. isRenderable). */
-const MIT_MODELL = PREFAB_DEFS.filter((d) => d.model !== null && isRenderable(d));
-
-interface Kategorie {
-  name: string;
-  /** Erklärung unter der Auswahl — was steckt in dieser Liste? */
-  hinweis: string;
-  namen: () => string[];
-  /**
-   * Gesetzt = diese Kategorie kommt aus dem SPEICHER, nicht aus der
-   * Prefab-Registry. Die Liste heisst dann nicht „Prefabnamen", sondern
-   * „Store-Ids", und Vorschau, Infoblock und Verfügbarkeitsprüfung nehmen
-   * jeweils den anderen Zweig (s. `istSpeicher`).
-   */
-  speicher?: StoreArt;
-  /**
-   * Gesetzt = die Liste wächst/schrumpft zur LAUFZEIT (Uploads, Karte U1)
-   * — anders als Registry, Vegetation oder PieceTable, die für die
-   * Sitzung feststehen. `katAnzahl` darf ihre Zahl deshalb NICHT im
-   * `katAnzahlen`-Cache mitschleppen (s. dort), sonst zeigte die Marke
-   * nach dem ersten Öffnen dauerhaft die Zahl von damals.
-   */
-  dynamisch?: boolean;
-}
-
-/** Erklärungen der sechs Speicher-Arten — eine Zeile je Bereich. */
-const SPEICHER_HINWEIS: Readonly<Record<StoreArt, string>> = {
-  Modelle: 'Alle GLBs des Speichers — Gebäude, Requisiten, Gegenstände, Umgebung, Fahrzeuge, Vegetation.',
-  Texturen: 'Bilder des Speichers: Boden-Texturen der Landschaft und die Atlanten der Modelle.',
-  Ton: 'Klänge des Speichers (Opus in .ogg) — anhören mit dem Abspieler, „Weiter" geht die Untergruppe durch.',
-  Höhenfelder: 'Gelände-GLBs (terrain/) — dieselbe 3D-Vorschau wie bei Modellen, nur größer.',
-  Kulisse: 'Horizontschalen und Wolken. Bis 600 m Spannweite — die Kamera rückt dafür weiter weg.',
-  Symbole: 'UI-Bilder des Speichers: HUD-Rahmen und Gegenstandssymbole (PNG) — keine 3D-Vorschau, kein Setzen in die Welt.',
-};
-
-/**
- * Die Kategorien des Katalogs.
- *
- * Reihenfolge ist Absicht: „Eigene Modelle" steht vorn und ist die
- * Vorgabe, weil das die Liste ist, deren GLBs überall wirklich liegen.
- * Alles Weitere ist nach Nutzen sortiert (was man beim Weltbau sucht),
- * die vollständige Registry steht als letzter Ausweg am Ende.
- *
- * Gefiltert wird überall gegen PREFABS_BY_NAME: Ein Name ohne
- * Registry-Eintrag hätte weder Modell noch Maße — eine tote Zeile.
- *
- * Gegen EIGENE_MODELLE wird hier NICHT gefiltert — anders als im
- * SpawnPanel, und mit Absicht: Der Katalog setzt nichts in die Welt, er
- * zeigt. „Wie sah das aus, was da entfällt?" ist genau die Frage, die
- * man beim Nachbauen stellt, und ihre Antwort wegzunehmen hiesse, sich
- * die Vorlage zu verbauen. Gleichrangig bleibt es deshalb trotzdem
- * nicht: Ohne eigenes Modell steht die Zeile ausgegraut mit ⊘ da, der
- * Metadatenblock sagt es in Worten, und über der Liste steht die Quote
- * der Kategorie.
- */
-const KATEGORIEN: readonly Kategorie[] = [
-  {
-    name: '★ Eigene Modelle',
-    hinweis: 'Selbst gebaut (Blender/Tripo/Baumgenerator) — diese GLBs liegen immer vor.',
-    namen: () => EIGENE_MODELLE.filter((n) => PREFABS_BY_NAME.has(n)),
-  },
-  /*
-    Hochgeladene Modelle (Karte U1) bekommen eine EIGENE Gruppe statt in
-    „★ Eigene Modelle" mitzulaufen — sie stehen zwar in derselben
-    EIGENE_MODELLE-Liste (dieselbe Whitelist, s. `uploadedModelRegistry.
-    registerUploadedPrefab`), aber „woher kam das?" ist hier trotzdem eine
-    andere Antwort als bei den handgebauten Modellen, und der Uploadknopf
-    braucht eine Stelle, an der auch die Liste der bereits hochgeladenen
-    Dinge steht (Entfernen sitzt am Infoblock, s. `infoSchreiben`).
-  */
-  {
-    name: '⇧ Hochgeladen',
-    hinweis: 'Per Editor hochgeladene Modelle — eigene Registry (assets/hochgeladen/), nicht in shared/src/prefabs.ts.',
-    dynamisch: true,
-    namen: () =>
-      uploadedModelRegistry
-        .uploadedModelEntries()
-        .map((m) => m.name)
-        .filter((n) => PREFABS_BY_NAME.has(n)),
-  },
-  {
-    name: 'Vegetation',
-    hinweis: 'Alles, was die Weltgenerierung streut (shared/vegetation.ts).',
-    namen: () => [...new Set(FOLIAGE.map((f) => f.prefabName))].filter((n) => PREFABS_BY_NAME.has(n)),
-  },
-  {
-    name: 'Bauteile',
-    hinweis: 'Was der Hammer setzen kann (PieceTable).',
-    namen: () => [...BAU_PREFABS].filter((n) => PREFABS_BY_NAME.has(n)),
-  },
-  {
-    name: 'Figuren (NPC)',
-    hinweis: 'Prefabs mit NPC-Vorgaben — Rolle, Fraktion, Stufe (shared/npc.ts).',
-    namen: () => [...NPC_VORGABEN.keys()].filter((n) => PREFABS_BY_NAME.has(n)),
-  },
-  {
-    name: 'Gegenstände (Items)',
-    hinweis: 'Inventarfähige Dinge mit Icon und Gewicht (shared/items/itemDefs.ts).',
-    namen: () => ITEM_DEFS.map((i) => i.name).filter((n) => PREFABS_BY_NAME.has(n)),
-  },
-  {
-    name: 'Alle mit Modell',
-    hinweis: `Die volle Registry, ${MIT_MODELL.length} Einträge — die meisten GLBs fehlen auf diesem Server.`,
-    namen: () => MIT_MODELL.map((d) => d.name),
-  },
-  /*
-    Der Speicher als eigener Bereich — eine Kategorie je Art in {@link STORE_ARTEN}.
-
-    Sie stehen HINTEN und nicht vorn: Die Vorgabe-Kategorie bleibt
-    „★ Eigene Modelle", wie sie es war. Wer den Katalog öffnet, um ein
-    Prefab nachzuschlagen, soll nicht plötzlich in einem Dateibrowser
-    landen. Der Speicher ist die zweite Frage („was liegt überhaupt da?"),
-    nicht die erste.
-
-    `namen()` liefert hier eine LEERE Liste und wird nie gerufen: Der
-    Bestand kommt aus zwei JSON-Dateien, die erst geladen werden müssen
-    (s. `speicherTreffer`). Ein Rückgabewert, der so tut, als wäre er die
-    Liste, wäre die schlechtere Lüge als eine leere.
-  */
-  ...STORE_ARTEN.map((art) => ({
-    name: `Speicher · ${art}`,
-    hinweis: SPEICHER_HINWEIS[art],
-    namen: () => [],
-    speicher: art,
-  })),
-];
+import { t } from './i18n';
+import { fmt, kollisionsartText, vorschlagText, zahlLocale } from './katalog/format';
+import { KATEGORIEN } from './katalog/kategorien';
+import {
+  LADE_TIMEOUT,
+  REFERENZ_FIGUR_BREITE,
+  REFERENZ_FIGUR_HOEHE,
+  REFERENZ_FIGUR_TIEFE,
+  REFERENZ_KISTE_KANTE,
+  REFERENZ_LUECKE,
+  SEITE_GROESSE,
+  SPALTE_BREITE,
+  type Kennzahlen,
+  type StatusArt,
+} from './katalog/konstanten';
+import { pruefeSeite, pruefeSpeicherSeite } from './katalog/pruefen';
+import { infoSchreiben, speicherInfoSchreiben } from './katalog/infofeld';
 
 /**
  * Einträge je Kategorie — einmal gezählt, dann gemerkt.
@@ -398,31 +205,6 @@ function katAnzahl(speicher: readonly StoreEintrag[] | null): readonly number[] 
   });
 }
 
-/** Gemessene Kennzahlen des geladenen Modells. */
-interface Kennzahlen {
-  breite: number;
-  hoehe: number;
-  tiefe: number;
-  dreiecke: number;
-  meshes: number;
-  materialien: number;
-  mitte: Vector3;
-}
-
-/** Zustand der Statusplakette über der Bühne. */
-type StatusArt = 'laedt' | 'da' | 'fehlt' | 'neutral';
-
-/**
- * Maße der beiden Referenzkörper neben der Upload-Vorschau (Auftrag Punkt 4)
- * — eine 1,8-m-Figur (Breite/Tiefe grob wie ein Mensch) und eine 1-m-Kiste,
- * mit derselben Lücke auf beiden Seiten des Modells.
- */
-const REFERENZ_FIGUR_BREITE = 0.5;
-const REFERENZ_FIGUR_HOEHE = 1.8;
-const REFERENZ_FIGUR_TIEFE = 0.3;
-const REFERENZ_KISTE_KANTE = 1;
-const REFERENZ_LUECKE = 0.4;
-
 export class GegenstandsKatalog {
   private readonly root: HTMLDivElement;
   private readonly leinwand: HTMLCanvasElement;
@@ -434,8 +216,8 @@ export class GegenstandsKatalog {
   private readonly gruppenZeile: HTMLDivElement;
   /** Dritte Ebene: die Untergruppen der gewählten Gruppe als Filtermarken. */
   private readonly untergruppenZeile: HTMLDivElement;
-  private readonly infoBlock: HTMLDivElement;
-  private readonly pruefKnopf: HTMLButtonElement;
+  readonly infoBlock: HTMLDivElement;
+  readonly pruefKnopf: HTMLButtonElement;
   /** Upload-Zeile (U1): Dateiwahl, Name, Kollisionswunsch, Ergebnis/Fehler. */
   private readonly hochladenDateiEingabe: HTMLInputElement;
   private readonly hochladenNameFeld: HTMLInputElement;
@@ -498,7 +280,7 @@ export class GegenstandsKatalog {
   private readonly bildZeile: HTMLDivElement;
   private readonly tonFlaeche: HTMLDivElement;
   private readonly tonTitel: HTMLDivElement;
-  private readonly tonSpieler: HTMLAudioElement;
+  readonly tonSpieler: HTMLAudioElement;
   private readonly tonWeiter: HTMLButtonElement;
 
   // ── Listenzustand ─────────────────────────────────────────────────
@@ -514,7 +296,7 @@ export class GegenstandsKatalog {
   private speicherLaedt = false;
   private speicherFehler: string | null = null;
   /** Nachschlagewerk Id → Eintrag; die Liste führt nur Ids. */
-  private storeIndex = new Map<string, StoreEintrag>();
+  storeIndex = new Map<string, StoreEintrag>();
   /** Gewählte Gruppe der zweiten Ebene (null = alle). */
   private gruppe: string | null = null;
   /** Gewählte Untergruppe der dritten Ebene (null = alle). */
@@ -537,7 +319,7 @@ export class GegenstandsKatalog {
    * wird beim Wechsel ganz entsorgt — anders als beim Prefab-Weg, wo die
    * Materialien dem Asset-Cache gehören (s. Kopf).
    */
-  private storeContainer: AssetContainer | null = null;
+  storeContainer: AssetContainer | null = null;
   /** Der gerade gezeigte Speicher-Eintrag (für Infoblock, Ton und Kachel). */
   private gezeigterStore: StoreEintrag | null = null;
   /**
@@ -547,7 +329,7 @@ export class GegenstandsKatalog {
    */
   private letzteToenung = 0;
   /** Gemessene Bildgröße der Texturvorschau — erst nach `onload` bekannt. */
-  private bildMasse: { breite: number; hoehe: number } | null = null;
+  bildMasse: { breite: number; hoehe: number } | null = null;
 
   /**
    * Laufende Nummer der Ladevorgänge. Jeder Klick erhöht sie; ein
@@ -569,7 +351,7 @@ export class GegenstandsKatalog {
    * Gefüllt aus zwei Quellen: jedem tatsächlichen Ladeversuch und der
    * HEAD-Prüfung der sichtbaren Seite.
    */
-  private readonly vorhanden = new Map<string, boolean>();
+  readonly vorhanden = new Map<string, boolean>();
 
   /** Selbstdreher (Drehteller). Jeder Zieh-Vorgang schaltet ihn ab. */
   private drehen = true;
@@ -606,7 +388,7 @@ export class GegenstandsKatalog {
    * Platzieren-Werkzeug scharf. Bleibt der Rückruf ungesetzt, fehlt der
    * Knopf — statt eines toten Bedienelements.
    */
-  private readonly aufPlatzieren: ((prefab: string) => void) | null;
+  readonly aufPlatzieren: ((prefab: string) => void) | null;
 
   constructor(eltern: HTMLElement, aufPlatzieren?: (prefab: string) => void) {
     this.aufPlatzieren = aufPlatzieren ?? null;
@@ -1475,8 +1257,8 @@ export class GegenstandsKatalog {
     this.rasterPlakette.textContent = `Raster ${fmt(schritt)} m`;
   }
 
-  private letzteMasse: Kennzahlen | null = null;
-  private rasterSchritt = 1;
+  letzteMasse: Kennzahlen | null = null;
+  rasterSchritt = 1;
   /**
    * Wie weit die Kamera von der Objektgröße weg steht.
    *
@@ -2025,7 +1807,7 @@ export class GegenstandsKatalog {
    * Editor-Werkzeug, kein Publikumsdialog) löst den zweiten Aufruf mit
    * `bestaetigt: true` aus.
    */
-  private async hochgeladenesModellEntfernen(name: string): Promise<void> {
+  async hochgeladenesModellEntfernen(name: string): Promise<void> {
     const aufruf = async (bestaetigt: boolean): Promise<Response> =>
       fetch('/api/modell-hochladen', {
         method: 'DELETE',
@@ -2075,7 +1857,7 @@ export class GegenstandsKatalog {
    * Faktor direkt, damit „4,0 m" und nicht „×4" die Eingabe ist), nur ohne
    * Datei: die Rohgröße steht schon in der Registry.
    */
-  private grundskalaZeileBauen(eintrag: uploadedModelRegistry.UploadedModelEntry): HTMLDivElement {
+  grundskalaZeileBauen(eintrag: uploadedModelRegistry.UploadedModelEntry): HTMLDivElement {
     const zeile = el(
       'div',
       stil({ display: 'flex', 'align-items': 'center', gap: '8px', 'flex-wrap': 'wrap', 'margin-top': '2px' })
@@ -2200,7 +1982,7 @@ export class GegenstandsKatalog {
   }
 
   /** Ist die aktuelle Kategorie ein Speicher-Bereich? Dann die Art, sonst null. */
-  private get speicherArt(): StoreArt | null {
+  get speicherArt(): StoreArt | null {
     return KATEGORIEN[this.kategorie]?.speicher ?? null;
   }
 
@@ -2264,13 +2046,13 @@ export class GegenstandsKatalog {
   }
 
   /** Namen der aktuell SICHTBAREN Seite. */
-  private seitenNamen(): string[] {
+  seitenNamen(): string[] {
     const t = this.treffer();
     const start = this.seite * SEITE_GROESSE;
     return t.slice(start, start + SEITE_GROESSE);
   }
 
-  private listeFuellen(): void {
+  listeFuellen(): void {
     const kat = KATEGORIEN[this.kategorie]!;
     const alle = this.treffer();
 
@@ -2823,7 +2605,7 @@ export class GegenstandsKatalog {
    * Platz? Leerer Text blendet sie aus; es gibt keinen „nichts"-Zustand,
    * den man anschreiben müsste.
    */
-  private statusSetzen(text: string, art: StatusArt): void {
+  statusSetzen(text: string, art: StatusArt): void {
     this.statusZeile.textContent = text;
     this.statusPlakette.style.display = text ? 'flex' : 'none';
     this.statusPunkt.style.background =
@@ -3249,514 +3031,26 @@ export class GegenstandsKatalog {
 
   // ── Metadaten ──────────────────────────────────────────────────────
 
-  /**
-   * Der Block unter der Bühne: Name, Herkunftsmarke, Dateiname, und
-   * darunter die gemessenen Kennzahlen als Spalten (Beschriftung in
-   * Versalien, Wert in Mono — alles Gemessene steht im Editor in Mono).
-   *
-   * Der Entwurf zeigt hier rechts noch eine Platzierungsart (Einzeln /
-   * Pinsel / Streuen) und „Auf Karte platzieren". Beides gibt es im
-   * Katalog nicht: Er kennt das Weltdokument nicht und setzt nichts — ein
-   * toter Umschalter wäre ein Versprechen, das die Datei nicht halten
-   * kann. An seiner Stelle steht das, was hier wirklich zu melden ist:
-   * die Warnung, wenn das Modell fehlt.
-   */
   private infoSchreiben(
     name: string,
     def: PrefabDef | null,
     masse: Kennzahlen | null,
     warnung: string | null
   ): void {
-    this.infoBlock.innerHTML = '';
-
-    const kopf = el('div', stil({ display: 'flex', 'align-items': 'center', gap: '11px', 'flex-wrap': 'wrap' }));
-    const item = ITEMS_NACH_NAME.get(name);
-    // Icon, wo es eines gibt: Für Gegenstände ist das Inventarbild oft
-    // aussagekräftiger als das Modell (viele Item-GLBs sind winzig).
-    const iconDatei = item?.icon ?? def?.sprite ?? null;
-    if (iconDatei) {
-      const bild = el(
-        'img',
-        stil({
-          width: '30px',
-          height: '30px',
-          'object-fit': 'contain',
-          border: `1px solid ${F.randFeld}`,
-          'border-radius': `${M.radiusFeld}px`,
-          background: F.feld,
-        })
-      );
-      bild.src = `/assets/sprites/${iconDatei}.png`;
-      // Die Sprite-Sammlung ist unvollständig; ein kaputtes Bild-Symbol
-      // wäre irreführender als gar keines.
-      bild.onerror = () => bild.remove();
-      kopf.appendChild(bild);
-    }
-    kopf.appendChild(
-      el(
-        'span',
-        stil({ 'font-size': '15px', 'font-weight': '600', color: F.textHell }),
-        item?.label ? `${item.label} (${name})` : name
-      )
-    );
-
-    // Die Marke spricht in BEIDE Richtungen. Vorher stand bei fremden
-    // Prefabs gar nichts — und „nichts" liest sich wie „normal", nicht
-    // wie „das gibt es im Spiel nicht mehr".
-    const eigen = istEigenesModell(name);
-    kopf.appendChild(
-      el(
-        'span',
-        stil({
-          display: 'flex',
-          'align-items': 'center',
-          gap: '5px',
-          padding: '3px 9px',
-          'border-radius': '999px',
-          background: eigen ? F.warnFlaeche : F.feld,
-          border: `1px solid ${eigen ? F.warnRand : F.randFeld}`,
-          'font-size': '10.5px',
-          color: eigen ? F.warnText : F.fehler,
-        }),
-        eigen ? '★ eigenes Modell' : '⊘ kein eigenes Modell — entfällt'
-      )
-    );
-    kopf.appendChild(
-      el(
-        'span',
-        stil({ 'font-family': SCHRIFT.mono, 'font-size': '11px', color: F.gedimmt2 }),
-        def?.model ? `${def.model}.glb` : 'ohne Modelldatei'
-      )
-    );
-    kopf.appendChild(luecke());
-    if (warnung) {
-      const w = el(
-        'span',
-        stil({
-          padding: '5px 10px',
-          'border-radius': `${M.radiusKlein}px`,
-          background: F.feld,
-          // `F` führt keine eigene Fehlerfläche — der Warnrand ist der
-          // nächstliegende Ton, die Schrift trägt das Signal.
-          border: `1px solid ${F.warnRand}`,
-          'font-size': '11.5px',
-          color: F.fehler,
-        }),
-        `⚠ ${warnung}`
-      );
-      kopf.appendChild(w);
-    }
-    // Die Handlung des Entwurfs (Mockup 500): der einzige bronzene Knopf
-    // dieser Ansicht. Er erscheint nur, wenn ein Rückruf gesetzt IST und
-    // das Prefab ein eigenes Modell hat — was die Whitelist ausschließt,
-    // wird nicht platziert, und ein Knopf, der stillschweigend nichts
-    // bewirkt, ist schlimmer als keiner.
-    if (this.aufPlatzieren && eigen) {
-      const setzen = knopf(
-        'Auf Karte platzieren',
-        () => {
-          this.aufPlatzieren?.(name);
-          this.schliesse();
-        },
-        { art: 'bronze', pfad: PFAD.platzieren, titel: `${name} als Platzierung setzen` }
-      );
-      kopf.appendChild(setzen);
-    }
-    // U1: nur bei einem per Editor hochgeladenen Prefab — die Whitelist
-    // (EIGENE_MODELLE) kennt sonst keinen Unterschied zwischen einem
-    // Upload und einem handgebauten Modell, aber nur Ersteres lässt sich
-    // hier wieder zurückziehen (Datei beiseiteschieben + Registry-Eintrag
-    // entfernen, s. `hochgeladenesModellEntfernen`).
-    const hochgeladenerEintrag = uploadedModelRegistry.uploadedModelEntry(name);
-    if (hochgeladenerEintrag) {
-      kopf.appendChild(
-        knopf('Entfernen', () => void this.hochgeladenesModellEntfernen(hochgeladenerEintrag.name), {
-          art: 'leise',
-          pfad: PFAD.muelleimer,
-          randHover: F.warnRand,
-          titel: `'${hochgeladenerEintrag.anzeigename}' zurückziehen — Datei wird beiseitegeschoben, nicht gelöscht`,
-        })
-      );
-    }
-    this.infoBlock.appendChild(kopf);
-
-    // Grundskala nachträglich ändern (Karte „Editor Upload-Größe",
-    // Auftrag Punkt 5) — dieselbe Maske, nur für ein SCHON registriertes
-    // Modell statt für die gerade gewählte Datei. Gesetzte Platzierungen
-    // behalten ihre `scale`; sie werden dadurch größer/kleiner, und genau
-    // das ist gewollt (Auftrag).
-    if (hochgeladenerEintrag) {
-      this.infoBlock.appendChild(this.grundskalaZeileBauen(hochgeladenerEintrag));
-    }
-
-    // Kennzahlen als Spalten — nur, was der Katalog wirklich gemessen
-    // oder aus der Registry gelesen hat.
-    const felder: [string, string][] = [];
-    if (masse) {
-      felder.push(
-        ['Maße B×H×T', `${fmt(masse.breite)} × ${fmt(masse.hoehe)} × ${fmt(masse.tiefe)} m`],
-        ['Dreiecke', masse.dreiecke.toLocaleString('de-DE')],
-        ['Meshes', String(masse.meshes)],
-        ['Materialien', String(masse.materialien)]
-      );
-    }
-    if (def) {
-      const ls = def.localScale;
-      if (ls.x !== 1 || ls.y !== 1 || ls.z !== 1) {
-        felder.push(['localScale', `${fmt(ls.x)} / ${fmt(ls.y)} / ${fmt(ls.z)}`]);
-      }
-      felder.push(['Platzhaltermaß', `${fmt(def.renderScale.w)} × ${fmt(def.renderScale.h)} m`]);
-      if (def.animation) felder.push(['Animation', def.animation]);
-      if (def.light) felder.push(['Lichtquelle', `Reichweite ${def.light.range} m`]);
-    }
-    if (item) {
-      felder.push(
-        ['Typ', ITEM_TYP_TEXT[item.itemType] ?? String(item.itemType)],
-        ['Gewicht', fmt(item.weight)],
-        ['Stapel', String(item.maxStackSize)]
-      );
-      if (item.pieceTable) felder.push(['Bau-Tafel', item.pieceTable]);
-    }
-    felder.push(['Raster', `${fmt(this.rasterSchritt)} m`]);
-
-    const gitter = el('div', stil({ display: 'flex', gap: '26px', 'flex-wrap': 'wrap' }));
-    for (const [k, v] of felder) {
-      const spalte = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '3px' }));
-      spalte.append(
-        el('span', beschriftungStil(), k),
-        el('span', stil({ 'font-family': SCHRIFT.mono, 'font-size': '12px', color: F.textRuhig }), v)
-      );
-      gitter.appendChild(spalte);
-    }
-    this.infoBlock.appendChild(gitter);
+    return infoSchreiben(this, name, def, masse, warnung);
   }
 
-  /**
-   * Der Infoblock eines Speicher-Eintrags.
-   *
-   * Er beantwortet andere Fragen als der Prefab-Block darüber: Dort geht
-   * es um Spielwerte (localScale, Item-Gewicht, Animation), hier um die
-   * DATEI — wo sie liegt, wie gross sie ist, wie gross das Ding darin
-   * ist, ob es eine Kollision hat und ob man es weitergeben darf.
-   *
-   * „Id kopieren" ist der einzige Knopf: Der Speicher-Name ist das, was
-   * man gleich danach braucht — für eine Platzierung, eine Kuratierung
-   * oder eine Nachfrage. Ihn von Hand abzutippen (`environment/
-   * sm-bld-house-roof-thatch-peak-cap-beams-01`) ist eine Fehlerquelle
-   * ohne Gegenwert.
-   */
   private speicherInfoSchreiben(eintrag: StoreEintrag, warnung: string | null): void {
-    this.infoBlock.innerHTML = '';
-
-    const kopf = el('div', stil({ display: 'flex', 'align-items': 'center', gap: '11px', 'flex-wrap': 'wrap' }));
-    kopf.appendChild(el('span', stil({ 'font-size': '15px', 'font-weight': '600', color: F.textHell }), eintrag.name));
-    kopf.appendChild(
-      el(
-        'span',
-        stil({
-          display: 'flex',
-          'align-items': 'center',
-          gap: '5px',
-          padding: '3px 9px',
-          'border-radius': '999px',
-          background: F.feld,
-          border: `1px solid ${F.randFeld}`,
-          'font-size': '10.5px',
-          color: F.textRuhig,
-        }),
-        `${eintrag.art} · ${eintrag.gruppe} · ${eintrag.untergruppe}`
-      )
-    );
-    for (const k of eintrag.kennzeichen) {
-      kopf.appendChild(
-        el(
-          'span',
-          stil({
-            padding: '3px 8px',
-            'border-radius': '999px',
-            background: F.warnFlaeche,
-            border: `1px solid ${F.warnRand}`,
-            'font-size': '10.5px',
-            color: F.warnText,
-          }),
-          k
-        )
-      );
-    }
-    kopf.appendChild(
-      el('span', stil({ 'font-family': SCHRIFT.mono, 'font-size': '11px', color: F.gedimmt2 }), eintrag.pfad)
-    );
-    kopf.appendChild(luecke());
-    if (warnung) {
-      kopf.appendChild(
-        el(
-          'span',
-          stil({
-            padding: '5px 10px',
-            'border-radius': `${M.radiusKlein}px`,
-            background: F.feld,
-            border: `1px solid ${F.warnRand}`,
-            'font-size': '11.5px',
-            color: F.fehler,
-          }),
-          `⚠ ${warnung}`
-        )
-      );
-    }
-    if (eintrag.kennzeichen.includes('Kollisionsnetz') && !eintrag.prefabName) {
-      // Neun der zwoelf Netze sind verwaist. Das ist keine Warnung ueber
-      // den Katalog, sondern eine Auskunft ueber den Speicher — und
-      // genau die Sorte, die man beim Aufraeumen braucht.
-      kopf.appendChild(
-        el(
-          'span',
-          stil({
-            padding: '5px 10px',
-            'border-radius': `${M.radiusKlein}px`,
-            background: F.feld,
-            border: `1px solid ${F.warnRand}`,
-            'font-size': '11.5px',
-            color: F.warnText,
-          }),
-          'verwaist — kein Prefab verweist auf dieses Netz'
-        )
-      );
-    }
-    const kopieren = knopf(
-      'Id kopieren',
-      () => {
-        void navigator.clipboard
-          ?.writeText(eintrag.id)
-          .then(() => this.statusSetzen(`„${eintrag.id}" kopiert`, 'da'))
-          // Ohne sicheren Kontext (http auf fremdem Host) gibt es keine
-          // Zwischenablage. Statt eines stummen Nichts sagt die Plakette,
-          // was los ist — und die Id steht im Kopf daneben zum Markieren.
-          .catch(() => this.statusSetzen('Zwischenablage nicht verfügbar', 'fehlt'));
-      },
-      { art: 'leise', hoehe: 30, pfad: PFAD.export, titel: eintrag.id }
-    );
-    kopf.appendChild(kopieren);
-    this.infoBlock.appendChild(kopf);
-
-    const felder: [string, string][] = [['Id', eintrag.id]];
-    felder.push(['Dateigröße', fmtBytes(eintrag.bytes)]);
-    const h = eintrag.bounds;
-    if (h) {
-      felder.push([
-        'Hüllbox B×H×T',
-        `${fmt(h.max[0] - h.min[0])} × ${fmt(h.max[1] - h.min[1])} × ${fmt(h.max[2] - h.min[2])} m`,
-      ]);
-    }
-    if (h && h.min[1] < -0.001) {
-      /*
-        Der Ursprung liegt bei 257 Modellen ueber der Unterkante — meist
-        Absicht (Bodenkontaktpunkt), bei drei Ausreissern nicht:
-        `sm-item-horn` reicht 15,2 m nach unten. Wer das nicht sieht,
-        setzt das Ding auf die Karte und sucht es dann unter dem Gelände.
-      */
-      felder.push(['Unterkante', `${fmt(h.min[1])} m unter dem Ursprung`]);
-    }
-    if (this.letzteMasse) {
-      felder.push(['Dreiecke', this.letzteMasse.dreiecke.toLocaleString('de-DE')], ['Meshes', String(this.letzteMasse.meshes)]);
-    }
-    if (this.storeContainer) {
-      /*
-        Materialien und Texturen sind hier keine Neugier, sondern die
-        Kontrolle: 468 der Store-GLBs holen ihre Texturen RELATIV
-        (`textures/<name>.png` neben der Datei). Stimmt die Wurzel-URL
-        nicht, kommt das Modell trotzdem — nur grau, und niemand sagt
-        etwas. Eine Texturzahl von 0 an einem Modell, das eine haben
-        müsste, ist genau dieser Fall.
-      */
-      felder.push(
-        ['Materialien', String(this.storeContainer.materials.length)],
-        ['Texturen geladen', String(this.storeContainer.textures.length)]
-      );
-    }
-    if (eintrag.kollisionsdatei) {
-      felder.push(['Kollisionsnetz', eintrag.kollisionsdatei]);
-    }
-    if (eintrag.kollision) {
-      felder.push([
-        'Kollision',
-        eintrag.kollision === 'box' ? 'Quader' : eintrag.kollision === 'mesh' ? 'Netz' : 'keine',
-      ]);
-    }
-    if (eintrag.art === 'Texturen' || eintrag.art === 'Symbole') {
-      felder.push(['Abmessung', this.bildMasse ? `${this.bildMasse.breite} × ${this.bildMasse.hoehe} px` : '—']);
-      if (eintrag.gruppe === 'Boden-Texturen') {
-        // Die Bodentexturen liegen im Gelände auf einer festen Kachel;
-        // ohne den Hinweis rät man an der Pixelzahl herum, wie gross ein
-        // Grasbüschel im Spiel wird.
-        felder.push(['Kachel', 'Boden-Textur — wird im Gelände gekachelt (Kachelansicht zeigt den Stoß)']);
-      }
-    }
-    if (eintrag.art === 'Ton') {
-      const dauer = Number.isFinite(this.tonSpieler.duration) ? `${fmt(this.tonSpieler.duration)} s` : '—';
-      felder.push(['Dauer (gemessen)', dauer]);
-      if (eintrag.herkunft) {
-        /*
-          `origin` beginnt bei Ton mit „1.18 s, mono, 48 kHz, …" und geht
-          dann in die Werkzeugkette über. Getrennt wird deshalb am KOMMA
-          und nicht am Punkt — der Punkt ist hier das Dezimalzeichen, und
-          eine Trennung dort machte aus 1,18 s ein „1".
-        */
-        felder.push(['Manifest', eintrag.herkunft.split(',').slice(0, 3).join(',').trim()]);
-      }
-    }
-    felder.push(['Lizenz', eintrag.lizenzstatus]);
-    if (eintrag.prefabName) felder.push(['Prefab-Id', eintrag.prefabName]);
-
-    const gitter = el('div', stil({ display: 'flex', gap: '26px', 'flex-wrap': 'wrap' }));
-    for (const [k, v] of felder) {
-      const spalte = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '3px' }));
-      spalte.append(
-        el('span', beschriftungStil(), k),
-        el(
-          'span',
-          stil({ 'font-family': SCHRIFT.mono, 'font-size': '12px', color: F.textRuhig, 'max-width': '460px' }),
-          v
-        )
-      );
-      gitter.appendChild(spalte);
-    }
-    this.infoBlock.appendChild(gitter);
+    return speicherInfoSchreiben(this, eintrag, warnung);
   }
 
   // ── Verfügbarkeit ──────────────────────────────────────────────────
 
-  /**
-   * Für die sichtbare Seite abfragen, ob die GLB überhaupt ausgeliefert
-   * wird — per HEAD, also ohne die Datei zu übertragen.
-   *
-   * Das beantwortet die Frage, die sich beim Durchblättern der vollen
-   * Registry sofort stellt: Welche dieser 3.748 Einträge kann ich hier
-   * überhaupt ansehen? Ein Klick auf jeden Einzelnen wäre die
-   * Alternative — mit 17-MB-Downloads für die, die es gibt.
-   *
-   * `PRUEF_PARALLEL` deckelt die Gleichzeitigkeit: Der Dev-Server liest
-   * jede Datei mit einem eigenen Stream, 60 auf einmal bringen ihn ins
-   * Stocken. Ein Netzfehler lässt den Eintrag UNBEKANNT (kein Zeichen) —
-   * „fehlt" behaupten wir nur bei einer echten Absage des Servers.
-   */
-  private async pruefeSeite(): Promise<void> {
-    const namen = this.seitenNamen();
-    /*
-      Im Speicher-Bereich ist der Schlüssel der PFAD und nicht der
-      Modellname — dieselbe Frage, andere Adresse. Beides über einen
-      Kamm zu scheren (`PREFABS_BY_NAME`) meldete für jeden
-      Speicher-Eintrag „fehlt", denn die Registry kennt keinen davon.
-    */
-    if (this.speicherArt) {
-      await this.pruefeSpeicherSeite(namen);
-      return;
-    }
-    const offen = namen
-      .map((n) => PREFABS_BY_NAME.get(n)?.model)
-      .filter((m): m is string => !!m && !this.vorhanden.has(m));
-    if (offen.length === 0) {
-      this.statusSetzen('Seite bereits geprüft.', 'neutral');
-      window.setTimeout(() => this.statusSetzen('', 'neutral'), 2000);
-      return;
-    }
-    this.pruefKnopf.disabled = true;
-    this.pruefKnopf.textContent = `prüfe ${offen.length} Modelle …`;
-    let naechster = 0;
-    const arbeiter = async (): Promise<void> => {
-      while (naechster < offen.length) {
-        const datei = offen[naechster++]!;
-        try {
-          /*
-            Die URL kommt aus `modelUrl()` und nicht als feste
-            Zeichenkette: Seit E4 kann in `PREFABS_BY_NAME` auch ein zur
-            Laufzeit registrierter Saal stehen, und dessen GLB liegt unter
-            `assets/generiert/`. Fest verdrahtet meldete diese Prüfung ihn
-            als „fehlt" — eine falsche Auskunft, die niemandem auffiele:
-            Das Modell IST da, nur an einem anderen Pfad, und der Katalog
-            sagte trotzdem, es gebe es nicht.
-          */
-          const antwort = await fetch(modelUrl(datei), { method: 'HEAD' });
-          // Ein 200 mit HTML ist die typische Antwort eines Servers, der
-          // Unbekanntes auf die Startseite umbiegt — das ist kein Modell.
-          const typ = antwort.headers.get('content-type') ?? '';
-          this.vorhanden.set(datei, antwort.ok && !typ.includes('text/html'));
-        } catch {
-          /* Netzfehler: unbekannt lassen (s. Kopf) */
-        }
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(PRUEF_PARALLEL, offen.length) }, arbeiter));
-    this.pruefKnopf.textContent = 'Verfügbarkeit dieser Seite prüfen';
-    this.pruefKnopf.disabled = false;
-    this.listeFuellen();
-    const da = namen.filter((n) => {
-      const m = PREFABS_BY_NAME.get(n)?.model;
-      return m ? this.vorhanden.get(m) === true : false;
-    }).length;
-    this.statusSetzen(`${da} von ${namen.length} Modellen dieser Seite liegen vor.`, da > 0 ? 'da' : 'fehlt');
+  private pruefeSeite(): Promise<void> {
+    return pruefeSeite(this);
   }
 
-  /**
-   * Dasselbe für den Speicher — HEAD auf `/assets/store/<pfad>`.
-   *
-   * Auch hier nur die SICHTBARE Seite: 672 Anfragen auf einen Schlag
-   * wären dieselbe kleine Denial-of-Service-Attacke wie bei der
-   * Registry, nur mit einem Bestand, von dem fast alles daliegt.
-   */
-  private async pruefeSpeicherSeite(ids: readonly string[]): Promise<void> {
-    const offen = ids
-      .map((id) => this.storeIndex.get(id)?.pfad)
-      .filter((p): p is string => !!p && !this.vorhanden.has(p));
-    if (offen.length === 0) {
-      this.statusSetzen('Seite bereits geprüft.', 'neutral');
-      window.setTimeout(() => this.statusSetzen('', 'neutral'), 2000);
-      return;
-    }
-    this.pruefKnopf.disabled = true;
-    this.pruefKnopf.textContent = `prüfe ${offen.length} Dateien …`;
-    let naechster = 0;
-    const arbeiter = async (): Promise<void> => {
-      while (naechster < offen.length) {
-        const pfad = offen[naechster++]!;
-        try {
-          const antwort = await fetch(`${SPEICHER_WURZEL}${pfad}`, { method: 'HEAD' });
-          const typ = antwort.headers.get('content-type') ?? '';
-          this.vorhanden.set(pfad, antwort.ok && !typ.includes('text/html'));
-        } catch {
-          /* Netzfehler: unbekannt lassen (s. Kopf der Registry-Prüfung) */
-        }
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(PRUEF_PARALLEL, offen.length) }, arbeiter));
-    this.pruefKnopf.textContent = 'Verfügbarkeit dieser Seite prüfen';
-    this.pruefKnopf.disabled = false;
-    this.listeFuellen();
-    const da = ids.filter((id) => {
-      const p = this.storeIndex.get(id)?.pfad;
-      return p ? this.vorhanden.get(p) === true : false;
-    }).length;
-    this.statusSetzen(`${da} von ${ids.length} Dateien dieser Seite liegen vor.`, da > 0 ? 'da' : 'fehlt');
+  pruefeSpeicherSeite(ids: readonly string[]): Promise<void> {
+    return pruefeSpeicherSeite(this, ids);
   }
-}
-
-/**
- * Dateigröße in der Einheit, in der man sie im Kopf hat.
- *
- * Bytes ausgeschrieben (`20560`) beantworten die Frage nicht, die man
- * stellt („ist das gross?"). Gerundet wird bewusst grob — auf ein
- * Kilobyte kommt es beim Durchsehen eines Speichers nie an.
- */
-function fmtBytes(b: number): string {
-  if (!Number.isFinite(b) || b < 0) return '—';
-  if (b < 1024) return `${b} B`;
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(0).replace('.', ',')} kB`;
-  return `${(b / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`;
-}
-
-/** Kurze Zahl fürs Auge: 12,4 statt 12.412345678. */
-function fmt(v: number): string {
-  if (!Number.isFinite(v)) return '—';
-  const abs = Math.abs(v);
-  const stellen = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
-  return v.toFixed(stellen).replace('.', ',');
 }

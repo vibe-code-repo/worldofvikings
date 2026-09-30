@@ -293,6 +293,9 @@ export default [
   // Fuellrichtung, Hotbar, Verschieben/Tauschen, Kapazitaet, Speichern/
   // Laden, Gewicht). Reine Funktion, Sekunden.
   ['shared', 'test/inventory.ts'],
+  // Item-Tooltip (2026-09-29): Itemlevel und Seltenheit jeder Definition nach
+  // Tabelle B2, anzeigeName mit/ohne textKey (rein). Keine Assets noetig.
+  ['shared', 'test/item-stufen.ts'],
   /*
     Kampfkern K1 (2026-09-29): Item-Attribute und Formeln (rein) und ihr Weg
     durch den Server (drei echte WebSocket-Spieler mit verschiedener
@@ -483,6 +486,10 @@ export default [
   // like a hand-built prefab, and pruefeLayout/istEigenesModell accept an
   // uploaded name (plus the counter-proof: it is flagged again once removed).
   ['shared', 'test/uploaded-model-registry.ts'],
+  // Waldambiente (2026-09-29): Walddichte gegen die echte Streuung der dev.json
+  // (Korrelation, Drift-Waechter, ~40 s) und Lautstaerke-Regeln der Schleifen
+  // (Dichte, Glaettung, Tag/Nacht, Aus-Faelle, Regler). Rein, keine Assets noetig.
+  ['shared', 'test/wald-dichte.ts'],
   // G1-Durchsicht: Wetter/Wind-Port (Timing aus den Assets, Determinismus,
   // Ziehungsgewichte, Windclamp/-rampe, windData-Alpha, Niederschlags-
   // zuordnung). Reine Funktion, kein Server/Socket, Sekunden.

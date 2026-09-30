@@ -35,7 +35,7 @@
  *
  * Lauf: npx tsx client/test/dungeon-neuer-saal.ts   (aus dem Repo-Wurzelverzeichnis)
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   FLAG_ASHLANDS_MODERN,
@@ -177,6 +177,48 @@ for (const [datei, holt] of [
   pruefe(
     new RegExp(`\\b${holt}\\b`).test(text) && /from '@wov\/shared'/.test(text),
     `${datei} holt sich ${holt} aus @wov/shared`
+  );
+}
+
+// Die Module unter `server/src/spiel/` sind Blöcke, die aus `WovServer.ts`
+// dorthin umziehen (Refactoring I1). Sie standen unter dem Wächter oben,
+// also gilt er dort weiter: für jede Quelldatei des Ordners, Unterordner
+// eingeschlossen. Ohne diese Schleife bliebe der Wächter grün und sähe
+// eine Bitliste in einem Modul nicht.
+const SPIEL = 'server/src/spiel';
+const spielVerknuepfungen: string[] = [];
+function spielQuellen(ordner: string, aus: string[] = []): string[] {
+  let eintraege;
+  try {
+    eintraege = readdirSync(resolve(WURZEL, ordner), { withFileTypes: true });
+  } catch {
+    return aus;
+  }
+  for (const e of eintraege) {
+    const pfad = `${ordner}/${e.name}`;
+    if (e.isSymbolicLink()) spielVerknuepfungen.push(pfad);
+    else if (e.isDirectory()) spielQuellen(pfad, aus);
+    else if (/\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/.test(e.name)) aus.push(pfad);
+  }
+  return aus.sort();
+}
+const spielModule = spielQuellen(SPIEL);
+pruefe(
+  spielModule.includes(`${SPIEL}/Beute.ts`),
+  `${SPIEL} gelesen (mit Beute.ts)`,
+  `${spielModule.length} Quelldateien`
+);
+pruefe(
+  spielVerknuepfungen.length === 0,
+  `${SPIEL} enthält keine symbolische Verknüpfung (gelesen wird keine)`,
+  spielVerknuepfungen.join(', ')
+);
+for (const datei of spielModule) {
+  const text = lies(datei);
+  pruefe(
+    !/^const FLAG_[A-Z_]+\s*=/m.test(text),
+    `${datei} führt keine eigene Bitliste`,
+    (text.match(/^const FLAG_[A-Z_]+\s*=.*$/m) ?? [''])[0]
   );
 }
 

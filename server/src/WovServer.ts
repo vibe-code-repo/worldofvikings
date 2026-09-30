@@ -167,7 +167,7 @@ import {
 } from '@wov/shared/src/bewegung/ausdauer.js';
 import { pickableItem, ZWEIT_DROPS, wuerfleDrop, wuerfleTruhe } from './spiel/Beute.js';
 import { waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
-import { liesSchlagMeldung, pruefeSchlag, verbucheSchlag, abstandZurKugel, trifftKugel, schreibeQuittung, SchlagErgebnis, TOLERANZ_MAX_M, type SchlagErgebnisWert } from './spiel/Treffer.js';
+import { liesSchlagMeldung, pruefeSchlag, verbucheSchlag, trefferAbstand, schreibeQuittung, SchlagErgebnis, TOLERANZ_MAX_M, type SchlagErgebnisWert } from './spiel/Treffer.js';
 import { EIKTHYR_HASH, BOSS_ENTRY, NPC_ENTRY } from './spiel/Sondereintraege.js';
 import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
 import { handleDungeonEditRequest, handleDungeonEditSave, handleDungeonModulBau, handleDungeonModulLoeschen } from './spiel/DungeonEditPakete.js';
@@ -3756,9 +3756,8 @@ export class WovServer {
       if (this.spawns?.stirbt(zdo)) continue;
       // Der Kegel steht VOR der Kugel: er ist billiger (kein 3D-Abstand) und hat den Mindestabstand.
       if (!this.imTrefferkegel(von, yaw, zdo.position)) continue;
-      if (!trifftKugel(von, yaw, zdo.position, this.spawns?.tempo(zdo) ?? 0)) continue;
-      const d = abstandZurKugel(von, yaw, zdo.position);
-      if (d >= best) continue;
+      const d = trefferAbstand(von, yaw, zdo.position, this.spawns?.tempo(zdo) ?? 0);
+      if (d === null || d >= best) continue;
       best = d;
       ziel = zdo;
     }

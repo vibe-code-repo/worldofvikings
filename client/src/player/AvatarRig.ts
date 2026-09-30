@@ -1602,6 +1602,11 @@ export class AvatarRig {
     return this.clipAngriff ? hiebSpitzeS(this.angriffIndex, this.clipAngriff.grp.speedRatio) : NaN;
   }
 
+  /** The server counted the combo differently (D2 acknowledgement): the next swing starts at blow 1. */
+  kettenEnde(): void {
+    this.komboRest = 0;
+  }
+
   /** Laeuft gerade ein Schlag? Fuer HUD und Messzellen. */
   get schlaegt(): boolean {
     return this.angriffRest > 0;

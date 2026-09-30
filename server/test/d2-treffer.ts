@@ -253,6 +253,11 @@ async function main(): Promise<void> {
     q = await schlage(mitte);
     check('Ziel 1,5 m im Ruecken trifft NICHT', hp(ruecken) === 0, `hp 0 -> ${hp(ruecken)}; ${zeige(q)}`);
     server.zdos.destroyZDO(ruecken.zdoid);
+    frisch();
+    const nacken = ziel(vorn(mitte, YAW_PLUS_Z, 0.5));
+    q = await schlage(mitte);
+    check('Ziel 0,5 m im Nacken (unter 0,8 m, die Blickrichtung zaehlt nicht) trifft', hp(nacken) === 20 - FAUST_SCHADEN, `hp 0 -> ${hp(nacken)}; ${zeige(q)}`);
+    server.zdos.destroyZDO(nacken.zdoid);
 
     // ── [3] bewegtes Ziel ─────────────────────────────────────────
     console.log('\n[3] Bewegtes Ziel: Tempo x 0,14 s Toleranz, gedeckelt bei 1,5 m:');

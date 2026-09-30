@@ -145,9 +145,23 @@ export function abstandZurKugel(von: Vector3, yaw: number, ziel: Vector3): numbe
   return Math.hypot(dx, dy, dz);
 }
 
-/** Is the target inside the sphere (body radius and moving tolerance included)? */
+/** Below this horizontal distance (m) the target is inside the attacker: a hit whatever the look direction says. */
+export const NAH_M = 0.8;
+
+/**
+ * Ranking distance of a hit, or null for a miss. The target is inside the sphere (body radius and
+ * moving tolerance included), or so close to the attacker that a look direction means nothing
+ * (an enemy stuck in the neck must be hittable; same rule as the cone's minimum distance).
+ */
+export function trefferAbstand(von: Vector3, yaw: number, ziel: Vector3, tempo = 0): number | null {
+  const nah = Math.hypot(ziel.x - von.x, ziel.z - von.z);
+  if (nah < NAH_M) return nah;
+  const d = abstandZurKugel(von, yaw, ziel);
+  return d <= KUGEL_RADIUS_M + KOERPER_RADIUS_M + zielToleranz(tempo) ? d : null;
+}
+
 export function trifftKugel(von: Vector3, yaw: number, ziel: Vector3, tempo = 0): boolean {
-  return abstandZurKugel(von, yaw, ziel) <= KUGEL_RADIUS_M + KOERPER_RADIUS_M + zielToleranz(tempo);
+  return trefferAbstand(von, yaw, ziel, tempo) !== null;
 }
 
 /** Payload of `PacketType.AttackAck`: Int32 seq, Int32 schritt (server chain, 0 = refused), Int32 ergebnis. */

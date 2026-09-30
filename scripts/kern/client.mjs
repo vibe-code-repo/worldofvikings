@@ -390,6 +390,8 @@ export default [
     alle Gruppen im `toene`-Abschnitt der getrackten assets/manifest.json.
   */
   ['client', 'test/kampf-toene.ts'],
+  // D2: swing fields, AttackAck, combo follow-up and round trip on the client.
+  ['client', 'test/d2-quittung.ts'],
   ['client', 'test/kampf-waffe-abgleich.ts'],
   // Editor map image in tiles (K3.0): stage choice (4 m per pixel -> 4 m texel),
   // tile addressing and placement, tile colours against the world sample and

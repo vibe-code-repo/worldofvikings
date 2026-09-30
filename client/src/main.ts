@@ -101,6 +101,7 @@ import { EntityManager } from './entities/EntityManager';
 import { BaumImpostor } from './engine/BaumImpostor';
 import { PlayerController } from './player/PlayerController';
 import { GameSocket } from './net/GameSocket';
+import { WetterAnnahme } from './net/wetterAnnahme';
 import { WiederverbindenSteuerung } from './net/Wiederverbinden';
 import { ladeModulRegistrierung } from './net/ModuleRegistryLoad';
 import { ladeHochgeladeneRegistrierung } from './net/UploadedModelRegistryLoad';
@@ -1139,6 +1140,7 @@ async function main() {
    */
   let zeitWunsch: number | null = null;
   let weather: WeatherManager | null = null;
+  const wetterAnnahme = new WetterAnnahme(); // F9: Wetter vom Server
   let precipitation: Precipitation | null = null;
   let objectLabels: ObjectLabels | null = null;
   let anvisiert: Anvisiert | null = null;
@@ -2268,6 +2270,7 @@ async function main() {
 
     // Wettervorgabe des Servers (server.yml `wetter:`) — kommt direkt
     // hinter der ServerConfig, s. WovServer.onPeerAuthenticated.
+    socket.on(PacketType.WetterZustand, (reader) => wetterAnnahme.lies(reader));
     socket.on(PacketType.WeltWetter, (reader) => {
       const umgebung = reader.readString();
       const dichte = reader.readFloat32();
@@ -3194,13 +3197,15 @@ async function main() {
       if (envPinned) weather.setEnvironmentOverride(params.get('env') ?? serverUmgebung);
     }
     weather.setBiome(biome);
+    if (!params.get('env')) wetterAnnahme.uebertrage(weather); // der Server wuerfelt, ?env= schlaegt ihn
     const wx = weather.update(worldTime, dt);
     if (imDungeon) {
       // Phase G: im Dungeon zählt das Interior-Environment der Instanz
       // (alwaysDark — die Innenraum-Umgebung der Location),
       // nicht das Biom-Wetter der Oberwelt.
       lighting.setEnvironmentByName(dungeonEnv);
-    } else if (!envPinned) {
+    } else if (!envPinned || wetterAnnahme.fuehrt(params.get('env'))) {
+      // (Server-Wetter führt das Licht auch bei fester Vorgabe, s. WetterAnnahme.fuehrt)
       // The weather is picked here (the original's environment update); Lighting does
       // the cross-fade, so only the target is handed over.
       lighting.setEnvironmentByName(wx.to.name);

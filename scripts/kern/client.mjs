@@ -25,6 +25,9 @@ export default [
   // NullEngine: `play()` nimmt das pausierte Bild wieder auf statt bei 0
   // neu zu beginnen. NullEngine, keine GPU, <1 s.
   ['client', 'test/animations-lod.ts'],
+  // Der Anmeldedialog kennt die Antwort 409 `conflict` (gleichzeitiger
+  // Passwortwechsel) und zeigt dafuer einen eigenen, uebersetzten Satz.
+  ['client', 'test/anmeldung-konflikt.ts'],
   ['client/test', 'appearance-visibility.ts'],
   // AudibleRadius -- Rueckwaertsprobe der Umkehrformel des 'inverse'-
   // Abstandsmodells (Radius bei 2 % Lautstaerke), nicht gemessen. Pure.
@@ -248,6 +251,11 @@ export default [
     stehen als Konstanten im Test. NullEngine, Sekundenbruchteile.
   */
   ['client', 'test/figur-toenung.ts'],
+  // Gelaende T2: Pinsel im Testflug (Reiter Gelaende) - Kern (Stempel, Randabfall, Glaetten), Sperre unter Sockel/Gebaeude, Grenzen
+  // (Strich wird abgelehnt statt gekuerzt), ein Strich = ein Vorgang, Umkehr, Anbindung an eine echte RegionGeo und Bitgleichheit mit
+  // der frisch kompilierten Welt (Server-Weg), Tasten (deutsche Tastatur), Takt, Texte de/en. DOM-frei.
+  // N1: Bauteil-Sperre (PIECE/sm-bld-), Wirkradius, Flug folgt dem Entwurf (fremder Tab), enthaelt() mit heightDeltas, Zonennaht, Wertgrenze.
+  ['client', 'test/gelaende-pinsel.ts'],
   /*
     E7: Ein Modul mit `Gen_`-Praefix kommt aus `assets/generiert/`, alles
     andere aus `assets/models/` — und der Dev-Server liefert beides aus.
@@ -375,6 +383,13 @@ export default [
   // service with stand-in workers (centre first, stale views never sent,
   // stale world generations dropped, 50 steps without growth). DOM-free, ~3 s.
   ['client', 'test/karte-kacheln.ts'],
+  // Boundary of client/src/editor/katalog/ (refactoring step G1): kategorien.ts derives its
+  // lists from the registries when it loads, so value imports of katalog/* may only stand in
+  // GegenstandsKatalog.ts (loaded dynamically after the registrations) and in katalog/ itself,
+  // and nothing imports GegenstandsKatalog.ts statically as a value. Read on the syntax tree,
+  // with a teeth check of the scanner; plus the behaviour of fmt/fmtBytes and of the derived
+  // lists. DOM-free, ~1 s.
+  ['client', 'test/katalog-module-grenze.ts'],
   ['client', 'test/kollision-formen.ts', brauchtStore()],
   // Die `_col`-Konvention (ein GLB-Mesh ist NUR Kollision): unsichtbar,
   // kein Schattenwerfer, und es ERSETZT die Kollision des Prefabs. Beide
@@ -599,6 +614,8 @@ export default [
   ['client', 'test/taa-reihenfolge.ts'],
   // Test flight: a click places while a prefab is chosen (Alt grabs), series switch, drag only past 4 px (8 touch) with grab offset; offline bytes unchanged.
   ['client', 'test/testflug-greifen.ts'],
+  // Test flight shows the deletion-lock hint: PATCH answers (200/202) and the publish carry `loeschsperre`; the HUD line says how many are held back and to confirm in the map editor (de/en); no field, no hint.
+  ['client', 'test/testflug-loeschsperre.ts'],
   // Offline-flight module (moved out of main.ts): what stays true afterwards.
   ['client', 'test/testflug-modul.ts'],
   // Test flight: one gesture = one Vorgang (1 op, by id), a 30-frame drag = 1; OpsPersistenz 200/202/409; plain way byte-identical.

@@ -12,14 +12,19 @@
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector';
+import type { LinesMesh } from '@babylonjs/core/Meshes/linesMesh';
 import {
   findPrefabByName,
+  FOLIAGE,
+  istFesterKoerperImSpiel,
   istNpcPrefab,
   loeseNpcAuf,
   PLATEAU_RAND_MAX,
   platzierungenFuerFreiflaechen,
   RegionGeo,
   sanitizeWorldLayout,
+  uploadedModelRegistry,
 } from '@wov/shared';
 import type { NpcDef } from '@wov/shared';
 import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
@@ -35,13 +40,18 @@ import { LageAnzeige } from './LageAnzeige';
 import { positionLines, regionAt } from './inselwahl';
 import { planReturn, sendReturnFromBrowser } from './ruecksprung';
 import type { TestflugKontext } from './TestflugKontext';
-import { antwortText } from './TestflugPersistenz';
+import { antwortText, speicherText } from './TestflugPersistenz';
 import type { EntwurfDokument, EntwurfEintrag, TestflugPersistenz, VorgangAntwort, VorgangErgebnis } from './TestflugPersistenz';
 import { TestflugAktionen, doppelteIds } from './TestflugAktionen';
 import { sockelRadiusFuer } from './sockel';
 import { DoppelklickSperre, Ziehgriff, entscheideKlick, griffPosition, modusNachSetzen } from './greifen';
 import { t } from '../i18n';
+import { ENTWURF_KEY } from '../weltdokument';
 import { verdrahteGrundskalaLive } from './grundskalaLive';
+import { GelaendeAktionen } from './GelaendeAktionen';
+import { GelaendeSteuerung, type Kasten } from './GelaendeSteuerung';
+import { radiusSchritt } from './gelaendePinsel';
+import type { SperrKatalog } from './gelaendeSperre';
 
 /**
  * ?layout=editor lädt den Editor-Entwurf — der "Testflug" des 3D-Map-
@@ -225,6 +235,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         ent.flush();
         hud.meldung(t('testflug.npc_angaben_uebernommen', { prefab: alt.prefab }));
       },
+      speichernGelaende: () => speichereEntwurf(),
       entferneLetztes: () => {
         const roh = persistenz.laden();
         if (!roh?.placements?.length) return;
@@ -441,18 +452,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     // NACH `auswahlId` angelegt: Der Konstruktor zeichnet die Anzeige
     // einmal auf und liest dabei die gewählte Platzierung — vor der
     // Deklaration wäre das ein Zugriff in die temporale Todeszone.
-    const routen = new RoutenEditor(scene, {
-      bodenHoehe: (x, z) => kontext.world()?.getGroundHeight(x, z) ?? 0,
-      meldung: (t) => hud.meldung(t),
-      gewaehltePlatzierung: () => indexVon(auswahlId),
-      // Zeichnen und Platzieren schließen einander aus (s. RoutenEditor).
-      aufZeichenStart: () => {
-        panel.beendePlatzierModus();
-        geistWeg();
-      },
-      // Entwurf in die Serverdatei schreiben (Persistenz-Baustein `speichern`,
-      // derselbe Endpunkt wie beim Karten-Editor).
-      aufSpeichern: () => {
+    /** Entwurf in die Serverdatei schreiben — Routen-Editor und Reiter „Gelände“ teilen sich diesen Weg. */
+    const speichereEntwurf = (): void => {
         const roh = leseEntwurf();
         if (!roh) {
           hud.meldung(t('testflug.kein_entwurf_speichern'));
@@ -467,10 +468,23 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         void persistenz
           .speichern(sauber)
           .then((a) => {
-            hud.meldung(a.ok ? t('testflug.gespeichert_neustart_noetig', { message: a.message }) : a.message);
+            hud.meldung(speicherText(a));
           })
           .catch((err) => hud.meldung(t('testflug.speichern_fehlgeschlagen', { fehler: String(err) })));
+    };
+    const routen = new RoutenEditor(scene, {
+      bodenHoehe: (x, z) => kontext.world()?.getGroundHeight(x, z) ?? 0,
+      meldung: (t) => hud.meldung(t),
+      gewaehltePlatzierung: () => indexVon(auswahlId),
+      // Zeichnen und Platzieren schließen einander aus (s. RoutenEditor).
+      aufZeichenStart: () => {
+        panel.beendePlatzierModus();
+        panel.beendeGelaendeModus();
+        geistWeg();
       },
+      // Entwurf in die Serverdatei schreiben (Persistenz-Baustein `speichern`,
+      // derselbe Endpunkt wie beim Karten-Editor).
+      aufSpeichern: speichereEntwurf,
       // Umschalter „Vorschau an/aus" (Vorgabe AN). Der Zustand lebt im
       // Panel, das Laufen in RoutenVorschau — beim Ausschalten kehren die
       // NPCs auf ihren gespeicherten Platz zurück.
@@ -759,6 +773,126 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       hud.meldung(t('testflug.gedreht', { prefab: p.prefab }));
     });
 
+    // ── Reiter „Gelände“: Pinsel ─────────────────────────────────────
+    // Anheben/Absenken/Glätten mit rundem Pinsel (Karte T2). Die Logik lebt DOM-frei in
+    // `GelaendeSteuerung`/`gelaendePinsel`; hier hängen nur Zeiger, Tasten, Kreisvorschau
+    // und der Neuaufbau der Kacheln daran. Ein Strich (Drücken bis Loslassen) = EIN Vorgang.
+    const gelaendeAktionen = new GelaendeAktionen(persistenz);
+    const foliageNamen: ReadonlySet<string> = new Set(FOLIAGE.map((f) => f.prefabName));
+    const sperrKatalog: SperrKatalog = {
+      def: (n) => findPrefabByName(n),
+      fest: (n) => istFesterKoerperImSpiel(findPrefabByName(n), n),
+      vegetation: (n) => foliageNamen.has(n),
+      upload: (n) => uploadedModelRegistry.uploadedModelEntry(n),
+    };
+    const KREIS_FREI = new Color3(0.4, 0.9, 0.4);
+    const KREIS_GESPERRT = new Color3(0.95, 0.2, 0.2);
+    const KREIS_SEGMENTE = 48;
+    let kreisNetz: LinesMesh | null = null;
+    const gelaende = new GelaendeSteuerung({
+      hoehe: (x, z) => kontext.world()?.getGroundHeight(x, z) ?? 0,
+      geo: () => kontext.world()?.geo,
+      neuBauen: (k: Kasten) => {
+        const world = kontext.world();
+        if (!world) return;
+        const cx = (k.minX + k.maxX) / 2;
+        const cz = (k.minZ + k.maxZ) / 2;
+        const reichweite = Math.hypot(k.maxX - k.minX, k.maxZ - k.minZ) / 2 + 1;
+        // Wie beim Graben: Zonen verwerfen, dann die Kachelscheitel neu schreiben (kein Loch, Kollision folgt).
+        kontext.terrain()?.refreshZones(world.heightmaps.invalidateArea(cx, cz, reichweite));
+        kontext.grass()?.clearArea(cx, cz, reichweite);
+      },
+      platzierungen: () => persistenz.laden()?.placements,
+      katalog: sperrKatalog,
+      aktionen: gelaendeAktionen,
+      einstellung: () => panel.gelaendeEinstellung,
+      meldung: (text) => hud.meldung(text),
+      kreis: {
+        zeige: (x, z, r, gesperrt) => {
+          const world = kontext.world();
+          if (!world) return;
+          const punkte: Vector3[] = [];
+          for (let i = 0; i <= KREIS_SEGMENTE; i++) {
+            const w = (i / KREIS_SEGMENTE) * Math.PI * 2;
+            const px = x + Math.cos(w) * r;
+            const pz = z + Math.sin(w) * r;
+            punkte.push(new Vector3(px, world.getGroundHeight(px, pz) + 0.25, pz));
+          }
+          kreisNetz = MeshBuilder.CreateLines(
+            'gelaendeKreis',
+            kreisNetz ? { points: punkte, instance: kreisNetz } : { points: punkte, updatable: true },
+            scene
+          );
+          kreisNetz.color = gesperrt ? KREIS_GESPERRT : KREIS_FREI;
+          kreisNetz.isPickable = false;
+          kreisNetz.setEnabled(true);
+        },
+        verberge: () => kreisNetz?.setEnabled(false),
+      },
+      // Der Boden unter losen Objekten hat sich bewegt: alle Platzierungen neu aufsetzen (Gebäude sind gesperrt).
+      nachStrich: () => neuAufbauenAlle(),
+      jetztMs: () => performance.now(),
+      vorgangId: () => `gelaende-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    });
+    /** Strich offen (Maustaste unten im Gelände-Reiter) und der letzte Zeigerpunkt, für den Halte-Takt. */
+    let gelaendeUnten = false;
+    let gelaendeZeiger: { x: number; y: number } | null = null;
+    let gelaendeShift = false;
+    const WERKZEUG_TEXT = {
+      anheben: 'testflug.gelaende.werkzeug.anheben',
+      absenken: 'testflug.gelaende.werkzeug.absenken',
+      glaetten: 'testflug.gelaende.werkzeug.glaetten',
+    } as const;
+    const gelaendeAus = (): void => {
+      gelaendeUnten = false;
+      gelaende.beenden();
+    };
+    panel.aufGelaende = () => {
+      if (!panel.istGelaendeModus) {
+        gelaendeAus();
+        return;
+      }
+      // Ohne brauchbare Geo/Entwurf bleibt der Reiter Objekte (die Gründe nennt `bereit()`).
+      if (!gelaende.bereit()) {
+        panel.beendeGelaendeModus();
+        return;
+      }
+      routen.beendeZeichnen();
+      geistWeg();
+      const e = panel.gelaendeEinstellung;
+      hud.meldung(t('testflug.gelaende.pinsel_an', { werkzeug: t(WERKZEUG_TEXT[e.werkzeug]), r: e.radius }));
+    };
+    window.addEventListener('keydown', (e) => {
+      gelaendeShift = e.shiftKey;
+      if (tipptImFeld(e) || !panel.istGelaendeModus) return;
+      if (e.code === 'Escape') {
+        gelaendeAus();
+        panel.beendeGelaendeModus();
+        hud.meldung(t('testflug.gelaende.pinsel_aus'));
+        return;
+      }
+      // `[`/`]` brauchen auf der deutschen Tastatur AltGr: `e.key` statt `e.code`, dazu − und + als Zweitbelegung.
+      const schritt = radiusSchritt(e);
+      if (schritt === 0) return;
+      e.preventDefault();
+      panel.setzeRadius(panel.gelaendeEinstellung.radius + schritt);
+      hud.meldung(t('testflug.gelaende.radius', { r: panel.gelaendeEinstellung.radius }));
+    });
+    window.addEventListener('keyup', (e) => {
+      gelaendeShift = e.shiftKey;
+    });
+    // Ändert ein anderer Tab (der Editor) den Entwurf, übernimmt der Flug dessen Geländeebene und baut neu
+    // (ein laufender Strich wird nicht zerrissen, die Übernahme wartet auf sein Ende). `storage` feuert nur in
+    // den ANDEREN Tabs, eigene Schreibungen des Flugs kommen hier nicht an.
+    window.addEventListener('storage', (e) => {
+      if (e.key === null || e.key === ENTWURF_KEY) gelaende.entwurfGeaendert();
+    });
+    // Ein Bild lang stehende Maustaste: der Pinsel wiederholt seinen Stempel (StempelTakt bestimmt, wann).
+    scene.onBeforeRenderObservable.add(() => {
+      if (!gelaendeUnten || !gelaendeZeiger || !panel.istGelaendeModus) return;
+      gelaende.tick(bodenPunkt(gelaendeZeiger.x, gelaendeZeiger.y), gelaendeShift);
+    });
+
     /** Verwerfen: von Rechtsklick-pointerdown UND contextmenu gerufen —
      *  je nach Browser/Pointer-Lock kommt nur eines von beiden an. */
     let rechtsklickZeit = 0;
@@ -768,6 +902,13 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       rechtsklickZeit = performance.now();
       if (document.pointerLockElement) {
         document.exitPointerLock();
+        return;
+      }
+      // Im Gelände-Reiter beendet der Rechtsklick das Werkzeug (ein offener Strich wird abgeschlossen).
+      if (panel.istGelaendeModus) {
+        gelaendeAus();
+        panel.beendeGelaendeModus();
+        hud.meldung(t('testflug.gelaende.pinsel_aus'));
         return;
       }
       // Ein offenes Ziehen wird abgeschlossen (ein Vorgang), nicht liegengelassen.
@@ -803,6 +944,17 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       if (performance.now() - rechtsklickZeit < 400) return;
       // Ging ein pointerup verloren (Maus außerhalb losgelassen), endet das alte Ziehen jetzt, nicht erst mit der nächsten Geste.
       setzeAb();
+      // Gelände-Reiter: der Linksklick formt das Gelände statt zu setzen oder zu greifen; Alt greift wie bisher.
+      if (panel.istGelaendeModus && !e.altKey && !routen.istZeichenModus) {
+        const gp = bodenPunkt(e.offsetX, e.offsetY);
+        if (gp) {
+          gelaendeUnten = true;
+          gelaendeZeiger = { x: e.offsetX, y: e.offsetY };
+          gelaendeShift = e.shiftKey;
+          gelaende.druecken(gp, e.shiftKey);
+        }
+        return;
+      }
       const p = bodenPunkt(e.offsetX, e.offsetY);
       const roh = leseEntwurf();
       if (!p || !roh) return;
@@ -914,6 +1066,16 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       if ((!panel.istOffen && !routen.istOffen) || document.pointerLockElement) return;
       const p = bodenPunkt(e.offsetX, e.offsetY);
       if (!p) return;
+      // Gelände-Reiter: Kreisvorschau folgt dem Zeiger, mit gedrückter Taste stempelt der Pinsel.
+      if (panel.istGelaendeModus && routenZiehIndex < 0 && ziehId === null) {
+        gelaendeZeiger = { x: e.offsetX, y: e.offsetY };
+        gelaendeShift = e.shiftKey;
+        // Ging ein pointerup verloren (Maus außerhalb losgelassen), endet der Strich jetzt.
+        if (gelaendeUnten && e.buttons !== 1) gelaendeAus();
+        if (gelaendeUnten) gelaende.bewegen(p, e.shiftKey);
+        else gelaende.vorschau(p);
+        return;
+      }
       // Gegriffener Wegpunkt folgt der Maus (Linie und Marker werden in
       // punktVerschieben neu gezeichnet).
       if (routenZiehIndex >= 0) {
@@ -967,6 +1129,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     };
     /** Ende eines Ziehens (Loslassen, Rechtsklick, Esc, Fokusverlust, Fenster verlassen): EIN Vorgang, Sockel und Ring nachziehen. */
     setzeAb = (): void => {
+      // Ein offener Gelände-Strich endet mit jedem Loslassen/Fokusverlust: EIN Vorgang.
+      if (gelaendeUnten) gelaendeAus();
       if (routenZiehIndex >= 0) {
         hud.meldung(t('testflug.wegpunkt_abgesetzt', { n: routenZiehIndex + 1 }));
         routenZiehIndex = -1;

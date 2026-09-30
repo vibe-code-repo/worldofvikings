@@ -134,14 +134,29 @@ function unbekannterNameSchluessel(benutzername: string): string {
  * einem eigenen /64 (der Regelfall bei IPv6-Zuteilungen) waere von der
  * Herkunftsgrenze praktisch nie betroffen. IPv4 bleibt unveraendert.
  */
-function herkunftSchluessel(adresse: string): string {
+export function herkunftSchluessel(adresse: string): string {
   if (!adresse.includes(':')) return adresse;
-  const [kopfTeil, schwanzTeil] = adresse.split('::');
+  let a = adresse.toLowerCase();
+  // IPv4-gemappt, gepunktet (::ffff:1.2.3.4): zaehlt wie die IPv4-Adresse.
+  const gepunktet = /^(?:0{0,4}:){1,5}ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(a);
+  if (gepunktet) return gepunktet[1]!;
+  const [kopfTeil, schwanzTeil] = a.split('::');
   const kopf = kopfTeil ? kopfTeil.split(':') : [];
   const schwanz = schwanzTeil ? schwanzTeil.split(':') : [];
   const fehlend = Math.max(0, 8 - kopf.length - schwanz.length);
-  const gruppen = [...kopf, ...Array<string>(fehlend).fill('0'), ...schwanz];
-  return `v6:${gruppen.slice(0, 4).join(':')}`;
+  // Fuehrende Nullen weg: "0db8" und "db8" sind dieselbe Gruppe.
+  const gruppen = [...kopf, ...Array<string>(fehlend).fill('0'), ...schwanz]
+    .map((g) => g.replace(/^0+(?=.)/, ''));
+  // IPv4-gemappt, hex (::ffff:c000:201): ebenfalls die IPv4-Adresse.
+  if (gruppen.length === 8 && gruppen.slice(0, 5).every((g) => g === '0') && gruppen[5] === 'ffff') {
+    const hoch = parseInt(gruppen[6]!, 16);
+    const tief = parseInt(gruppen[7]!, 16);
+    if (Number.isInteger(hoch) && Number.isInteger(tief)) {
+      return `${hoch >> 8}.${hoch & 255}.${tief >> 8}.${tief & 255}`;
+    }
+  }
+  a = gruppen.slice(0, 4).join(':');
+  return `v6:${a}`;
 }
 
 /**

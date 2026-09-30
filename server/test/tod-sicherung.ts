@@ -10,6 +10,12 @@
  *      point, not the place of death) and the counter of written runs went up by one. All within a few seconds, far
  *      from the 3600 s tick.
  *  [4] With `liegezeitMs = 0` (get up at once, `belebeNeu(peer, true)`) the second death is saved too: a second call.
+ *  [5] Lost bed (the point leads to no bed, it is discarded and reported): the save of the revival holds no
+ *      bed point any more; it is taken at the very call (the row could look the same by chance).
+ *  [6] Death inside a dungeon: the save of the revival holds the revived position outside the dungeon and Anna
+ *      is out of the dungeon when it is called.
+ *  [7] A throw inside the revival (the save is made to throw) does not stop the tick: a second dead player is
+ *      still revived and the server goes on ticking.
  *
  * Run: npx tsx server/test/tod-sicherung.ts
  */
@@ -30,7 +36,7 @@ const WORLDS_DIR = resolve(__dirname, 'tmp-tod-sicherung');
 rmSync(WORLDS_DIR, { recursive: true, force: true });
 let PORT = 0;
 
-const P = { VersionCheck: 1, PasswordAuth: 2, PeerInfo: 3, AdminCommand: 53, AuthChallenge: 68 };
+const P = { VersionCheck: 1, PasswordAuth: 2, PeerInfo: 3, AdminCommand: 53, AdminEvent: 54, AuthChallenge: 68 };
 let failures = 0;
 function check(label: string, ok: boolean, detail = ''): void {
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${label}${detail ? ' — ' + detail : ''}`);
@@ -38,13 +44,14 @@ function check(label: string, ok: boolean, detail = ''): void {
 }
 const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-interface Socke extends WebSocket { tod: number; }
+interface Socke extends WebSocket { tod: number; admin: string[]; }
 
 function verbinde(name: string): Promise<Socke> {
   return new Promise((ok, fail) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}`) as Socke;
     ws.binaryType = 'nodebuffer';
     ws.tod = 0;
+    ws.admin = [];
     let auth = false;
     const timer = setTimeout(() => fail(new Error(`handshake timeout: ${name}`)), 8000);
     ws.on('message', (data: Buffer) => {
@@ -60,6 +67,9 @@ function verbinde(name: string): Promise<Socke> {
         w.writeString(name);
         w.writeString('');
         ws.send(Buffer.concat([Buffer.from([P.PasswordAuth]), w.toBuffer()]));
+      } else if (type === P.AdminEvent) {
+        r.readString(); r.readBool();
+        ws.admin.push(r.readString());
       } else if (type === PacketType.PlayerTod) {
         ws.tod++;
       } else if (type === P.PeerInfo) {
@@ -95,9 +105,16 @@ async function main(): Promise<void> {
   };
   // Record every event save with its reason; the real method still runs.
   const gruende: string[] = [];
+  /** What the state held at each 'tod' call (position, bed point) and whether Anna was still in a dungeon. */
+  const bei: Array<{ position: Vector3; spawnPoint: Vector3 | null; dungeon: string }> = [];
+  const annaPeer = (): Peer | undefined => server.net.getPeers().find((x) => x.name === 'Anna') as Peer | undefined;
   const echt = zugriff.spielerSicherung.sichere.bind(zugriff.spielerSicherung);
   zugriff.spielerSicherung.sichere = (...args: unknown[]): number => {
     gruende.push(String(args[1]));
+    if (args[1] === 'tod') {
+      const st = (args[0] as Array<{ position: Vector3; spawnPoint?: Vector3 }>)[0];
+      bei.push({ position: { ...st!.position }, spawnPoint: st!.spawnPoint ? { ...st!.spawnPoint } : null, dungeon: String(annaPeer()?.dungeonId ?? '') });
+    }
     return echt(...args);
   };
   const anzahl = (g: string): number => gruende.filter((x) => x === g).length;
@@ -146,6 +163,69 @@ async function main(): Promise<void> {
     zugriff.applyCreatureAttack({ x: anna.position.x + 1, y: anna.position.y, z: anna.position.z - 2 }, 8, 2.4, anna.worldId, anna.position);
     await warte(300);
     check('alive again at once and a second "tod" save', anna.totBis === 0 && anna.health > 0 && anzahl('tod') === 2, `${anzahl('tod')} saves, ${gruende.join(',')}`);
+
+    console.log('\n[5] Lost bed: the revival save holds no bed point');
+    sendAdmin(ws, 'teleport 230 200');
+    await warte(400);
+    anna.spawnPoint = { x: 10, y: 0, z: 10 }; // no bed there
+    const n5 = anzahl('tod');
+    anna.health = 5; anna.paradeBis = 0;
+    zugriff.applyCreatureAttack({ x: anna.position.x + 1, y: anna.position.y, z: anna.position.z - 2 }, 8, 2.4, anna.worldId, anna.position);
+    await warte(300);
+    const b5 = bei[bei.length - 1];
+    check('revived at once and one more "tod" save', anna.totBis === 0 && anna.health > 0 && anzahl('tod') === n5 + 1, `${anzahl('tod')} saves`);
+    check('the bed point is gone from Anna and from the state that was saved', anna.spawnPoint === null && b5 !== undefined && b5.spawnPoint === null, JSON.stringify(b5));
+    check('the saved position is the revived one, not the place of death (230, 200)',
+      b5 !== undefined && Math.hypot(b5.position.x - anna.position.x, b5.position.z - anna.position.z) < 0.01 && Math.hypot(b5.position.x - 230, b5.position.z - 200) > 5,
+      JSON.stringify(b5?.position));
+
+    console.log('\n[6] Death inside a dungeon: saved outside of it');
+    sendAdmin(ws, 'dungeon create forestcrypt 4242');
+    const t6 = Date.now();
+    while (!ws.admin.some((m) => /Dungeon erzeugt: \S+/.test(m)) && Date.now() - t6 < 8000) await warte(25);
+    const id = ws.admin.map((m) => m.match(/Dungeon erzeugt: (\S+)/)?.[1]).find((m) => m);
+    check('a dungeon was created', !!id, ws.admin.join(' | '));
+    sendAdmin(ws, `dungeon enter ${id}`);
+    const t6b = Date.now();
+    while (!anna.dungeonId && Date.now() - t6b < 8000) await warte(25);
+    await warte(300);
+    const innen = { ...anna.position };
+    check('Anna is inside the dungeon (her dungeon id is set)', !!anna.dungeonId && anna.worldId !== server.hauptwelt.id, `${anna.dungeonId}, world ${anna.worldId}, y ${innen.y.toFixed(1)}`);
+    const n6 = anzahl('tod');
+    anna.health = 5; anna.paradeBis = 0;
+    zugriff.applyCreatureAttack({ x: anna.position.x + 1, y: anna.position.y, z: anna.position.z - 2 }, 8, 2.4, anna.worldId, anna.position);
+    await warte(500);
+    const b6 = bei[bei.length - 1];
+    check('revived and one more "tod" save', anna.totBis === 0 && anna.health > 0 && anzahl('tod') === n6 + 1, `${anzahl('tod')} saves`);
+    check('Anna was out of the dungeon when the save was called', !anna.dungeonId && b6 !== undefined && b6.dungeon === '', JSON.stringify(b6));
+    check('the saved position is the revived one on the surface (not the spot inside the dungeon), and Anna is in the main world again',
+      b6 !== undefined && Math.hypot(b6.position.x - anna.position.x, b6.position.z - anna.position.z) < 0.01 && Math.abs(b6.position.y - innen.y) > 1 && anna.worldId === server.hauptwelt.id,
+      `${JSON.stringify(b6?.position)} (inside was y ${innen.y.toFixed(1)}), world ${anna.worldId}`);
+
+    console.log('\n[7] A throw inside the revival does not stop the tick');
+    const zweite = await verbinde('Bernd');
+    sockets.push(zweite);
+    const bernd = server.net.getPeers().find((x) => x.name === 'Bernd') as Peer;
+    const echtSofort = (server as unknown as { sichereSpielerSofort(p: Peer, g: string): void }).sichereSpielerSofort;
+    let geworfen = 0;
+    (server as unknown as { sichereSpielerSofort(p: Peer, g: string): void }).sichereSpielerSofort = function (this: unknown, p: Peer, g: string): void {
+      if (g === 'tod' && geworfen === 0) { geworfen++; throw new Error('probe: save throws'); }
+      echtSofort.call(this, p, g);
+    };
+    server.liegezeitMs = 800;
+    for (const [p, w] of [[anna, ws], [bernd, zweite]] as const) {
+      p.health = 5; p.paradeBis = 0;
+      zugriff.applyCreatureAttack({ x: p.position.x + 1, y: p.position.y, z: p.position.z - 2 }, 8, 2.4, p.worldId, p.position);
+      void w;
+    }
+    await warte(300);
+    check('both lie dead', anna.totBis > 0 && bernd.totBis > 0, `${anna.totBis} / ${bernd.totBis}`);
+    const t7 = Date.now();
+    while ((anna.totBis > 0 || bernd.totBis > 0) && Date.now() - t7 < 6000) await warte(25);
+    check('the save threw once, and both players are up again (the throw did not cut the tick short)', geworfen === 1 && anna.totBis === 0 && bernd.totBis === 0 && anna.health > 0 && bernd.health > 0, `threw ${geworfen}, ${anna.totBis}/${bernd.totBis}`);
+    const uhr0 = Date.now();
+    await warte(400);
+    check('the server still ticks and answers', Date.now() - uhr0 >= 390 && server.net.getPeers().length === 2);
     server.liegezeitMs = TOD_LIEGEZEIT_MS;
   } finally {
     for (const s of sockets) if (s.readyState === WebSocket.OPEN) s.close();

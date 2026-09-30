@@ -17,7 +17,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PREFAB_DEFS, PrefabFlag, findItem } from '@wov/shared';
-import { pickableItem, wuerfleDrop, wuerfleTruhe } from '../src/spiel/Beute.js';
+import { pickableItem, wuerfleDrop, wuerfleTruhe, ZWEIT_DROPS } from '../src/spiel/Beute.js';
 
 let failures = 0;
 function check(label: string, ok: boolean, detail = ''): void {
@@ -90,6 +90,14 @@ for (const [kreatur, zeilen] of Object.entries(DROPS)) {
 }
 check('a creature without a table drops nothing (Coins, "", huhn, "Huhn ")',
   ['Coins', '', 'huhn', 'Huhn '].every((k) => drop(k, [0, 0, 0]) === null));
+
+// the second drop with a fixed chance (trophies): paid out in WovServer.ts through ZWEIT_DROPS
+{
+  const zw = Object.entries(ZWEIT_DROPS);
+  check('ZWEIT_DROPS is frozen: exactly Eikthyr -> TrophyEikthyr x1', zw.length === 1 && zw[0]![0] === 'Eikthyr'
+    && zw[0]![1][0] === 'TrophyEikthyr' && zw[0]![1][1] === 1, JSON.stringify(ZWEIT_DROPS));
+  check('the trophy item exists', findItem('TrophyEikthyr') !== undefined);
+}
 
 // ── [2] TRUHEN ───────────────────────────────────────────────────────
 console.log('\n[2] TRUHEN read through the dice');

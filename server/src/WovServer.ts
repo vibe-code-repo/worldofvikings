@@ -4341,7 +4341,9 @@ export class WovServer {
   /** Revives every dead player whose lying time is over. */
   private belebeFaellige(now: number): void {
     for (const peer of this.net.getPeers()) {
-      if (peer.totBis > 0 && now >= peer.totBis) this.belebeNeu(peer, false);
+      if (peer.totBis > 0 && now >= peer.totBis) {
+        try { this.belebeNeu(peer, false); } catch (e) { console.error(`[WoV] Wiederbelebung von ${peer.name} fehlgeschlagen: ${e}`); }
+      }
     }
   }
 

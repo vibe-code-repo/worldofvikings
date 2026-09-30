@@ -25,6 +25,10 @@
  *    (next to the working copy). If the working copy is broken or gone at the NEXT start, that state is loaded
  *    (loud warning, receipt `abgelehnt`): without the data items `Inventory.load` / `unpackContainer` would drop
  *    their stacks silently at the next save;
+ *  - the start obeys the same rule: a valid working copy that lacks entries of the last good state is not applied
+ *    (last good state loaded and kept); the first tick of the watch counts what is held and asks for the confirmation.
+ *    A confirmation covers exactly the hash and the ids of the receipt (more copies of THOSE ids are removed too);
+ *    another held id, or a confirmation without a receipt of this run, gives a new receipt and removes nothing;
  *  - otherwise: replace the data items (atomic), re-bind the inventories, send the inventories to all peers.
  * `interneFehler` counts the cases where the sanitiser swallowed an exception of its own
  * (reason `eintrag-ungueltig`, which no JSON input can produce) plus the errors of the watch itself.
@@ -152,6 +156,23 @@ export interface GegenstandsLog {
 export function ladeGegenstandsDatei(pfad: string, log: GegenstandsLog = console): LadeErgebnis {
   const r = ladeArbeitsDatei(pfad, log);
   if (r.art === 'angewendet') {
+    // A valid file that lacks entries of the last good state is a removal, and a removal needs the confirmation
+    // (the start cannot know what is held). So: keep the last good state, do NOT overwrite it, apply nothing of the
+    // file; the watch counts what is held with its first tick and receipts `bestaetigung-noetig` or applies.
+    const guter = letzterGuterLesen(pfad, log);
+    if (guter !== null) {
+      const neueIds = new Set(r.eintraege.map((e) => e.id));
+      const fehlend = guter.map((e) => e.id).filter((id) => !neueIds.has(id));
+      if (fehlend.length > 0) {
+        try {
+          wendeGegenstandsDatenAn(guter);
+          log.warn(`[Gegenstaende] Arbeitsdatei nimmt ${fehlend.length} Eintrag/Eintraege weg (${fehlend.slice(0, 10).join(', ')}): LETZTER GUTER STAND geladen, die Wache prueft den Besitz und verlangt ggf. Bestaetigung`);
+          return { art: 'letzter-guter', eintraege: guter, hash: r.hash };
+        } catch (fehler) {
+          log.error(`[Gegenstaende] letzter guter Stand nicht anwendbar (${(fehler as Error).message}), Arbeitsdatei wird angewendet`);
+        }
+      }
+    }
     letzterGuterSchreiben(pfad, r.eintraege, log);
     return r;
   }
@@ -236,6 +257,8 @@ export class GegenstandsWache {
   private letzterAnfrageStand: string | null = null;
   private angewendet: readonly GegenstandsEintrag[];
   private angewendetJson: string;
+  /** The last receipt `bestaetigung-noetig`: a confirmation covers exactly this hash and these ids (plus more copies of them). */
+  private quittiert: { hash: string; ids: ReadonlySet<string> } | null = null;
   /** Sanitiser exceptions swallowed as `eintrag-ungueltig`, plus errors of the watch itself. */
   interneFehler = 0;
 
@@ -334,10 +357,18 @@ export class GegenstandsWache {
     let gehalten: Record<string, number> = {};
     if (entfernt.size > 0) {
       gehalten = this.d.gehalten(entfernt);
-      if (Object.keys(gehalten).length > 0 && !bestaetigt) {
-        this.log.warn(`[Gegenstaende] Bestaetigung noetig, nichts angewendet: ${Object.entries(gehalten).map(([id, n]) => `${n}x ${id}`).join(', ')} noch im Besitz`);
-        this.quittiere('bestaetigung-noetig', hash, { gehalten });
-        return;
+      const ids = Object.keys(gehalten);
+      if (ids.length > 0) {
+        // The confirmation covers only what the receipt showed: the same hash and only ids that stood in it.
+        // A further removed id that is held now, or a confirmation without a receipt of this run, is a new receipt.
+        const q = this.quittiert;
+        const gedeckt = bestaetigt && q !== null && q.hash === hash && ids.every((id) => q.ids.has(id));
+        if (!gedeckt) {
+          this.log.warn(`[Gegenstaende] Bestaetigung noetig, nichts angewendet: ${Object.entries(gehalten).map(([id, n]) => `${n}x ${id}`).join(', ')} noch im Besitz`);
+          this.quittiert = { hash, ids: new Set(ids) };
+          this.quittiere('bestaetigung-noetig', hash, { gehalten });
+          return;
+        }
       }
     }
     try {
@@ -350,6 +381,7 @@ export class GegenstandsWache {
     }
     if (entfernt.size > 0) this.d.entfernen(entfernt);
     this.angewendet = lesung.eintraege;
+    this.quittiert = null;
     this.angewendetJson = JSON.stringify(lesung.eintraege);
     letzterGuterSchreiben(this.d.pfad, lesung.eintraege, this.log);
     this.d.neuBinden();

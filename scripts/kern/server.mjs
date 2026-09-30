@@ -365,6 +365,8 @@ export default [
   ['server', 'test/gaeste-besitz.ts'],
   // G2 (item data at run time): harvest by the field `ernte` (Holzaxt 6 blows, flint axe 4), crafting without a station, the live watch with its receipt (10 -> 12 within 2 s, broken file, discarded entries, confirmation for held items, lock held by a second process). Real WebSocket, ~40 s.
   ['server', 'test/gegenstaende-g2-live.ts'],
+  // G2 N1: the confirmation covers only the hash and the ids of the receipt (more copies of the same id are removed too); `Inventory.rebind` splits an over-stack, keeps the excess if no slot is free.
+  ['server', 'test/gegenstaende-g2-n1.ts'],
   // G2: the start with a broken, gone or partly discarded working copy loads the LAST GOOD state; player and chest keep their data items over three restarts and saves.
   ['server', 'test/gegenstaende-g2-start.ts'],
   // `createGenerated` mit Generator-Einstellungen (maxRooms/zoneSize): Dokument

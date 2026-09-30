@@ -16,6 +16,10 @@
  *  [5b] The good file again: the player still has the Holzaxt after three saves in a row.
  *  [6] Both missing: the empty state (only then), the known risk is visible in the numbers.
  *  [7] A missing file alone is the empty state, not an error; a good file replaces the last good state.
+ *      A good EMPTY file is a removal too: not applied at start, the last good state stays.
+ *  [8] N1/F1: a VALID file with an entry LESS at start does not bypass the confirmation: last good state loaded and
+ *      kept, receipt `bestaetigung-noetig` with `gehalten` from the first tick of the watch; a restart between receipt
+ *      and confirmation changes nothing; after the confirmation the item is gone (live inventory).
  *
  * Run: npx tsx server/test/gegenstaende-g2-start.ts   (from the repo root)
  */
@@ -26,7 +30,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TRUHE_INHALT_MEMBER, findItem, unpackContainer } from '@wov/shared';
 import { leseGegenstandsDatei, wendeGegenstandsDatenAn } from '@wov/shared/src/items/gegenstandsDaten.js';
-import { gegenstandsLetzterGuterDatei, gegenstandsQuittungsDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
+import { gegenstandsBestaetigenDatei, gegenstandsLetzterGuterDatei, gegenstandsQuittungsDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
+import { bestaetigenAnfrageSchreiben } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
 import { ladeGegenstandsDatei, type GegenstandsQuittung } from '../src/world/gegenstandsLive.js';
@@ -253,8 +258,65 @@ async function main(): Promise<void> {
     writeFileSync(ARBEIT, JSON.stringify({ version: 1, gegenstaende: [] }));
     frischerProzess();
     const leerGut = ladeGegenstandsDatei(ARBEIT, still);
-    check('a good EMPTY file (all data items deleted): applied, and the last good state is empty too (an older state does not come back)',
-      leerGut.art === 'angewendet' && leerGut.eintraege.length === 0 && leseGegenstandsDatei(readFileSync(GUTER, 'utf-8')).eintraege.length === 0);
+    check('a good EMPTY file at start (removes everything): NOT applied, last good state loaded and kept (still damage 12)',
+      leerGut.art === 'letzter-guter' && leerGut.eintraege.length === 1 && findItem('Holzaxt')?.stats?.damage === 12
+      && leseGegenstandsDatei(readFileSync(GUTER, 'utf-8')).eintraege[0]?.werte.damage === 12);
+
+    // ── [8] N1/F1: valid file with an entry less ────────────────────
+    console.log('\n[8] A VALID file with one entry LESS at start: no bypass of the confirmation');
+    const BESTAETIGEN = gegenstandsBestaetigenDatei(ARBEIT);
+    const { rezept: _ohne, ...holzOhneRezept } = holzaxt;
+    void _ohne;
+    const steinaxt = { ...holzOhneRezept, id: 'Steinaxt', nameSchluessel: 'inhalt.gegenstand.Steinaxt.name', texte: { 'inhalt.gegenstand.Steinaxt.name': { de: 'Steinaxt', en: 'Stone axe' } } };
+    const BEIDE = JSON.stringify({ version: 1, gegenstaende: [holzOhneRezept, steinaxt] });
+    const NUR_HOLZ = JSON.stringify({ version: 1, gegenstaende: [holzOhneRezept] });
+    rmSync(GUTER, { force: true });
+    writeFileSync(ARBEIT, BEIDE);
+    frischerProzess();
+    stand = starte('server 8a');
+    const wsB = await verbinde('Berta'); sockets.push(wsB);
+    const berta = stand.hole('Berta');
+    await warte(400);
+    stand.zugriff.gebeItem(berta, 'Steinaxt', 1);
+    stand.zugriff.gebeItem(berta, 'Holzaxt', 1);
+    await warte(300);
+    check('server 8a: Berta holds Steinaxt and Holzaxt, the last good state has both', berta.inventar.countOf('Steinaxt') === 1 && leseGegenstandsDatei(readFileSync(GUTER, 'utf-8')).eintraege.length === 2);
+    annaId = berta.spielerId;
+    stand.server.stop();
+    for (const w of sockets.splice(0)) w.close();
+    await warte(300);
+
+    /** Restart with the file that lacks the Steinaxt, log Berta in, wait for the first ticks, read the receipt. */
+    async function startMitWenigerEintraegen(titel: string): Promise<{ p: Peer; q: GegenstandsQuittung | null }> {
+      frischerProzess();
+      stand = starte(titel);
+      check(`${titel}: art "letzter-guter", the Steinaxt is known again (file NOT applied)`, stand.geladen.art === 'letzter-guter' && findItem('Steinaxt') !== undefined, stand.geladen.art);
+      check(`${titel}: the last good state is NOT overwritten (still 2 entries)`, leseGegenstandsDatei(readFileSync(GUTER, 'utf-8')).eintraege.length === 2);
+      const gespeichert = stand.zugriff.savedPlayers.get(annaId);
+      stand.zugriff.ermittleGespeichertenStand = () => gespeichert;
+      const ws = await verbinde('Berta'); sockets.push(ws);
+      await warte(2500);
+      const p = stand.hole('Berta');
+      const q = quittung();
+      check(`${titel}: receipt bestaetigung-noetig with gehalten {Steinaxt: n >= 1} (the test's guest gets a new id at every login, so its saved twins add up)`, q?.status === 'bestaetigung-noetig' && (q.gehalten?.Steinaxt ?? 0) >= 1 && Object.keys(q.gehalten ?? {}).join() === 'Steinaxt', JSON.stringify(q));
+      check(`${titel}: Berta still holds the Steinaxt, the definition is still known`, p.inventar.countOf('Steinaxt') === 1 && findItem('Steinaxt') !== undefined);
+      return { p, q };
+    }
+    writeFileSync(ARBEIT, NUR_HOLZ);
+    const r8b = await startMitWenigerEintraegen('server 8b');
+    annaId = r8b.p.spielerId;
+    stand!.server.stop();
+    for (const w of sockets.splice(0)) w.close();
+    await warte(300);
+    console.log('   restart BETWEEN receipt and confirmation:');
+    const r8c = await startMitWenigerEintraegen('server 8c');
+    check('server 8c: the receipt hash is the hash of the file', r8c.q?.hash === sha(NUR_HOLZ));
+    bestaetigenAnfrageSchreiben(BESTAETIGEN, sha(NUR_HOLZ));
+    await warte(2500);
+    const q8 = quittung();
+    check('after the confirmation: receipt angewendet, Steinaxt unknown, Berta holds none, Holzaxt stays', q8?.status === 'angewendet' && findItem('Steinaxt') === undefined
+      && r8c.p.inventar.countOf('Steinaxt') === 0 && r8c.p.inventar.countOf('Holzaxt') === 1, JSON.stringify(q8));
+    check('the last good state now holds 1 entry', leseGegenstandsDatei(readFileSync(GUTER, 'utf-8')).eintraege.length === 1);
   } finally {
     for (const ws of sockets) ws.close();
     try { (stand as ReturnType<typeof starte> | null)?.server.stop(); } catch { /* already stopped */ }

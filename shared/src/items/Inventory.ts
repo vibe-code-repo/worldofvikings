@@ -195,6 +195,19 @@ export class Inventory {
       const neu = findItem(it.shared.name);
       if (neu) it.shared = neu;
     }
+    // A stack over the new maximum is split onto free slots; if none is free the excess stays (nothing is lost).
+    for (const it of [...this.items]) {
+      const max = it.shared.maxStackSize;
+      while (max >= 1 && it.stack > max) {
+        const slot = this.findEmptySlot(topFirst(it.shared));
+        if (!slot) {
+          console.warn(`[Inventory] rebind: ${it.shared.name} x${it.stack} over the maximum ${max}, no free slot, the excess stays`);
+          break;
+        }
+        it.stack -= max;
+        this.items.push({ ...it, stack: max, gridX: slot[0], gridY: slot[1], equipped: false });
+      }
+    }
     this.emit();
   }
 

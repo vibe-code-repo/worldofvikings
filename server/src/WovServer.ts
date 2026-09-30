@@ -8,7 +8,7 @@
  * the blacklist, admin and whitelist sets.
  */
 
-import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, ItemType, SLOT_VORGABE, istAusruestungsSlot } from '@wov/shared';
+import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
 import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
@@ -58,7 +58,7 @@ import {
   HAARFARBE_VORGABE,
   AUGENFARBE_VORGABE,
 } from '@wov/shared';
-import type { Biome, Vector3, ZoneID } from '@wov/shared';
+import type { Vector3, ZoneID } from '@wov/shared';
 import {
   BAU_PREFABS,
   ESSEN,
@@ -166,6 +166,12 @@ import {
   ausdauerSchritt,
   AUSDAUER_REGEL,
 } from '@wov/shared/src/bewegung/ausdauer.js';
+import { pickableItem, ZWEIT_DROPS, wuerfleDrop, wuerfleTruhe } from './spiel/Beute.js';
+import { waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
+import { EIKTHYR_HASH, BOSS_ENTRY, NPC_ENTRY } from './spiel/Sondereintraege.js';
+import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
+// Tests import the weapon helpers from this file, so it keeps exporting them.
+export { gepruefteWaffe, waffeTragbar, WAFFE_PAKETNAME_OHNE_EQUIP, wirksameWaffe } from './spiel/Waffe.js';
 
 export interface ServerConfig {
   name: string;
@@ -297,8 +303,6 @@ export interface ServerConfig {
 }
 
 /** Parade: Fenster (ms), in dem ein Treffer abgewehrt wird (Clip 0,45 s + Nachlauf). */
-/** `spielerIdFuerName` found several players of that name: the admin command must do nothing. */
-const NAME_NICHT_EINDEUTIG = 'nicht-eindeutig' as const;
 const PARADE_FENSTER_MS = 600;
 /** Parade: Ausdauerkosten (ein Schlag kostet 8). */
 const PARADE_AUSDAUER = 4;
@@ -6689,175 +6693,6 @@ export class WovServer {
       zdos: persistentZDOs,
     };
   }
-}
-
-/** Pickable-Prefab → Inventar-Item (Namen aus shared/items/itemDefs). */
-function pickableItem(prefabName: string): { name: string; amount: number } | null {
-  const MAP: Array<[RegExp, string, number]> = [
-    [/branch/i, 'Wood', 1],
-    [/^Pickable_Stone/i, 'Stone', 1],
-    [/flint/i, 'Flint', 1],
-    [/mushroom/i, 'Mushroom', 1],
-    [/(raspberry|berry)/i, 'Raspberry', 1],
-    [/blueberr/i, 'Blueberries', 1],
-    [/thistle/i, 'Thistle', 1],
-    [/dandelion/i, 'Dandelion', 1],
-    [/seedcarrot|carrot/i, 'Carrot', 1],
-    [/wood/i, 'Wood', 1],
-  ];
-  for (const [re, name, amount] of MAP) {
-    if (re.test(prefabName)) return { name, amount };
-  }
-  // Fallback: Prefabname direkt versuchen (ItemDrop-Prefabs heißen wie ihr Item).
-  return { name: prefabName, amount: 1 };
-}
-
-/**
- * Kreaturen-Drops (nah am Original, beschränkt auf existierende itemDefs).
- * Format: [Item, min, max, Chance 0..1].
- */
-
-/**
- * Waffenname aus dem Angriffs-/Ernte-Paket nur übernehmen, wenn er
- * tatsächlich im Server-Inventar liegt (A2) — sonst Faust ('').
- *
- * Seit K2a kennt der Server die getragene Waffe (`peer.waffe`, Paket Equip);
- * diese Pruefung gilt nur noch fuer den Paketnamen alter Clients ohne Equip
- * (wirksameWaffe, Uebergangsregel WAFFE_PAKETNAME_OHNE_EQUIP). Ohne sie
- * schlug der Server den Schaden fuer den Paket-String direkt nach,
- * unabhaengig vom Besitz — Axtschaden ohne Axt und Werkzeugpflicht-Umgehung
- * beim Ernten (A2).
- */
-export function gepruefteWaffe(inventar: Inventory, waffe: string): string {
-  if (waffe === '') return waffe;
-  return inventar.countOf(waffe) > 0 ? waffe : '';
-}
-
-/**
- * Darf dieser Gegenstand als Waffe getragen werden (K2a)? Er muss im
- * Server-Inventar liegen, in den Waffenslot gehoeren (kein Ruestungsteil,
- * kein anderer Slot) und darf kein blosses Material sein.
- */
-export function waffeTragbar(inventar: Inventory, name: string): boolean {
-  if (name === '' || inventar.countOf(name) <= 0) return false;
-  const def = findItem(name);
-  return !!def && !def.ruestungsteil && (def.ausruestung ?? SLOT_VORGABE) === 'waffe' && def.itemType !== ItemType.Material;
-}
-
-/**
- * Uebergangsregel fuer alte Clients (K2a): Solange eine Verbindung noch nie
- * ein Equip geschickt hat, gilt wie bisher der geprüfte Paketname
- * (gepruefteWaffe). Sonst wuerde ein offener Tab mit altem Client ploetzlich
- * mit der Faust schlagen und nicht mehr ernten. Auf `false` stellen, wenn
- * keine alten Clients mehr im Umlauf sind.
- */
-export const WAFFE_PAKETNAME_OHNE_EQUIP = true;
-
-/**
- * Die Waffe, mit der ein Schlag oder eine Ernte gerechnet wird. Rein, damit
- * beide Zweige der Uebergangsregel ohne Server testbar sind.
- */
-export function wirksameWaffe(
-  inventar: Inventory,
-  getragen: string,
-  equipGesehen: boolean,
-  paketName: string,
-  uebergang: boolean = WAFFE_PAKETNAME_OHNE_EQUIP,
-): string {
-  if (!equipGesehen && uebergang) return gepruefteWaffe(inventar, paketName);
-  return waffeTragbar(inventar, getragen) ? getragen : '';
-}
-
-const EIKTHYR_HASH = getStableHash('Eikthyr');
-
-/** Synthetischer SpawnEntry für Eikthyr (adoptSingle — nie in der Tabelle). */
-const BOSS_ENTRY = {
-  prefab: 'Eikthyr',
-  biomes: 0xffff as Biome,
-  maxPerPlayer: 1,
-  countRadius: 64,
-  globalMax: 1,
-  spawnIntervalSec: 999999,
-  spawnChance: 0,
-  groupSizeMin: 1,
-  groupSizeMax: 1,
-  groupRadius: 0,
-  ringMin: 0,
-  ringMax: 0,
-  minAltitude: 25,
-  walkSpeed: 2,
-  runSpeed: 5,
-  wanderRadius: 20,
-  idleMinSec: 1,
-  idleMaxSec: 3,
-  flees: false,
-  fleeDistance: 0,
-  calmDistance: 0,
-  despawns: false,
-} as const satisfies import('@wov/shared').SpawnEntry;
-
-/** Passiver Entry für eigene NPCs: wandert, kämpft nie, despawnt nie. */
-const NPC_ENTRY = {
-  ...BOSS_ENTRY,
-  prefab: 'NPC_1',
-  walkSpeed: 1.2,
-  runSpeed: 1.2,
-  wanderRadius: 8,
-  idleMinSec: 3,
-  idleMaxSec: 9,
-  aggro: false,
-} as const;
-
-const KREATUR_DROPS: Record<string, Array<[string, number, number, number]>> = {
-  Eikthyr: [['HardAntler', 3, 3, 1]],
-  Greyling: [['Resin', 1, 1, 1]],
-  Greydwarf: [['Wood', 1, 2, 1], ['Resin', 1, 1, 0.5], ['Stone', 1, 1, 0.5]],
-  Boar: [['RawMeat', 1, 2, 1]],
-  Deer: [['RawMeat', 1, 2, 1], ['TrophyDeer', 1, 1, 0.5]],
-  // B9: meat is the only animal drop the item table knows (no leather or pelt
-  // item exists yet). The cow is the big animal (1.5 m at the shoulder, 2.9 m
-  // long), so one more than the boar; the wolf drops what the boar drops.
-  Kuh: [['RawMeat', 2, 3, 1]],
-  Wolf: [['RawMeat', 1, 2, 1]],
-  // B9.6: same reason — no Feathers item exists in itemDefs.ts (only a
-  // decorative ITEM_DROP prefab of that name, not a carriable item), so the
-  // hen drops meat too. It is the smallest animal in the table (0.26 m),
-  // smaller than the boar's drop: exactly 1, always (chance 1, min=max=1).
-  Huhn: [['RawMeat', 1, 1, 1]],
-  Neck: [['NeckTail', 1, 1, 0.75]],
-  Skeleton: [['Coins', 2, 5, 0.6]],
-  Draugr: [['Entrails', 1, 2, 1]],
-};
-
-/** Zweit-Drop mit fester Chance (Trophäen). */
-const ZWEIT_DROPS: Record<string, [string, number]> = {
-  Eikthyr: ['TrophyEikthyr', 1],
-};
-
-function wuerfleDrop(kreatur: string): { name: string; amount: number } | null {
-  const tabelle = KREATUR_DROPS[kreatur];
-  if (!tabelle) return null;
-  for (const [item, min, max, chance] of tabelle) {
-    if (Math.random() <= chance) {
-      return { name: item, amount: min + ((Math.random() * (max - min + 1)) | 0) };
-    }
-  }
-  return null;
-}
-
-/** Truhen-Beute nach Truhentyp (Prefabname), sonst Meadows-Basis. */
-const TRUHEN: Array<[RegExp, Array<[string, number, number]>]> = [
-  [/forestcrypt/i, [['Coins', 5, 20], ['Amber', 1, 3], ['Flint', 2, 4]]],
-  [/sunkencrypt/i, [['Coins', 10, 30], ['Amber', 2, 4], ['Entrails', 1, 2]]],
-  [/trollcave/i, [['Coins', 10, 30], ['Amber', 1, 4], ['Wood', 5, 10]]],
-  [/mountaincave/i, [['Coins', 10, 25], ['Amber', 2, 5]]],
-  [/./, [['Coins', 2, 10], ['Flint', 1, 3], ['Wood', 3, 8], ['Raspberry', 3, 6]]],
-];
-
-function wuerfleTruhe(prefabName: string): { name: string; amount: number } {
-  const tabelle = TRUHEN.find(([re]) => re.test(prefabName))![1];
-  const [item, min, max] = tabelle[(Math.random() * tabelle.length) | 0]!;
-  return { name: item, amount: min + ((Math.random() * (max - min + 1)) | 0) };
 }
 
 // ── Singleton accessor ───────────────────────────────────────────

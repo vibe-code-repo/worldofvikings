@@ -9,6 +9,8 @@
 #     build = 2   (typecheck, build, npm ci)
 #     test  = 2   (full test run, each in its own worktree)
 #     measure = 1 (frame-time measurements)
+#     einzeltest = 4 (ONE test file or a short probe run; NOT a full `npm test`, NOT a
+#                     mutant series held for its whole length: take the place per run)
 # An unknown name exits 64. The old form `<name> <n> -- <command>` is still accepted
 # for the changeover, but only when <n> equals the table; anything else exits 64.
 #
@@ -73,10 +75,11 @@ plaetze_von() {
     build) echo 2 ;;
     test) echo 2 ;;
     measure) echo 1 ;;
+    einzeltest) echo 4 ;;
   esac
 }
 
-usage() { echo "sperre: usage: $* (sperre.sh <name> -- <command...>; names: build test measure)" >&2; exit 64; }
+usage() { echo "sperre: usage: $* (sperre.sh <name> -- <command...>; names: build test measure einzeltest)" >&2; exit 64; }
 # Environment failures are not the caller's typing: another marker, another code.
 fehler() { echo "sperre: error: $*" >&2; exit 70; }
 
@@ -123,7 +126,8 @@ selbsttest() {
   "$self" build 3 -- true 2>/dev/null; [ $? = 64 ] || fail "build 3 accepted (table says 2)"
   "$self" test 1 -- true 2>/dev/null; [ $? = 64 ] || fail "test 1 accepted (table says 2)"
   "$self" measure 2 -- true 2>/dev/null; [ $? = 64 ] || fail "measure 2 accepted (table says 1)"
-  [ "$("$self" --plaetze build)" = 2 ] && [ "$("$self" --plaetze test)" = 2 ] && [ "$("$self" --plaetze measure)" = 1 ] || fail "table is not build=2 test=2 measure=1"
+  [ "$("$self" --plaetze build)" = 2 ] && [ "$("$self" --plaetze test)" = 2 ] && [ "$("$self" --plaetze measure)" = 1 ] && [ "$("$self" --plaetze einzeltest)" = 4 ] || fail "table is not build=2 test=2 measure=1 einzeltest=4"
+  "$self" einzeltest 2 -- true 2>/dev/null; [ $? = 64 ] || fail "einzeltest 2 accepted (table says 4)"
   [ "$(WOV_SPERREN_PLAETZE_BUILD=9 "$self" --plaetze build)" = 9 ] || fail "test override not honoured with WOV_SPERREN set"
   [ "$(env -u WOV_SPERREN WOV_SPERREN_PLAETZE_BUILD=9 "$self" --plaetze build)" = 2 ] || fail "override loosened the real limit"
   [ "$(env -u _SPERRE_SELBSTTEST WOV_SPERREN_PLAETZE_BUILD=9 "$self" --plaetze build)" = 2 ] || fail "override worked without the self-test mark"
@@ -134,7 +138,7 @@ selbsttest() {
   done
   ln -s "$t/echt" "$t/link"
   [ "$(WOV_SPERREN=$t/link WOV_SPERREN_PLAETZE_BUILD=9 "$t/kopie.sh" --plaetze build)" = 2 ] || fail "override honoured through a symlink to the real directory"
-  ok "table build=2 test=2 measure=1; other numbers and unknown names exit 64; override ignored without the mark and on the real directory (4 spellings + symlink)"
+  ok "table build=2 test=2 measure=1 einzeltest=4; other numbers and unknown names exit 64; override ignored without the mark and on the real directory (4 spellings + symlink)"
   # 7. from the table: three 2 s jobs on `build` (2 places) never overlap by more than two
   s0=$(date +%s); maxn=0
   for i in 1 2 3; do
@@ -189,6 +193,20 @@ selbsttest() {
   wait
   [ "$r" = 5 ] && case $o in *"held by caller, running nested without a place"*) true;; *) false;; esac || fail "full-lock pass: rc $r, '$o'"
   ok "all places busy: nested call runs its command with a stderr line, status passes"
+  # 14. einzeltest from the table: five 2 s jobs on 4 places, at most 4 at once, a 2nd wave needed; it never touches `test`
+  s0=$(date +%s); maxn=0
+  for i in 1 2 3 4 5; do
+    ( "$self" einzeltest -- bash -c "echo \$\$ > $t/te.$i; sleep 2; rm $t/te.$i" 2>/dev/null ) &
+  done
+  while [ "$(jobs -r | wc -l)" -gt 0 ]; do c=$(ls "$t" | grep -c '^te\.'); [ "$c" -gt "$maxn" ] && maxn=$c; sleep 0.1; done
+  wait; s1=$(date +%s)
+  [ "$maxn" = 4 ] && [ $((s1 - s0)) -ge 4 ] || fail "einzeltest from the table: max $maxn concurrent, $((s1 - s0)) s (want 4 and >=4 s)"
+  ls "$t" | grep -q '^test' && fail "einzeltest touched a test lock file"
+  ( "$self" einzeltest -- sleep 3 2>/dev/null ) & ( "$self" einzeltest -- sleep 3 2>/dev/null ) & ( "$self" einzeltest -- sleep 3 2>/dev/null ) & ( "$self" einzeltest -- sleep 3 2>/dev/null ) & sleep 1
+  s0=$(date +%s); "$self" test -- true 2>/dev/null; s1=$(date +%s)
+  wait
+  [ $((s1 - s0)) -le 1 ] || fail "test waited $((s1 - s0)) s while four einzeltest places were busy"
+  ok "einzeltest from the table: 4 places (max $maxn of 5 concurrent), and all four busy do not block test"
   echo "selftest: $n directions ok"
 }
 

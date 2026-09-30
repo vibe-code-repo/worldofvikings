@@ -105,6 +105,12 @@ function rng(seed: number): () => number {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+/**
+ * The collections this generic walk covers. `bausaetze` (kit instances) is unordered like `placements`, but has no
+ * generic fixtures here; its Vorgänge are tested in bausatz-welt.ts.
+ */
+const SAMMLUNGEN = OP_COLLECTIONS.filter((s) => s !== 'bausaetze');
+
 const zufall = rng(20260919);
 const ganz = (n: number): number => Math.floor(zufall() * n);
 const halb = (max: number): number => Math.round(zufall() * max * 2) / 2;
@@ -127,6 +133,8 @@ function neuerEintrag(s: OpCollection): OpEntry {
       return { id, x: halb(900), z: halb(900), radius: 20 + halb(100) };
     case 'continents':
       return { id, name: `Land ${zaehler}`, faction: 'neutral' };
+    case 'bausaetze':
+      return { id, bausatz: 'kit', x: halb(900), z: halb(900) };
   }
 }
 
@@ -153,13 +161,16 @@ function veraendert(s: OpCollection, e: OpEntry): OpEntry {
     case 'continents':
       k.name = `Land ${ganz(1000)}`;
       break;
+    case 'bausaetze':
+      k.x = halb(900);
+      break;
   }
   return k;
 }
 
 function ausgang(): WorldLayout {
   const roh: Record<string, unknown> = { version: 1, name: 'Ops', detailSeed: 'ops' };
-  for (const s of OP_COLLECTIONS) {
+  for (const s of SAMMLUNGEN) {
     const n = s === 'placements' ? 40 : s === 'continents' ? 2 : 4;
     roh[s] = Array.from({ length: n }, () => neuerEintrag(s));
   }
@@ -206,12 +217,12 @@ if (process.argv[2] === 'zeit') {
 }
 check(
   'base document has entries in all six collections',
-  OP_COLLECTIONS.every((s) => liste(D, s).length > 0),
-  OP_COLLECTIONS.map((s) => `${s}=${liste(D, s).length}`).join(' ')
+  SAMMLUNGEN.every((s) => liste(D, s).length > 0),
+  SAMMLUNGEN.map((s) => `${s}=${liste(D, s).length}`).join(' ')
 );
 
 // ── Basic operations, one collection each ───────────────────────────
-for (const s of OP_COLLECTIONS) {
+for (const s of SAMMLUNGEN) {
   const vorhandenId = liste(D, s)[1]!.id;
   const neu = neuerEintrag(s);
   const r1 = wende(D, vg('a', opSetzen(s, neu)), san);
@@ -385,7 +396,7 @@ function zufallsOp(arbeit: WorldLayout, bevorzugt: Op[] = []): Op {
     const letzteRegion = o.sammlung === 'regions' && liste(arbeit, 'regions').length <= 1;
     return zufall() < 0.7 || letzteRegion ? opAendern(arbeit, o.sammlung, veraendert(o.sammlung, ziel)) : opEntfernen(arbeit, o.sammlung, o.id);
   }
-  const s = OP_COLLECTIONS[ganz(OP_COLLECTIONS.length)]!;
+  const s = SAMMLUNGEN[ganz(SAMMLUNGEN.length)]!;
   const vorhanden = liste(arbeit, s);
   const grenze = s === 'continents' ? 8 : 60;
   const wurf = zufall();
@@ -444,7 +455,7 @@ function zufallsVorgang(von: WorldLayout, name: string, maxOps = 5, bevorzugt: O
   }
   console.log(`# property: ${gut}/1000 Vorgaenge byte-identical after wende+invertiere; ${opsGesamt} ops (${JSON.stringify(art)}), per collection ${JSON.stringify(jeSammlung)}`);
   check('1000 random Vorgaenge (ops built one after the other): wende(wende(d, v), invertiere(v)) is byte-identical to d', gut === 1000, schlecht.join(' | '));
-  check('the random walk touched every collection with every kind of op', OP_COLLECTIONS.every((s) => (jeSammlung[s] ?? 0) > 20) && art.setze > 100 && art.aendere > 100 && art.entferne > 100);
+  check('the random walk touched every collection with every kind of op', SAMMLUNGEN.every((s) => (jeSammlung[s] ?? 0) > 20) && art.setze > 100 && art.aendere > 100 && art.entferne > 100);
 }
 
 // ── B1: ops built from ONE snapshot (the "select several, delete" case) ──
@@ -474,7 +485,7 @@ function zufallsVorgangMomentaufnahme(stand: WorldLayout, name: string): Vorgang
   let regionenWeg = 0;
   const ops: Op[] = [];
   for (let i = 0; i < n; i++) {
-    const s = OP_COLLECTIONS[ganz(OP_COLLECTIONS.length)]!;
+    const s = SAMMLUNGEN[ganz(SAMMLUNGEN.length)]!;
     const vorhanden = liste(stand, s);
     const grenze = s === 'continents' ? 8 : 60;
     if (vorhanden.length === 0 || (zufall() < 0.2 && vorhanden.length < grenze)) {
@@ -676,7 +687,7 @@ function zufallsVorgangMomentaufnahme(stand: WorldLayout, name: string): Vorgang
 }
 
 // ── verschmelze ─────────────────────────────────────────────────────
-for (const s of OP_COLLECTIONS) {
+for (const s of SAMMLUNGEN) {
   const ziel = liste(D, s)[0]!;
   let aktuell = D;
   let eintrag: OpEntry = ziel;

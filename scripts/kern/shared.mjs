@@ -14,7 +14,9 @@ export default [
   // preGeneration bleibt zwischen den Modi identisch, das Terrain aendert
   // sich wirklich). Reine Funktion, Sekunden.
   ['shared', 'test/b5-ashlands-modern.ts'],
+  ['shared', 'test/bausatz-aufloesen.ts'],
   ['shared', 'test/bausatz-format.ts'],
+  ['shared', 'test/bausatz-welt.ts'],
   ['shared', 'test/bauteile-kosten.ts'],
   /*
     Bewegungsschritt und Serverkollision: die reinen Regeln (Akkumulator,

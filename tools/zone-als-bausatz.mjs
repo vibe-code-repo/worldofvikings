@@ -22,7 +22,8 @@
  * it replaces, so the objects keep their address and their saved state.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { bausatzText, rundePosition, rundeWinkel, sanitizeBausatzInstanzen, bausatzInstanzenFehler, sanitizeBausatzMitBericht } from '../shared/src/bausatz/sanitize.ts';
 import { STORE_KATALOG_NACH_PREFAB } from '../shared/src/storeKatalogDaten.ts';
@@ -115,7 +116,8 @@ export function quaternionAbstand(a, b) {
 
 // ── Common: build the kit object from parts ─────────────────────────────────
 
-const skalaAusTripel = (s) => {
+/** One number only when all three components agree on the 1e-6 grid (the counting tolerance); any other triple stays a triple. */
+export const skalaAusTripel = (s) => {
   const r = s.map(rundeWinkel);
   return r[0] === r[1] && r[1] === r[2] ? r[0] : r;
 };
@@ -199,7 +201,9 @@ export function konvertiereVillage(roh, optionen) {
   const teile = [];
   const quellen = []; // raw entity per kept part, same index
   const gruppenIds = [];
-  for (const zone of roh.zones) {
+  for (const [zoneIndex, zone] of roh.zones.entries()) {
+    if (zone === null || typeof zone !== 'object' || Array.isArray(zone)) throw new Error(`zones[${zoneIndex}]: keine Zone`);
+    if (zone.entities !== undefined && !Array.isArray(zone.entities)) throw new Error(`Zone "${zone.id}": entities ist kein Array`);
     for (const [index, e] of (zone.entities ?? []).entries()) {
       pruefeEntity(e, zone, index);
       bericht.eingang += 1;
@@ -355,6 +359,10 @@ const eintragVon = (prefab, x, z, yaw, scale, einebnen) =>
  */
 export function konvertiereStartdorf(welt, optionen) {
   if (!ID_RE.test(optionen.id)) throw new Error(`--id "${optionen.id}" ist keine gültige Kennung`);
+  if (welt === null || typeof welt !== 'object' || Array.isArray(welt)) throw new Error('Eingabewelt ist kein Objekt');
+  for (const feld of ['regions', 'placements', 'bausaetze']) {
+    if (welt[feld] !== undefined && !Array.isArray(welt[feld])) throw new Error(`Eingabewelt: ${feld} ist kein Array`);
+  }
   const region = (welt.regions ?? []).find((r) => r.id === optionen.region);
   if (!region) throw new Error(`Region "${optionen.region}" nicht gefunden`);
   const platzierungen = welt.placements ?? [];
@@ -460,8 +468,32 @@ export function liesArgumente(argv) {
 
 const jsonText = (o) => JSON.stringify(o, null, 2) + '\n';
 
+/** Real path of an existing file, else the real path of its directory plus the file name. Throws when the directory is missing. */
+function loesePfad(pfad, schalter) {
+  const voll = resolve(pfad);
+  if (existsSync(voll)) return realpathSync(voll);
+  const ordner = dirname(voll);
+  if (!existsSync(ordner) || !statSync(ordner).isDirectory()) throw new Error(`${schalter}: Zielverzeichnis "${ordner}" fehlt`);
+  return join(realpathSync(ordner), basename(voll));
+}
+
+/** Before the first write: no output equals an input, no two outputs are equal, every target directory exists. */
+export function pruefePfade(modus, werte) {
+  const eingaben = (modus === 'village' ? ['ein'] : ['welt']).map((k) => [k, loesePfad(werte[k], `--${k}`)]);
+  const ausgaben = (modus === 'village' ? ['aus', 'bericht'] : ['aus', 'welt-aus', 'bericht']).filter((k) => werte[k] !== undefined).map((k) => [k, loesePfad(werte[k], `--${k}`)]);
+  for (const [a, pa] of ausgaben) {
+    for (const [e, pe] of eingaben) if (pa === pe) throw new Error(`--${a} ist dieselbe Datei wie --${e} (${pa})`);
+  }
+  for (let i = 0; i < ausgaben.length; i += 1) {
+    for (let j = i + 1; j < ausgaben.length; j += 1) {
+      if (ausgaben[i][1] === ausgaben[j][1]) throw new Error(`--${ausgaben[i][0]} und --${ausgaben[j][0]} sind dieselbe Datei (${ausgaben[i][1]})`);
+    }
+  }
+}
+
 export function main(argv) {
   const { modus, werte } = liesArgumente(argv);
+  pruefePfade(modus, werte);
   const lies = (pfad) => {
     const bytes = readFileSync(pfad);
     return { text: bytes.toString('utf-8'), sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length };

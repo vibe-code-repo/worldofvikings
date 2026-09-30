@@ -12,7 +12,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -354,15 +354,162 @@ async function main(): Promise<void> {
     const kitVorher = readFileSync(kit);
     const weltVorher = readFileSync(weltAus);
     // outputs at existing paths
-    const a = lauf(['startdorf', '--welt', weltAus, '--region', 'kreis', '--id', 'startdorf', '--aus', kit, '--welt-aus', weltAus, '--bericht', join(temp, 'sd-b.json')]);
+    const weltAus2 = join(temp, 'sd-welt2.json');
+    writeFileSync(weltAus2, 'alt');
+    const a = lauf(['startdorf', '--welt', weltAus, '--region', 'kreis', '--id', 'startdorf', '--aus', kit, '--welt-aus', weltAus2, '--bericht', join(temp, 'sd-b.json')]);
     assert.equal(a.status, 1);
     assert.match(a.stderr, /schon eine Instanz "startdorf"/);
-    assert.ok(readFileSync(kit).equals(kitVorher) && readFileSync(weltAus).equals(weltVorher));
+    assert.ok(readFileSync(kit).equals(kitVorher) && readFileSync(weltAus).equals(weltVorher) && readFileSync(weltAus2, 'utf-8') === 'alt');
     // outputs at new paths
     const b = lauf(['startdorf', '--welt', weltAus, '--region', 'kreis', '--id', 'startdorf', '--aus', join(temp, 'neu-kit.json'), '--welt-aus', join(temp, 'neu-welt.json'), '--bericht', join(temp, 'neu-b.json')]);
     assert.equal(b.status, 1);
     for (const n of ['neu-kit.json', 'neu-welt.json', 'neu-b.json', 'sd-b.json']) assert.ok(!existsSync(join(temp, n)), n);
   });
+
+  // ── N2: scale triples, output paths, malformed input, test gaps ─────────────
+
+  pruefe('scale: one number only when all three components agree — [a,a,b], [a,b,a], [b,a,a] stay triples', () => {
+    const r = k.konvertiereVillage(mitEntitaeten([
+      { id: 's_aab', ...gut, scale: [1.5, 1.5, 2] },
+      { id: 's_aba', ...gut, scale: [1.5, 2, 1.5] },
+      { id: 's_baa', ...gut, scale: [2, 1.5, 1.5] },
+      { id: 's_aaa', ...gut, scale: [1.5, 1.5, 1.5] },
+    ]), { id: 'mini' });
+    const t = (id: string) => JSON.parse(r.bausatzText).teile.find((x: { id: string }) => x.id === id);
+    assert.deepEqual(t('s_aab').scale, [1.5, 1.5, 2]);
+    assert.deepEqual(t('s_aba').scale, [1.5, 2, 1.5]);
+    assert.deepEqual(t('s_baa').scale, [2, 1.5, 1.5]);
+    assert.equal(t('s_aaa').scale, 1.5);
+    assert.equal(k.skalaAusTripel([3, 3, 3]), 3);
+    assert.deepEqual(k.skalaAusTripel([3, 3, 4]), [3, 3, 4]);
+  });
+
+  pruefe('chest bottom: only [0,0,0] is thinned — one coordinate off (x, y or z) keeps and names it', () => {
+    const r = k.konvertiereVillage(mitEntitaeten([
+      { id: 'ct_x', ...gut, prefab: 'environment-chestbottom', position: [0.5, 0, 0] },
+      { id: 'ct_y', ...gut, prefab: 'environment-chestbottom', position: [0, 3, 0] },
+      { id: 'ct_z', ...gut, prefab: 'environment-chestbottom', position: [0, 0, 0.5] },
+    ]), { id: 'mini' });
+    assert.equal(r.bericht.ausgeduennt.truhenUnterteilUrsprung, vb.ausgeduennt.truhenUnterteilUrsprung);
+    assert.equal(r.bericht.ausgang, vb.ausgang + 3);
+    assert.deepEqual(r.bericht.truhen.unterteileAndersWo.map((x: { id: string }) => x.id), ['environment-chestbottom_0002', 'ct_x', 'ct_y', 'ct_z']);
+  });
+
+  pruefe('group name: a zone without a name falls back to its id, a named one keeps the name', () => {
+    const d = { schemaVersion: 5, id: 'g', zones: [{ id: 'ohne', entities: [{ id: 'g_1', ...gut }] }, { id: 'mit', name: 'Mit Name', entities: [{ id: 'g_2', ...gut, position: [3, 5, 4] }] }] };
+    const r = k.konvertiereVillage(d, { id: 'mini' });
+    assert.deepEqual(JSON.parse(r.bausatzText).gruppen, [{ id: 'mit', name: 'Mit Name' }, { id: 'ohne', name: 'ohne' }]);
+  });
+
+  pruefe('height: exactly 0.5 m from the median does not count, 0.5001 does', () => {
+    const ent = (id: string, y: number) => ({ id, ...gut, position: [1, y, 2] });
+    const d = { schemaVersion: 5, id: 'h', zones: [{ id: 'z', name: 'Z', entities: [ent('h_1', 5), ent('h_2', 5), ent('h_3', 5), ent('h_4', 5.5), ent('h_5', 5.5001)] }] };
+    const r = k.konvertiereVillage(d, { id: 'mini' });
+    assert.equal(r.bericht.hoehe.medianY, 5);
+    assert.equal(r.bericht.hoehe.schwelle, 0.5);
+    assert.equal(r.bericht.hoehe.fehlerTeile, 1);
+  });
+
+  pruefe('start village: `kennungen` of another instance that hit a placement staying outside stop the run', () => {
+    const w = klon(welt);
+    w.bausaetze = [{ id: 'alt', bausatz: 'alt', x: 0, z: 0, kennungen: { q: 'baum_100' } }];
+    assert.ok(w.placements.some((p: { id: string }) => p.id === 'baum_100'));
+    assert.throws(() => k.konvertiereStartdorf(w, { region: 'dorf', id: 'neu' }), /Instanz ungültig.*baum_100/);
+  });
+
+  pruefe('input shape: zones [null], entities "abc" / {}, bausaetze "x" stop with a named message, never a TypeError', () => {
+    const benannt = (muster: RegExp) => (f: unknown) => f instanceof Error && !(f instanceof TypeError) && muster.test(f.message);
+    assert.throws(() => k.konvertiereVillage({ zones: [null] }, { id: 'mini' }), benannt(/zones\[0\]: keine Zone/));
+    assert.throws(() => k.konvertiereVillage({ zones: [{ id: 'z', entities: 'abc' }] }, { id: 'mini' }), benannt(/Zone "z": entities ist kein Array/));
+    assert.throws(() => k.konvertiereVillage({ zones: [{ id: 'z', entities: {} }] }, { id: 'mini' }), benannt(/Zone "z": entities ist kein Array/));
+    assert.throws(() => k.konvertiereStartdorf({ ...klon(welt), bausaetze: 'x' }, { region: 'dorf', id: 'neu' }), benannt(/bausaetze ist kein Array/));
+    assert.throws(() => k.konvertiereStartdorf({ ...klon(welt), placements: {} }, { region: 'dorf', id: 'neu' }), benannt(/placements ist kein Array/));
+    assert.throws(() => k.konvertiereStartdorf(null, { region: 'dorf', id: 'neu' }), benannt(/kein Objekt/));
+  });
+  pruefe('command line: malformed input exits 1 with a named message and writes nothing', () => {
+    const lauf = (args: string[]) => spawnSync(TSX, [KONVERTER, ...args], { encoding: 'utf-8', cwd: WURZEL });
+    const f1 = join(temp, 'form-zone.json');
+    writeFileSync(f1, JSON.stringify({ zones: [null] }));
+    const r1 = lauf(['village', '--ein', f1, '--aus', join(temp, 'form-aus.json'), '--id', 'mini']);
+    assert.equal(r1.status, 1);
+    assert.match(r1.stderr, /zones\[0\]: keine Zone/);
+    const f2 = join(temp, 'form-welt.json');
+    writeFileSync(f2, JSON.stringify({ ...welt, bausaetze: 'x' }));
+    const r2 = lauf(['startdorf', '--welt', f2, '--region', 'dorf', '--id', 'neu', '--aus', join(temp, 'form-kit.json'), '--welt-aus', join(temp, 'form-welt-aus.json')]);
+    assert.equal(r2.status, 1);
+    assert.match(r2.stderr, /bausaetze ist kein Array/);
+    for (const n of ['form-aus.json', 'form-kit.json', 'form-welt-aus.json']) assert.ok(!existsSync(join(temp, n)), n);
+  });
+
+  {
+    const lauf = (args: string[]) => spawnSync(TSX, [KONVERTER, ...args], { encoding: 'utf-8', cwd: WURZEL });
+    const dateien = (namen: string[]) => Object.fromEntries(namen.map((n) => [n, existsSync(join(temp, n)) ? readFileSync(join(temp, n)) : null]));
+    const gleichGeblieben = (vorher: Record<string, Buffer | null>) => {
+      for (const [n, inhalt] of Object.entries(vorher)) {
+        const jetzt = existsSync(join(temp, n)) ? readFileSync(join(temp, n)) : null;
+        assert.ok(inhalt === null ? jetzt === null : jetzt !== null && jetzt.equals(inhalt), `${n} changed`);
+      }
+    };
+    const vEin = join(temp, 'p-village.json');
+    const wEin = join(temp, 'p-welt.json');
+    writeFileSync(vEin, JSON.stringify(village));
+    writeFileSync(wEin, JSON.stringify(welt));
+    const V = (aus: string, extra: string[] = []) => ['village', '--ein', vEin, '--aus', aus, '--id', 'mini', ...extra];
+    const S = (aus: string, weltAus: string, extra: string[] = []) => ['startdorf', '--welt', wEin, '--region', 'dorf', '--id', 'startdorf', '--aus', aus, '--welt-aus', weltAus, ...extra];
+    const P = (n: string) => join(temp, n);
+    const faelle: [string, string[], RegExp][] = [
+      ['village: --aus = --ein', V(vEin), /--aus ist dieselbe Datei wie --ein/],
+      ['village: --bericht = --ein', V(P('p-a.json'), ['--bericht', vEin]), /--bericht ist dieselbe Datei wie --ein/],
+      ['village: --aus = --bericht', V(P('p-a.json'), ['--bericht', P('p-a.json')]), /--aus und --bericht sind dieselbe Datei/],
+      ['village: --aus via ./ and a dot segment', V(join(temp, '.', 'sub', '..', 'p-village.json')), /--aus ist dieselbe Datei wie --ein/],
+      ['village: target directory missing', V(join(temp, 'gibtsnicht', 'a.json')), /Zielverzeichnis .* fehlt/],
+      ['village: --bericht target directory missing', V(P('p-a.json'), ['--bericht', join(temp, 'gibtsnicht', 'b.json')]), /--bericht: Zielverzeichnis .* fehlt/],
+      ['startdorf: --aus = --welt', S(wEin, P('p-w.json')), /--aus ist dieselbe Datei wie --welt/],
+      ['startdorf: --welt-aus = --welt', S(P('p-a.json'), wEin), /--welt-aus ist dieselbe Datei wie --welt/],
+      ['startdorf: --bericht = --welt', S(P('p-a.json'), P('p-w.json'), ['--bericht', wEin]), /--bericht ist dieselbe Datei wie --welt/],
+      ['startdorf: --aus = --welt-aus', S(P('p-a.json'), P('p-a.json')), /--aus und --welt-aus sind dieselbe Datei/],
+      ['startdorf: --welt-aus = --bericht', S(P('p-a.json'), P('p-w.json'), ['--bericht', P('p-w.json')]), /--welt-aus und --bericht sind dieselbe Datei/],
+      ['startdorf: --welt-aus directory missing, --aus valid (no half state)', S(P('p-a.json'), join(temp, 'gibtsnicht', 'w.json')), /--welt-aus: Zielverzeichnis .* fehlt/],
+      ['startdorf: --aus directory missing, --welt-aus valid (no half state)', S(join(temp, 'gibtsnicht', 'a.json'), P('p-w.json')), /--aus: Zielverzeichnis .* fehlt/],
+    ];
+    pruefe('output paths: every collision or missing directory exits 1 by name and writes no file', () => {
+      const vorher = dateien(['p-village.json', 'p-welt.json', 'p-a.json', 'p-w.json']);
+      for (const [name, args, muster] of faelle) {
+        const r = lauf(args);
+        assert.equal(r.status, 1, `${name}: ${r.stdout}${r.stderr}`);
+        assert.match(r.stderr, muster, name);
+        gleichGeblieben(vorher);
+      }
+    });
+    pruefe('output paths: a symlink to an input counts as the input; a symlinked directory is resolved', () => {
+      symlinkSync(vEin, P('p-link.json'));
+      mkdirSync(P('real'));
+      symlinkSync(P('real'), P('link-dir'));
+      const vorher = dateien(['p-village.json']);
+      const r = lauf(V(P('p-link.json')));
+      assert.equal(r.status, 1, r.stderr);
+      assert.match(r.stderr, /--aus ist dieselbe Datei wie --ein/);
+      gleichGeblieben(vorher);
+      // through the symlinked directory the real target is the input itself
+      copyFileSync(vEin, P('real/in.json'));
+      const r2 = lauf(['village', '--ein', P('real/in.json'), '--aus', P('link-dir/in.json'), '--id', 'mini']);
+      assert.equal(r2.status, 1, r2.stderr);
+      assert.match(r2.stderr, /--aus ist dieselbe Datei wie --ein/);
+      assert.ok(readFileSync(P('real/in.json')).equals(readFileSync(vEin)));
+      // two new outputs that meet only through the symlinked directory
+      const r3 = lauf(S(P('link-dir/neu.json'), P('real/neu.json')));
+      assert.equal(r3.status, 1, r3.stderr);
+      assert.match(r3.stderr, /--aus und --welt-aus sind dieselbe Datei/);
+      assert.ok(!existsSync(P('real/neu.json')));
+    });
+    pruefe('output paths: distinct paths still work (both modes write the files)', () => {
+      const a = lauf(V(P('ok-a.json'), ['--bericht', P('ok-b.json')]));
+      assert.equal(a.status, 0, a.stderr);
+      const b = lauf(S(P('ok-kit.json'), P('ok-welt.json'), ['--bericht', P('ok-bb.json')]));
+      assert.equal(b.status, 0, b.stderr);
+      for (const n of ['ok-a.json', 'ok-b.json', 'ok-kit.json', 'ok-welt.json', 'ok-bb.json']) assert.ok(existsSync(P(n)), n);
+    });
+  }
 
   rmSync(temp, { recursive: true, force: true });
   console.log(`${geprueft} checks passed${process.exitCode ? ' — WITH FAILURES' : ''}`);

@@ -205,6 +205,11 @@ export default [
   */
   ['client', 'test/entity-grundskala.ts'],
   ['client', 'test/entity-index.ts'],
+  // Refactor N1: what stood before and behind the class in EntityManager.ts lives in seven modules next to it.
+  // The 13 names other files import are still exported there (values: the same object), each of the eight
+  // module-level state holders is declared once under client/src, no module imports EntityManager.ts, and the
+  // pure functions give the numbers measured before the move. Syntax tree and plain imports, DOM-free, ~2 s.
+  ['client', 'test/entity-module-oberflaeche.ts'],
   // Draft store: two tabs, one localStorage key; undo stack, evicted ring.
   ['client', 'test/entwurfs-speicher.ts'],
   // F6 (Roadmap): seq-Verwerfungsregel für Client-Vorhersage-
@@ -378,6 +383,13 @@ export default [
   // service with stand-in workers (centre first, stale views never sent,
   // stale world generations dropped, 50 steps without growth). DOM-free, ~3 s.
   ['client', 'test/karte-kacheln.ts'],
+  // Boundary of client/src/editor/katalog/ (refactoring step G1): kategorien.ts derives its
+  // lists from the registries when it loads, so value imports of katalog/* may only stand in
+  // GegenstandsKatalog.ts (loaded dynamically after the registrations) and in katalog/ itself,
+  // and nothing imports GegenstandsKatalog.ts statically as a value. Read on the syntax tree,
+  // with a teeth check of the scanner; plus the behaviour of fmt/fmtBytes and of the derived
+  // lists. DOM-free, ~1 s.
+  ['client', 'test/katalog-module-grenze.ts'],
   ['client', 'test/kollision-formen.ts', brauchtStore()],
   // Die `_col`-Konvention (ein GLB-Mesh ist NUR Kollision): unsichtbar,
   // kein Schattenwerfer, und es ERSETZT die Kollision des Prefabs. Beide
@@ -682,6 +694,10 @@ export default [
   // (0 = voll), den eingeschlossenen Rand und die X/Z-Distanz ab.
   ['client', 'test/vegetations-grenze.ts'],
   ['client', 'test/village-biome.ts'],
+  // Waldambiente (2026-09-29): Walddichte gegen die echte Streuung der dev.json
+  // (Korrelation, Drift-Waechter, ~40 s) und Lautstaerke-Regeln der Schleifen
+  // (Dichte, Glaettung, Tag/Nacht, Aus-Faelle, Regler). Rein, keine Assets noetig.
+  ['client', 'test/wald-ambiente.ts'],
   ['client', 'test/wasser-farben.ts'],
   // Der Wasser-Refraktionspass darf gestreute Vegetation nicht anhand der
   // weltweiten Thin-Instance-Hülle als "eingetaucht" einstufen. Auf der

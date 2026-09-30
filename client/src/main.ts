@@ -149,7 +149,7 @@ import { CraftingPanel } from './ui/CraftingPanel';
 import { CharakterPanel } from './ui/CharakterPanel';
 import { ChatPanel } from './ui/ChatPanel';
 import { AudioEngine, startAudioEngine } from './engine/Audio';
-import { EigeneSchritte } from './engine/Audio/EigeneSchritte';
+import { WeltToene } from './engine/Audio/WeltToene';
 import { KampfToene } from './engine/Audio/KampfToene';
 import {
   aktiviereWebGpuGlslKompatibilitaet,
@@ -789,7 +789,7 @@ async function main() {
   let player: PlayerController | null = null;
   let entities: EntityManager | null = null;
   let audioEngine: AudioEngine | null = null;
-  let eigeneSchritte: EigeneSchritte | null = null;
+  const weltToene = new WeltToene(() => player, () => world, () => lighting, () => audioEngine);
   let baumImpostor: BaumImpostor | null = null;
   let grass: GrassClutter | null = null;
   let huegelGras: HuegelGras | null = null;
@@ -1393,10 +1393,7 @@ async function main() {
     // gesture (B2) — needs player.camera, so it lives here and not at the
     // top of main() like the old GameAudio did.
     const audioKamera = player.camera;
-    startAudioEngine(
-      () => AudioEngine.create(scene, audioKamera, { muted: params.has('mute') }),
-      (e) => { audioEngine = e; eigeneSchritte = new EigeneSchritte(() => player, () => world?.heightmaps ?? null, () => audioEngine); },
-    );
+    startAudioEngine(() => AudioEngine.create(scene, audioKamera, { muted: params.has('mute') }), (e) => (audioEngine = e));
     entities = new EntityManager(scene, world, assets, terrain);
     entities.setHundertFpsProfil(gameSettings.get().hundertFpsProfil);
     entities.setVegetationsGrenze(
@@ -3140,7 +3137,7 @@ async function main() {
     input.setUiOpen(cursorNoetig());
 
     miss('spieler', () => player!.update(dt));
-    eigeneSchritte?.update(dt);
+    weltToene.update(dt);
     // Abgleich Client↔Server. Die Entscheidung ist beim Eintreffen des
     // PlayerState gefallen (abgleicher.serverMeldung, gegen die eigene
     // Position ZUM ZEITPUNKT der bestätigten Eingabe statt gegen jetzt);

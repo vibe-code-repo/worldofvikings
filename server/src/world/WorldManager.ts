@@ -25,6 +25,7 @@ import { createZstdCompress, zstdCompressSync, zstdDecompressSync } from 'node:z
 import { once } from 'node:events';
 import type { Writable } from 'node:stream';
 import type { Vector3, SavedItemStack } from '@wov/shared';
+import { haken } from '../util/TestHaken.js';
 
 /**
  * Zeitbudget je Serialisierungsschub des asynchronen Saves (D8).
@@ -116,6 +117,16 @@ export interface SavedPlayer {
   ruestung?: string;
   /** Getragene Waffe (Kampfkern K2a), Name des Gegenstands; fehlt bei Altstaenden = Faust. */
   waffe?: string;
+  /**
+   * F8: Zeitpunkt (ms seit Epoch), zu dem dieser Stand gezogen wurde.
+   * Optional — Staende von vor F8 haben ihn nicht und zaehlen als 0.
+   *
+   * Der Spielerzustand liegt an ZWEI Stellen: im Weltspeicher (players[],
+   * alle 30 min und beim Stopp) und in der Konten-SQLite (write-behind,
+   * s. spiel/SpielerSicherung.ts). Beim Laden gewinnt der NEUERE; der
+   * Zeitstempel ist der Schiedsrichter (spiel/SpielerSicherung.neuerAls).
+   */
+  gespeichertAm?: number;
 }
 
 export interface WorldSaveData {
@@ -129,6 +140,16 @@ export interface WorldSaveData {
     savedAt: string;
     /** Hash des WorldLayout-Dokuments (Layout-Modus) — Warnung bei Drift. */
     layoutHash?: number;
+    /**
+     * F8 N3: Kennung DIESER Welt (Weltdatei). Die Zustandszeilen (`spielerzustand`, `weltzdo`) in der
+     * Konten-SQLite tragen sie als `welt_id`. Entsteht zufaellig beim Anlegen der Welt, ueberlebt Layout-
+     * Speichern, Neustarts und Abstuerze; "Welt zuruecksetzen" (neue Weltdatei) und die Testwelt (eigene
+     * Weltdatei) bekommen eine eigene. Alte Dateien ohne Kennung uebernehmen `<seed>|<modus>` (N2), damit die
+     * vorhandenen Zeilen ihnen weiter gehoeren.
+     */
+    weltId?: string;
+    /** F8 N3: Stempel (Folgenummer) am Beginn dieses Speicherns: was bis dahin in `weltzdo` stand, traegt die Datei. */
+    stempel?: number;
   };
   /** World time (double, seconds). */
   worldTime: number;
@@ -201,6 +222,15 @@ export class WorldManager {
     private readonly layoutHash: number | null = null
   ) {}
 
+  /** F8 N3: Kennung dieser Welt fuer den Kopf der Datei (der Server setzt sie beim Laden). */
+  weltId: string | null = null;
+  /** F8 N3: Stempel am Beginn des laufenden Speicherns (der Server setzt ihn vor jedem Weltspeichern). */
+  speicherStempel = 0;
+
+  private metaKennung(): { weltId?: string; stempel?: number } {
+    return { ...(this.weltId !== null ? { weltId: this.weltId } : {}), stempel: this.speicherStempel };
+  }
+
   /** Save path (".db") — one save per world name. */
   get savePath(): string {
     return join(this.worldsDir, `${this.worldName}.db.zst`);
@@ -223,6 +253,7 @@ export class WorldManager {
         worldGenVersion: this.worldGenVersion,
         savedAt: new Date().toISOString(),
         ...(this.layoutHash !== null ? { layoutHash: this.layoutHash } : {}),
+        ...this.metaKennung(),
       },
       ...data,
     };
@@ -234,6 +265,7 @@ export class WorldManager {
     }
     const tmpPath = `${this.savePath}.tmp`;
     writeFileSync(tmpPath, compressed);
+    haken('speichern-vor-datei');
     renameSync(tmpPath, this.savePath);
   }
 
@@ -247,6 +279,7 @@ export class WorldManager {
         worldGenVersion: this.worldGenVersion,
         savedAt: new Date().toISOString(),
         ...(this.layoutHash !== null ? { layoutHash: this.layoutHash } : {}),
+        ...this.metaKennung(),
       },
       ...data,
     };
@@ -306,6 +339,8 @@ export class WorldManager {
         takt = Date.now();
       }
     }
+    // Test-Haken: ALLE ZDOs sind serialisiert, die Datei noch nicht geschrieben (F8 N3, deterministische Kill-Proben).
+    haken('speichern-mitte');
     await schreibe(packer, `${block}]}`);
     packer.end();
     await stromFertig;
@@ -323,6 +358,7 @@ export class WorldManager {
     } finally {
       await datei.close();
     }
+    haken('speichern-vor-datei');
     await rename(tmpPath, this.savePath);
   }
 

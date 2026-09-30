@@ -82,6 +82,7 @@ import {
   spielerIdErzeugen, istSpielerId, type SpielerId,
 } from '../net/Identitaet.js';
 import { getStableHash } from '../util/Hash.js';
+import { haken } from '../util/TestHaken.js';
 
 export interface Konto {
   id: number;
@@ -350,6 +351,64 @@ export class Kontendatenbank {
         erstellt          INTEGER NOT NULL,
         erledigt          INTEGER,
         UNIQUE (melder_konto_id, gemeldet_konto_id)
+      );
+    `);
+
+    // F8: laufender Spielerzustand (write-behind, s. spiel/SpielerSicherung.ts).
+    // Kein Fremdschluessel auf charaktere: Gaeste ohne Konto haben eine
+    // spielerId und keine Kontozeile, und ihr Stand gehoert genauso
+    // gesichert. `welt_id` (Seed + Modus) bindet die Zeile an die Welt, in
+    // der sie entstand; Zeilen einer anderen Welt werden beim Start nur
+    // IGNORIERT, nie geloescht — geloescht wird ausschliesslich beim
+    // ausdruecklichen "Welt zuruecksetzen". Deshalb gehoert `welt_id` in den
+    // Schluessel: Eine Testwelt mit demselben Weltnamen darf die Zeile der
+    // dev-Welt nicht ueberschreiben.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS spielerzustand (
+        spieler_id TEXT NOT NULL COLLATE NOCASE,
+        welt_id    TEXT NOT NULL,
+        stand      INTEGER NOT NULL,
+        daten      TEXT NOT NULL,
+        PRIMARY KEY (spieler_id, welt_id)
+      );
+    `);
+    // Stand vor N2: Schluessel nur spieler_id. Umbauen, Zeilen behalten.
+    const alteSpalten = this.db.prepare('PRAGMA table_info(spielerzustand)').all() as { name: string; pk: number }[];
+    if (alteSpalten.some((c) => c.name === 'welt_id' && c.pk === 0)) {
+      // F8 N3 (B5): in EINER Transaktion. Ein Abbruch mitten drin laesst die alte Tabelle unberuehrt (DDL ist in SQLite
+      // transaktional); vorher konnten Zeilen in `spielerzustand_alt` stranden, die nie mehr migriert wurden.
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        this.db.exec('ALTER TABLE spielerzustand RENAME TO spielerzustand_alt');
+        haken('migration-mitte');
+        this.db.exec(`
+          CREATE TABLE spielerzustand (
+            spieler_id TEXT NOT NULL COLLATE NOCASE,
+            welt_id    TEXT NOT NULL,
+            stand      INTEGER NOT NULL,
+            daten      TEXT NOT NULL,
+            PRIMARY KEY (spieler_id, welt_id)
+          );
+          INSERT INTO spielerzustand SELECT spieler_id, welt_id, stand, daten FROM spielerzustand_alt;
+          DROP TABLE spielerzustand_alt;
+        `);
+        this.db.exec('COMMIT');
+      } catch (err) {
+        try { this.db.exec('ROLLBACK'); } catch { /* Transaktion schon weg */ }
+        throw err;
+      }
+    }
+    // F8 N2: Behaelter- und Bau-ZDOs (Truhen, Bauteile) im selben Takt und in
+    // derselben Transaktion wie der Spielerzustand. `daten` NULL = das ZDO
+    // wurde abgebaut (Grabstein). Ausgewertet wird beim Laden gegen den
+    // Weltspeicher, s. spiel/WeltZdoSicherung.ts.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS weltzdo (
+        zdo_id  TEXT NOT NULL,
+        welt_id TEXT NOT NULL,
+        stand   INTEGER NOT NULL,
+        daten   TEXT,
+        PRIMARY KEY (zdo_id, welt_id)
       );
     `);
   }
@@ -933,6 +992,85 @@ export class Kontendatenbank {
       erstellt: Number(z.erstellt),
       zuletztGespielt: z.zuletzt_gespielt === null ? null : Number(z.zuletzt_gespielt),
     };
+  }
+
+  // ── F8: Spielerzustand (write-behind) ───────────────────────────────
+
+  /**
+   * Zeilen des Spielerzustands in EINER Transaktion schreiben (Ersetzen je
+   * spielerId). Alles oder nichts: wirft, wenn irgendetwas scheitert, und
+   * rollt zurueck — der Aufrufer behaelt die Eintraege dann als schmutzig.
+   */
+  spielerzustandSchreiben(zeilen: readonly { spielerId: string; weltId: string; stand: number; daten: string }[]): void {
+    this.zustandSchreiben(zeilen, []);
+  }
+
+  /**
+   * F8 N2: Spielerzeilen UND Behaelter-/Bau-ZDO-Zeilen in EINER Transaktion.
+   * Genau das ist die Zusage "Inventar und Welt vom selben Zeitpunkt": Nach
+   * einem harten Abbruch steht entweder beides oder nichts auf der Platte.
+   * Wirft (und rollt zurueck), wenn irgendetwas scheitert.
+   */
+  zustandSchreiben(
+    spieler: readonly { spielerId: string; weltId: string; stand: number; daten: string }[],
+    zdos: readonly { zdoId: string; weltId: string; stand: number; daten: string | null }[],
+  ): void {
+    if (spieler.length === 0 && zdos.length === 0) return;
+    const ersetzen = this.db.prepare(
+      'INSERT OR REPLACE INTO spielerzustand (spieler_id, welt_id, stand, daten) VALUES (?, ?, ?, ?)',
+    );
+    const zdoErsetzen = this.db.prepare(
+      'INSERT OR REPLACE INTO weltzdo (zdo_id, welt_id, stand, daten) VALUES (?, ?, ?, ?)',
+    );
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const z of spieler) ersetzen.run(z.spielerId, z.weltId, z.stand, z.daten);
+      haken('txn-mitte');
+      for (const z of zdos) zdoErsetzen.run(z.zdoId, z.weltId, z.stand, z.daten);
+      this.db.exec('COMMIT');
+    } catch (err) {
+      try { this.db.exec('ROLLBACK'); } catch { /* Transaktion schon weg */ }
+      throw err;
+    }
+  }
+
+  /** Alle Zeilen der Welt `weltId` (Zeitstempel in ms, JSON-Text). Zeilen anderer Welten bleiben unberuehrt. */
+  spielerzustandLesen(weltId: string): { spielerId: string; stand: number; daten: string }[] {
+    return (
+      this.db
+        .prepare('SELECT spieler_id, stand, daten FROM spielerzustand WHERE welt_id = ?')
+        .all(weltId) as Record<string, unknown>[]
+    ).map((z) => ({ spielerId: String(z.spieler_id), stand: Number(z.stand), daten: String(z.daten) }));
+  }
+
+  /** F8 N2: Behaelter-/Bau-ZDO-Zeilen der Welt `weltId` (`daten` null = abgebaut). */
+  weltzdoLesen(weltId: string): { zdoId: string; stand: number; daten: string | null }[] {
+    return (
+      this.db
+        .prepare('SELECT zdo_id, stand, daten FROM weltzdo WHERE welt_id = ?')
+        .all(weltId) as Record<string, unknown>[]
+    ).map((z) => ({ zdoId: String(z.zdo_id), stand: Number(z.stand), daten: z.daten === null ? null : String(z.daten) }));
+  }
+
+  /**
+   * F8 N2: ZDO-Zeilen, die der Weltspeicher schon traegt (Stempel bis
+   * einschliesslich `bisStand`; die Stempel sind Folgenummern, keine Uhrzeiten), wegraeumen — nach einem ERFOLGREICHEN Weltspeichern. Liefert die Zahl.
+   */
+  weltzdoBereinigen(weltId: string, bisStand: number): number {
+    return Number(this.db.prepare('DELETE FROM weltzdo WHERE welt_id = ? AND stand <= ?').run(weltId, bisStand).changes);
+  }
+
+  /** F8 N3: der hoechste Stempel in beiden Zustandstabellen (alle Welten), 0 wenn leer — Startwert des Zaehlers. */
+  hoechsterZustandsStand(): number {
+    const a = this.db.prepare('SELECT MAX(stand) AS m FROM spielerzustand').get() as { m: number | null };
+    const b = this.db.prepare('SELECT MAX(stand) AS m FROM weltzdo').get() as { m: number | null };
+    return Math.max(Number(a.m ?? 0), Number(b.m ?? 0));
+  }
+
+  /** Zeilen einzelner Spieler loeschen (Konto geloescht, `spieler entfernen`) — in allen Welten. */
+  spielerzustandLoeschen(spielerIds: readonly string[]): void {
+    const weg = this.db.prepare('DELETE FROM spielerzustand WHERE spieler_id = ?');
+    for (const id of spielerIds) weg.run(id);
   }
 
   schliessen(): void {

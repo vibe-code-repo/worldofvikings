@@ -26,13 +26,35 @@
  *      the forwarding methods, against a real instance. The numbers were measured on the state before the move,
  *      with the methods of the class called on the same stub.
  *
- * DOM-free, no scene, no assets.
+ * Refactor N3: the three methods of the stone material became functions with a context in steinMaterial.ts. The class
+ * lost `private` on `steinMaterials`, `steinMasters`, `dokumentSteinKit`, on the two forwarders `weiseSteinMaterialZu`
+ * and `holeSteinMaterial`, and on the constructor parameter property `scene` (reason: `holeSteinMaterial` reads it).
+ * After the merge this test is the only guard of the form, so five checks came in for every module of former
+ * methods (attack on N2, findings R-F, R-G, R-H):
+ *  (1) the head of every forwarder up to `{` equals the text recorded in FORMER_METHODS: a decorator, a lost or
+ *      changed visibility, a changed default value or a changed type makes it red;
+ *  (2) the value imports of a module of former methods come only from VALUE_IMPORTS, a fixed list per module;
+ *  (3) PUBLIC_MEMBERS is the list of the non-private members of the class, measured after the step; a further
+ *      loosening (or a member that went private) makes the test red and names the member. The list is carried
+ *      forward with every step of the form on this class (N2, N3, N4 …);
+ *  (4) `import { type X } from '…'` counts as a value edge in [3]; only `import type { … }` is a type import
+ *      (under `verbatimModuleSyntax` the former leaves an `import {} from '…'` behind, a load at run time);
+ *  (5) where a function returns objects the context holds, the identity is checked, not just the content ([7], [8]).
+ *  [8] Behaviour of the stone material: a fixed sequence of 16 steps against a stub of the context with a NullEngine
+ *      scene (no DOM, no assets: the NullEngine never fetches a texture) and, through the forwarding methods, against
+ *      a real instance. The numbers were measured on the state before the move.
+ *
+ * DOM-free, no assets; [8] builds a NullEngine scene.
  * Run: npx tsx client/test/entity-module-oberflaeche.ts
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as ts from 'typescript';
+import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
+import { Scene } from '@babylonjs/core/scene';
+import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
+import type { SteinKitConfig } from '@wov/shared';
 import type { DynamischeInstanz as DynamicViaManager, StatischeInstanz as StaticViaManager } from '../src/entities/EntityManager';
 import type { DynamischeInstanz as DynamicInModule, StatischeInstanz as StaticInModule } from '../src/entities/typen';
 import type { IndexEintrag } from '../src/entities/typen';
@@ -49,18 +71,53 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SRC = resolve(HERE, '../src');
 const ENTITIES = join(SRC, 'entities');
 const MANAGER = join(ENTITIES, 'EntityManager.ts');
-const MODULES = ['konstanten', 'typen', 'lod', 'toenung', 'zellMesh', 'zdoMatrix', 'platzhalter', 'raumIndex', 'kontext'] as const;
+const MODULES = ['konstanten', 'typen', 'lod', 'toenung', 'zellMesh', 'zdoMatrix', 'platzhalter', 'raumIndex', 'kontext', 'steinMaterial'] as const;
 type ModuleName = (typeof MODULES)[number];
 const fileOf = (name: ModuleName): string => join(ENTITIES, `${name}.ts`);
 const short = (file: string): string => relative(SRC, file).replaceAll('\\', '/');
 
 /** The one module that may name EntityManager.ts, and only as a type: it hands the class on as a context type. */
 const CONTEXT_MODULE: ModuleName = 'kontext';
-/** The modules whose functions were methods of the class, with the methods each of them took over. */
-const FORMER_METHODS: Readonly<Partial<Record<ModuleName, readonly string[]>>> = {
-  raumIndex: ['nearbyInstances', 'indexSetzen', 'ausZelleLoesen', 'indexEntfernen'],
+/**
+ * The modules whose functions were methods of the class, with the methods each of them took over, and per method the
+ * head of its forwarder in the class, from the first modifier up to the opening brace of the body (check (1)).
+ */
+const FORMER_METHODS: Readonly<Partial<Record<ModuleName, Readonly<Record<string, string>>>>> = {
+  raumIndex: {
+    nearbyInstances: 'nearbyInstances(\n    x: number,\n    z: number,\n    radius: number,\n    aus: StatischeInstanz[] = []\n  ): StatischeInstanz[]',
+    indexSetzen: 'private indexSetzen(key: string, prefab: string, x: number, y: number, z: number): void',
+    ausZelleLoesen: 'ausZelleLoesen(e: IndexEintrag): void',
+    indexEntfernen: 'private indexEntfernen(key: string): void',
+  },
+  steinMaterial: {
+    weiseSteinMaterialZu: "weiseSteinMaterialZu(\n    bucket: StaticBucket,\n    masters: readonly import('@babylonjs/core/Meshes/mesh').Mesh[]\n  ): void",
+    setzeDokumentSteinKit: 'setzeDokumentSteinKit(cfg: Partial<SteinKitConfig> | null): void',
+    holeSteinMaterial: 'holeSteinMaterial(cfg: SteinKitConfig): PBRMaterial',
+  },
 };
+/** The modules a module of former methods may load at run time (check (2)). Anything else is a new edge in the graph. */
+const VALUE_IMPORTS: Readonly<Partial<Record<ModuleName, readonly string[]>>> = {
+  raumIndex: ['./konstanten'],
+  steinMaterial: ['@wov/shared', '../engine/DungeonSteinMaterial.js'],
+};
+/**
+ * The non-private members of EntityManager after N3 (check (3)): fields, methods, accessors and the parameter
+ * properties of the constructor without `private` or `#`, sorted. Carried forward with every step of the form.
+ * N2 loosened `zellen`, `indexVon`, `ausZelleLoesen`; N3 loosened `steinMaterials`, `steinMasters`, `dokumentSteinKit`,
+ * `weiseSteinMaterialZu`, `holeSteinMaterial` and `scene` (parameter property of the constructor, because
+ * `holeSteinMaterial` reads it).
+ */
+const PUBLIC_MEMBERS: readonly string[] = [
+  'aktualisiereGrundskala', 'applyUpdate', 'ausZelleLoesen', 'colliderNahe', 'colliderPositions', 'colliderSpecs', 'colliderStats',
+  'dokumentSteinKit', 'dynamicCount', 'dynamicList', 'dynamicMasse', 'dynamicPose', 'dynamicSprung', 'dynamischeInstanzen', 'enablePhysics',
+  'flush', 'holeSteinMaterial', 'impostorGrenze', 'impostoren', 'indexStats', 'indexVon', 'instanzPosition', 'lichtquellen',
+  'naechstesInteragierbares', 'nearbyInstances', 'npcEinordnung', 'onMasterBelebt', 'onMasterEntsorgt', 'removeZDO', 'scene',
+  'setHundertFpsProfil', 'setPlayerPosition', 'setVegetationsGrenze', 'setVegetationsSchattenEmpfaenger', 'setzeDokumentSteinKit',
+  'setzeInstanzVerborgen', 'setzeNpcQuelle', 'staticCount', 'steinMasters', 'steinMaterials', 'toenungAn', 'toenungSetzen',
+  'updateDynamics', 'vegetationsGrenzeInfo', 'weiseSteinMaterialZu', 'zellStats', 'zellen',
+];
 type SpatialIndex = typeof import('../src/entities/raumIndex');
+type StoneModule = typeof import('../src/entities/steinMaterial');
 type ManagerModule = typeof import('../src/entities/EntityManager');
 
 /** Identity of two types at compile time: this file does not translate when a re-exported type differs. */
@@ -117,10 +174,10 @@ function importsOf(sf: ts.SourceFile): { spec: string; typeOnly: boolean; line: 
   };
   const visit = (n: ts.Node): void => {
     if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
+      // Only `import type { … }` is a type import. `import { type X }` is a value edge: under `verbatimModuleSyntax`
+      // it leaves `import {} from '…'` behind, and the module is loaded (check (4)).
       const clause = n.importClause;
-      const named = clause?.namedBindings && ts.isNamedImports(clause.namedBindings) ? clause.namedBindings.elements : undefined;
-      const onlyTypes = clause !== undefined && (clause.isTypeOnly || (clause.name === undefined && named !== undefined && named.length > 0 && named.every((e) => e.isTypeOnly)));
-      add(n, n.moduleSpecifier.text, onlyTypes);
+      add(n, n.moduleSpecifier.text, clause !== undefined && clause.isTypeOnly);
     } else if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier)) {
       add(n, n.moduleSpecifier.text, n.isTypeOnly);
     } else if (ts.isImportEqualsDeclaration(n) && ts.isExternalModuleReference(n.moduleReference) && ts.isStringLiteral(n.moduleReference.expression)) {
@@ -361,6 +418,23 @@ console.log('\n[5] Loading: a module of former methods only declares, loading it
       other.map((st) => `line ${sf.getLineAndCharacterOfPosition(st.getStart(sf)).line + 1}: ${ts.SyntaxKind[st.kind]}`).join(', ')
     );
   }
+  // (2) What a module of former methods loads at run time comes from a fixed list; a further value import is a new edge
+  // in the graph (K8 is a one-time proof). `import { type X }` and `import()` count as value imports here.
+  for (const [name, allowed] of Object.entries(VALUE_IMPORTS) as [ModuleName, readonly string[]][]) {
+    const file = fileOf(name);
+    if (!existsSync(file)) {
+      check(`${name}.ts: value imports only from ${allowed.join(', ')}`, false, `${short(file)} does not exist`);
+      continue;
+    }
+    const values = importsOf(parse(file)).filter((i) => !i.typeOnly);
+    const foreign = values.filter((i) => !allowed.includes(i.spec));
+    const unused = allowed.filter((spec) => !values.some((i) => i.spec === spec));
+    check(
+      `${name}.ts: value imports only from ${allowed.join(', ')} (${values.length} value imports)`,
+      foreign.length === 0 && unused.length === 0,
+      `${foreign.map((i) => `line ${i.line} '${i.spec}'`).join(', ') || 'no foreign value import'}${unused.length > 0 ? `; listed but not imported: ${unused.join(', ')}` : ''}`
+    );
+  }
 }
 
 // ── [6] Forwarding ───────────────────────────────────────────────────────────
@@ -371,7 +445,8 @@ console.log('\n[6] Forwarding: the former methods are still methods of the class
   const managerSource = parse(MANAGER);
   const classNode = managerSource.statements.find((st): st is ts.ClassDeclaration => ts.isClassDeclaration(st) && st.name?.text === 'EntityManager');
   const sorted = (names: readonly string[]): string => JSON.stringify([...names].sort());
-  for (const [moduleName, names] of Object.entries(FORMER_METHODS) as [ModuleName, readonly string[]][]) {
+  for (const [moduleName, heads] of Object.entries(FORMER_METHODS) as [ModuleName, Readonly<Record<string, string>>][]) {
+    const names = Object.keys(heads);
     const loaded = (await load(fileOf(moduleName))).module;
     const exported = loaded ? Object.keys(loaded) : [];
     check(
@@ -420,6 +495,10 @@ console.log('\n[6] Forwarding: the former methods are still methods of the class
         }
       }
       check(`${name}: the body is the one statement return ${name}(this, <its parameters>)`, forwards, body);
+      // (1) The head of the forwarder, from the first modifier or decorator up to the brace of the body, is the recorded
+      // text: visibility, parameters with their types and default values, the return type. K5/K6 were one-time proofs.
+      const head = members.length === 1 && member !== undefined && ts.isMethodDeclaration(member) && member.body ? managerSource.text.slice(member.getStart(managerSource), member.body.getStart(managerSource)).trimEnd() : '(no method)';
+      check(`${name}: the head of the forwarder is the recorded text`, head === heads[name], head === heads[name] ? '' : `found ${JSON.stringify(head)}`);
 
       const descriptor = Manager ? Object.getOwnPropertyDescriptor(Manager.prototype, name) : undefined;
       const method: unknown = descriptor?.value;
@@ -474,6 +553,32 @@ console.log('\n[6] Forwarding: the former methods are still methods of the class
       `context ${contextType || 'not found'}: ${named.join(', ') || 'none'}; used: ${[...used].join(', ') || 'none'}; context handed on as a whole: ${bare}`
     );
   }
+
+  // (3) The non-private members of the class are exactly the recorded ones: every loosening for a context widens the
+  // surface of the class for good, so each one is written down here, and a further one makes this red.
+  const found: string[] = [];
+  for (const m of classNode?.members ?? []) {
+    if (ts.isConstructorDeclaration(m)) {
+      for (const p of m.parameters) {
+        const mods = ts.getModifiers(p) ?? [];
+        const property = mods.some((x) => x.kind === ts.SyntaxKind.PublicKeyword || x.kind === ts.SyntaxKind.PrivateKeyword || x.kind === ts.SyntaxKind.ProtectedKeyword || x.kind === ts.SyntaxKind.ReadonlyKeyword);
+        if (property && !mods.some((x) => x.kind === ts.SyntaxKind.PrivateKeyword) && ts.isIdentifier(p.name)) found.push(p.name.text);
+      }
+      continue;
+    }
+    if (!m.name || ts.isPrivateIdentifier(m.name)) continue;
+    if (ts.canHaveModifiers(m) && (ts.getModifiers(m) ?? []).some((x) => x.kind === ts.SyntaxKind.PrivateKeyword)) continue;
+    const n = m.name.getText(managerSource);
+    if (!found.includes(n)) found.push(n);
+  }
+  found.sort();
+  const loosened = found.filter((n) => !PUBLIC_MEMBERS.includes(n));
+  const gone = PUBLIC_MEMBERS.filter((n) => !found.includes(n));
+  check(
+    `the non-private members of EntityManager are exactly the ${PUBLIC_MEMBERS.length} recorded ones`,
+    classNode !== undefined && loosened.length === 0 && gone.length === 0,
+    `loosened or new: ${loosened.join(', ') || 'none'}; gone or private again: ${gone.join(', ') || 'none'}`
+  );
 }
 
 // ── [7] Spatial index ────────────────────────────────────────────────────────
@@ -614,7 +719,7 @@ console.log('\n[7] Spatial index: the fixed sequence gives the numbers measured 
   };
 
   const spatial = (await load(fileOf('raumIndex'))).module as SpatialIndex | null;
-  const there = spatial !== null && (FORMER_METHODS.raumIndex ?? []).every((name) => typeof (spatial as Loaded)[name] === 'function');
+  const there = spatial !== null && Object.keys(FORMER_METHODS.raumIndex ?? {}).every((name) => typeof (spatial as Loaded)[name] === 'function');
   check('the four functions of the spatial index are there', there);
   if (spatial && there) {
     const stub: IndexStub = {
@@ -628,6 +733,10 @@ console.log('\n[7] Spatial index: the fixed sequence gives the numbers measured 
     };
     const run = runIndexSequence<IndexStub>(spatial, stub);
     compare('functions on a stub of the context', run, stub.zellen.size, stub.indexVon.size, stub.loosened);
+    // (5) The hits are the entries of the index itself, not copies.
+    const entries = new Set<unknown>(stub.indexVon.values());
+    const all = spatial.nearbyInstances(stub, 0, 0, 400);
+    check(`stub: all ${INDEX_EXPECTED.entries} hits of a query over the whole index are the entries themselves`, all.length === INDEX_EXPECTED.entries && all.every((hit) => entries.has(hit)), `${all.length} hits, ${all.filter((hit) => entries.has(hit)).length} of them entries`);
   }
 
   // The same through the class: the forwarding methods of a real instance, with a stub set on the instance.
@@ -656,8 +765,209 @@ console.log('\n[7] Spatial index: the fixed sequence gives the numbers measured 
       reach
     );
     compare('methods of a real instance', run, reach.zellen.size, reach.indexVon.size, loosened);
+    const entries = new Set<unknown>(reach.indexVon.values());
+    const all = reach.nearbyInstances(0, 0, 400);
+    check(`real instance: all ${INDEX_EXPECTED.entries} hits of a query over the whole index are the entries themselves`, all.length === INDEX_EXPECTED.entries && all.every((hit) => entries.has(hit)), `${all.length} hits, ${all.filter((hit) => entries.has(hit)).length} of them entries`);
     const stats = real.indexStats;
     check('indexStats of the instance sees the same index', stats.instanzen === INDEX_EXPECTED.entries && stats.zellen === INDEX_EXPECTED.cells, JSON.stringify(stats));
+  }
+}
+
+// ── [8] Stone material ───────────────────────────────────────────────────────
+// The sequence is fixed: pieces of the barrow kit (a corridor, a stair, the chamber with its own stone material, the
+// door, which is no room), a piece of the second kit with the same material, a piece of the rock kit with another
+// wall texture, a piece of no kit, a placed piece with its own override; then three documents, each set twice or
+// taken back. STONE_EXPECTED was measured on the state before the move with exactly the text between the two marks,
+// the methods called as EntityManager.prototype.<name>.call(stub, …). The hashes are the room and door hashes of
+// @wov/shared (DG_Steingrab, DG_StoneVault, DG_RockVault).
+// <stone-sequence>
+interface StoneMesh {
+  material: unknown;
+}
+interface StoneBucket {
+  readonly prefabHash: number;
+  readonly schluessel: string;
+  readonly steinKitCfg?: Partial<SteinKitConfig>;
+  readonly masterKey: string;
+}
+interface StoneState {
+  steinMasters: Map<string, unknown>;
+  steinMaterials: Map<string, PBRMaterial>;
+  dokumentSteinKit: Partial<SteinKitConfig> | null;
+}
+interface StoneCalls<K extends StoneState> {
+  weiseSteinMaterialZu(k: K, bucket: StoneBucket, masters: readonly StoneMesh[]): void;
+  setzeDokumentSteinKit(k: K, cfg: Partial<SteinKitConfig> | null): void;
+  holeSteinMaterial(k: K, cfg: SteinKitConfig): PBRMaterial;
+}
+interface StoneStub extends StoneState {
+  scene: Scene;
+  /** Calls of holeSteinMaterial and weiseSteinMaterialZu that went through the context. */
+  fetched: number;
+  painted: number;
+  holeSteinMaterial(cfg: SteinKitConfig): PBRMaterial;
+  weiseSteinMaterialZu(bucket: StoneBucket, masters: readonly StoneMesh[]): void;
+}
+interface StoneRun {
+  /** Name of the material on each of the ten meshes after the last step ('-' for none). */
+  names: string[];
+  /** FNV-1a over the material names of the meshes and the size of the cache after every step, then over the cache keys. */
+  checksum: number;
+  /** Materials in the cache and pieces remembered for re-painting, at the end. */
+  materials: number;
+  masters: number;
+  /** Identity: holeSteinMaterial returned the object the cache holds (twice); every painted mesh carries an object of the cache. */
+  identity: number;
+  steps: number;
+}
+const STONE = { gang: -1192313122, treppe: -2036557947, kammer: 671134820, tuer: 1912745621, vault: 596948285, rock: -769665293, fremd: 12345 } as const;
+function makeStoneStub(scene: Scene, calls: StoneCalls<StoneStub>): StoneStub {
+  return {
+    scene,
+    steinMasters: new Map(),
+    steinMaterials: new Map(),
+    dokumentSteinKit: null,
+    fetched: 0,
+    painted: 0,
+    holeSteinMaterial(cfg: SteinKitConfig): PBRMaterial {
+      this.fetched++;
+      return calls.holeSteinMaterial(this, cfg);
+    },
+    weiseSteinMaterialZu(bucket: StoneBucket, masters: readonly StoneMesh[]): void {
+      this.painted++;
+      calls.weiseSteinMaterialZu(this, bucket, masters);
+    },
+  };
+}
+function runStoneSequence<K extends StoneState>(calls: StoneCalls<K>, k: K): StoneRun {
+  const run: StoneRun = { names: [], checksum: 0x811c9dc5, materials: 0, masters: 0, identity: 0, steps: 0 };
+  const mix = (text: string): void => {
+    for (let i = 0; i < text.length; i++) run.checksum = Math.imul(run.checksum ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  };
+  const meshes: StoneMesh[] = Array.from({ length: 10 }, () => ({ material: null }));
+  const nameOf = (m: StoneMesh): string => (m.material !== null && typeof m.material === 'object' ? String((m.material as { name?: unknown }).name) : '-');
+  const bucket = (prefabHash: number, schluessel: string, steinKitCfg?: Partial<SteinKitConfig>): StoneBucket =>
+    steinKitCfg ? { prefabHash, schluessel, steinKitCfg, masterKey: schluessel } : { prefabHash, schluessel, masterKey: schluessel };
+  const KIT = {
+    wandTextur: '/assets/models/stein_clean.png',
+    deckeTextur: '/assets/models/stein_decke.png',
+    bodenTextur: '/assets/models/stein_clean.png',
+    verwitterung: { moos: 1, frost: 0.9, nass: 0.9 },
+    kachelM: 2,
+    deckeKachelM: 4,
+    moosSkala: 9,
+    frostSkala: 11,
+    nassSkala: 8,
+    deckeSchwelle: 0.45,
+  } as unknown as SteinKitConfig;
+  const step = (f: () => void): void => {
+    f();
+    run.steps++;
+    mix(`${meshes.map(nameOf).join(',')}|${k.steinMaterials.size};`);
+  };
+  const inCache = (m: unknown): boolean => [...k.steinMaterials.values()].includes(m as PBRMaterial);
+  step(() => calls.weiseSteinMaterialZu(k, bucket(STONE.gang, 'g'), [meshes[0]!, meshes[1]!]));
+  step(() => calls.weiseSteinMaterialZu(k, bucket(STONE.treppe, 't'), [meshes[2]!]));
+  step(() => calls.weiseSteinMaterialZu(k, bucket(STONE.kammer, 'k'), [meshes[3]!]));
+  step(() => calls.weiseSteinMaterialZu(k, bucket(STONE.tuer, 'd'), [meshes[4]!]));
+  step(() => calls.weiseSteinMaterialZu(k, bucket(STONE.vault, 'v'), [meshes[5]!]));
+  step(() => calls.weiseSteinMaterialZu(k, bucket(STONE.rock, 'r'), [meshes[6]!]));
+  step(() => calls.weiseSteinMaterialZu(k, bucket(STONE.fremd, 'x'), [meshes[7]!]));
+  step(() => calls.weiseSteinMaterialZu(k, bucket(STONE.gang, 'go', { verwitterung: { nass: 0 } } as unknown as Partial<SteinKitConfig>), [meshes[8]!]));
+  step(() => {
+    const first = calls.holeSteinMaterial(k, KIT);
+    const second = calls.holeSteinMaterial(k, { ...KIT });
+    if (first === second && first === k.steinMaterials.get(JSON.stringify(KIT))) run.identity++;
+  });
+  step(() => calls.setzeDokumentSteinKit(k, {}));
+  step(() => calls.setzeDokumentSteinKit(k, { verwitterung: { moos: 2 } } as unknown as Partial<SteinKitConfig>));
+  step(() => calls.setzeDokumentSteinKit(k, { verwitterung: { moos: 2 } } as unknown as Partial<SteinKitConfig>));
+  step(() => calls.setzeDokumentSteinKit(k, null));
+  step(() => calls.weiseSteinMaterialZu(k, bucket(STONE.gang, 'g'), [meshes[9]!]));
+  step(() => calls.setzeDokumentSteinKit(k, { wandTextur: '/assets/models/stein_fels.png' }));
+  step(() => calls.setzeDokumentSteinKit(k, null));
+  for (const m of meshes) if (m.material !== null && inCache(m.material)) run.identity++;
+  mix([...k.steinMaterials.keys()].join('\n'));
+  run.names = meshes.map(nameOf);
+  run.materials = k.steinMaterials.size;
+  run.masters = k.steinMasters.size;
+  return run;
+}
+// </stone-sequence>
+const STONE_EXPECTED = {
+  names: ['steinKit_0', 'steinKit_0', 'steinKit_0', 'steinKit_1', 'steinKit_0', 'steinKit_0', 'steinKit_2', '-', 'steinKit_3', 'steinKit_0'],
+  checksum: 1621107641,
+  materials: 9,
+  masters: 7,
+  identity: 10,
+  steps: 16,
+  /** Calls through the context: holeSteinMaterial from weiseSteinMaterialZu, weiseSteinMaterialZu from setzeDokumentSteinKit. */
+  fetched: 36,
+  painted: 28,
+  /** The document at the end, as JSON. */
+  document: 'null',
+};
+
+console.log('\n[8] Stone material: the fixed sequence gives the numbers measured before the move');
+{
+  const compare = (label: string, run: StoneRun, fetched: number, painted: number, document: string): void => {
+    check(`${label}: ${STONE_EXPECTED.steps} steps as planned`, run.steps === STONE_EXPECTED.steps, String(run.steps));
+    check(`${label}: material of every mesh at the end`, JSON.stringify(run.names) === JSON.stringify(STONE_EXPECTED.names), run.names.join(' '));
+    check(`${label}: checksum over the course of the materials = ${STONE_EXPECTED.checksum}`, run.checksum === STONE_EXPECTED.checksum, String(run.checksum));
+    check(`${label}: ${STONE_EXPECTED.materials} materials in the cache and ${STONE_EXPECTED.masters} remembered pieces at the end`, run.materials === STONE_EXPECTED.materials && run.masters === STONE_EXPECTED.masters, `${run.materials} materials, ${run.masters} pieces`);
+    check(`${label}: ${STONE_EXPECTED.identity} identities (the material of the cache itself, not a copy)`, run.identity === STONE_EXPECTED.identity, String(run.identity));
+    check(`${label}: ${STONE_EXPECTED.fetched} calls of holeSteinMaterial and ${STONE_EXPECTED.painted} of weiseSteinMaterialZu went through the context`, fetched === STONE_EXPECTED.fetched && painted === STONE_EXPECTED.painted, `${fetched}, ${painted}`);
+    check(`${label}: document at the end is ${STONE_EXPECTED.document}`, document === STONE_EXPECTED.document, document);
+  };
+  const stone = (await load(fileOf('steinMaterial'))).module as StoneModule | null;
+  const there = stone !== null && Object.keys(FORMER_METHODS.steinMaterial ?? {}).every((name) => typeof (stone as Loaded)[name] === 'function');
+  check('the three functions of the stone material are there', there);
+  const scene = new Scene(new NullEngine());
+  if (stone && there) {
+    const calls: StoneCalls<StoneStub> = {
+      weiseSteinMaterialZu: (k, bucket, masters) => stone.weiseSteinMaterialZu(k as never, bucket as never, masters as never),
+      setzeDokumentSteinKit: (k, cfg) => stone.setzeDokumentSteinKit(k as never, cfg),
+      holeSteinMaterial: (k, cfg) => stone.holeSteinMaterial(k as never, cfg),
+    };
+    const stub = makeStoneStub(scene, calls);
+    const run = runStoneSequence<StoneStub>(calls, stub);
+    compare('functions on a stub of the context', run, stub.fetched, stub.painted, JSON.stringify(stub.dokumentSteinKit));
+  }
+
+  // The same through the class: the forwarding methods of a real instance, with counting stubs set on the instance.
+  const Manager = ((await load(MANAGER)).module as ManagerModule | null)?.EntityManager;
+  check('a real instance can be built with a NullEngine scene', typeof Manager === 'function');
+  if (Manager) {
+    const real = new Manager(scene, null as never, null as never, null as never);
+    type Reach = StoneState & {
+      holeSteinMaterial(cfg: SteinKitConfig): PBRMaterial;
+      weiseSteinMaterialZu(bucket: StoneBucket, masters: readonly StoneMesh[]): void;
+      setzeDokumentSteinKit(cfg: Partial<SteinKitConfig> | null): void;
+    };
+    const reach = real as unknown as Reach;
+    const forwardingHole = reach.holeSteinMaterial;
+    const forwardingPaint = reach.weiseSteinMaterialZu;
+    let fetched = 0;
+    let painted = 0;
+    reach.holeSteinMaterial = function (this: Reach, cfg: SteinKitConfig): PBRMaterial {
+      fetched++;
+      return forwardingHole.call(this, cfg);
+    };
+    reach.weiseSteinMaterialZu = function (this: Reach, bucket: StoneBucket, masters: readonly StoneMesh[]): void {
+      painted++;
+      forwardingPaint.call(this, bucket, masters);
+    };
+    const run = runStoneSequence<Reach>(
+      {
+        // The calls of the sequence itself go to the methods of the class, not to the counting stubs.
+        weiseSteinMaterialZu: (k, bucket, masters) => forwardingPaint.call(k, bucket, masters),
+        setzeDokumentSteinKit: (k, cfg) => k.setzeDokumentSteinKit(cfg),
+        holeSteinMaterial: (k, cfg) => forwardingHole.call(k, cfg),
+      },
+      reach
+    );
+    compare('methods of a real instance', run, fetched, painted, JSON.stringify(reach.dokumentSteinKit));
+    check('the scene holds the materials of both runs, none of them a fallback of another engine', scene.materials.length === 2 * STONE_EXPECTED.materials, String(scene.materials.length));
   }
 }
 

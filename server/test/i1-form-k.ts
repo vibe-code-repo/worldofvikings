@@ -366,6 +366,9 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       const zeilenEnde = text.indexOf('\n', m.getEnd());
       const dahinter = text.slice(m.getEnd(), zeilenEnde === -1 ? text.length : zeilenEnde);
       if (dahinter.trim() !== '') f.push(`${fn.name}: behind the forwarding on its last line stands "${dahinter.trim().slice(0, 40)}"`);
+      // the line directly below it: blank (or the end of the class); a comment there is trivia of the next member and escapes every comparison above (H11 of the second re-attack)
+      const naechsteZeile = zeilenEnde === -1 ? '' : text.slice(zeilenEnde + 1, text.indexOf('\n', zeilenEnde + 1) === -1 ? text.length : text.indexOf('\n', zeilenEnde + 1)).trim();
+      if (naechsteZeile !== '' && naechsteZeile !== '}') f.push(`${fn.name}: the line directly below the forwarding is not blank ("${naechsteZeile.slice(0, 40)}")`);
       if (ts.canHaveDecorators(m) && (ts.getDecorators(m) ?? []).length > 0) f.push(`${fn.name}: a decorator`);
       const st = body?.statements ?? [];
       const r = st[0];
@@ -526,6 +529,9 @@ console.log('\n[0] Self-test of the checks on invented sources');
   check('red: a section line before a forwarding, whoever names it (H5, H9: no field allows one)', pruefeKlasse([S], mitAbschnitt, OEFF).length > 0, show(pruefeKlasse([S], mitAbschnitt, OEFF)) || 'no finding');
   const hinten = (z: string): string => gut.replace('    return fa(this, peer, reader);\n  }\n', `    return fa(this, peer, reader);\n  }${z}\n`);
   check('red: a line comment behind a forwarding on its last line (H8)', pruefeKlasse([S], hinten(' // comment'), OEFF).length > 0, show(pruefeKlasse([S], hinten(' // comment'), OEFF)) || 'no finding');
+  const darunter = pruefeKlasse([S], gut.replace('  }\n\n  private fb(', '  }\n  // note\n\n  private fb('), OEFF);
+  check('red: a comment on the line directly below a forwarding (H11)', darunter.some((x) => x.includes('directly below')), show(darunter) || 'no finding');
+  check('red: a comment block on the line directly below a forwarding (H11)', pruefeKlasse([S], gut.replace('  }\n\n  private fb(', '  }\n  /* note */\n\n  private fb('), OEFF).some((x) => x.includes('directly below')));
   check('red: a block comment behind a forwarding on its last line (H8)', pruefeKlasse([S], hinten(' /* comment */'), OEFF).length > 0, show(pruefeKlasse([S], hinten(' /* comment */'), OEFF)) || 'no finding');
   check('red: two blank lines before a forwarding (rule 4.5a wants one)', pruefeKlasse([S], gut.replace('\n\n  private fb(', '\n\n\n  private fb('), OEFF).length > 0);
   check('red: no blank line before a forwarding', pruefeKlasse([S], gut.replace('\n\n  private fb(', '\n  private fb('), OEFF).length > 0);

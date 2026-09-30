@@ -11,6 +11,6 @@ const PARTS = [
   { key: 'boots', name: 'Gravethorn Greaves', slot: 'fuesse', equipment: 'schuhe', regions: ['LegLeft', 'LegRight'], hideAppearance: [], weight: 2 },
 ] as const;
 
-export const GRAVETHORN_MALE_PARTS = PARTS.map(p => ({ ...p, ...MALE_ARMOR_BODY, id: `gravethorn_male_${p.key}`, item: `gravethorn_male_${p.key}`, vfxProfile: 'gravethorn_red' as const }));
-export const GRAVETHORN_FEMALE_PARTS = PARTS.map(p => ({ ...p, ...FEMALE_ARMOR_BODY, id: `gravethorn_female_${p.key}`, item: `gravethorn_female_${p.key}`, vfxProfile: 'gravethorn_red' as const }));
+export const GRAVETHORN_MALE_PARTS = PARTS.map(p => ({ ...p, ...MALE_ARMOR_BODY, id: `gravethorn_male_${p.key}`, item: `gravethorn_male_${p.key}`, textKey: `inhalt.item.gravethorn_${p.key}`, vfxProfile: 'gravethorn_red' as const }));
+export const GRAVETHORN_FEMALE_PARTS = PARTS.map(p => ({ ...p, ...FEMALE_ARMOR_BODY, id: `gravethorn_female_${p.key}`, item: `gravethorn_female_${p.key}`, textKey: `inhalt.item.gravethorn_${p.key}`, vfxProfile: 'gravethorn_red' as const }));
 export const GRAVETHORN_PARTS = [...GRAVETHORN_MALE_PARTS, ...GRAVETHORN_FEMALE_PARTS];

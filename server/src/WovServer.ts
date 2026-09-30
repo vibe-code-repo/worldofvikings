@@ -10,6 +10,7 @@
 
 import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, ItemType, SLOT_VORGABE, istAusruestungsSlot } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
+import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 import {
   EVENT_CHANCE,
@@ -84,6 +85,7 @@ import type { SteinKitConfig } from '@wov/shared';
 // Raum-Einrichtung) und haetten im Barrel jedes Client-Bundle aufgeblaeht.
 import { getFeaturePieces } from '@wov/shared/src/featurePieces.js';
 import { ZDOManager, worldToZone } from './zdo/ZDOManager.js';
+import { SYNC_PRUEFUNGEN_MAX } from './zdo/ZonenFenster.js';
 import { DungeonManager } from './world/dungeon/DungeonManager.js';
 import {
   GENERIERT_DIR,
@@ -1728,6 +1730,10 @@ export class WovServer {
     const deltaSec = deltaMs / 1000;
     this.prevUpdateTime = now;
 
+    // Dead players whose lying time is over get up (respawn) — every tick, not
+    // only in the 1-second block below: the lying time is a promise in ms.
+    this.belebeFaellige(now);
+
     // Advance world time
     this.worldTime += deltaSec * this.worldTimeMultiplier;
 
@@ -1748,16 +1754,24 @@ export class WovServer {
       // deshalb fast nichts: Vegetation, Kreaturen und Routen hängen alle
       // am Umkreis der Spieler. Eine leerstehende Instanz kostet nichts.
       const positionenJeWelt = new Map<string, Vector3[]>();
+      const zieleJeWelt = new Map<string, Vector3[]>();
       for (const p of peers) {
+        // A dead player stays in the position list (zones, spawns and routes keep
+        // running around him, creatures do not despawn because he lies) but is no
+        // target: aggro lets go of him.
         const liste = positionenJeWelt.get(p.worldId);
         if (liste) liste.push(p.position);
         else positionenJeWelt.set(p.worldId, [p.position]);
+        if (p.totBis > 0) continue;
+        const ziele = zieleJeWelt.get(p.worldId);
+        if (ziele) ziele.push(p.position);
+        else zieleJeWelt.set(p.worldId, [p.position]);
       }
       const weltenStart = performance.now();
       for (const welt of this.welten.values()) {
         const positionen = positionenJeWelt.get(welt.id);
         if (!positionen?.length) continue;
-        const { neueZonen } = welt.tick(deltaSec, positionen);
+        const { neueZonen } = welt.tick(deltaSec, positionen, zieleJeWelt.get(welt.id) ?? []);
         if (neueZonen > 0) {
           console.log(
             `[WoV] Vegetation (${welt.id}): +${neueZonen} zone(s) ` +
@@ -1789,7 +1803,7 @@ export class WovServer {
       }
       // Essens-Regeneration: 2 HP/s solange ein Buff wirkt.
       for (const peer of this.net.getPeers()) {
-        if (now < peer.foodBis && peer.health < this.maxHealth(peer)) {
+        if (!(peer.totBis > 0) && now < peer.foodBis && peer.health < this.maxHealth(peer)) {
           peer.health = Math.min(this.maxHealth(peer), peer.health + 2);
           this.sendPlayerState(peer);
         } else if (peer.foodBis !== 0 && now >= peer.foodBis) {
@@ -1938,7 +1952,24 @@ export class WovServer {
       let anzahl = 0;
       const gesendet = this.sendePuffer;
       gesendet.length = 0;
-      for (const zdo of fenster) {
+      // F2: Der NAHE Teil des Fensters (Ring <= SYNC_NAH_RING) wird jeden Tick
+      // vollständig geprüft und hat im Budget Vorrang: Dort laufen die
+      // Kreaturen und Mitspieler, deren Aktualisierung man sieht. Der FERNE
+      // Rest bekommt den Prüfdeckel: ab dem Cursor höchstens
+      // SYNC_PRUEFUNGEN_MAX ZDOs, danach macht der nächste Tick dort weiter
+      // (sonst verhungerten die hinteren Ringe). Je Tick werden also höchstens
+      // nahEnde + SYNC_PRUEFUNGEN_MAX ZDOs angesehen. Bei Fenstern bis zum
+      // Deckel wird von vorn geprüft, wie vor F2.
+      const nahEnde = Math.min(peer.fenster.nahEnde, fenster.length);
+      let ferneStart = nahEnde + peer.fenster.cursor;
+      if (ferneStart >= fenster.length) ferneStart = nahEnde;
+      const ende = Math.min(fenster.length, ferneStart + SYNC_PRUEFUNGEN_MAX);
+      // Cursor für den nächsten Tick: Deckel (ende) oder Fensterende (0).
+      let naechsterCursor = ende >= fenster.length ? 0 : ende - nahEnde;
+      for (let i = 0; i < ende; i++) {
+        if (i === nahEnde) i = Math.max(i, ferneStart); // nahen Teil fertig: zum Cursor springen
+        if (i >= ende) break;
+        const zdo = fenster[i]!;
         const stand = peer.syncStand(zdo.zdoid);
         if (
           stand &&
@@ -1947,11 +1978,28 @@ export class WovServer {
         ) {
           continue; // Peer ist auf Stand
         }
+        // Ist das Budget erreicht, wird dieses ZDO nicht mehr geschrieben (es
+        // bleibt schmutzig und geht im nächsten Tick raus). Das erste ZDO des
+        // Pakets darf das Budget überschreiten, sonst käme ein übergroßer
+        // Vollstand nie an. Ein Paket ist damit höchstens Budget + ein Satz
+        // groß. (Das ist dasselbe Verhalten wie die Prüfung nach dem Schreiben
+        // vor F2 — die Pakete sind byte-gleich; die Stelle steht hier, weil
+        // der Cursor den Index des ersten ungeschriebenen ZDOs braucht.)
+        if (anzahl > 0 && writer.geschrieben >= budget) {
+          // Im nahen Teil bleibt der Cursor stehen (der nahe Teil wird ohnehin
+          // nächsten Tick wieder von vorn geprüft). Im fernen Teil: steht das
+          // ZDO noch im vorderen Teil, lieber von vorn (nah zuerst); liegt es
+          // hinter dem halben Deckel, würde ein Neustart den Deckel vor dem
+          // ZDO aufbrauchen — dann genau hier weitermachen.
+          if (i < nahEnde) naechsterCursor = peer.fenster.cursor;
+          else naechsterCursor = i - nahEnde < SYNC_PRUEFUNGEN_MAX / 2 ? 0 : i - nahEnde;
+          break;
+        }
         this.writeZDO(writer, zdo, stand?.dataRevision, peer);
         anzahl++;
         gesendet.push(zdo);
-        if (writer.geschrieben >= budget) break;
       }
+      peer.fenster.cursor = naechsterCursor;
 
       if (anzahl === 0 && zerstoerungen.length === 0) continue;
       writer.patchInt32(zaehlerStelle, anzahl);
@@ -2287,10 +2335,7 @@ export class WovServer {
       ? saved.waffe : peer.inventar.all.find((i) => i.equipped && !i.shared.ruestungsteil)?.shared.name ?? '';
     this.inventarSync(peer);
     // Piece-Budget: eigene Bauten einmalig zählen (15k-ZDO-Scan, nur Login).
-    const meineId = peer.userId.toString();
-    peer.bautenAnzahl = this.zdosVon(peer)
-      .getAllZDOs()
-      .filter((z) => z.getInt('spieler') === 1 && z.getString('besitzer') === meineId).length;
+    peer.bautenAnzahl = this.zaehleEigeneBauten(peer);
 
     // Send initial time sync
     this.sendTimeSync(peer);
@@ -2456,7 +2501,21 @@ export class WovServer {
 
   // ── Packet handling ────────────────────────────────────────────
 
+  /** Packets a dead player may not send (nothing that acts in the world); the rest still passes. */
+  private static readonly TOT_GESPERRT: ReadonlySet<PacketType> = new Set([
+    PacketType.Interact, PacketType.Attack, PacketType.Parry, PacketType.TerrainOp, PacketType.PlacePiece,
+    PacketType.RemovePiece, PacketType.Craft, PacketType.Eat, PacketType.ContainerAction,
+    // Admin commands move or heal (teleport, spawn): the client would read a teleport as the revival.
+    PacketType.AdminCommand,
+  ]);
+  // Chat, Equip, SetFigur and SetAussehen stay allowed on purpose: they change no world state
+  // (own settings / talk only), and a client that sends its look or gear right around the
+  // revival must not lose that packet.
+
   private onPacket(peer: Peer, type: PacketType, reader: Reader): void {
+    // A dead player acts on nothing while he lies (his own client blocks the input as well;
+    // an old or hostile client is stopped here).
+    if (peer.totBis > 0 && WovServer.TOT_GESPERRT.has(type)) return;
     switch (type) {
       case PacketType.PlayerInput:
         this.handlePlayerInput(peer, reader);
@@ -2835,6 +2894,18 @@ export class WovServer {
 
     peer.lastInputSeq = seq;
 
+    // Dead: no movement, no stamina — but the client still hears where it lies
+    // (its reconciliation needs a fresh PlayerState with the sequence number).
+    if (peer.totBis > 0) {
+      peer.lastInputTime = Date.now();
+      peer.staminaSyncAkku = (peer.staminaSyncAkku ?? 0) + 0.05;
+      if (peer.staminaSyncAkku >= 0.1) {
+        peer.staminaSyncAkku = 0;
+        this.sendPlayerState(peer);
+      }
+      return;
+    }
+
     // Server-authoritative movement
     const now = Date.now();
     // `lookYaw` wurde bis heute gelesen und weggeworfen — genau daran
@@ -3033,6 +3104,24 @@ export class WovServer {
     zdo.revision.reviseData();
     zdo.dirty = true;
     antwort(true, `${def.name} gebaut`);
+  }
+
+  /**
+   * Wie viele Bauwerke `peer` besitzt (Piece-Budget), beim Login gezählt.
+   *
+   * Vorher: `getAllZDOs()` = Vollkopie aller ZDOs der Welt (bei ~48.000 ein
+   * spürbarer Tick-Stopp je Login). Jetzt: nur die Spielerbauten aus dem
+   * Index des ZDOManager, mit demselben Prädikat wie vorher (spieler == 1 und
+   * besitzer == userId). Ein Zählen über die Prefab-Mengen der Bauteile ginge
+   * nicht: `KiPine2` ist Bauteil UND Weltbaum, die Menge hat Tausende Einträge.
+   */
+  private zaehleEigeneBauten(peer: Peer): number {
+    const meineId = peer.userId.toString();
+    let n = 0;
+    for (const z of this.zdosVon(peer).spielerbauten()) {
+      if (z.getInt('spieler') === 1 && z.getString('besitzer') === meineId) n++;
+    }
+    return n;
   }
 
   /**
@@ -4094,6 +4183,8 @@ export class WovServer {
     const r2 = radius * radius;
     for (const peer of this.net.getPeers()) {
       if (peer.worldId !== weltId) continue;
+      // A dead player lies still and takes nothing (the wolf lets go of him, see update()).
+      if (peer.totBis > 0) continue;
       if (target && peer.position !== target) continue;
       const d = (peer.position.x - pos.x) ** 2 + (peer.position.z - pos.z) ** 2;
       if (!target && d > r2) continue;
@@ -4115,30 +4206,113 @@ export class WovServer {
       // Ruestung mindert erst NACH der Parade (ein parierter Schlag tut gar nichts).
       // Rest unter 1e-6 (Fliesskomma nach vielen geminderten Bissen) zaehlt als tot, sonst lebt man mit 1e-14.
       peer.health = lebenNachSchaden(peer.health, eingehenderSchaden(damage, this.werteVon(peer).armor));
+      // Which side the blow comes from (attacker position vs. the victim's view yaw).
+      const richtung = richtungZuAngreifer(peer.blickYaw ?? null, peer.position, pos);
       if (peer.health <= 0) {
-        // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.
-        peer.health = lebensmaximum(this.werteVon(peer).vitality, 0);
-        peer.stamina = AUSDAUER_REGEL.max;
-        // EIN Teleport: aus einer Instanz geht es direkt an den Wiedereinstiegs-
-        // punkt der Oberwelt, nicht erst an den Eingang und dann weiter.
-        const hatteBett = peer.spawnPoint !== null;
-        const wieder = this.wiedereinstiegspunkt(peer);
-        // Ein gesetzter Punkt, der nicht mehr zu einem Bett fuehrt (abgerissen,
-        // verschoben, Altbestand), wird verworfen UND gemeldet: still am
-        // Weltspawn zu erwachen liesse den Spieler glauben, sein Schlafplatz
-        // gelte noch.
-        const bettVerloren = hatteBett && peer.spawnPoint === null;
-        if (peer.dungeonId) this.leaveDungeon(peer, { ...wieder });
-        else this.teleportPeer(peer, { ...wieder }, null);
-        peer.sendPacketWith(PacketType.InteractResult, (w) => {
-          w.writeBool(true);
-          w.writeString(bettVerloren ? 'Du bist gestorben — dein Schlafplatz ist nicht mehr da' : 'Du bist gestorben');
-          w.writeString('');
-          w.writeInt32(0);
-        });
+        // Death: with a lying time the figure falls and stays down until belebeFaellige
+        // revives it; without one (0 ms, tests of the old behaviour) it gets up at once.
+        if (this.liegezeitMs > 0) this.stirb(peer, todClipFuer(richtung));
+        else this.belebeNeu(peer, true);
+      } else {
+        this.zeigeTreffer(peer, trefferClipFuer(richtung));
       }
       this.sendPlayerState(peer);
     }
+  }
+
+  /**
+   * How long a dead player lies before he is revived (ms). Starts as the shared
+   * default; a test may shorten it, 0 means "get up at once" (the old behaviour).
+   */
+  liegezeitMs = TOD_LIEGEZEIT_MS;
+
+  /** Writes a player-figure one-shot (death or hit) on the character ZDO — every other player sees it. */
+  private schreibeSpielerEinmal(peer: Peer, clip: TodClip | TrefferClip, zustand?: string): void {
+    const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
+    if (!charZDO) return;
+    if (zustand !== undefined) charZDO.setString(ANIM_MEMBER, zustand);
+    charZDO.setString(ANIM_EINMAL_MEMBER, naechstesEinmal(charZDO.getString(ANIM_EINMAL_MEMBER), clip));
+    charZDO.revision.reviseData();
+    charZDO.dirty = true;
+  }
+
+  /** A confirmed blow that did not kill: the struck client and every other player play the flinch. */
+  private zeigeTreffer(peer: Peer, clip: TrefferClip): void {
+    peer.sendPacketWith(PacketType.PlayerTreffer, (w) => {
+      w.writeInt32(trefferClipIndex(clip));
+    });
+    this.schreibeSpielerEinmal(peer, clip);
+  }
+
+  /**
+   * The player dies: he falls with `clip`, stays down `liegezeitMs` and cannot act;
+   * belebeFaellige revives him afterwards at the bed / start point.
+   */
+  private stirb(peer: Peer, clip: TodClip): void {
+    peer.totBis = Date.now() + this.liegezeitMs;
+    peer.paradeBis = 0;
+    peer.health = 0;
+    peer.sendPacketWith(PacketType.PlayerTod, (w) => {
+      w.writeInt32(todClipIndex(clip));
+      w.writeInt32(this.liegezeitMs);
+    });
+    // `anim` keeps the lying pose for players who arrive later; the one-shot plays the fall.
+    this.schreibeSpielerEinmal(peer, clip, clip);
+    peer.sendPacketWith(PacketType.InteractResult, (w) => {
+      w.writeBool(true);
+      w.writeString('Du bist gestorben');
+      w.writeString('');
+      w.writeInt32(0);
+    });
+  }
+
+  /** Revives every dead player whose lying time is over. */
+  private belebeFaellige(now: number): void {
+    for (const peer of this.net.getPeers()) {
+      if (peer.totBis > 0 && now >= peer.totBis) this.belebeNeu(peer, false);
+    }
+  }
+
+  /**
+   * Back to life at the bed / the world spawn, full health. `sofort`: no lying time
+   * (the death message then also carries the bed hint, as before).
+   */
+  private belebeNeu(peer: Peer, sofort: boolean): void {
+    const warTot = peer.totBis > 0;
+    peer.totBis = 0;
+    // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.
+    peer.health = lebensmaximum(this.werteVon(peer).vitality, 0);
+    peer.stamina = AUSDAUER_REGEL.max;
+    // EIN Teleport: aus einer Instanz geht es direkt an den Wiedereinstiegs-
+    // punkt der Oberwelt, nicht erst an den Eingang und dann weiter.
+    const hatteBett = peer.spawnPoint !== null;
+    const wieder = this.wiedereinstiegspunkt(peer);
+    // Ein gesetzter Punkt, der nicht mehr zu einem Bett fuehrt (abgerissen,
+    // verschoben, Altbestand), wird verworfen UND gemeldet: still am
+    // Weltspawn zu erwachen liesse den Spieler glauben, sein Schlafplatz
+    // gelte noch.
+    const bettVerloren = hatteBett && peer.spawnPoint === null;
+    if (peer.dungeonId) this.leaveDungeon(peer, { ...wieder });
+    else this.teleportPeer(peer, { ...wieder }, null);
+    if (warTot) {
+      // Standing again for everybody who sees the figure: the lying pose (`anim`) goes back to idle.
+      const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
+      if (charZDO) {
+        charZDO.setString(ANIM_MEMBER, 'idle');
+        charZDO.revision.reviseData();
+        charZDO.dirty = true;
+      }
+    }
+    if (sofort || bettVerloren) {
+      peer.sendPacketWith(PacketType.InteractResult, (w) => {
+        w.writeBool(true);
+        w.writeString(bettVerloren ? (sofort ? 'Du bist gestorben — dein Schlafplatz ist nicht mehr da' : SERVER_MELDUNG_BETT_VERLOREN) : 'Du bist gestorben');
+        w.writeString('');
+        w.writeInt32(0);
+      });
+    }
+    // Immediate revival is followed by the caller's own PlayerState (one packet, as before).
+    if (!sofort) this.sendPlayerState(peer);
   }
 
   /**

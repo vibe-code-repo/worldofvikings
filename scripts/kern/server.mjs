@@ -187,6 +187,17 @@ export default [
   ],
   ['server', 'test/f18-haarfarbe.ts'],
   ['server', 'test/f19-wettervorgabe.ts'],
+  // F2 guard: the player-build index in ZDOManager (login build count) equals the old full scan after mixed
+  // operations: build, demolish, owner change, flag removed and set again, fixed-id creation, member takeover,
+  // loading into a fresh and a running manager, plus a 3000-step random run. A write path that bypasses the
+  // index turns this red. Seconds, no socket.
+  ['server', 'test/f2-spielerbau-index.ts'],
+  // F2 (MMO hardening): the ZDO sync stops costing string keys and unbounded scans. 48,000 ZDOs, peers with a fake
+  // socket, private syncZDOs ticked directly: zero ZDOID.toString() calls in the sync, a small budget never
+  // yields a packet larger than budget + one record and everything still arrives, at most 4096 checks per
+  // peer and tick with a cursor (the far rings still arrive), and the login build count equals the old
+  // full-scan value (500 builds, two owners). Also prints tick times with 25 peers. ~10 s, no socket.
+  ['server', 'test/f2-sync-deckel.ts'],
   // F3/F4 (Security-Review): der VERDRAHTETE Zustand, nicht nur die reine
   // Logik. E2E ueber echte WebSocket-Verbindungen: kein Client bekommt je
   // eine feste/geteilte userId ohne Token (Luecke A), ein anderer Name
@@ -653,6 +664,17 @@ export default [
     curve. Pure arithmetic, ~0.3 s, no browser and no assets.
   */
   ['server', 'test/stufe2-licht.ts'],
+  /*
+    Tod und Treffer N1 (Nachbesserung zu #149): Der Tote bleibt in der Positionsliste (echte Woelfe bleiben, beissen im Tod 0x,
+    danach wieder; allein tickt die Welt weiter), jeder TOT_GESPERRT-Eintrag ueber den echten WebSocket, Admin-Teleport im
+    Tod abgelehnt, Bett-verloren-Meldung als Schluessel; Verfolger ohne Ziel gehen auf idle. Wartet ~30 s.
+  */
+  ['server', 'test/tod-treffer-n1.ts'],
+  /*
+    Tod und Treffer sichtbar (2026-09-29): der Weg durch den echten Server (zwei WebSocket-Spieler: Treffer-Schicht, Tod 5 s,
+    tot = kein Schaden/keine Eingabe, Beleben durch den Server, Kreaturen lassen ab). Wartet ~5 s Liegezeit ein paar Mal, ~40 s.
+  */
+  ['server', 'test/tod-treffer.ts'],
   // Truhe lesen: der Inhalt einer fremden Truhe reist nicht im ZDOSync mit
   // (Vollstand und Delta auf dem Draht mitgelesen, drei Runden), der Besitzer
   // mit offener Truhe sieht jede Aenderung, eigene/besitzerlose/Grab-Truhen

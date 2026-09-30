@@ -12,17 +12,10 @@ import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { ARMOR_SLOTS, decodeArmor, appearancePath, hiddenAppearanceForFiles, APPEARANCE_ATTACHMENTS } from '@wov/shared';
 import { updateArmorVisibility, verifyArmorSkin, prepareLegacyFemaleBody, armorFileForSkeleton } from '../player/armorVisibility.js';
 import { stabilizeHeadSkin } from '../player/headSkin.js';
-import { canWearArmor, parseEinmal } from '@wov/shared';
+import { TOD_CLIPS, canWearArmor, parseEinmal } from '@wov/shared';
+
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
-import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
-import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
-import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
-// Nur für `VertexBuffer.ColorKind`: Ob ein Netz schon Vertexfarben trägt,
-// entscheidet, ob es eine Instanzfarbe bekommen darf (darfGetoentWerden).
-import { VertexBuffer } from '@babylonjs/core/Buffers/buffer';
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
-import { Color3 } from '@babylonjs/core/Maths/math';
 import { Frustum } from '@babylonjs/core/Maths/math.frustum';
 import type { Plane } from '@babylonjs/core/Maths/math.plane';
 import type { Scene } from '@babylonjs/core/scene';
@@ -84,7 +77,6 @@ import type { BaumImpostor } from '../engine/BaumImpostor';
 import type { AssetManager } from '../engine/AssetManager';
 import type { TerrainManager } from '../engine/Terrain';
 import {
-  istGestreuteLandschaft,
   markiereAlsGestreuteLandschaft,
 } from '../engine/RefraktionsAuswahl';
 import type { ClientWorld } from '../world/World';
@@ -92,1103 +84,69 @@ import type { ZDOEntityUpdate } from '../net/ZDOSync';
 import { clipRate } from './clipTempo';
 import { pausiereFuerMessung } from './gruppenSicherung';
 import { ANIMATIONS_LOD_GRENZE_M, sollAnimieren, wendeAnimationsLodAn } from './animationsLod';
-import type { SicherbareGruppeMitZustand } from './animationsLod';
+import {
+  DYNAMIC_FLAGS,
+  f32,
+  COLLIDER_RANGE,
+  REBUILD_BUDGET_MS,
+  COLLIDER_REBUILD_STEP,
+  VEGETATIONS_NEUPACK_M,
+  vegetationsMatrizenImRadius,
+  SHOW_COLLIDERS,
+  INDEX_ZELLE_M,
+  zellenSchluessel,
+  RENDER_ZELLE_M,
+  ZELL_MAX_INSTANZEN,
+  ZELL_SCHNITT_AB,
+  SPRITE_NEUPACK_M,
+  ZELL_POOL_DECKEL,
+} from './konstanten';
+import { bucketSchluessel, leseSteinKitOverride } from './typen';
+import type {
+  StatischeInstanz,
+  IndexEintrag,
+  StaticBucket,
+  DynamischeInstanz,
+  Vector3Like,
+  DynamicEntity,
+} from './typen';
+import {
+  GANG_NICK_TMP,
+  ANIMATIONS_LOD_MIN_RADIUS_M,
+  LOD_MITTE_TMP,
+  berechneLodHuelle,
+  istKugelImSichtkegel,
+} from './lod';
+import { INSTANZ_TOENUNG_AN, darfGetoentWerden, schreibeToenung } from './toenung';
+import {
+  netzAusMastern,
+  schreibeInstanzen,
+  alsOrtsfestEinfrieren,
+  zellMeshAusPrototyp,
+} from './zellMesh';
+import { composeZdoWorld } from './zdoMatrix';
+import { makePlaceholder } from './platzhalter';
+// Re-exports: these names moved into the modules next to this file; importers keep their path.
+export { vegetationsMatrizenImRadius } from './konstanten';
+export type { StatischeInstanz, DynamischeInstanz } from './typen';
+export { huellkoerperAufweiten } from './lod';
+export {
+  INSTANZ_TOENUNG_AN,
+  TOENUNG_LUMA,
+  TOENUNG_TON,
+  toenungsRauschen,
+  instanzToenung,
+} from './toenung';
+export {
+  groessteInstanzSkala,
+  gemesseneModellHoehe,
+  alsOrtsfestEinfrieren,
+  zellMeshAusPrototyp,
+} from './zellMesh';
 
-/** Flags whose ZDOs move on their own (server-side AI / physics). */
-const DYNAMIC_FLAGS =
-  PrefabFlag.ANIMAL_AI |
-  PrefabFlag.MONSTER_AI |
-  PrefabFlag.ITEM_DROP |
-  PrefabFlag.SHIP |
-  PrefabFlag.SYNCED_TRANSFORM;
 
-const f32 = Math.fround;
-
-/**
- * Radius around the player that carries collision bodies, in metres. Small
- * enough that a dense forest stays in the low hundreds of bodies instead of
- * the tens of thousands the view distance holds — building them for
- * everything visible pins the main thread outright.
- */
-const COLLIDER_RANGE = 48;
-/**
- * Zeitbudget pro Frame für Bucket-Neuaufbauten, in Millisekunden — dasselbe
- * Muster wie GrassClutters CELL_BUILD_BUDGET_MS.
- *
- * War vorher eine feste Stückzahl (2). Ein Neuaufbau kostet aber je nach
- * Instanzzahl des Prefabs mal 0,1 ms, mal mehrere Millisekunden — eine feste
- * Zahl trifft das falsche Mass. Besonders beim Sprinten: setPlayerPosition()
- * markiert dann mehrere Buckets gleichzeitig dirty, und zwei teure darunter
- * reissen das 16,7-ms-Budget in einem einzigen Frame.
- */
-const REBUILD_BUDGET_MS = 4;
-
-/**
- * Reserve, um die der Hüllkörper eines Thin-Instance-Masters aufgeweitet
- * wird, in Metern (D10).
- *
- * Seit die Master wieder am Frustum-Culling teilnehmen (siehe zuMaster()
- * in AssetManager) entscheidet ihr Hüllkörper darüber, ob sie gezeichnet
- * werden. Babylon rechnet ihn aus den Instanzmatrizen und der ROHEN
- * Geometrie — der Windshader verschiebt die Blattscheitel aber darüber
- * hinaus (WindPlugin.strength = 0,38 je Referenzhöhe; an Beech1
- * nachgerechnet im Mittel 0,84 m Ausschlag am äusseren Kronenrand, vor
- * der Ansatzdämpfung 1,48 m). Ohne Reserve könnte ein Baum am Bildrand
- * verschwinden, während sein Laub noch hineinragt.
- *
- * 1,5 m deckt den gemessenen Ausschlag mit Luft ab. Grosszügig zu sein
- * kostet hier fast nichts: Die Reserve verschiebt nur die Grenze, ab der
- * ein Master ohnehin ausserhalb des Bildes liegt.
- */
-const SCHWUNG_RESERVE_M = 1.5;
-
-/** Player travel that triggers a rebuild of the collision window. */
-const COLLIDER_REBUILD_STEP = 12;
-/**
- * Spielerweg bis die begrenzte Vegetationsauswahl neu gepackt wird.
- * 32 m vermeiden Matrix-Uploads in jedem Lauf-Frame; dieselbe Distanz
- * bleibt als aeussere Reserve stehen, damit zwischen zwei Neuaufbauten
- * kein Baum innerhalb der gewaehlten Grenze verschwindet.
- */
-const VEGETATIONS_NEUPACK_M = 32;
-
-/**
- * Reine Auswahlfunktion hinter der Vegetationsgrenze. Exportiert, damit
- * ihre wichtigste Zusicherung ohne Szene/GPU testbar bleibt: 0 liefert
- * unveraendert alles, eine Grenze prueft nur die X/Z-Translation.
- */
-export function vegetationsMatrizenImRadius<T extends { m: ArrayLike<number> }>(
-  matrizen: readonly T[],
-  mitteX: number,
-  mitteZ: number,
-  radius: number
-): readonly T[] {
-  if (radius <= 0 || !Number.isFinite(radius)) return matrizen;
-  const r2 = radius * radius;
-  return matrizen.filter((matrix) => {
-    const dx = Number(matrix.m[12]) - mitteX;
-    const dz = Number(matrix.m[14]) - mitteZ;
-    return dx * dx + dz * dz <= r2;
-  });
-}
-/** ?showcolliders=1 — zeichnet die Kollisionsformen als Drahtgitter. */
-const SHOW_COLLIDERS =
-  typeof location !== 'undefined' && new URLSearchParams(location.search).has('showcolliders');
-
-/**
- * Mehrere Master zu EINER Punktwolke in Prefab-Koordinaten zusammenlegen
- * — die Eingabe der gemeinsamen Formableitung.
- *
- * Die Master sind ein Netz je GLB-Submesh mit eigenem lokalen Versatz;
- * `formen.ts` will EINE Liste in Instanzkoordinaten und kennt keine
- * Matrizen. Umgerechnet wird deshalb hier, und zwar von Hand aus den
- * Matrixelementen: Ein Baum-GLB trägt Zehntausende Vertices, und ein
- * `Vector3` je Vertex (mal jedes Prefab) reicht, um einen Frame zu
- * verschlucken.
- *
- * `null`, wenn nichts zusammenkommt. Meshes ohne Indizes steuern ihre
- * Positionen bei (die Kiste/Kapsel misst sie mit), aber keine Dreiecke —
- * ein Netz-Collider kann sie nicht gebrauchen.
- *
- * Merges the masters' vertices into one prefab-local cloud for the shared
- * shape derivation.
- */
-function netzAusMastern(
-  meshes: readonly import('@babylonjs/core/Meshes/mesh').Mesh[],
-  locals: readonly Matrix[]
-): { positionen: Float32Array; indizes: Uint32Array | null } | null {
-  const teile: {
-    pos: Float32Array | number[];
-    idx: ArrayLike<number> | null;
-    m: Float32Array;
-  }[] = [];
-  let ecken = 0;
-  let dreiecke = 0;
-  for (let i = 0; i < meshes.length; i++) {
-    const pos = meshes[i]!.getVerticesData(VertexBuffer.PositionKind);
-    if (!pos) continue;
-    const idx = meshes[i]!.getIndices();
-    const local = locals[i];
-    teile.push({
-      pos,
-      idx: idx && idx.length > 0 ? idx : null,
-      m: (local ? local.m : Matrix.Identity().m) as unknown as Float32Array,
-    });
-    ecken += pos.length;
-    dreiecke += idx ? idx.length : 0;
-  }
-  if (ecken === 0) return null;
-
-  const positionen = new Float32Array(ecken);
-  const indizes = dreiecke > 0 ? new Uint32Array(dreiecke) : null;
-  let p = 0;
-  let q = 0;
-  for (const t of teile) {
-    const e = t.m;
-    const basis = p / 3;
-    for (let v = 0; v < t.pos.length; v += 3) {
-      const x = t.pos[v]!;
-      const y = t.pos[v + 1]!;
-      const z = t.pos[v + 2]!;
-      positionen[p++] = e[0]! * x + e[4]! * y + e[8]! * z + e[12]!;
-      positionen[p++] = e[1]! * x + e[5]! * y + e[9]! * z + e[13]!;
-      positionen[p++] = e[2]! * x + e[6]! * y + e[10]! * z + e[14]!;
-    }
-    if (indizes && t.idx) for (let k = 0; k < t.idx.length; k++) indizes[q++] = basis + t.idx[k]!;
-  }
-  return { positionen, indizes: indizes === null ? null : indizes.subarray(0, q) };
-}
-
-/**
- * Kantenlänge einer Zelle des Umkreis-Index, in Metern.
- *
- * 32 m ist ein Kompromiss zwischen zwei Kosten: Kleinere Zellen filtern
- * schärfer, aber `nearbyInstances(…, 70)` (Minimap-Objektebene) müsste dann
- * hunderte Map-Zugriffe machen, und jeder leere Map-Zugriff ist auch nicht
- * gratis. Grössere Zellen sparen Zugriffe, schleppen dafür pro Zelle mehr
- * Instanzen mit, die die Abstandsprüfung wieder verwirft.
- *
- * Bei 32 m deckt die kleinste Abfrage (Fadenkreuz, 5 m) 1–4 Zellen ab, die
- * Namensschilder (40 m) 4–9, die Minimap (70 m) 9–25. Es ist die halbe
- * Kantenlänge einer Zone des Originals (64 m) — bewusst feiner,
- * weil die typische Abfrage hier viel kleiner ist als eine ganze Zone.
- */
-const INDEX_ZELLE_M = 32;
-
-/**
- * Zellenschlüssel aus Zellenkoordinaten.
- *
- * Zwei 16-Bit-Felder in EINER Zahl, statt eines Strings `"cx,cz"`: Der
- * String müsste pro Zugriff frisch gebaut werden, und genau das läuft hier
- * pro Frame hundertfach. Der Versatz um 0x8000 macht negative Koordinaten
- * mit — die Welt geht von -10500 bis +10500 m, also ±329 Zellen, weit
- * innerhalb des Feldes.
- */
-const zellenSchluessel = (cx: number, cz: number): number =>
-  ((cx + 0x8000) << 16) | (cz + 0x8000);
-
-/**
- * Kantenlänge einer RENDER-Zelle, in Metern (E19 c).
- *
- * ── Der Befund, der diese Zahl erzwingt ──────────────────────────────
- * Bis hierher hielt der EntityManager EINEN Master je (Prefab ×
- * verschmolzenem Submesh) für die ganze Welt. Bei `leaves_merged` waren
- * das bis zu 3391 Instanzen in einem einzigen Mesh mit 425 m Hüllkörper.
- * Gemessen auf der Insel (Teleport 10077/-18723, Tageszeit gepinnt auf
- * 0,42): GPU zu 100 % ausgelastet, GPU-Bild 20,2 ms, davon rund 58 %
- * Schattenpass — und von 24.265 Vegetationsinstanzen erreichten je
- * Kaskade nur 14–15 % überhaupt die Schattenkarte. 85 % der
- * Einreichungen waren umsonst.
- *
- * Keulen konnte daran nichts: Shadows.darfWerfen() rechnet
- * `hypot(mitte − spieler) − radius <= kaskadendistanz`, und bei einem
- * Hüllradius von rund 212 m ist das für jede Kaskadendistanz erfüllt.
- * Der Master als GANZES ist immer nah. Erst kleine Hüllen machen die
- * vorhandene Prüfung wirksam: Bei 128 m Kante ist der Hüllradius rund
- * 90 m + Kronenhöhe, die Zelle fällt also ab etwa 240 m Mittelpunkts-
- * abstand aus der Werferliste statt nie.
- *
- * ── Warum 128 und nicht 8, 40 oder 64 ────────────────────────────────
- * Das Original schneidet Gras in 8-m-Patches, weil dort zehntausende
- * Halme auf engstem Raum liegen; für Bäume benutzt es gar kein Raster,
- * sondern je Baum ein GameObject mit LODGroup. Unser GrassClutter fährt
- * 40 m. Für Vegetations-Prefabs ist die Gegenkraft aber die ANZAHL der
- * Master: Der bestbelegte Messwert des Projekts (AssetManager-Kopf, D10)
- * sagt 435 Master = 9,4 ms gegen 124 Master = 3,3 ms, während die
- * Instanzzahl praktisch nichts kostet. Jede Halbierung der Kantenlänge
- * vervierfacht die Zellenzahl.
- *
- * 128 m ist das 4-fache von INDEX_ZELLE_M (32) und das Doppelte einer
- * Zone des Originals (64): gross genug, dass ein
- * Streaming-Gebiet von rund 640 m in eine überschaubare Zahl Zellen
- * zerfällt (≈ 25 belegte je Prefab statt 400 bei 32 m), klein genug,
- * dass die Entfernungsprüfung wirklich beisst.
- *
- * Bewusst eine EIGENE Konstante neben INDEX_ZELLE_M: Der Umkreis-Index
- * hat seine 32 m aus ganz anderen Gründen (Fadenkreuz 5 m,
- * Namensschilder 40 m, Minimap 70 m) und darf nicht mitwandern, wenn
- * hier jemand nachmisst. Nur `zellenSchluessel()` wird geteilt — ±82
- * Zellen bei ±10500 m Welt passen weit in seine 16-Bit-Felder.
- */
-const RENDER_ZELLE_M = 384;
-
-/**
- * Harte Obergrenze der Instanzen je Zell-Master (E19 c).
- *
- * Übernommen vom Vorbild: Dessen Instanz-Renderer bündelt höchstens
- * 1024 Instanzen je Gruppe und prüft das Frustum pro Gruppe. Eine dichte
- * 128-m-Zelle kann mehr als das halten (leaves_merged hat insgesamt bis
- * 3391), deshalb hält jede Zelle eine LISTE von Meshes und füllt sie in
- * Blöcken. Die Blöcke einer Zelle liegen räumlich übereinander und
- * bringen für sich keine Keulung — sie halten nur die einzelne
- * Einreichung in der Grössenordnung, in der das Original sie hält.
- */
-const ZELL_MAX_INSTANZEN = 1024;
-
-/**
- * Ab wie vielen Instanzen ein Bucket überhaupt zellweise geschnitten
- * wird.
- *
- * Der Schnitt kostet je Zelle einen Zeichenaufruf und eine Kopie der
- * Geometrie; er zahlt sich nur, wo viele Instanzen weit gestreut liegen.
- * Ortsfeste Bauwerke bleiben deshalb ungeschnitten — für sie greift das
- * Culling seit D10 ohnehin (der Grabhügel stellt allein 10 der rund 58
- * Master einer Grasland-Sitzung und fällt als Ganzes weg, sobald man
- * wegschaut).
- *
- * 128 ist bewusst niedrig genug, dass die dicke Vegetation sicher
- * erfasst wird, und hoch genug, dass ein Bucket mit einer Handvoll
- * Instanzen nicht in fünf Zellen zerfällt. Es schützt zugleich einen
- * stillen Mitleser: HuegelGras liest `thinInstanceCount` und
- * `thinInstanceGetWorldMatrices` direkt vom Grabhügel-Master (s.
- * HuegelGras.ts) und setzt voraus, dass EIN Mesh alle Instanzen trägt —
- * Grabhügel liegen zu wenige in der Welt, um je über diese Schwelle zu
- * kommen.
- */
-// ── Sweep-Befund (18.08.2026) und die Rolle, die daraus folgt ───────
-// Der Zellschnitt funktioniert und erreicht sein GPU-Ziel — aber auf
-// dem Referenzsystem (7900 XT + schneller CPU) schlaegt KEINE Koernung
-// den Voll-Master-Stand in der Frame-Zeit. Der Sweep, Insel 10077/-18723,
-// Tageszeit 0,42 gepinnt, headed, je 400 Bilder:
-//
-//   Zelle    CPU-Frame   GPU-Frame   GPU-Takt
-//   128 m    26,6 ms     20,3 ms     1255 MHz   (GPU wartet auf CPU)
-//   192 m    24,8 ms     18,9 ms     1526 MHz
-//   256 m    20,6 ms     15,7 ms     2104 MHz
-//   384 m    17,2 ms     13,5 ms     2519 MHz   <- Sweet Spot, -21 % GPU-Arbeit
-//   ohne     16,3 ms     17,1 ms     2564 MHz   (Voll-Master, ein Call je Prototyp)
-//
-// Die beiden Kurven schneiden sich nicht: Was die GPU spart, zahlt die
-// CPU in WebGL-Zeichenaufrufen (546 -> 1128 bei 128 m). Der Schnitt ist
-// damit kein fps-Hebel FUER SICH, sondern der UNTERBAU fuer den Schritt,
-// der beide Kurven zugleich senkt: das Impostor-Fernfeld (Roadmap E10-
-// Revision nach dem Vergleichsprojekt) — ferne Zellen werden nicht kleiner
-// gezeichnet, sondern durch 2-Dreiecke-Sprites ERSETZT.
-//
-// ── REAKTIVIERT (18.08.2026), weil genau dieser Schritt jetzt da ist ─
-// Der Schnitt ist der Unterbau des Sprite-Fernfeldes, und zwar in zwei
-// Rollen, die er beide ALLEIN nicht ausspielen konnte:
-//
-//  1. Die ZELLE ist die Wechseleinheit. Der Vorfilter in
-//     BaumImpostorKern.zellLage() prueft Nah- und Fernkante EINER Zelle
-//     und spart damit fuer die allermeisten Zellen die Pro-Instanz-
-//     Rechnung; ohne Zellen gaebe es nur die flache Liste eines Prefabs.
-//  2. Nur mit kleinen Huellen kann eine ferne Zelle als GANZES aus Bild-
-//     und Werferpass fallen. Genau das ist der CPU-Hebel: Wo frueher
-//     1128 Zell-Master gezeichnet wurden, zeichnen jetzt die nahen
-//     Zell-Master plus EIN Sprite-Mesh je ferner Zelle.
-//
-// RENDER_ZELLE_M bleibt bei den gemessenen 384 m. Die Kante ist gross
-// gegen die Uebergabegrenze (240 m) und gegen das Streaming-Fenster
-// (9x9 Zonen a 64 m = 576 m, WovServer.SICHT_RADIUS_ZONEN); es gibt
-// deshalb kaum eine Zelle, die ganz jenseits der Grenze liegt. Genau
-// dafuer hat teileZelle() den Zweig 'geteilt': Eine Zelle auf der Grenze
-// reicht ihre nahen Instanzen an den echten Zell-Master und ihre fernen
-// ans Sprite-Feld. Der Vorfilter ist eine Abkuerzung, nicht die Regel.
-// ⚠ 18.08.2026, ZWEITE Parkung — jetzt inklusive Impostor-Fernfeld.
-// Die Messung des Impostor-Pakets (Workflow, solo headed, Basis in
-// derselben Sitzung reproduziert) ergab: Das Sprite-Feld leistet exakt
-// null (Kontrolle "Sprites aus" im selben Build: 21,0 gegen 21,1 ms,
-// 733 gegen 734 Calls), das Gesamtpaket ist +33 % Regression gegen die
-// Voll-Master-Basis (16,1 ms). Die Buchhaltung erklaert es: Bei 384-m-
-// Zellen in einem Streamingfenster von nur 576 x 576 m (SICHT_RADIUS_
-// ZONEN = 4) entfernen die Sprites zwar Instanzen, aber nur 9 von 136
-// Zell-Mastern — die Zeichenaufrufe bleiben, und die sind der Engpass.
-// Dazu zwei kritische Baking-Fehler (Review): Atlas-Zeilen werden vor
-// der Material-Bereitschaft gebacken (bleiben leer) und das Albedo
-// landet quadriert im Atlas. Beides nicht repariert, weil das Konzept
-// an der Fenstergeometrie scheitert, nicht an den Fehlern.
-const ZELL_SCHNITT_AB = Number.MAX_SAFE_INTEGER;
-
-/**
- * Wie weit der Spieler laufen darf, bevor die Zuteilung echt/Sprite neu
- * gerechnet wird (m).
- *
- * ── Warum ueberhaupt eine Schwelle ──────────────────────────────────
- * Die Zuteilung haengt an der Spielerposition, ihr Neuaufbau ist aber ein
- * voller Bucket-Umbau (Matrixmultiplikation je Instanz plus GPU-Upload).
- * Je Bild waere das genau die Sorte Pufferverkehr, die in
- * SchattenInstanzKeulung.ts mit 18 -> 59 ms vermessen ist. Also derselbe
- * Weg wie bei COLLIDER_REBUILD_STEP: abstandsgetaktet, ueber das
- * REBUILD_BUDGET_MS von flush() verteilt.
- *
- * ── Warum 32 und nicht weniger ──────────────────────────────────────
- * Die Zuteilung friert zwischen zwei Neupackungen ein und haengt der
- * Bewegung um bis zu diesen Betrag hinterher. Ein Baum kann also bereits
- * bei GRENZE - 32 m als Sprite stehen. Das darf die Schattenweite nicht
- * unterschreiten, sonst fehlt ein Schlagschatten:
- *
- *     240 m (Uebergabe) - 32 m (Nachlauf) = 208 m > 150 m (shadowMaxZ)
- *
- * Wer die Uebergabegrenze senkt (der geplante Sweep 150/180/240), muss
- * diese Ungleichung mitrechnen.
- *
- * Groesser als COLLIDER_REBUILD_STEP (12 m), weil hier der TEURE Pfad
- * dranhaengt: dirty statt colliderDirty.
- */
-const SPRITE_NEUPACK_M = 32;
-
-/** Obergrenze des Wiederverwendungs-Pools je (Prefab, Prototyp) — s. zellMeshFreigeben(). */
-const ZELL_POOL_DECKEL = 16;
-
-/**
- * Eine statische Instanz, wie `nearbyInstances()` sie herausgibt.
- *
- * Bewusst nur lesbar: Die Aufrufer bekommen die INTERNEN Indexeinträge
- * gereicht, nicht Kopien. Das spart pro Frame ein frisches Objektliteral je
- * gefundener Instanz — wer etwas davon behalten will, muss die Felder
- * einzeln übernehmen (s. ObjectLabels), niemals das Objekt selbst.
- */
-export interface StatischeInstanz {
-  readonly prefab: string;
-  readonly x: number;
-  readonly y: number;
-  readonly z: number;
-}
-
-/** Indexeintrag EINER statischen Instanz — Nutzsicht ist `StatischeInstanz`. */
-interface IndexEintrag {
-  prefab: string;
-  x: number;
-  y: number;
-  z: number;
-  /** Zelle, in der der Eintrag gerade hängt. */
-  zelle: number;
-  /** Platz im Zellen-Array. Macht das Entfernen O(1) statt indexOf(). */
-  platz: number;
-}
-
-/**
- * Schlüssel eines statischen Buckets: der Prefabhash allein — und NUR wenn
- * ein Raum-Steinmaterial daran hängt, der Hash plus dessen JSON.
- *
- * Warum das JSON und nicht der Raumindex: Zwei Kammern mit demselben
- * Override sollen auch denselben Bucket (und damit ein Material und einen
- * Zeichenaufruf) teilen — der Index würde sie trennen, obwohl sie gleich
- * aussehen. Und ohne Override bleibt der Schlüssel wortgleich der alte,
- * es entsteht also kein zweiter Bucket, wo es früher einen gab.
- * Bucket key: prefab hash alone, or hash + the room override's JSON.
- */
-function bucketSchluessel(prefabHash: number, ueberschreibung: string): string {
-  return ueberschreibung ? `${prefabHash}|${ueberschreibung}` : String(prefabHash);
-}
-
-/**
- * Das JSON des Raum-Overrides einmal lesen. Unlesbares ergibt `undefined` —
- * dann gilt die Kette bis zum `RoomDef`, und die Kammer sieht aus wie ihr Typ.
- * Ein Wurf wäre hier falsch: Der Wert kommt über die Leitung, und ein einzelner
- * kaputter Member darf nicht den Aufbau der ganzen Welt anhalten.
- */
-function leseSteinKitOverride(json: string): Partial<SteinKitConfig> | undefined {
-  if (!json) return undefined;
-  try {
-    const roh: unknown = JSON.parse(json);
-    if (!roh || typeof roh !== 'object') return undefined;
-    return roh as Partial<SteinKitConfig>;
-  } catch {
-    console.warn('[EntityManager] unlesbares steinKit am Raum-ZDO — ignoriert');
-    return undefined;
-  }
-}
-
-interface StaticBucket {
-  prefabName: string;
-  /** Prefab des Buckets — der Collider-Pfad braucht die Prefab-Definition. */
-  prefabHash: number;
-  /** Schlüssel in `buckets`, s. {@link bucketSchluessel}. */
-  schluessel: string;
-  /**
-   * Schlüssel für `masterMeshes`/`masterLocals`/`zellMaster`/`colliders` —
-   * `prefabName`, oder `prefabName#<Override-JSON>` beim Override-Bucket.
-   *
-   * Getrennt vom Prefabnamen, weil sich zwei Buckets desselben Prefabs sonst
-   * gegenseitig Master UND Kollisionsauswahl (samt deren Signatur)
-   * überschrieben. Ohne Override ist er gleich `prefabName` — alles bleibt
-   * wie zuvor.
-   */
-  masterKey: string;
-  /**
-   * Rohes JSON des Raum-Overrides (ZDO-Member `steinKit`), '' wenn keiner —
-   * wortgleich vom Server übernommen und Teil von `schluessel`.
-   */
-  steinKitOverride: string;
-  /** `steinKitOverride` EINMAL geparst; undefined, wenn keiner/unlesbar. */
-  steinKitCfg?: Partial<SteinKitConfig>;
-  /** zdoKey → flat matrix index */
-  indexOf: Map<string, number>;
-  /** flat f32 matrix buffer (16 per instance), swap-remove on destroy */
-  matrices: number[];
-  /** Renderdaten (Thin-Instance-Puffer) UND Collider müssen neu — ZDO-Änderung. */
-  dirty: boolean;
-  /** Nur der Collider muss neu — reines Verschieben des Kollisionsfensters,
-   *  s. setPlayerPosition(). Renderdaten bleiben unverändert. */
-  colliderDirty: boolean;
-  mastersReady: boolean;
-}
-
-/**
- * Eine dynamische Instanz, wie die Namensschilder sie brauchen: wer sie ist,
- * wo sie steht und wie gross sie geraten ist. Wird WIEDERVERWENDET —
- * siehe dynamischeInstanzen().
- */
-export interface DynamischeInstanz {
-  /** ZDO-Schlüssel (`userId:id`, im Testflug `edplace-<i>`/`edghost`). */
-  key: string;
-  prefab: string;
-  x: number;
-  y: number;
-  z: number;
-  /** Weltskalierung auf der Hochachse (localScale × ZDO-Skalierung). */
-  skalierungY: number;
-  /**
-   * Leben in PROZENT, oder -1 für „unbekannt".
-   *
-   * Prozent und nicht Trefferpunkte, weil hier der einzige Ort ist, an dem
-   * Wert und Prefabname sicher zusammenliegen — das Namensschild bekommt
-   * die Instanz, kennt aber deren Maximalwert nicht ohne einen zweiten
-   * Tabellenzugriff. Umgerechnet wird mit `lebenAnteil` (shared/leben.ts).
-   */
-  leben: number;
-}
-
-/** Minimalform von Vector3 aus den Prefab-Daten. */
-interface Vector3Like {
-  x: number;
-  y: number;
-  z: number;
-}
-
-interface DynamicEntity {
-  root: TransformNode;
-  /**
-   * Angelegte Aussehen-Teile eines FREMDEN Spielers, nach Slot.
-   * Gemerkt wird, WAS haengt, damit ein Wechsel im Spiel nur den
-   * betroffenen Slot austauscht statt alles neu zu laden.
-   */
-  aussehen?: Map<string, { datei: string; wurzel: TransformNode }>;
-  haarfarbe?: string;
-  augenfarbe?: string;
-  /** Letztes Server-Ziel — updateDynamics() gleitet pro Frame dorthin. */
-  ziel?: { pos: Vector3; rot: Quaternion };
-  /**
-   * Prozedurale Gangart für Kreaturen OHNE echte Animationsclips — und das
-   * sind alle Tiere: sämtliche 1.142 AnimationClips des Exports haben null
-   * Kurven (komprimiertes Mecanim wurde nie dekodiert), die Tier-GLBs sind
-   * ungeskinnte Starrkörper. Basis (Server-Ziel) und Anzeige (Wippen)
-   * liegen getrennt, sonst flösse der Wipp-Offset in die nächste
-   * Interpolation ein und die Kreatur schaukelte sich auf.
-   */
-  gang?: { basisPos: Vector3; basisRot: Quaternion; phase: number; tempo: number };
-  /**
-   * Zuletzt gestartete Animationsgruppe. Der Server schickt den
-   * Bewegungszustand nur bei Änderung, aber JEDES Update trägt ihn — ohne
-   * diesen Vergleich würde die Gruppe im Sync-Takt neu gestartet und der
-   * Zyklus bliebe im ersten Bild hängen.
-   */
-  anim?: string;
-  /** Counter of the last one-shot event seen (`animEinmal`); set when the creature is first seen. */
-  einmalN?: number;
-  /** Death clip started: the body stays as it lies, no state may move it again. */
-  stirbt?: boolean;
-  /**
-   * Coupling of a walk/run clip to the ground speed (clipTempo.ts): the
-   * prefab's clip speeds, the smoothed speed of the root and the rate last
-   * given to the group. Only prefabs with `animationTempo` carry it.
-   */
-  clipTempo?: { tabelle: Readonly<Record<string, number>>; ist: number; rate: number };
-  /**
-   * Leben in Prozent, -1 = unbekannt. Wird NUR überschrieben, wenn das
-   * Update den Member wirklich trägt: Ein Tick ohne `health` heisst „hat
-   * sich nicht geändert", nicht „ist auf null gefallen".
-   */
-  leben?: number;
-  /**
-   * Animations-LOD (fps-analyse #9): die Gruppe, die
-   * `wendeAnimationsLodAn()` pausiert hat, oder `undefined`, solange nichts
-   * pausiert ist. Gehalten HIER und nicht in der Regel selbst — der
-   * Aufrufer merkt sich den Zustand je Instanz, s. animationsLod.ts.
-   */
-  lodPausiert?: SicherbareGruppeMitZustand;
-  /**
-   * Animations-LOD (fps-analyse #9): FREMDER Spieler-Avatar (Prefab
-   * `Player`, s. `HINT_DEFS` in shared/src/prefabs.ts) — von der Karte
-   * ausdrücklich von der Pause ausgenommen ("Spieler, NPCs im Kampf und die
-   * eigene Figur laufen immer"). Einmal bei der Instanziierung gesetzt und
-   * danach unveränderlich, wie `prefabName` selbst.
-   */
-  istSpieler?: boolean;
-  /**
-   * Animations-LOD (fps-analyse #9, Nachbesserung B6): die Spawn-Vorschau
-   * im Editor-Testflug (ZDO-Schlüssel `edplace-<i>`/`edghost`,
-   * s. vorschauZeichnen.ts) — von der Pause ausgenommen. Diese Instanzen
-   * werden meist aus einer hoch stehenden Editor-Kamera betrachtet, unter
-   * der sie staendig ausserhalb des 60-m-Kegels oder der Distanzgrenze
-   * fallen wuerden; anders als bei echten NPCs waere ein einfrierendes
-   * Vorschaumodell im laufenden Editieren sofort sichtbar und verwirrend.
-   * Einmal bei der Instanziierung gesetzt, wie `istSpieler`.
-   */
-  istVorschau?: boolean;
-  /**
-   * Animations-LOD (fps-analyse #9, Nachbesserung B4): Y-Versatz der
-   * Huellmitte gegenueber `root.position` und Huellradius, EINMAL bei der
-   * Instanziierung aus den Meshes gemessen (s. `berechneLodHuelle`). Ein
-   * Punkttest an der Fusssohle liess sichtbare Figuren am Bildrand
-   * (besonders lange Tiere, Blick nach oben/unten) faelschlich einfrieren.
-   */
-  lodMitteY?: number;
-  lodRadius?: number;
-  /**
-   * Animations-LOD (Nachbesserung N2, A5): `root.scaling` IM MOMENT der
-   * Huellmessung — dieselbe Referenz, die `applyDynamic` beim naechsten
-   * Update durch ein NEUES `Vector3` ersetzt (nie in-place mutiert), bleibt
-   * also eingefroren auf dem Messwert. Weicht die AKTUELLE Skalierung
-   * spaeter davon ab, skaliert `aktualisiereAnimationsLod` `lodMitteY`/
-   * `lodRadius` mit dem Verhaeltnis nach, statt neu zu vermessen (das waere
-   * die Allokation je Figur und Bild, die B4 ausschliesst).
-   */
-  lodSkalierungBeiMessung?: Vector3Like;
-}
-
-/** Wiederverwendetes Nick-Quaternion des prozeduralen Gangs (kein Alloc pro Frame). */
-const GANG_NICK_TMP = new Quaternion();
-
-/**
- * Animations-LOD B4 (Nachbesserung): Mindestradius der Sichtkegel-Kugel,
- * auch wenn eine gemessene Huelle kleiner waere — sonst faellt ein
- * winziger Hitbox-Mittelpunkt genau auf eine Kegelkante und ein sichtbarer
- * Rand friert trotzdem ein.
- */
-const ANIMATIONS_LOD_MIN_RADIUS_M = 1.5;
-
-/** Wiederverwendete Huellmitte fuer den Animations-LOD-Sichtkegeltest (kein Alloc je Figur und Bild, B4). */
-const LOD_MITTE_TMP = new Vector3();
-
-/**
- * Huellmitte (Y-Versatz gegenueber `root.position`) und Huellradius einer
- * Instanz, EINMAL bei der Instanziierung aus ihren Meshes gemessen (wie
- * `merkeModellHoehe` bei den Clutter-Mastern oben) — NICHT jedes Bild neu,
- * das waere die Allokation je Figur und Bild, die B4 ausdruecklich
- * ausschliesst.
- *
- * Der Radius ist NICHT die halbe Diagonale der Huelle (Nachbesserung N2,
- * A4: das nimmt an, die Huelle sei symmetrisch um ihre EIGENE Mitte) —
- * er ist der groesste Abstand von der WURZEL-ACHSE (x/z von
- * `root.position`, Hoehe `root.position.y + mitteY`) zu einer der acht
- * Huellecken, mindestens `ANIMATIONS_LOD_MIN_RADIUS_M`. Das umschliesst die
- * Huelle wirklich exakt, AUCH bei einem seitlichen Versatz der Mitte (eine
- * Kuh mit vorgestrecktem Kopf: die Diagonale reichte nur bis 81 % der
- * tatsaechlich fernsten Ecke, `Berichte/angriff-fps-animation-einfrieren-n1/
- * probe-huelle-glb.ts`). Der Abstand von dieser Achse aendert sich zudem
- * NICHT bei einer spaeteren Drehung um die Hochachse (Gieren, der
- * haeufige Fall bei NPCs) — nur ihre Richtung tut es.
- *
- * Ohne Meshes (leerer Platzhalter waere ein Fehler in `makePlaceholder`,
- * kommt praktisch nicht vor) ODER ohne `getHierarchyBoundingVectors`
- * (Nachbesserung N2, A1: eine Test-Attrappe ohne echtes Mesh) ein sicherer
- * Rueckfallwert statt einer entarteten Huelle oder eines Absturzes.
- */
-function berechneLodHuelle(root: TransformNode): { mitteY: number; radius: number } {
-  if (typeof root.getHierarchyBoundingVectors !== 'function') {
-    return { mitteY: 0.9, radius: ANIMATIONS_LOD_MIN_RADIUS_M };
-  }
-  const { min, max } = root.getHierarchyBoundingVectors(true);
-  const spanne = max.subtract(min);
-  if (!(spanne.x >= 0) || !(spanne.y >= 0) || !(spanne.z >= 0)) {
-    return { mitteY: 0.9, radius: ANIMATIONS_LOD_MIN_RADIUS_M };
-  }
-  const mitteY = (min.y + max.y) / 2 - root.position.y;
-  const achse = new Vector3(root.position.x, root.position.y + mitteY, root.position.z);
-  let radius = ANIMATIONS_LOD_MIN_RADIUS_M;
-  for (const x of [min.x, max.x]) {
-    for (const y of [min.y, max.y]) {
-      for (const z of [min.z, max.z]) {
-        radius = Math.max(radius, Vector3.Distance(achse, new Vector3(x, y, z)));
-      }
-    }
-  }
-  return { mitteY, radius };
-}
-
-/** Ob eine Kugel (Huellmitte, Radius) den Sichtkegel schneidet — dieselbe Ebenen-Konvention wie `Frustum.IsPointInFrustum` (Abstand ≥ 0 = innerhalb), nur um den Radius nach aussen verschoben. */
-function istKugelImSichtkegel(mitte: Vector3, radius: number, ebenen: readonly Plane[]): boolean {
-  for (const e of ebenen) {
-    if (e.dotCoordinate(mitte) < -radius) return false;
-  }
-  return true;
-}
-
-/**
- * Den Hüllkörper eines Thin-Instance-Masters um SCHWUNG_RESERVE_M
- * aufweiten — nach jedem Schreiben des Matrixpuffers aufzurufen.
- *
- * Exportiert, weil das die Zusicherung ist, an der die Sichtbarkeit hängt:
- * `client/test/master-huelle.ts` prüft ohne GPU nach, dass der Kasten jede
- * gesetzte Instanz vollständig enthält. Ein Hüllkörper, der eine Instanz
- * auslässt, lässt das Objekt im Spiel verschwinden — und zwar nur aus
- * bestimmten Blickwinkeln, also genau die Sorte Fehler, die man beim
- * Durchklicken nicht findet.
- *
- * Kein Alloc je Neuaufbau: `reConstruct` schreibt mit `copyFromFloats` in
- * die bestehenden Vektoren des Hüllkörpers, und die beiden Endpunkte
- * kommen aus wiederverwendeten Arbeitsvektoren.
- */
-export function huellkoerperAufweiten(mesh: Mesh, reserve = SCHWUNG_RESERVE_M): void {
-  const info = mesh.getBoundingInfo();
-  const min = info.minimum;
-  const max = info.maximum;
-  info.reConstruct(
-    RESERVE_MIN_TMP.copyFromFloats(min.x - reserve, min.y - reserve, min.z - reserve),
-    RESERVE_MAX_TMP.copyFromFloats(max.x + reserve, max.y + reserve, max.z + reserve),
-    mesh.getWorldMatrix()
-  );
-}
-
-/** Arbeitsvektoren für huellkoerperAufweiten (kein Alloc je Neuaufbau). */
-const RESERVE_MIN_TMP = new Vector3();
-const RESERVE_MAX_TMP = new Vector3();
-
-// ── Instanz-Tönung der Store-Vegetation ─────────────────────────────
-//
-// ── Das Problem ─────────────────────────────────────────────────────
-// Ein Store-Wald sieht GESTEMPELT aus. Der Grund steht in der
-// Look-Analyse (§2 „Vegetation"): Der Shader des Vorbilds färbt jedes
-// Blatt aus einem WELTRAUM-Rauschen (`LeafNoiseColour`,
-// `ColourNoiseLargeScale`) — zwei Bäume derselben Art tragen dort nie
-// exakt dieselbe Farbe. Unsere Bäume dagegen teilen sich ein Material
-// und damit einen einzigen `baseColorFactor`; 400 Fichten sind 400 mal
-// dieselbe Fichte, und das sieht das Auge sofort, auch wenn es nicht
-// benennen kann, woran es liegt.
-//
-// ── Der billige Ersatz ──────────────────────────────────────────────
-// Kein Shader-Rauschen, sondern eine Farbe JE INSTANZ über den
-// Thin-Instance-Puffer `color`. Babylon multipliziert sie im
-// Fragmentshader auf die Albedo (VERTEXCOLOR/INSTANCESCOLOR); sie kostet
-// vier Floats je Instanz und keinen einzigen Zeichenaufruf.
-// `GrassClutter` geht diesen Weg seit jeher (dort `terrainTint`) — der
-// Zeuge dafür, dass er in dieser Pipeline trägt.
-//
-// ── Woher der Zufall kommt ──────────────────────────────────────────
-// Aus der WELTPOSITION, nicht aus dem Instanzindex. Der Index ändert
-// sich bei jedem Neuaufbau des Buckets (Swap-Remove in removeZDO,
-// Streaming, Sprite-Umverteilung); ein Baum wechselte dann beim
-// Vorbeilaufen die Farbe. Die Position ist die einzige Grösse, die ein
-// gestreuter Baum über seine ganze Lebensdauer behält.
-
-/** Ist die Tönungsstreuung an? `false` stellt den Zustand davor her. */
-export const INSTANZ_TOENUNG_AN = true;
-
-/**
- * Halbe Bandbreite der Helligkeitsstreuung (Anteil der Luma).
- *
- * 0,07 heisst: die dunkelste Instanz trägt 93 %, die hellste 107 % der
- * Materialfarbe. Die Look-Analyse nennt 5–8 % als das Fenster, in dem
- * ein Wald aufhört, gestempelt zu wirken, ohne dass einzelne Bäume als
- * „falsch gefärbt" auffallen.
- */
-export const TOENUNG_LUMA = 0.07;
-
-/**
- * Halbe Bandbreite der Farbtondrift (warm/kühl), gegenläufig auf R und B.
- *
- * Bewusst kleiner als die Helligkeit: Ein Grünton, der um 5 % nach Rot
- * kippt, liest sich als anderer Baum; einer, der um 15 % kippt, liest
- * sich als kranker Baum. R hoch UND B runter zugleich, damit die Luma
- * dabei nahezu erhalten bleibt und sich die beiden Achsen nicht
- * gegenseitig verrechnen.
- */
-export const TOENUNG_TON = 0.05;
-
-/**
- * Zwei unabhängige Zufallszahlen in [0,1) aus einer Weltposition.
- *
- * Ganzzahliges Mischen, damit dasselbe Paar (x, z) IMMER dieselben zwei
- * Zahlen ergibt — auf jeder Maschine, in jeder Sitzung, in jeder
- * Reihenfolge. Das ist die Zusage, die `client/test/instanz-toenung.ts`
- * festhält.
- *
- * Gerastert wird auf 10 cm. Ohne Rasterung entschiede das letzte Bit
- * einer f32-Position über die Farbe, und die ist zwischen Serverwert und
- * zurückgerechneter Weltmatrix nicht bitgleich — derselbe Baum bekäme
- * nach einem Neuaufbau eine andere Farbe.
- */
-export function toenungsRauschen(x: number, z: number): { a: number; b: number } {
-  let h = Math.imul(Math.round(x * 10) | 0, 0x27d4eb2d);
-  h ^= h >>> 15;
-  h = (h + Math.imul(Math.round(z * 10) | 0, 0x165667b1)) | 0;
-  h ^= h >>> 13;
-  h = Math.imul(h, 0x85ebca6b);
-  h ^= h >>> 16;
-  let g = Math.imul(h ^ 0x9e3779b9, 0xc2b2ae35);
-  g ^= g >>> 15;
-  g = Math.imul(g, 0x27d4eb2d);
-  g ^= g >>> 13;
-  return { a: (h >>> 0) / 4294967296, b: (g >>> 0) / 4294967296 };
-}
-
-/**
- * Die Instanzfarbe eines gestreuten Objekts an (x, z), in `aus` ab `o`.
- *
- * Multiplikativ auf die Albedo: 1,0 ist „unverändert". Nach OBEN wird
- * nicht gedeckelt — ein Faktor über 1 hellt auf, und das ist die halbe
- * Streuung. Nach unten gegen Null schon, damit eine künftig grössere
- * Amplitude keine negativen Farben erzeugt.
- */
-export function instanzToenung(x: number, z: number, aus: Float32Array, o: number): void {
-  const { a, b } = toenungsRauschen(x, z);
-  const luma = 1 + TOENUNG_LUMA * (2 * a - 1);
-  const ton = TOENUNG_TON * (2 * b - 1);
-  aus[o] = Math.max(0, luma * (1 + ton));
-  aus[o + 1] = Math.max(0, luma);
-  aus[o + 2] = Math.max(0, luma * (1 - ton));
-  aus[o + 3] = 1;
-}
-
-/**
- * Darf dieser Master eine Instanzfarbe bekommen?
- *
- * Zwei Bedingungen, beide gemessen statt behauptet:
- *
- *  1. Das Modell kommt aus dem Store (`store/` oder `store-lab/`). Die
- *     eigenen Altmodelle bleiben, wie sie sind — sie gehören nicht zu
- *     dieser Stufe, und eine Farbänderung an ihnen wäre eine
- *     Look-Entscheidung, die niemand getroffen hat.
- *  2. Das Netz bringt KEINE eigene Vertexfarbe mit. Im Store tun das
- *     genau vier Modelle, und es sind die vier Grasbüschel
- *     (`grass-short-clump-*`; gemessen R 0,01…0,13, G 0,00…1,00 — eine
- *     Halmmaske, keine Farbe). Getönt würde dort eine fremde Maske
- *     multipliziert, und Gras gehört ohnehin Bauer „Gras und Wasser".
- *     Erkannt wird das nicht über eine Namensliste, sondern weil das Netz
- *     selbst es sagt.
- *
- * ── Warum `ColorKind` und nicht `ColorInstanceKind` ──────────────────
- * Weil die Frage „bringt dieses Netz eine eigene Farbe mit" lautet und
- * nicht „habe ich hier schon getönt". Die beiden liegen in Babylon
- * NEBENEINANDER, nicht übereinander: `thinInstanceSetBuffer('color', …)`
- * schaltet den `kind` intern auf `instanceColor` um (8.56.2,
- * `thinInstanceMesh.js` Zeile 138, Kommentar „hot switching kind here to
- * preserve backward compatibility"), und der Shader multipliziert dann
- * beide (`vertexColorMixing`: `vColor *= instanceColor`,
- * `pbrBlockAlbedoOpacity`: `surfaceAlbedo *= vColor.rgb`).
- *
- * Das ist nachgesehen worden, weil die erste Fassung genau hier daneben
- * lag: Sie fragte `getVertexBuffer('color')` ab, um den eigenen Puffer
- * wiederzuerkennen — und fand ihn nie, weil er unter dem anderen Namen
- * liegt. Der Fehler war nicht sichtbar (die Tönung wirkte trotzdem), nur
- * die Begründung war falsch.
- */
-function darfGetoentWerden(mesh: Mesh, modell: string | null, an: boolean): boolean {
-  if (!an) return false;
-  if (!modell || !/^store(-lab)?\//.test(modell)) return false;
-  return !mesh.isVerticesDataPresent(VertexBuffer.ColorKind);
-}
-
-/**
- * Die Farbpuffer, die dieses Modul je Master schon angelegt hat.
- *
- * Sie werden WIEDERVERWENDET, und das ist keine Sparsamkeit um ihrer
- * selbst willen: `thinInstanceSetBuffer` legt jedes Mal einen neuen
- * `VertexBuffer` an und hängt ihn über `setVerticesBuffer` in die
- * Geometry — das ist eine GPU-Pufferanlage und ein
- * `_markSubMeshesAsAttributesDirty` je Aufruf. Die Buckets werden beim
- * Laufen dauernd neu gebaut (Streaming, Vegetationsgrenze), also fiele
- * das in jeden zweiten Sprintabschnitt.
- *
- * Bleibt die Instanzzahl gleich, wird deshalb nur der Inhalt neu
- * geschrieben und Babylon über `thinInstanceBufferUpdated` gesagt, dass
- * es den vorhandenen Puffer hochladen soll.
- *
- * Eine WeakMap, damit der Puffer mit seinem Master stirbt — Zell-Master
- * kommen aus einem Pool und werden entsorgt.
- */
-const TOENUNGS_PUFFER = new WeakMap<Mesh, Float32Array>();
-
-/**
- * Den Farbpuffer eines Masters schreiben — oder ihn ausdrücklich
- * abräumen.
- *
- * Das Abräumen ist kein Beiwerk: Zell-Master kommen aus einem POOL und
- * werden zwischen Prefabs wiederverwendet. Ein liegengebliebener
- * Farbpuffer träfe dann ein anderes Modell mit einer Instanzzahl, die
- * nicht mehr passt. Deshalb wird bei JEDEM Aufbau entschieden, auch für
- * `anzahl = 0`.
- */
-function schreibeToenung(
-  mesh: Mesh,
-  mats: readonly Matrix[] | null,
-  indizes: readonly number[] | null,
-  anzahl: number
-): void {
-  if (!mats || anzahl === 0) {
-    if (TOENUNGS_PUFFER.has(mesh)) {
-      TOENUNGS_PUFFER.delete(mesh);
-      mesh.thinInstanceSetBuffer('color', null, 4, false);
-    }
-    return;
-  }
-  const vorhanden = TOENUNGS_PUFFER.get(mesh);
-  const puffer = vorhanden && vorhanden.length === anzahl * 4 ? vorhanden : new Float32Array(anzahl * 4);
-  for (let k = 0; k < anzahl; k++) {
-    const m = mats[indizes ? indizes[k]! : k]!.m;
-    instanzToenung(m[12]!, m[14]!, puffer, k * 4);
-  }
-  if (puffer === vorhanden) {
-    // Derselbe Puffer, neuer Inhalt: nur hochladen, keinen VertexBuffer
-    // neu anlegen und keine Defines anfassen.
-    mesh.thinInstanceBufferUpdated('color');
-  } else {
-    TOENUNGS_PUFFER.set(mesh, puffer);
-    mesh.thinInstanceSetBuffer('color', puffer, 4, false);
-  }
-}
-
-/**
- * Der EINE Weg, einen Thin-Instance-Puffer zu setzen — Puffer, Hülle,
- * Sichtbarkeit, in dieser Reihenfolge.
- *
- * Stand vorher wörtlich in rebuildBucketInstances(). Seit dem Zellschnitt
- * (E19 c) gibt es diese Stelle nicht mehr einmal, sondern in jedem
- * Zellauf- und -abbaupfad; jede vergessene Wiederholung liefert eine
- * eingefrorene Hülle und damit einen Werfer, den der Schattenpass als
- * GANZES keult (Babylon-Forum 33711/51901) — also fehlende Schatten ohne
- * jede Fehlermeldung. Deshalb steht die Dreierfolge nur noch hier.
- *
- * Ein LEERER Master bekommt `null`, nicht einen Puffer der Länge 0.
- * Beides schaltet ihn ab, aber nur bei `null` stellt Babylon den
- * Hüllkörper der Rohgeometrie wieder her; mit einem leeren Puffer läuft
- * seine Min/Max-Schleife über null Instanzen und hinterlässt ±Infinity
- * (thinInstanceMesh.js:103 gegen :109). Solange der Master abgeschaltet
- * ist, sieht man davon nichts — aber ein Hüllkörper aus Unendlichkeiten
- * ist eine Falle für jeden, der ihn später ausliest, und seit D10 lesen
- * ihn zwei Stellen aus (Frustumprüfung und Shadows.darfWerfen).
- * Aufgefallen in client/test/master-huelle.ts.
- */
-function schreibeInstanzen(mesh: Mesh, daten: Float32Array | null): void {
-  mesh.thinInstanceSetBuffer('matrix', daten, 16, false);
-  // setBuffer hat den Hüllkörper soeben über alle Instanzen neu gespannt
-  // (thinInstanceMesh.js:103) — jetzt ist der Moment, ihm die Windreserve
-  // zu geben. Vorher wäre sie wieder überschrieben.
-  huellkoerperAufweiten(mesh);
-  merkeModellHoehe(mesh, daten);
-  mesh.setEnabled(daten !== null);
-}
-
-/**
- * Gemessene Höhe EINES Exemplars je Master, in Metern.
- *
- * ── Wofür ───────────────────────────────────────────────────────────
- * Shadows.darfWerfen() entschied bisher allein über Namensregeln, welches
- * Mesh Schatten wirft. Ein Regex über Namen ist aber eine LISTE: Sie wird
- * bei jedem neuen Modell stillschweigend falsch, und zwar in beide
- * Richtungen — ein neuer Kleinkram-Name steht nicht drin und wirft
- * grundlos durch alle Kaskaden, ein umbenanntes Prefab fällt plötzlich
- * heraus. Eine gemessene Höhe kann das nicht: Sie kommt aus der
- * Geometrie, die tatsächlich gezeichnet wird.
- *
- * ── Warum HIER gemessen wird und nicht in Shadows ────────────────────
- * Ein Master steht im Ursprung, seine Hülle umfasst nach
- * `thinInstanceSetBuffer` ALLE Instanzen — ihre Y-Ausdehnung ist die
- * Höhenstreuung des Geländes, nicht die Höhe der Pflanze. Die Höhe eines
- * Exemplars ergibt sich erst aus der ROHEN Hülle (`getRawBoundingInfo`,
- * vor den Instanzen) mal der Skalierung, die in der Instanzmatrix steckt.
- * Beides liegt genau hier zusammen: die Rohhülle am Mesh, die Matrizen im
- * Puffer, den diese Funktion gerade schreibt.
- *
- * Genommen wird die GRÖSSTE Skalierung im Puffer und die größte der drei
- * Spaltennormen — bewusst konservativ nach oben. Eine überschätzte Höhe
- * lässt einen Werfer in der Liste; eine unterschätzte löscht einen
- * sichtbaren Schatten, und das ist der Fehler, den man im Bild sucht und
- * nicht findet.
- *
- * Measured once per master when its instance buffer is written: raw model
- * height times the largest instance scale, rounded up on purpose.
- */
-const MODELL_HOEHE = new WeakMap<Mesh, number>();
-
-function merkeModellHoehe(mesh: Mesh, daten: Float32Array | null): void {
-  // Leerer Puffer: Die Messung des vorigen Aufbaus behalten. Ein
-  // abgeschalteter Zell-Master kommt aus dem Pool mit derselben Geometrie
-  // zurück, und Shadows.darfWerfen() lässt abgeschaltete Meshes ohnehin
-  // ungeprüft stehen.
-  if (daten === null || daten.length < 16) return;
-  const roh = mesh.getRawBoundingInfo().boundingBox;
-  MODELL_HOEHE.set(mesh, (roh.maximum.y - roh.minimum.y) * groessteInstanzSkala(daten));
-}
-
-/**
- * Die grösste Skalierung in einem Instanzpuffer — reine Rechnung, ohne
- * Szene testbar (client/test/modell-hoehe.ts).
- *
- * Genommen wird je Instanz die GRÖSSTE der drei Spaltennormen und davon
- * das Maximum über alle Instanzen. Das überschätzt eine ungleichmässig
- * skalierte oder gekippte Instanz bewusst — und zwar in die richtige
- * Richtung: Ein zu grosser Wert lässt einen Werfer in der Liste, ein zu
- * kleiner löscht einen sichtbaren Schatten.
- */
-export function groessteInstanzSkala(daten: ArrayLike<number>): number {
-  let skala = 0;
-  for (let o = 0; o + 16 <= daten.length; o += 16) {
-    const sx = Math.hypot(daten[o]!, daten[o + 1]!, daten[o + 2]!);
-    const sy = Math.hypot(daten[o + 4]!, daten[o + 5]!, daten[o + 6]!);
-    const sz = Math.hypot(daten[o + 8]!, daten[o + 9]!, daten[o + 10]!);
-    const groesste = sx > sy ? (sx > sz ? sx : sz) : sy > sz ? sy : sz;
-    if (groesste > skala) skala = groesste;
-  }
-  return skala;
-}
-
-/**
- * Die gemessene Höhe eines Exemplars dieses Masters, oder `undefined`.
- *
- * `undefined` heisst „nicht gemessen", NICHT „klein": Gelände, Spieler,
- * Dungeon-Architektur und Himmel laufen nie durch `schreibeInstanzen()`.
- * Der Aufrufer muss diesen Fall als „darf werfen" behandeln — ein
- * fehlender Messwert darf niemals einen Schatten löschen.
- */
-export function gemesseneModellHoehe(mesh: AbstractMesh): number | undefined {
-  return MODELL_HOEHE.get(mesh as Mesh);
-}
-
-/**
- * Einen Knoten als ORTSFEST kennzeichnen: Weltmatrix einfrieren.
- *
- * ── Was das spart ───────────────────────────────────────────────────
- * Babylon ruft in `_evaluateActiveMeshes()` für jedes eingeschaltete Mesh
- * `computeWorldMatrix()` (scene.js:3837). Ohne Einfrieren vergleicht das
- * jedes Bild den gesamten Transformations-Cache gegen den Ist-Zustand
- * (`isSynchronized()`); eingefroren steigt es in der ersten Zeile aus
- * (transformNode.js:895). Für Master, die per Definition im Ursprung
- * stehen, ist dieser Vergleich reine Arbeit ohne Ergebnis.
- *
- * ── Wo aufgetaut werden MUSS ────────────────────────────────────────
- * Ein eingefrorener Knoten, den jemand später versetzt, bleibt stehen —
- * ohne Fehlermeldung, ohne Symptom ausser „das Objekt ist am falschen
- * Ort". Deshalb wird hier NICHT pauschal eingefroren, sondern nur an den
- * drei Stellen, die wissen, dass ihr Mesh ortsfest ist:
- *
- *   · `zellMeshHolen()` — Zell-Master tragen Weltmatrizen in ihren Thin
- *     Instances und stehen selbst im Ursprung (s. AssetManager.zuMaster).
- *     Das Streaming versetzt sie NIE; es schreibt nur ihren Instanzpuffer
- *     neu, und `thinInstanceSetBuffer` spannt die Hülle über
- *     `_updateBoundingInfo()` aus der (eingefrorenen) Weltmatrix neu auf —
- *     das funktioniert mit eingefrorener Matrix unverändert.
- *   · `rebuildBucketColliders()` — der `col_`-Träger, aus demselben Grund.
- *   · `AssetManager.zuMaster()` — der Prefab-Master selbst.
- *
- * AUSDRÜCKLICH NICHT eingefroren wird in `zellMeshAusPrototyp()`, obwohl
- * das der bequemste Ort wäre: `BaumImpostor` baut seine Backmeshes über
- * genau diese Funktion und hängt sie danach an einen Halter, den es für
- * die acht Ansichten dreht (BaumImpostor.ts:740 ff.). Eingefroren blieben
- * Rinde und Laub im Ursprung übereinanderliegen und alle acht Ansichten
- * zeigten dasselbe Bild — ein Fehler ohne Absturz und ohne Warnung.
- *
- * Wer einen so gekennzeichneten Knoten doch bewegen will, ruft
- * `unfreezeWorldMatrix()` davor. Kein stiller Weg daran vorbei.
- *
- * Freeze only where the caller knows the node is fixed in place; the
- * impostor baker moves meshes built by the same factory function.
- */
-export function alsOrtsfestEinfrieren(mesh: AbstractMesh): void {
-  mesh.freezeWorldMatrix();
-}
-
-/**
- * Rohgeometrie je Prototyp-Master, EINMAL aus dem Mesh gezogen.
- *
- * Modulweit und über eine WeakMap, damit sie mit dem Prototyp stirbt und
- * damit `zellMeshAusPrototyp()` ohne Manager-Instanz benutzbar bleibt —
- * client/test/master-huelle.ts prüft damit den echten Bauweg statt einer
- * Nachbildung.
- */
-const ZELL_GEOMETRIE = new WeakMap<Mesh, VertexData>();
-
-/**
- * Ein Zell-Master aus einem Prototyp-Master (E19 c).
- *
- * ── Warum VertexData und nicht mesh.clone() ──────────────────────────
- * Der Kardinalfehler dieses Umbaus wäre geteilte Geometrie. Babylon hängt
- * die Instanzmatrizen NICHT ans Mesh, sondern an die Geometry:
- * `thinInstanceSetBuffer('matrix', …)` legt die Vertexpuffer world0..3
- * über `mesh.setVerticesBuffer()` an (thinInstanceMesh.js:88 →
- * mesh.js:1396), und `mesh.clone()` reicht die Geometry der Quelle
- * einfach weiter (mesh.js:350). Zwei Zell-Master auf einer Geometry
- * überschrieben sich also gegenseitig ihre Instanzen, und
- * `geometry._updateBoundingInfo()` zöge obendrein die Hülle des anderen
- * mit (geometry.js:283). Symptom wäre kein Fehler, sondern das aus
- * Anlauf 2 bekannte „ganze Bäume verschwinden" (Leitplanke 2).
- *
- * `VertexData.applyToMesh()` auf einem frischen Mesh legt dagegen eine
- * EIGENE Geometry samt eigener BoundingInfo an — derselbe Weg, den
- * GrassClutter.buildCell() seit jeher für seine Zellen geht. Die
- * CPU-seitigen Typed Arrays werden dabei zwischen den Zellen geteilt
- * (das ist gewollt und billig), die GPU-Puffer nicht.
- *
- * `_ExtractFrom` zieht ausschliesslich bekannte Attribute (Positionen,
- * Normalen, Tangenten, UVs, Farben, Skinning-Gewichte, Indizes,
- * mesh.vertexData.js:952) — die Instanzpuffer world0..3 sind NICHT
- * dabei. Der Prototyp darf zum Zeitpunkt des Ziehens also ruhig noch
- * einen Matrixpuffer aus dem ungeschnittenen Betrieb tragen.
- *
- * Materialien werden GETEILT, nicht kopiert: WindPlugin,
- * ShadowDepthWrapper und GlutPuls hängen je Material genau einmal
- * (AssetManager.setzeWind), ein Material je Zelle hiesse Shaderkompilate
- * je Zelle. `sideOrientation` muss dagegen mitkommen — zuMaster() bäckt
- * dort die Determinantenkorrektur der GLB-Hierarchie ein, ohne sie sind
- * die hohlen Felsen und halbierten Stämme zurück.
- */
-export function zellMeshAusPrototyp(proto: Mesh, name: string, scene: Scene): Mesh {
-  let vd = ZELL_GEOMETRIE.get(proto);
-  if (!vd) {
-    vd = VertexData.ExtractFromMesh(proto, true, true);
-    /*
-      Die Instanz-Tönung kommt hier NICHT mit, und zwar von selbst:
-      `ExtractFromMesh` liest `color`, unsere Tönung liegt aber unter
-      `instanceColor` (Babylon schaltet den `kind` in
-      `thinInstanceSetBuffer` um — s. darfGetoentWerden). Hier stand
-      einmal ein Längenabgleich, der genau das verhindern sollte; er
-      wurde entfernt, weil er einen Fall abfing, den es nicht gibt, und
-      damit eine falsche Erklärung im Quelltext festhielt.
-    */
-    ZELL_GEOMETRIE.set(proto, vd);
-  }
-  const mesh = new Mesh(name, scene);
-  vd.applyToMesh(mesh);
-  mesh.material = proto.material;
-  mesh.sideOrientation = proto.sideOrientation;
-  mesh.isPickable = false;
-  mesh.receiveShadows = proto.receiveShadows;
-  mesh.renderingGroupId = proto.renderingGroupId;
-  mesh.alphaIndex = proto.alphaIndex;
-  // Die Refraktionsauswahl hängt an der Objektidentität. Ein Zell-Master
-  // bekommt eine neue Identität und muss die semantische Markierung seines
-  // Prototyps deshalb ausdrücklich übernehmen.
-  if (istGestreuteLandschaft(proto)) markiereAlsGestreuteLandschaft(mesh);
-  // ── Frustum-Culling BLEIBT AN — und wird hier erst richtig wirksam ──
-  // Fortschreibung der D10-Begründung aus AssetManager.zuMaster(): Dort
-  // ist festgehalten, dass `alwaysSelectAsActiveMesh = true` gefallen ist,
-  // weil Babylon den Hüllkörper über alle Thin Instances nachführt — und
-  // zugleich, dass das FÜR GESTREUTE VEGETATION NICHTS BRINGT, weil ihre
-  // Instanzen den Spieler umschliessen und die Hülle damit jede
-  // Frustumprüfung besteht.
-  //
-  // Genau diese Einschränkung kippt mit dem Zellschnitt. Die Hülle eines
-  // Zell-Masters umfasst nur noch eine 128-m-Kachel (rund 90 m Radius
-  // plus Kronenhöhe plus 1,5 m Windreserve) statt der 425 m des alten
-  // Vollmasters. Damit fallen Zellen hinter der Kamera im Bildpass weg
-  // und ferne Zellen über Shadows.darfWerfen() aus der Werferliste —
-  // das ist der ganze Zweck des Umbaus (E19 c, Befund E20: 85 % der
-  // Einreichungen je Kaskade waren umsonst).
-  //
-  // Das Flag hier „sicherheitshalber" zurückzuholen, machte den Umbau
-  // wirkungslos: Es würde jede Zelle wieder bedingungslos einreichen.
-  // Die Gegenzusicherung liefert client/test/master-huelle.ts — der
-  // Hüllkörper enthält jede Instanz vollständig, und die ferne Zelle
-  // fällt aus dem Frustum, während die Zelle um den Spieler bleibt.
-  mesh.alwaysSelectAsActiveMesh = false;
-  mesh.computeWorldMatrix(true);
-  mesh.setEnabled(false);
-  return mesh;
-}
-
+/** Is `anim` the lying pose of a dead player figure? */
+const istTodAnim = (anim: string | undefined): anim is string => anim !== undefined && (TOD_CLIPS as readonly string[]).includes(anim);
 export class EntityManager {
   private readonly buckets = new Map<string, StaticBucket>();
   /**
@@ -3639,10 +2597,17 @@ export class EntityManager {
    */
   private faelltZurueck(dyn: DynamicEntity): void {
     if (dyn.stirbt) return;
-    const z = dyn.anim && dyn.anim !== 'attack' ? dyn.anim : 'idle';
+    // A player figure has no movement state from the server (its prefab default `Walking` names no group of
+    // the body models): after a hit reaction it stands in `idle`, it must not stop with no group at all.
+    const z = !dyn.istSpieler && dyn.anim && dyn.anim !== 'attack' ? dyn.anim : 'idle';
     this.assets.wechsleAnimation(dyn.root, z);
     // The fresh start plays as authored: tell the tempo coupling.
     if (dyn.clipTempo) dyn.clipTempo.rate = 1;
+  }
+
+  /** A player figure lies down with `clip` (tod_vorn / tod_hinten): plays once and stays; no state moves it afterwards. */
+  private legeHin(dyn: DynamicEntity, clip: string): void {
+    if (this.assets.spieleEinmalKreatur(dyn.root, clip, null)) dyn.stirbt = true;
   }
 
   /** One-shot events from the server (`animEinmal`): blow, hit, death. */
@@ -3652,8 +2617,9 @@ export class EntityManager {
     if (e.n === dyn.einmalN) return;
     dyn.einmalN = e.n;
     if (dyn.stirbt) return;
-    if (e.clip === 'die') {
-      if (this.assets.spieleEinmalKreatur(dyn.root, 'die', null)) dyn.stirbt = true;
+    if (e.clip === 'die' || istTodAnim(e.clip)) {
+      // A creature dies with `die`, a player figure with `tod_vorn` / `tod_hinten` (todTreffer.ts): once, then it lies.
+      this.legeHin(dyn, e.clip);
       return;
     }
     this.assets.spieleEinmalKreatur(dyn.root, e.clip, () => this.faelltZurueck(dyn));
@@ -3677,7 +2643,7 @@ export class EntityManager {
       if (model) {
         // A creature first seen mid-swing starts standing: `attack` is a
         // one-shot, and looping it here would be the very jump it avoids.
-        root = await this.assets.instantiate(model, wunschAnim === 'attack' ? 'idle' : wunschAnim);
+        root = await this.assets.instantiate(model, wunschAnim === 'attack' || istTodAnim(wunschAnim) ? 'idle' : wunschAnim);
       }
       if (!root) {
         root = makePlaceholder(this.scene, prefabName);
@@ -3717,9 +2683,15 @@ export class EntityManager {
       }
       this.dynamics.set(u.key, dyn);
       this.dynamicCount++;
+      // A player who lies dead when we first see him: show the lying pose (the fall itself is history).
+      if (dyn.istSpieler && istTodAnim(wunschAnim)) this.legeHin(dyn, wunschAnim);
     } else if (wunschAnim && wunschAnim !== dyn.anim) {
       dyn.anim = wunschAnim;
-      if (!dyn.stirbt) this.spieleZustand(dyn, wunschAnim);
+      // A revived player figure stands up again: its lying pose (`anim` = tod_*) went back to a normal state.
+      if (dyn.istSpieler && dyn.stirbt) dyn.stirbt = false;
+      // The lying pose plays ONCE (never as a looping state): the death event plays the fall, this keeps the pose.
+      if (dyn.istSpieler && istTodAnim(wunschAnim)) this.legeHin(dyn, wunschAnim);
+      else if (!dyn.stirbt) this.spieleZustand(dyn, wunschAnim);
     }
     this.pruefeEinmal(dyn, u.animEinmal);
     // Trefferpunkte → Prozent. Hier und nicht im Namensschild, weil an
@@ -3791,66 +2763,4 @@ export class EntityManager {
     });
     this.terrain.rebuildZones(affected);
   }
-}
-
-/**
- * Weltmatrix einer Instanz.
- *
- * Die Skalierung stammt aus dem ZDO — ABER nur, wenn das Prefab eine
- * abweichende mitschickt (SYNC_INITIAL_SCALE). Fehlt sie, gilt die
- * localScale des Prefabs, nicht 1: Rock_3 und Rock_4 stehen im pkg mit
- * localScale 2 und wurden dadurch in halber Größe gerendert — ein
- * Felsbrocken, der nur 34 cm aus dem Boden ragte und im Gras unsichtbar
- * blieb.
- */
-function composeZdoWorld(u: ZDOEntityUpdate, prefabScale?: Vector3Like): Matrix {
-  const s = u.scale;
-  const scaling =
-    typeof s === 'number'
-      ? new Vector3(s, s, s)
-      : s
-        ? new Vector3(s.x, s.y, s.z)
-        : prefabScale
-          ? new Vector3(prefabScale.x, prefabScale.y, prefabScale.z)
-          : Vector3.One();
-  return Matrix.Compose(
-    scaling,
-    new Quaternion(u.rotation.x, u.rotation.y, u.rotation.z, u.rotation.w),
-    new Vector3(u.position.x, u.position.y, u.position.z)
-  );
-}
-
-/** Small named box for dynamic entities without a model in the export. */
-/**
- * Platzhalter-Materialien je Szene und Prefabname.
- *
- * Sie hängen nur an der FARBE, die aus dem Namen gerechnet wird — zwei
- * Platzhalter desselben Prefabs brauchen also kein zweites Material.
- * Wichtiger noch: Instanzen werden ohne ihr Material entsorgt (s.
- * removeZDO), ein frisch erzeugtes Material je Platzhalter bliebe sonst
- * bei jedem Entfernen liegen. Geteilt und gecacht kann das nicht
- * passieren.
- */
-const platzhalterMaterialien = new WeakMap<Scene, Map<string, StandardMaterial>>();
-
-function makePlaceholder(scene: Scene, name: string): TransformNode {
-  const root = new TransformNode(`ph_${name}`, scene);
-  const box = MeshBuilder.CreateBox(`ph_${name}_box`, { size: 0.7 }, scene);
-  let cache = platzhalterMaterialien.get(scene);
-  if (!cache) {
-    cache = new Map();
-    platzhalterMaterialien.set(scene, cache);
-  }
-  let mat = cache.get(name);
-  if (!mat) {
-    mat = new StandardMaterial(`ph_${name}_mat`, scene);
-    const hue = (Array.from(name).reduce((a, c) => a + c.charCodeAt(0) * 31, 7) % 360) / 360;
-    mat.diffuseColor = Color3.FromHSV(hue * 360, 0.45, 0.75);
-    mat.specularColor = new Color3(0, 0, 0);
-    cache.set(name, mat);
-  }
-  box.material = mat;
-  box.position.y = 0.5;
-  box.parent = root;
-  return root;
 }

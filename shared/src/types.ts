@@ -446,6 +446,20 @@ export enum PacketType {
    * Gegenstand verschwunden). Ein aelterer Client verwirft den Typ.
    */
   EquipStand = 81,
+
+  /**
+   * Server → the dying client only: it died and lies down. Payload: Int32 clip
+   * (index into TOD_CLIPS: 0 = tod_vorn, 1 = tod_hinten), Int32 liegeMs (how long the
+   * server keeps it dead). Numbers 80/81 are taken by the weapon card (Equip/EquipStand).
+   * Old clients ignore the packet; the server revives after `liegeMs` regardless.
+   */
+  PlayerTod = 84,
+  /**
+   * Server → the struck client only: the server confirmed a blow on it. Payload:
+   * Int32 clip (index into TREFFER_CLIPS, the side the blow came from). Other players
+   * see the same event on the victim's character ZDO (`animEinmal`).
+   */
+  PlayerTreffer = 85,
 }
 
 // === Vector3 ===

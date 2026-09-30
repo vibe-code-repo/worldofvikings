@@ -1,4 +1,5 @@
 import { inhaltText, type InhaltSchluessel } from '@wov/shared';
+import { SERVER_MELDUNG_SCHLUESSEL_PRAEFIX } from '@wov/shared';
 import de from './katalog/de.json';
 import en from './katalog/en.json';
 
@@ -71,6 +72,16 @@ export class GameI18n {
    * Schluesseltyp `InhaltSchluessel` haelt Tippfehler schon beim
    * Uebersetzen an, `inhaltText()` traegt den Sprach-Rueckfall.
    */
+  /**
+   * Text of a server message: `@key` (SERVER_MELDUNG_SCHLUESSEL_PRAEFIX) is a catalogue key and
+   * gets translated, anything else is shown as sent (the server's older messages are plain text).
+   */
+  serverMeldung(text: string): string {
+    if (!text.startsWith(SERVER_MELDUNG_SCHLUESSEL_PRAEFIX)) return text;
+    const key = text.slice(SERVER_MELDUNG_SCHLUESSEL_PRAEFIX.length);
+    return Object.hasOwn(CATALOGUES[this.current], key) ? this.t(key as TranslationKey) : text;
+  }
+
   tInhalt(key: InhaltSchluessel): string {
     return inhaltText(key, this.current);
   }

@@ -37,6 +37,70 @@ interface Erwartung {
   muster: RegExp;
 }
 
+
+/**
+ * Entfernt nginx-Kommentare: ein `#` am Zeilenanfang oder nach Leerraum, aber
+ * NICHT innerhalb eines Strings (`"a #b"`, `'a #b'`) — der frühere Filter
+ * `/(^|\s)#.*$/` schnitt dort mitten im String ab und verschluckte den Rest
+ * der Direktive.
+ */
+function ohneKommentare(text: string): string {
+  return text
+    .split('\n')
+    .map((zeile) => {
+      let anfuehrung = '';
+      for (let i = 0; i < zeile.length; i++) {
+        const c = zeile[i];
+        if (anfuehrung) {
+          if (c === '\\') i++;
+          else if (c === anfuehrung) anfuehrung = '';
+        } else if (c === '"' || c === "'") {
+          anfuehrung = c;
+        } else if (c === '#' && (i === 0 || /\s/.test(zeile[i - 1]))) {
+          return zeile.slice(0, i);
+        }
+      }
+      return zeile;
+    })
+    .join('\n');
+}
+
+/**
+ * Der Inhalt (ohne äußere Klammern) des ersten Blocks, dessen Kopf auf `kopf`
+ * passt, mit Klammer-Zählung — samt Tiefe des Kopfs (0 = oberste Ebene).
+ * Strings zählen nicht mit.
+ */
+function block(text: string, kopf: RegExp): { inhalt: string; tiefe: number } | null {
+  const treffer = new RegExp(kopf.source + '\\s*\\{', kopf.flags).exec(text);
+  if (!treffer) return null;
+  const von = treffer.index + treffer[0].length;
+  let tiefe = 0;
+  let anfuehrung = '';
+  for (let i = 0; i < treffer.index; i++) {
+    const c = text[i];
+    if (anfuehrung) {
+      if (c === '\\') i++;
+      else if (c === anfuehrung) anfuehrung = '';
+    } else if (c === '"' || c === "'") anfuehrung = c;
+    else if (c === '{') tiefe++;
+    else if (c === '}') tiefe--;
+  }
+  let rest = 1;
+  anfuehrung = '';
+  for (let i = von; i < text.length; i++) {
+    const c = text[i];
+    if (anfuehrung) {
+      if (c === '\\') i++;
+      else if (c === anfuehrung) anfuehrung = '';
+      continue;
+    }
+    if (c === '"' || c === "'") anfuehrung = c;
+    else if (c === '{') rest++;
+    else if (c === '}' && --rest === 0) return { inhalt: text.slice(von, i), tiefe };
+  }
+  return null;
+}
+
 const ERWARTUNGEN: Erwartung[] = [
   {
     weg: '/ (Webseite, gerendert vom Node-Dienst)',
@@ -54,11 +118,11 @@ const ERWARTUNGEN: Erwartung[] = [
   */
   {
     weg: 'location = / leitet world-of-mmorpg.de auf /de',
-    muster: /if\s*\(\$host\s*=\s*world-of-mmorpg\.de\)\s*\{\s*return\s+302\s+\/de;\s*\}/,
+    muster: /if\s*\(\$host\s*=\s*world-of-mmorpg\.de\)\s*\{\s*return\s+302\s+\/de\$is_args\$args;\s*\}/,
   },
   {
     weg: 'location = / leitet world-of-mmorpg.com auf /en',
-    muster: /if\s*\(\$host\s*=\s*world-of-mmorpg\.com\)\s*\{\s*return\s+302\s+\/en;\s*\}/,
+    muster: /if\s*\(\$host\s*=\s*world-of-mmorpg\.com\)\s*\{\s*return\s+302\s+\/en\$is_args\$args;\s*\}/,
   },
   /*
     Angriffsbefund N-2/M1a: eine fehlende www.-Zeile blieb bisher unbemerkt,
@@ -67,11 +131,11 @@ const ERWARTUNGEN: Erwartung[] = [
   */
   {
     weg: 'location = / leitet www.world-of-mmorpg.de auf /de',
-    muster: /if\s*\(\$host\s*=\s*www\.world-of-mmorpg\.de\)\s*\{\s*return\s+302\s+\/de;\s*\}/,
+    muster: /if\s*\(\$host\s*=\s*www\.world-of-mmorpg\.de\)\s*\{\s*return\s+302\s+\/de\$is_args\$args;\s*\}/,
   },
   {
     weg: 'location = / leitet www.world-of-mmorpg.com auf /en',
-    muster: /if\s*\(\$host\s*=\s*www\.world-of-mmorpg\.com\)\s*\{\s*return\s+302\s+\/en;\s*\}/,
+    muster: /if\s*\(\$host\s*=\s*www\.world-of-mmorpg\.com\)\s*\{\s*return\s+302\s+\/en\$is_args\$args;\s*\}/,
   },
   {
     weg: 'location = / fällt für jeden anderen Host auf denselben Node-Dienst zurück',
@@ -185,11 +249,52 @@ function main(): void {
   // nicht nur die eine, die das vorher ausdruecklich anforderte — sonst
   // haelt eine auskommentierte Host-Weiche (`# if ($host = ...) { ... }`)
   // den Text-Treffer trotzdem gruen.
-  const ohneKommentare = text.replace(/(^|\s)#.*$/gm, '$1');
+  const ohneKomm = ohneKommentare(text);
   for (const { weg, muster } of ERWARTUNGEN) {
-    const treffer = muster.test(ohneKommentare);
+    const treffer = muster.test(ohneKomm);
     console.log(`${treffer ? 'OK  ' : 'FEHL'}  ${weg}`);
     if (!treffer) fehler++;
+  }
+
+  /*
+    Karte D1-R (Angriffsbefund NG6 und Punkt 4): die vier Host-Zeilen zählen
+    nur, wenn sie IM Block `location = /` stehen — dieser wiederum im
+    `server`-Block. Die Muster oben lesen die ganze Datei; eine Zeile, die in
+    einen anderen location-Block wanderte (etwa nach `/ws`), hielt sie grün,
+    obwohl die Wurzel dann auf die Meta-Refresh-Seite fiel. Der Suchteil
+    bleibt beim 302 erhalten (`$is_args$args`).
+  */
+  const wurzel = block(ohneKomm, /location\s*=\s*\//);
+  const server = block(ohneKomm, /\bserver/);
+  const zeilen: [string, string][] = [
+    ['world-of-mmorpg.de', '/de'],
+    ['www.world-of-mmorpg.de', '/de'],
+    ['world-of-mmorpg.com', '/en'],
+    ['www.world-of-mmorpg.com', '/en'],
+  ];
+  const blockErgebnisse: { weg: string; ok: boolean }[] = [
+    { weg: 'location = / liegt im server-Block (Tiefe 1)', ok: wurzel !== null && wurzel.tiefe === 1 && server !== null && server.inhalt.includes(wurzel.inhalt) },
+    ...zeilen.map(([host, ziel]) => ({
+      weg: `IM Block location = /: ${host} -> 302 ${ziel} mit Suchteil ($is_args$args)`,
+      ok:
+        wurzel !== null &&
+        wurzel.inhalt.includes(`if ($host = ${host}) { return 302 ${ziel}$is_args$args; }`),
+    })),
+    {
+      weg: 'die Host-Zeilen stehen NUR in location = / (nicht doppelt in einem anderen Block)',
+      ok: (ohneKomm.match(/if\s*\(\$host\s*=\s*(?:www\.)?world-of-mmorpg\.(?:com|de)\)\s*\{\s*return\s+302/g) ?? []).length === 4,
+    },
+    {
+      weg: 'Kommentarfilter: `#` in einem String bleibt, ein Kommentar geht',
+      ok:
+        ohneKommentare('add_header X "a #b"; # c').trim() === 'add_header X "a #b";' &&
+        ohneKommentare("x 'a #b' y; #z").trim() === "x 'a #b' y;" &&
+        ohneKommentare('# ganz\nreturn 1; # rest').replace(/\s+/g, ' ').trim() === 'return 1;',
+    },
+  ];
+  for (const { weg, ok } of blockErgebnisse) {
+    console.log(`${ok ? 'OK  ' : 'FEHL'}  ${weg}`);
+    if (!ok) fehler++;
   }
 
   // Die Reihenfolge der location-Blöcke ist für nginx bedeutungslos (es
@@ -200,7 +305,7 @@ function main(): void {
 
   console.log(
     fehler === 0
-      ? `\nnginx-wov-lab-pfade: alle ${ERWARTUNGEN.length} Wege gefunden.\n`
+      ? `\nnginx-wov-lab-pfade: alle ${ERWARTUNGEN.length + blockErgebnisse.length} Wege gefunden.\n`
       : `\nnginx-wov-lab-pfade: ${fehler} FEHLEND.\n`,
   );
   process.exit(fehler > 0 ? 1 : 0);

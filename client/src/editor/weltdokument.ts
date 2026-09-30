@@ -131,6 +131,27 @@ export type ServerStand =
   | { erreichbar: false; grund: string };
 
 /**
+ * Die Handkorrektur eines Dokuments als Karte „Zone + Rasterposition → Delta (cm)“
+ * (Schlüssel `zx,zz,ry,rx`). Gemeinsame Quelle für den Vergleich der Rasterpunkte
+ * und für `enthaelt`.
+ */
+function hoehenPunkte(l: WorldLayout): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const z of l.heightDeltas ?? []) {
+    for (const zeile of z.r) {
+      const teile = zeile.split('|');
+      if (teile.length !== 3) continue;
+      const ry = teile[0]!;
+      const rx = teile[1]!.length > 0 ? teile[1]!.split(',') : [];
+      const delta = teile[2]!.length > 0 ? teile[2]!.split(',') : [];
+      const n = Math.min(rx.length, delta.length);
+      for (let k = 0; k < n; k++) m.set(`${z.zx},${z.zz},${ry},${rx[k]}`, Number(delta[k]));
+    }
+  }
+  return m;
+}
+
+/**
  * Steckt alles, was `klein` enthält, schon in `gross`? Grundlage der Frage
  * „geht beim Verdrängen von `klein` etwas verloren, wenn `gross` bleibt?":
  * Ein Schreiber, der seinen Stand aus dem AKTUELLEN Speicher aufbaut (der
@@ -151,6 +172,11 @@ export type ServerStand =
  *    zählen, `[P]` enthält `[P, P]` nicht. Bei Platzierungen bleibt das Feld
  *    `id` außen vor: Es ist eine Kennung, kein Inhalt, und Stände von vor
  *    dem Feld tragen keine, Ring-Einträge und `layoutMitPlatzierung` schon.
+ *  - Handkorrektur (`heightDeltas`) punktweise: Jeder Rasterpunkt von `klein`
+ *    muss in `gross` mit demselben Delta stehen. Ein Dokument ohne Handkorrektur
+ *    verlangt nichts (für Entwürfe ohne `heightDeltas` ändert sich das Ergebnis
+ *    nicht); wer Striche trägt, wird nur von einem Stand enthalten, der sie
+ *    (noch) hat — sonst ginge beim Verdrängen ein Geländestrich still verloren.
  *  - Name, Detail-Seed und Startpunkt müssen übereinstimmen.
  * Elemente werden als JSON verglichen. Im Zweifel `false`: ein Stand zu viel
  * zu sichern kostet nur Platz.
@@ -196,6 +222,13 @@ export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
     }
     return true;
   };
+  /** Jeder Rasterpunkt der Handkorrektur von `klein` steht in `gross` mit demselben Delta. */
+  const hoehe = (): boolean => {
+    if (!klein.heightDeltas || klein.heightDeltas.length === 0) return true;
+    const g = hoehenPunkte(gross);
+    for (const [schluessel, wert] of hoehenPunkte(klein)) if (g.get(schluessel) !== wert) return false;
+    return true;
+  };
   return (
     gross.name === klein.name &&
     gross.detailSeed === klein.detailSeed &&
@@ -205,7 +238,8 @@ export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
     multimenge(gross.placements, klein.placements, ohneId) &&
     multimenge(gross.rivers, klein.rivers) &&
     multimenge(gross.lakes, klein.lakes) &&
-    multimenge(gross.routes, klein.routes)
+    multimenge(gross.routes, klein.routes) &&
+    hoehe()
   );
 }
 
@@ -372,6 +406,30 @@ export const BASIS_VERLANGT =
   'und hat nichts geschrieben. Serverstand laden oder abgleichen (Feld „WELT" links oben in der Kopfzeile anklicken) ' +
   'und dann erneut speichern.';
 
+/**
+ * Removes the hold-back sentence that the operations service itself appends to `message` of a 202
+ * (`admin/src/routen/anwendung.ts`: `lock.open` behind the reason, or `lock.pending` as the reason's text; technical,
+ * with "POST /api/welt/bestaetigen"). The flight shows its own sentence instead, so the line names the lock ONCE.
+ * Only the service's sentence, VERBATIM at the end, in either language (it writes in `WOV_LANGUAGE`, unknown here);
+ * anything else in `message` stays as it is.
+ *
+ * Entfernt den Sperrsatz, den der Betriebsdienst bei 202 selbst an `message` hängt; nur wörtlich am Ende, in beiden
+ * Sprachen, alles andere bleibt.
+ */
+export function ohneDienstSperrsatz(message: string, anzahl: number | undefined): string {
+  if (anzahl === undefined || !(anzahl > 0)) return message;
+  for (const sprache of ['de', 'en']) {
+    for (const key of ['lock.open', 'lock.pending'] as const) {
+      const satz = lockMessage(key, { count: anzahl }, sprache);
+      if (!message.endsWith(satz)) continue;
+      const rest = message.slice(0, message.length - satz.length).trimEnd();
+      // `lock.pending` is the reason's text ("Geschrieben, … (grund): <Satz>"): drop the dangling colon with it.
+      return key === 'lock.pending' && rest.endsWith(':') ? rest.slice(0, -1) : rest;
+    }
+  }
+  return message;
+}
+
 /** Ausgang von `schreibeWeltdokument`. */
 export type SchreibAntwort =
   | {
@@ -392,6 +450,10 @@ export type SchreibAntwort =
        * Editors; `null`/fehlt: keine Sperre offen.
        */
       sperrHinweis?: string | null;
+      /** Test flight: the count of locked objects in the receipt's `loeschsperre` (0 or missing: none). */
+      sperrAnzahl?: number;
+      /** Test flight: `message` without the hold-back sentence the service appended itself (same as `message` when there is none). */
+      messageOhneSperre?: string;
     }
   /** Der Server hat seit der Basis einen anderen Stand — NICHTS wurde geschrieben. */
   | { art: 'veraltet'; message: string; aktuell: string | null }
@@ -534,6 +596,8 @@ export async function schreibeWeltdokument(
       grund: typeof d.grund === 'string' ? d.grund : null,
       detail: hoehenText ? `${hoehenText}${detail ? ` ${detail}` : ''}` : detail,
       zurueck: d.zaehler && typeof d.zaehler === 'object' && Number.isFinite(Number((d.zaehler as Record<string, unknown>).zurueck)) ? Number((d.zaehler as Record<string, unknown>).zurueck) : 0,
+      sperrAnzahl: gesperrt,
+      messageOhneSperre: (typeof d.message === 'string' ? ohneDienstSperrsatz(d.message, gesperrt) : (d.message ?? 'Gespeichert')) + (hoehenText ? ` — ${hoehenText}` : '') + hinweis,
       sperrHinweis: gesperrt > 0 && d.grund !== 'bestaetigung-noetig' ? lockMessage(d.angewendet === true ? 'lock.applied' : 'lock.open', { count: gesperrt }, sichereSprache(locale)) : null,
     };
   }
@@ -721,21 +785,6 @@ export function vergleiche(server: WorldLayout, entwurf: WorldLayout): Unterschi
   // hat) und reines Umsortieren zählen NICHT als schwer — beide ändern an
   // den Schlüsseln des Vergleichs (Zone+Position → Delta) nichts, was der
   // Server bereits hatte.
-  const hoehenPunkte = (l: WorldLayout): Map<string, number> => {
-    const m = new Map<string, number>();
-    for (const z of l.heightDeltas ?? []) {
-      for (const zeile of z.r) {
-        const teile = zeile.split('|');
-        if (teile.length !== 3) continue;
-        const ry = teile[0]!;
-        const rx = teile[1]!.length > 0 ? teile[1]!.split(',') : [];
-        const delta = teile[2]!.length > 0 ? teile[2]!.split(',') : [];
-        const n = Math.min(rx.length, delta.length);
-        for (let k = 0; k < n; k++) m.set(`${z.zx},${z.zz},${ry},${rx[k]}`, Number(delta[k]));
-      }
-    }
-    return m;
-  };
   const sHoehe = hoehenPunkte(server);
   const eHoehe = hoehenPunkte(entwurf);
   let hoeheVerlorenOderGeaendert = false;

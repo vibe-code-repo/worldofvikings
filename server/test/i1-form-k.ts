@@ -68,7 +68,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import * as ts from 'typescript';
-import { PacketType, WORLD_TIME_LENGTH, dungeon2, Inventory, WILDWARDEN_PARTS, findItem, FRISUR_VORGABE, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, FIGUREN, FRISUREN, HAARFARBEN, AUGENFARBEN, encodeArmor, TRUHE_INHALT_MEMBER, TRUHE_LOOTED_MEMBER, packContainer, unpackContainer, ChatMsgType } from '@wov/shared';
+import { PacketType, WORLD_TIME_LENGTH, dungeon2, Inventory, WILDWARDEN_PARTS, findItem, FRISUR_VORGABE, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, RUESTUNG, FIGUREN, FRISUREN, HAARFARBEN, AUGENFARBEN, encodeArmor, TRUHE_INHALT_MEMBER, TRUHE_LOOTED_MEMBER, packContainer, unpackContainer, ChatMsgType } from '@wov/shared';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import { WovServer, createWovServer } from '../src/WovServer.js';
@@ -958,6 +958,13 @@ function messeInteraktionAttrappe(): Aufzeichnung3 {
     lauf('handleSetFigur', 23, peerI(a, 'f', { figur: F0 }), paketS(F1));
     charZdo = zdoA(a);
     lauf('handleSetFigur', 24, peerI(a, 'f', { figur: F0 }), new Reader(Buffer.alloc(0)));
+    // NA2: owned parts in the two fixed slots with different ids (upper body != legs), the same without owning them, an unknown fifth value (a JSON that does not parse)
+    const ohneOB = { ...teile };
+    delete ohneOB['oberkoerper'];
+    delete ohneOB['beine'];
+    lauf('handleSetAussehen', 30, peerI(a, 'ob', { inventar: inventarMit() }), paketS(FRISUR_VORGABE, teile['oberkoerper']!, teile['beine']!, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, JSON.stringify(ohneOB)));
+    lauf('handleSetAussehen', 31, peerI(a, 'nb'), paketS(FRISUR_VORGABE, teile['oberkoerper']!, teile['beine']!, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, '{}'));
+    lauf('handleSetAussehen', 32, peerI(a, 'uf'), paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, 'unbekannt-xyz'));
   } finally {
     ruecksetzen();
   }
@@ -1259,7 +1266,7 @@ const SOLL_INTERAKTION_ATTRAPPE: Aufzeichnung = {
     't:ContainerSync:["u",7,18]:25:f681633f71bd01d2',
     't:ContainerSync:["u",7,19]:26:bf42688d67219593',
   ],
-  aufrufe: { setInt:  3,  setString:  40,  reviseData:  3,  sendeTruheInhalt:  5,  zdosVon:  12,  kappeLeben:  10,  sichereSpielerSofort:  12,  inventarSync:  6 },
+  aufrufe: { setInt:  3,  setString:  44,  reviseData:  3,  sendeTruheInhalt:  5,  zdosVon:  13,  kappeLeben:  11,  sichereSpielerSofort:  13,  inventarSync:  8 },
   konsole: { log: 2, warn: 2 },
   zustand: [151, 5, 1, 0, 1],
   ausnahmen: ['RangeError', 'RangeError'],
@@ -1383,6 +1390,18 @@ const SOLL_INTERAKTION_ATTRAPPE: Aufzeichnung = {
     'log 39:4f872ef66ff94e77:[WoV] "f" spielt jetzt als "wikingerin"',
     'peer f frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikingerin" position={"x":3,"y":7,"z":5} inventar=[]',
     'peer f frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call zdosVon ob',
+    'setString frisur=H_01',
+    'setString haarfarbe=mittelbraun',
+    'setString augenfarbe=fjordblau',
+    'setString ruestung=181:b3b6644c',
+    'call kappeLeben ob',
+    'call sichereSpielerSofort 2|ob|ausruestung|undefined',
+    'peer ob frisur="H_01" haarfarbe="mittelbraun" augenfarbe="fjordblau" ruestung="wildwarden_vest|wildwarden_robe|{\\"kopf\\":\\"wildwarden_crown\\",\\"schultern\\":\\"wildwarden_mantle\\",\\"unterarme\\":\\"wildwarden_bracers\\",\\"haende\\":\\"wildwarden_gloves\\",\\"fuesse\\":\\"wildwarden_boots\\"}" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[["wildwarden_crown",true],["wildwarden_vest",true],["wildwarden_robe",true],["wildwarden_mantle",true],["wildwarden_bracers",true],["wildwarden_gloves",true],["wildwarden_boots",true]]',
+    'call inventarSync nb',
+    'peer nb frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call inventarSync uf',
+    'peer uf frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
   ],
 };
 const SOLL_INTERAKTION_ECHT: Aufzeichnung = {
@@ -1554,6 +1573,8 @@ console.log('\n[3] Behaviour of step 3: chest, appearance, figure and chat give 
     check(`${titel}: the state numbers, the console output and the exceptions`, JSON.stringify([gemessen.zustand, gemessen.konsole, gemessen.ausnahmen]) === JSON.stringify([soll.zustand, soll.konsole, soll.ausnahmen]), JSON.stringify([gemessen.zustand, gemessen.konsole, gemessen.ausnahmen]));
     check(`${titel}: all of it`, gleich(gemessen, soll));
   };
+  // the premise of the ownership rule in handleSetAussehen: every armour part has a figure, so `ruestungZu(id)?.figure &&` never skips one; a part without a figure needs its own case
+  check('data premise: every armour part of the shared list has a figure (else the ownership case needs a part without one)', RUESTUNG.every((p) => typeof p.figure === 'string' && p.figure !== ''), RUESTUNG.filter((p) => !p.figure).map((p) => p.id).join(','));
   teil('chest/appearance/figure on a stand-in', messeInteraktionAttrappe(), SOLL_INTERAKTION_ATTRAPPE);
   teil('chest/appearance/figure on a real instance through the forwardings', messeInteraktionEcht(), SOLL_INTERAKTION_ECHT);
   teil('chat on a stand-in', messeChatAttrappe(), SOLL_CHAT_ATTRAPPE);

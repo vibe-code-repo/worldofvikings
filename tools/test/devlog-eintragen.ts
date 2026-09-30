@@ -9,11 +9,20 @@
  * Lauf: npx tsx tools/test/devlog-eintragen.ts
  */
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as echt from "node:fs";
-import { schreibeAtomar } from "../devlog/eintragen.mjs";
+import { findeSpuren, schreibeAtomar } from "../devlog/eintragen.mjs";
 
 const WERKZEUG = resolve(import.meta.dirname, "../devlog/eintragen.mjs");
 const ARBEIT = mkdtempSync(join(tmpdir(), "devlog-eintragen-"));
@@ -148,7 +157,9 @@ try {
     const d = ordner();
     const r = lauf(
       d,
-      tag("2026-09-02", "T", { de: { titel: "T".repeat(80), punkte: ["y".repeat(280)] } }),
+      tag("2026-09-02", "T", {
+        de: { titel: "T ".repeat(40), punkte: ["y ".repeat(140)] },
+      }),
     );
     pruefe("Grenzwerte 80 und 280 Zeichen sind erlaubt", r.rc === 0, r.err);
   }
@@ -167,7 +178,6 @@ try {
     /Commit-Hash/,
   );
   abgelehnt("Dateipfad mit Wurzelordner", mit("Geändert in server/src/Welt"), /Dateipfad/);
-  abgelehnt("Dateipfad mit drei Teilen", mit("Siehe a/b/c dazu"), /Dateipfad/);
   abgelehnt("Dateipfad absolut", mit("Liegt in /opt/wov"), /Dateipfad/);
   abgelehnt("Endung .ts", mit("In Welt.ts geändert"), /Dateiendung.*Welt\.ts/);
   abgelehnt("Endung .mjs", mit("Läuft über tag.mjs"), /Dateiendung/);
@@ -203,6 +213,198 @@ try {
     pruefe("Harmlose Texte werden nicht abgelehnt", r.rc === 0, r.err);
   }
 
+  // ── Nachbesserung N1: Tabelle aus dem Prüfbericht (Kopf b35b9756) ────
+  // Je Zeile: Text, erwartete Regel (oder null = darf durch). Geprüft wird
+  // findeSpuren direkt, damit jede Zeile einzeln rot oder grün wird.
+  {
+    const sperr = ["foobar", "kaiser"];
+    const nummer = "PR- oder Issue-Nummer";
+    const gesperrt: [string, string][] = [
+      ["Fix #１２３", nummer],
+      ["＃123", nummer],
+      ["Platz #1 der Rangliste", nummer], // bewusst: Sicherheit vor Überfilterung
+      ["PR 123", nummer],
+      ["Pull Request 12", nummer],
+      ["pull/123", nummer],
+      ["GH-123", nummer],
+      ["issue 45", nummer],
+      ["Commit 77", nummer],
+      ["https://github.com/o/r/pull/5", "Adresse"],
+      ["siehe www.example.org", "Adresse"],
+      ["github.com/o/r", "Adresse"],
+      ["http://x", "Adresse"],
+      ["a1b2-c3d4e5", "Commit-Hash"],
+      ["A1B2C3D4", "Commit-Hash"],
+      ["server\\src", "Dateipfad"],
+      ["C:\\Users\\x", "Dateipfad"],
+      ["C:/Users/x", "Dateipfad"],
+      ["/opt/wov", "Dateipfad"],
+      ["./lauf", "Dateipfad"],
+      ["liegt in ~/foo", "Serveradresse"],
+      ["localhost:2713", "Serveradresse"],
+      ["wov-dev", "Serveradresse"],
+      ["WOV-Host", "Serveradresse"],
+      ["wov-lab", "Serveradresse"],
+      ["wov-live", "Serveradresse"],
+      ["tool.py", "Dateiendung"],
+      ["run.sh", "Dateiendung"],
+      ["style.css", "Dateiendung"],
+      ["index.html", "Dateiendung"],
+      ["modell.glb", "Dateiendung"],
+      ["szene.blend", "Dateiendung"],
+      ["nginx.conf", "Dateiendung"],
+      ["WovServer.ts", "Dateiendung"],
+      ["Welt.TS", "Dateiendung"],
+      ["dir/foo.js", "Dateiendung"],
+      ["server.js", "Dateiendung"],
+      ["foo\u200bbar", "Sperrwort"], // Null-Breite im Sperrwort
+      ["foo\u00adbar", "Sperrwort"], // weiche Trennung
+      ["foo\u0336bar", "Sperrwort"], // kombinierendes Zeichen (Mn)
+      ["ｆｏｏｂａｒ", "Sperrwort"], // Vollbreite
+      ["Kaiſer", "Sperrwort"], // langes s
+    ];
+    for (const [text, regel] of gesperrt) {
+      const funde = findeSpuren({ de: { titel: "T", punkte: [text] } }, sperr).join("|");
+      pruefe(
+        `Gesperrt: ${JSON.stringify(text)} (${regel})`,
+        funde.includes(regel),
+        `Funde: ${funde || "keine"}`,
+      );
+    }
+    const erlaubt = [
+      "Feuer/Wasser/Erde",
+      "Siehe a/b/c dazu", // die Regel „zwei Schrägstriche“ entfiel (N1)
+      "Schwert/Axt/Bogen",
+      "Mo/Di/Mi",
+      "1/2/3",
+      "30/09/2026",
+      "10 km/h",
+      "3/4 der Karte",
+      "Node.js",
+      "Vue.js",
+      "und/oder",
+      "Angriff / Verteidigung",
+      "Version 1.2",
+      "Level 3",
+      "v1.2.3",
+      "2026-09-30",
+      "deadbeef",
+      "Die Regierung spricht 3 Sätze",
+      "Der Commit-Ablauf ist kürzer",
+      "Der Prüfer kommt um 3 Uhr",
+    ];
+    for (const text of erlaubt) {
+      const funde = findeSpuren({ de: { titel: "T", punkte: [text] } }, sperr);
+      pruefe(`Erlaubt: ${JSON.stringify(text)}`, funde.length === 0, funde.join("|"));
+    }
+    const leer = findeSpuren({ de: { titel: "T", punkte: ["Ein ganz normaler Satz"] } }, ["", "  ", "\u200b"]);
+    pruefe("Sperrliste: Zeile, die nach dem Glätten leer ist, sperrt nichts", leer.length === 0, leer.join());
+  }
+
+  // ── Steuer- und Formatzeichen im Rohtext ─────────────────────────────
+  abgelehnt("Bidi-Zeichen U+202E", mit("abc\u202Edef"), /Steuer- oder Formatzeichen U\+202E/);
+  abgelehnt("Null-Breite im Titel", mit("ab\u200Bc", "titel"), /de\.titel.*U\+200B/);
+  abgelehnt("Steuerzeichen Zeilenumbruch", mit("eins\nzwei"), /Steuer- oder Formatzeichen U\+000A/);
+  abgelehnt("Steuerzeichen NUL", mit("a\u0000b"), /Steuer- oder Formatzeichen U\+0000/);
+
+  // ── Überlange Wörter (nur beim Eintragen) ────────────────────────────
+  abgelehnt("Wort mit 41 Zeichen im Punkt", mit(`Das ${"x".repeat(41)} geht nicht`), /Wort mit mehr als 40/);
+  abgelehnt("Wort mit 41 Zeichen im Titel", mit("x".repeat(41), "titel"), /de\.titel.*Wort mit mehr als 40/);
+  {
+    const d = ordner();
+    const r = lauf(d, mit(`${"x".repeat(40)} ${"ä".repeat(40)}`));
+    pruefe("Wörter mit genau 40 Zeichen sind erlaubt", r.rc === 0, r.err);
+  }
+
+  // ── Sicherung beim Entfernen von Alteinträgen ────────────────────────
+  {
+    const d = ordner();
+    const ziel = join(d, "devlog.json");
+    const kaputt = { datum: "kaputt", de: { titel: "T", punkte: ["p"] } };
+    const gut = tag("2026-08-01");
+    const schreibeAlt = () =>
+      writeFileSync(ziel, JSON.stringify({ devlogVersion: 1, eintraege: [gut, kaputt] }));
+    const baks = () => readdirSync(d).filter((n) => n.startsWith("devlog.json.bak-")).sort();
+
+    const ohne = lauf(d, tag("2026-09-01"));
+    pruefe(
+      "Ohne ungültige Alteinträge keine Sicherung",
+      ohne.rc === 0 && baks().length === 0,
+      baks().join(),
+    );
+    schreibeAlt();
+    const alt = readFileSync(ziel);
+    const r = lauf(d, tag("2026-09-02"));
+    pruefe(
+      "Entfernte Alteinträge: genau eine Sicherung",
+      r.rc === 0 && baks().length === 1 && /Sicherung/.test(r.err),
+      `rc=${r.rc} ${baks().join()} ${r.err}`,
+    );
+    pruefe(
+      "Sicherung enthält die Datei von vorher, Name mit UTC-Stempel",
+      baks().length === 1 &&
+        readFileSync(join(d, baks()[0])).equals(alt) &&
+        /^devlog\.json\.bak-\d{8}T\d{9}Z$/.test(baks()[0]),
+      baks().join(),
+    );
+    pruefe("Der ungültige Eintrag ist aus der Datei weg", dok(d).eintraege.length === 2);
+    for (let i = 0; i < 7; i++) {
+      schreibeAlt();
+      lauf(d, tag("2026-09-03"));
+    }
+    pruefe("Höchstens 5 Sicherungen bleiben", baks().length === 5, `${baks().length}`);
+    const neueste = baks().at(-1) ?? "";
+    const aeltester = baks()[0];
+    schreibeAlt();
+    lauf(d, tag("2026-09-03"));
+    pruefe(
+      "Die ältesten fallen weg, die neuesten bleiben",
+      baks().length === 5 && (baks().at(-1) ?? "") > neueste && !baks().includes(aeltester),
+      baks().join(),
+    );
+    schreibeAlt();
+    const vorher = readdirSync(d).join();
+    const abgelehntLauf = lauf(d, mit("Behoben in #5"));
+    pruefe(
+      "Abgelehnter Eintrag: keine Sicherung, Datei unverändert",
+      abgelehntLauf.rc === 1 && readdirSync(d).join() === vorher,
+    );
+  }
+
+  // ── Sperrdatei gegen gleichzeitige Läufe ─────────────────────────────
+  {
+    const d = ordner();
+    const sperre = join(d, "devlog.json.lock");
+    writeFileSync(sperre, "99999\n");
+    const r = lauf(d, tag("2026-09-01"));
+    pruefe(
+      "Belegte Sperre: Exit 2 mit benannter Meldung (PID)",
+      r.rc === 2 && /Sperre .*devlog\.json\.lock belegt.*99999/.test(r.err),
+      `rc=${r.rc} ${r.err}`,
+    );
+    pruefe(
+      "Belegte Sperre: keine Datei geschrieben, fremde Sperre bleibt",
+      !existsSync(join(d, "devlog.json")) && existsSync(sperre),
+    );
+    const alt = new Date(Date.now() - 11 * 60 * 1000);
+    utimesSync(sperre, alt, alt);
+    const r2 = lauf(d, tag("2026-09-01"));
+    pruefe("Veraltete Sperre (über 10 min) wird übernommen", r2.rc === 0, r2.err);
+    pruefe(
+      "Nach dem Lauf ist die Sperre frei",
+      !existsSync(sperre) && existsSync(join(d, "devlog.json")),
+      readdirSync(d).join(),
+    );
+    const knapp = new Date(Date.now() - 9 * 60 * 1000);
+    writeFileSync(sperre, "1\n");
+    utimesSync(sperre, knapp, knapp);
+    const r3 = lauf(d, tag("2026-09-02"));
+    pruefe("Sperre mit 9 min Alter gilt noch", r3.rc === 2, `rc=${r3.rc}`);
+    rmSync(sperre);
+    const r4 = lauf(d, tag("2026-09-02"));
+    pruefe("Abgelehnter Eintrag gibt die Sperre frei", (lauf(d, mit("Fix #9")).rc === 1) && !existsSync(sperre) && r4.rc === 0);
+  }
+
   // ── Datei defekt, Aufruf ─────────────────────────────────────────────
   {
     const d = ordner();
@@ -225,8 +427,8 @@ try {
     const gross = (n: number): Tag => {
       const t = new Date(Date.UTC(2020, 0, 1) + n * 86400000).toISOString().slice(0, 10);
       return tag(t, `Eintrag ${n}`, {
-        de: { titel: `Eintrag ${n}`, punkte: Array.from({ length: 8 }, () => "ä".repeat(280)) },
-        en: { titel: `Entry ${n}`, punkte: Array.from({ length: 8 }, () => "e".repeat(280)) },
+        de: { titel: `Eintrag ${n}`, punkte: Array.from({ length: 8 }, () => "ä ".repeat(140)) },
+        en: { titel: `Entry ${n}`, punkte: Array.from({ length: 8 }, () => "e ".repeat(140)) },
       });
     };
     const alle = Array.from({ length: 300 }, (_, i) => gross(300 - i)).sort((a, b) =>

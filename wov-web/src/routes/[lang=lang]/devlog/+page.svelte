@@ -105,6 +105,8 @@
 
   .devlog-entry {
     padding: 1.6rem 1.8rem;
+    /* Ein Wort ohne Leerzeichen darf die Karte nie sprengen (Titel und Punkte). */
+    overflow-wrap: anywhere;
   }
 
   .devlog-day {

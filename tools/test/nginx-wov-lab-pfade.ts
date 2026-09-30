@@ -152,9 +152,9 @@ const ERWARTUNGEN: Erwartung[] = [
     einem eigenen nginx steht im Bericht der Karte.
   */
   {
-    weg: '/api/devlog.json (exakt, zuerst /var/lib/wov/web/devlog.json, no-cache)',
+    weg: '/api/devlog.json (exakt, zuerst /var/lib/wov/web/devlog.json, no-cache, keine Symlinks)',
     muster:
-      /location\s+=\s+\/api\/devlog\.json\s*\{[^}]*root\s+\/var\/lib\/wov\/web\s*;[^}]*try_files\s+\/devlog\.json\s+@devlog-rueckfall\s*;[^}]*Cache-Control\s+"no-cache"[^}]*\}/,
+      /location\s+=\s+\/api\/devlog\.json\s*\{[^}]*root\s+\/var\/lib\/wov\/web\s*;[^}]*try_files\s+\/devlog\.json\s+@devlog-rueckfall\s*;[^}]*disable_symlinks\s+on\b[^;]*;[^}]*Cache-Control\s+"no-cache"[^}]*\}/,
   },
   {
     weg: '@devlog-rueckfall (Rueckfall-Datei aus dem Build, no-cache)',
@@ -271,6 +271,18 @@ function main(): void {
     const treffer = muster.test(ohneKomm);
     console.log(`${treffer ? 'OK  ' : 'FEHL'}  ${weg}`);
     if (!treffer) fehler++;
+  }
+
+  /*
+    Dev-Log N1: Der Kommentar zum Regex-Block /api/*.json ("Fehlt eine Datei, liefert
+    dieser Block ehrlich 404") steht unmittelbar vor seinem Block, nicht ueber dem
+    Dev-Log-Abschnitt. Ein Kommentar ist nur im Rohtext sichtbar, deshalb hier `text`.
+  */
+  {
+    const weg = 'Kommentar „Statische Daten“ steht unmittelbar vor der /api/*.json-Regex-location';
+    const ok = /404 statt stillschweigend an den Betriebsdienst durchzufallen\.\s*\n\s*location\s+~\s+\^\/api\//.test(text);
+    console.log(`${ok ? 'OK  ' : 'FEHL'}  ${weg}`);
+    if (!ok) fehler++;
   }
 
   /*

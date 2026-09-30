@@ -39,6 +39,12 @@ export const DEVLOG_VERSION = 1;
 export const TITEL_MAX = 80;
 export const PUNKTE_MAX = 8;
 export const PUNKT_MAX = 280;
+/**
+ * Längstes Wort (Zeichen ohne Leerraum), das das Werkzeug beim Eintragen noch
+ * annimmt. Gilt NUR dort (`pruefeWortLaenge`), nicht beim Lesen: Die Seite
+ * überspringt keinen Eintrag wegen eines langen Worts, sie bricht es um.
+ */
+export const WORT_MAX = 40;
 /** Obergrenze der Datei in Byte; ältere Einträge fallen beim Einfügen hinten weg. */
 export const DATEI_MAX_BYTES = 512 * 1024;
 
@@ -72,6 +78,32 @@ export function pruefeText(x: unknown, name: string): string[] {
       if (typeof p !== 'string' || p.trim() === '' || zeichen(p) > PUNKT_MAX) {
         fehler.push(`${name}.punkte[${i}]: Text mit 1–${PUNKT_MAX} Zeichen erwartet`);
       }
+    });
+  }
+  return fehler;
+}
+
+/**
+ * Meldungen zu Wörtern über `WORT_MAX` Zeichen in Titel und Punkten; leer =
+ * in Ordnung. Nur fürs Eintragen gedacht und setzt einen schemagültigen
+ * Eintrag voraus (erst `pruefeEintrag`). `pruefeEintrag` selbst kennt die
+ * Grenze nicht, damit die Seite vorhandene Einträge nie deswegen verwirft.
+ */
+export function pruefeWortLaenge(e: DevlogEintrag): string[] {
+  const fehler: string[] = [];
+  const pruefe = (ort: string, text: string): void => {
+    for (const wort of text.split(/\s+/)) {
+      if (zeichen(wort) > WORT_MAX) {
+        fehler.push(`${ort}: Wort mit mehr als ${WORT_MAX} Zeichen („${wort.slice(0, 20)}…“)`);
+      }
+    }
+  };
+  for (const s of SPRACHEN) {
+    const t = e[s];
+    if (!t) continue;
+    pruefe(`${s}.titel`, t.titel);
+    t.punkte.forEach((p, i) => {
+      pruefe(`${s}.punkte[${i}]`, p);
     });
   }
   return fehler;

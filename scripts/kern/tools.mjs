@@ -249,7 +249,7 @@ export default [
     gegen das Schema aus wov-web/src/lib/devlog.ts, lehnt interne Spuren ab (PR-Nummer,
     Commit-Hash, Pfad, Endung, Sperrliste), fuegt ein/ersetzt/kuerzt auf 512 KB und
     schreibt atomar. Kindprozesse auf Wegwerf-Ordnern unter /tmp, keine Ports, keine
-    Assets. ~2 s.
+    Assets. ~8 s.
     Dev-log insert tool: schema, every block rule, insert/replace/trim, atomic write.
   */
   ['tools/test', 'devlog-eintragen.ts'],

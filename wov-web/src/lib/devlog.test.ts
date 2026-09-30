@@ -10,7 +10,9 @@ import {
   istDatum,
   leseDevlog,
   pruefeEintrag,
+  pruefeWortLaenge,
   serialisiere,
+  WORT_MAX,
 } from './devlog';
 import { localizedPath } from './i18n';
 import { HAUPTNAV, SITEMAP } from './seiten';
@@ -60,6 +62,36 @@ describe('devlog: Schema', () => {
     expect(pruefeEintrag({ datum: '2026-09-30', de: text('T'), en: { titel: '' } })).not.toEqual(
       [],
     );
+  });
+});
+
+describe('devlog: Wortlänge (nur beim Eintragen)', () => {
+  const langes = 'w'.repeat(WORT_MAX + 1);
+  const mit = (titel: string, punkt: string) => ({
+    datum: '2026-09-30',
+    de: { titel, punkte: [punkt] },
+    en: text('T'),
+  });
+
+  it('lehnt Wörter über 40 Zeichen in Titel und Punkten ab, 40 sind erlaubt', () => {
+    expect(pruefeWortLaenge(mit('T', 'w'.repeat(WORT_MAX)))).toEqual([]);
+    expect(pruefeWortLaenge(mit('T', `Ein ${langes} Wort`)).join()).toContain('de.punkte[0]');
+    expect(pruefeWortLaenge(mit(langes, 'p')).join()).toContain('de.titel');
+    // Mehrere Wörter, jedes kurz, dazu Emoji als ein Zeichen je Stück.
+    expect(pruefeWortLaenge(mit('T', `${'ab '.repeat(90)}${'😀'.repeat(WORT_MAX)}`))).toEqual([]);
+  });
+
+  it('gehört nicht zum Schema: die Seite verwirft so einen Eintrag nicht', () => {
+    const e = mit(langes, langes);
+    expect(pruefeEintrag(e, true)).toEqual([]);
+    const gelesen = leseDevlog({ devlogVersion: 1, eintraege: [e] });
+    expect(gelesen.uebersprungen).toBe(0);
+    expect(gelesen.eintraege).toHaveLength(1);
+  });
+
+  it('Seite bricht lange Wörter um (overflow-wrap: anywhere)', () => {
+    const quelle = readFileSync(join(HIER, '../routes/[lang=lang]/devlog/+page.svelte'), 'utf8');
+    expect(quelle).toMatch(/\.devlog-entry\s*\{[^}]*overflow-wrap:\s*anywhere/);
   });
 });
 

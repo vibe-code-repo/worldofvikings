@@ -112,6 +112,11 @@ export interface Fall {
   teile?: readonly string[];
   /** Release keys that must have been used. */
   freigegeben?: readonly string[];
+  /**
+   * For a fixture taken over from another test or from an attack: what was expected there, and
+   * why the result here differs, if it does.
+   */
+  herkunft?: { alt: 'gruen' | 'rot'; grund?: string };
 }
 
 export interface Ausgang {
@@ -122,6 +127,7 @@ export interface Ausgang {
   ok: boolean;
   grund: string;
   ergebnis: Ergebnis | null;
+  herkunft?: { alt: 'gruen' | 'rot'; grund?: string };
 }
 
 export function pruefeFall(f: Fall): Ausgang {
@@ -155,7 +161,26 @@ export function pruefeFall(f: Fall): Ausgang {
       grund = `exit ${ergebnis.exit} does not fit the findings`;
     }
   }
-  return { id: f.id, name: f.name, soll, ist, ok, grund, ergebnis };
+  // A fixture that was red where it came from and is green here needs a reason: otherwise it is a finding against this tool.
+  if (ok && f.herkunft && f.herkunft.alt !== (soll.length === 0 ? 'gruen' : 'rot') && !f.herkunft.grund) {
+    ok = false;
+    grund = `expected ${f.herkunft.alt} where the fixture comes from, ${soll.length === 0 ? 'green' : 'red'} here, and no reason is given`;
+  }
+  return { id: f.id, name: f.name, soll, ist, ok, grund, ergebnis, ...(f.herkunft ? { herkunft: f.herkunft } : {}) };
+}
+
+/** The forwarder of a method as it stands in the rest of a fixture. */
+export function weiterleitungIn(e: Eingabe, name: string): string {
+  const w = e.schnitt.weiterleitungen[name];
+  if (w === undefined) throw new Error(`no forwarder "${name}" in the fixture`);
+  if (!e.neu[e.manifest.quelle]!.includes(w)) throw new Error(`forwarder "${name}" is not in the rest as the mover built it`);
+  return w;
+}
+
+/** Changes the forwarder of a method in the rest. */
+export function mitWeiterleitung(e: Eingabe, name: string, f: (w: string) => string): Eingabe {
+  const w = weiterleitungIn(e, name);
+  return mit(e, { rest: (t) => t.replace(w, muss(w, f(w), `forwarder ${name}`)) });
 }
 
 /** Runs the cases of one self-test, prints one line per case and returns the number of failures. */
@@ -195,7 +220,21 @@ export class Lauf {
     }
   }
 
+  /** Table of the fixtures that were taken over: expectation there, result here, rules, reason. One line per fixture. */
+  tabelle(): void {
+    const mit = this.ausgaenge.filter((a) => a.herkunft);
+    if (mit.length === 0) return;
+    console.log('\nTABLE id | there | here | rules | reason of a difference');
+    for (const a of mit) {
+      const hier = a.ist.length === 0 ? 'gruen' : 'rot';
+      console.log(`TABLE ${a.id} | ${a.herkunft!.alt} | ${hier} | ${a.ist.join(' ')} | ${a.herkunft!.alt === hier ? '' : (a.herkunft!.grund ?? 'NO REASON')}`);
+    }
+    const anders = mit.filter((a) => a.herkunft!.alt !== (a.ist.length === 0 ? 'gruen' : 'rot'));
+    console.log(`TABLE total ${mit.length}: same ${mit.length - anders.length}, different ${anders.length} (there red, here green: ${anders.filter((a) => a.herkunft!.alt === 'rot').length}; there green, here red: ${anders.filter((a) => a.herkunft!.alt === 'gruen').length})`);
+  }
+
   ende(): never {
+    this.tabelle();
     console.log(this.rot === 0 ? `\n${this.titel}: ${this.faelle} cases, all as expected.` : `\n${this.titel}: ${this.rot} of ${this.faelle} cases FAILED.`);
     process.exit(this.rot === 0 ? 0 : 1);
   }

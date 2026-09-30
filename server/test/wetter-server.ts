@@ -892,6 +892,14 @@ async function teilC(): Promise<void> {
     ),
   );
   check(
+    'Warntext unterscheidet "270" von 270, zeigt Objekte und Infinity lesbar',
+    u('270', 900).warnung?.includes('"270"') === true &&
+      u({ a: 1 }, 900).warnung?.includes('{"a":1}') === true &&
+      u(Infinity, 900).warnung?.includes('Infinity') === true &&
+      u(undefined, 900).warnung?.includes('undefined') === true,
+    u('270', 900).warnung,
+  );
+  check(
     'reine Funktion: 0, 900, 1e9 und WELTZEIT_MAX bleiben unverändert, ohne Warnung',
     [0, 900, 1e9, WELTZEIT_MAX].every((x) => u(x, 7).wert === x && u(x, 7).warnung === undefined),
   );

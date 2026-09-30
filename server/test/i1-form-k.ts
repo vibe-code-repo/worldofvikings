@@ -42,6 +42,10 @@
  *  The packets are held completely (length and hash over all bytes, next to a readable head), the arguments of the calls into the
  *  context are held (`sendTimeSync(p)`, `enterDungeon(peer, id)`, `upsertDokument2(raw)`), the save sequence has cases without checksum
  *  (an old client) and exactly at the size limit, and `onPacket` maps every packet type to its forwarding (attack on step 2, I12-B1).
+ *  Step 3 (attack I13-B1): the peers start with values that are not the defaults (hair, eyes, armour, position with y != 0), the whole
+ *  state of a peer is held after every packet (all appearance fields, the armour as text, the position, the parts of the inventory with
+ *  their flag), `sichereSpielerSofort` is held with ALL its arguments, the calls into the context are held as an ordered list with their
+ *  arguments, and every console line is held by its text.
  *  Not applicable in steps 2 and 3: the identity of returned objects of the stock (K9-5), no function returns a value.
  *
  * Section [0] shows first that each check can turn red: the same checks run over small invented sources, one fault
@@ -64,7 +68,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import * as ts from 'typescript';
-import { PacketType, WORLD_TIME_LENGTH, dungeon2, Inventory, WILDWARDEN_PARTS, findItem, FRISUR_VORGABE, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, FIGUREN, HAARFARBEN, AUGENFARBEN, TRUHE_INHALT_MEMBER, TRUHE_LOOTED_MEMBER, packContainer, unpackContainer, ChatMsgType } from '@wov/shared';
+import { PacketType, WORLD_TIME_LENGTH, dungeon2, Inventory, WILDWARDEN_PARTS, findItem, FRISUR_VORGABE, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, FIGUREN, FRISUREN, HAARFARBEN, AUGENFARBEN, encodeArmor, TRUHE_INHALT_MEMBER, TRUHE_LOOTED_MEMBER, packContainer, unpackContainer, ChatMsgType } from '@wov/shared';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import { WovServer, createWovServer } from '../src/WovServer.js';
@@ -667,10 +671,15 @@ function peer(a: Aufzeichnung, name: string, isAdmin: boolean, dungeonId = ''): 
     },
   };
 }
+/** The text of a console line, held by its length, a hash over all of it and its start (the temporary folder of the run is written `<tmp>`). */
+const konsolenText = (x: unknown[]): string => {
+  const t = x.map(String).join(' ').replace(/\/[^\s"']*i1-form-k-[A-Za-z0-9]+/g, '<tmp>');
+  return `${t.length}:${createHash('sha256').update(t).digest('hex').slice(0, 16)}:${t.slice(0, 48)}`;
+};
 const konsole = (a: Aufzeichnung): (() => void) => {
   const orig = { log: console.log, warn: console.warn };
-  console.log = (): void => { a.konsole.log++; };
-  console.warn = (): void => { a.konsole.warn++; };
+  console.log = (...x: unknown[]): void => { a.konsole.log++; a.notizen.push(`log ${konsolenText(x)}`); };
+  console.warn = (...x: unknown[]): void => { a.konsole.warn++; a.notizen.push(`warn ${konsolenText(x)}`); };
   return () => { console.log = orig.log; console.warn = orig.warn; };
 };
 const versuche = (a: Aufzeichnung, fn: () => unknown): void => {
@@ -837,7 +846,8 @@ function mitZufall<T>(seed: number, fn: () => T): T {
 }
 function peerI(a: Aufzeichnung3, name: string, o: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    name, figur: 'wikinger', frisur: FRISUR_VORGABE, haarfarbe: HAARFARBE_VORGABE, augenfarbe: AUGENFARBE_VORGABE, ruestung: '|', characterID: 'c1', inventar: new Inventory(),
+    // start values that are NOT the defaults: a handler that falls back to a default or keeps an old value shows in the state after the packet
+    name, figur: 'wikinger', frisur: FRISUREN[1]!.id, haarfarbe: HAARFARBEN[2]!.id, augenfarbe: AUGENFARBEN[2]!.id, ruestung: encodeArmor({ oberkoerper: 'leder_bh', beine: 'leder_shorts' }), position: { x: 3, y: 7, z: 5 }, characterID: 'c1', inventar: new Inventory(),
     sendPacketWith(type: PacketType, fn: (w: Writer) => void): void {
       const w = new Writer();
       fn(w);
@@ -864,6 +874,17 @@ function zdoA(a: Aufzeichnung3, start: Record<string, string | number> = {}): Re
 const paketS = (...werte: string[]): Reader => leser((w) => { for (const x of werte) w.writeString(x); });
 const teileWild = (): Record<string, string> => Object.fromEntries(WILDWARDEN_PARTS.map((p) => [p.slot, p.id]));
 const inventarMit = (): Inventory => { const inv = new Inventory(); for (const t of WILDWARDEN_PARTS) inv.addItem(findItem(t.item)!, 1); return inv; };
+const nm = (p: unknown): string => String((p as { name?: unknown } | null | undefined)?.name);
+/** The whole state of a peer after a packet: every field a handler may write, the armour as text, the parts in the inventory with their flag. */
+const nachPaket = (a: Aufzeichnung, args: readonly unknown[]): void => {
+  const p = args[0] as Record<string, unknown> | null | undefined;
+  if (p === null || typeof p !== 'object' || !('name' in p)) return;
+  const felder = ['frisur', 'haarfarbe', 'augenfarbe', 'ruestung', 'figur', 'position', 'worldId'].filter((f) => f in p).map((f) => `${f}=${JSON.stringify(p[f])}`);
+  const inv = p['inventar'] instanceof Inventory ? `inventar=${JSON.stringify(p['inventar'].all.map((i) => [i.shared.name, i.equipped]))}` : '';
+  a.notizen.push(`peer ${String(p['name'])} ${felder.join(' ')} ${inv}`.trim());
+};
+/** What `sichereSpielerSofort` was called with: the number of arguments, the peer, the reason and the ZDOs handed along. */
+const sofortArgs = (x: readonly unknown[]): string => `${x.length}|${nm(x[0])}|${String(x[1])}|${Array.isArray(x[2]) ? JSON.stringify((x[2] as { zdoid?: { id: number } }[]).map((z) => z.zdoid?.id ?? '?')) : String(x[2])}`;
 const angelegt = (p: Record<string, unknown>): number => (p['inventar'] as Inventory).all.filter((i) => i.equipped).length;
 const truhenInhalt = (): string => { const inv = unpackContainer(''); inv.addItem(findItem('Coins')!, 3); return packContainer(inv); };
 const F0 = FIGUREN[0]!.id;
@@ -876,13 +897,13 @@ function messeInteraktionAttrappe(): Aufzeichnung3 {
   let charZdo: Record<string, unknown> | undefined = zdoA(a);
   const k: Record<string, unknown> = {
     // a moved method that is a context member: before the move through the prototype, after it through the function (R12)
-    sendeTruheInhalt(this: unknown, ...x: unknown[]): unknown { zaehle(a, 'sendeTruheInhalt'); return F['sendeTruheInhalt']!(this, ...x); },
-    inventarSync: (): void => { zaehle(a, 'inventarSync'); },
-    zdosVon: (): unknown => { zaehle(a, 'zdosVon'); return { getZDO: (): unknown => charZdo }; },
-    kappeLeben: (): void => { zaehle(a, 'kappeLeben'); },
-    sichereSpielerSofort: (_p: unknown, grund: unknown): void => { zaehle(a, 'sichereSpielerSofort'); a.notizen.push(`sofort:${String(grund)}`); },
+    sendeTruheInhalt(this: unknown, ...x: unknown[]): unknown { zaehle(a, 'sendeTruheInhalt'); a.notizen.push(`call sendeTruheInhalt ${nm(x[0])} ${String((x[1] as { zdoid?: { id: number } } | undefined)?.zdoid?.id)}`); return F['sendeTruheInhalt']!(this, ...x); },
+    inventarSync: (p: unknown): void => { zaehle(a, 'inventarSync'); a.notizen.push(`call inventarSync ${nm(p)}`); },
+    zdosVon: (p: unknown): unknown => { zaehle(a, 'zdosVon'); a.notizen.push(`call zdosVon ${nm(p)}`); return { getZDO: (): unknown => charZdo }; },
+    kappeLeben: (p: unknown): void => { zaehle(a, 'kappeLeben'); a.notizen.push(`call kappeLeben ${nm(p)}`); },
+    sichereSpielerSofort: (...x: unknown[]): void => { zaehle(a, 'sichereSpielerSofort'); a.notizen.push(`call sichereSpielerSofort ${sofortArgs(x)}`); },
   };
-  const lauf = (name: string, seed: number, ...args: unknown[]): void => versuche(a, () => mitZufall(seed, () => F[name]!(k, ...args)));
+  const lauf = (name: string, seed: number, ...args: unknown[]): void => { versuche(a, () => mitZufall(seed, () => F[name]!(k, ...args))); nachPaket(a, args); };
   try {
     // the chest: first touch (drawn from the loot table), touched again, old chest, direct send
     for (const [seed, start, def] of [
@@ -906,6 +927,10 @@ function messeInteraktionAttrappe(): Aufzeichnung3 {
     const mit = peerI(a, 'm', { inventar: inventarMit() });
     lauf('handleSetAussehen', 16, mit, paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, JSON.stringify(teile)));
     a.zustand.push(String(mit['ruestung']).length, angelegt(mit));
+    // two items carry the same part: only one of them is worn
+    const doppelt = peerI(a, 'dd', { inventar: inventarMit() });
+    for (const t of WILDWARDEN_PARTS) (doppelt['inventar'] as Inventory).addItem(findItem(t.item)!, 1);
+    lauf('handleSetAussehen', 27, doppelt, paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, JSON.stringify(teile)));
     lauf('handleSetAussehen', 17, mit, paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, '{}'));
     a.zustand.push(String(mit['ruestung']).length, angelegt(mit));
     charZdo = undefined;
@@ -940,15 +965,21 @@ function messeInteraktionEcht(): Aufzeichnung3 {
     } as never) as unknown as Record<string, unknown>;
     // the main world only exists after init(): a real ZDO space is enough for `zdosVon`
     (server['welten'] as Map<string, unknown>).set(HAUPTWELT_ID, { zdos: new ZDOManager(1n) });
-    server['inventarSync'] = (): void => { zaehle(a, 'inventarSync'); };
-    server['kappeLeben'] = (): void => { zaehle(a, 'kappeLeben'); };
-    server['sichereSpielerSofort'] = (_p: unknown, grund: unknown): void => { zaehle(a, 'sichereSpielerSofort'); a.notizen.push(`sofort:${String(grund)}`); };
-    const rufe = (name: string, seed: number, ...args: unknown[]): void => versuche(a, () => mitZufall(seed, () => (server[name] as (...x: unknown[]) => unknown).call(server, ...args)));
+    server['inventarSync'] = (p: unknown): void => { zaehle(a, 'inventarSync'); a.notizen.push(`call inventarSync ${nm(p)}`); };
+    server['kappeLeben'] = (p: unknown): void => { zaehle(a, 'kappeLeben'); a.notizen.push(`call kappeLeben ${nm(p)}`); };
+    server['sichereSpielerSofort'] = (...x: unknown[]): void => { zaehle(a, 'sichereSpielerSofort'); a.notizen.push(`call sichereSpielerSofort ${sofortArgs(x)}`); };
+    const halter: { zdo?: { getString(k: string): string } } = {};
+    const rufe = (name: string, seed: number, ...args: unknown[]): void => {
+      versuche(a, () => mitZufall(seed, () => (server[name] as (...x: unknown[]) => unknown).call(server, ...args)));
+      nachPaket(a, args);
+      if (halter.zdo) a.notizen.push(`zdo ${['frisur', 'haarfarbe', 'augenfarbe', 'ruestung', 'figur'].map((m) => halter.zdo!.getString(m)).join('|')}`);
+    };
     const ep = peerI(a, 'e', { worldId: HAUPTWELT_ID, userId: 1, inventar: inventarMit() });
     const zm = (server['zdosVon'] as (p: unknown) => ZDOManager).call(server, ep);
     const truhe = zm.createZDO(1234, { x: 0, y: 0, z: 0 });
     const chr = zm.createZDO(4321, { x: 0, y: 0, z: 0 });
     ep['characterID'] = chr.zdoid;
+    halter.zdo = chr;
     rufe('handleTruheOeffnen', 1, ep, truhe, { name: 'trollcave_chest' });
     a.zustand.push(truhe.getInt(TRUHE_LOOTED_MEMBER), truhe.getString(TRUHE_INHALT_MEMBER).length);
     rufe('handleTruheOeffnen', 2, ep, truhe, { name: 'trollcave_chest' });
@@ -974,7 +1005,7 @@ function messeInteraktionEcht(): Aufzeichnung3 {
 
 function chatPeer(a: Aufzeichnung3, name: string, id: number, x: number, welt: string, o: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    name, userId: id, worldId: welt, position: { x, y: 0, z: 0 }, nurEditor: false,
+    name, userId: id, worldId: welt, position: { x, y: 2 + id * 1.5, z: 4 }, nurEditor: false,
     sendPacket(type: PacketType, payload: Buffer): void {
       const r = new Reader(payload);
       const erstes = r.readString();
@@ -992,7 +1023,7 @@ function messeChatAttrappe(): Aufzeichnung3 {
   const ruecksetzen = konsole(a);
   const liste: Record<string, unknown>[] = [];
   const k: Record<string, unknown> = { net: { getPeers: (): unknown[] => { zaehle(a, 'getPeers'); return liste; } } };
-  const lauf = (p: unknown, r: Reader): void => versuche(a, () => F['handleChatMessage']!(k, p, r));
+  const lauf = (p: unknown, r: Reader): void => { versuche(a, () => F['handleChatMessage']!(k, p, r)); nachPaket(a, [p]); };
   const chat = (typ: number, text: string): Reader => leser((w) => { w.writeInt32(typ); w.writeString(text); });
   try {
     const ich = chatPeer(a, 'ich', 1, 0, HAUPTWELT_ID);
@@ -1026,7 +1057,7 @@ function messeChatEcht(): Aufzeichnung3 {
     } as never) as unknown as Record<string, unknown>;
     const liste: Record<string, unknown>[] = [];
     (server['net'] as Record<string, unknown>)['getPeers'] = (): unknown[] => { zaehle(a, 'getPeers'); return liste; };
-    const rufe = (p: unknown, r: Reader): void => versuche(a, () => (server['handleChatMessage'] as (x: unknown, y: unknown) => unknown).call(server, p, r));
+    const rufe = (p: unknown, r: Reader): void => { versuche(a, () => (server['handleChatMessage'] as (x: unknown, y: unknown) => unknown).call(server, p, r)); nachPaket(a, [p]); };
     const ich = chatPeer(a, 'a', 1, 0, HAUPTWELT_ID);
     liste.push(ich, chatPeer(a, 'b', 2, 20, HAUPTWELT_ID), chatPeer(a, 'd', 3, 200, HAUPTWELT_ID), chatPeer(a, 'i', 4, 1, 'dungeon:x'));
     for (const t of [ChatMsgType.Normal, ChatMsgType.Whisper, ChatMsgType.Shout]) rufe(ich, leser((w) => { w.writeInt32(t); w.writeString('Hallo Ägir'); }));
@@ -1086,17 +1117,25 @@ const SOLL_ATTRAPPE: Aufzeichnung = {
   zustand: [100, 1750, 5, 0, 0, 0, 0, 2, 1, 1],
   ausnahmen: ['RangeError'],
   notizen: [
+    'log 42:70ed6bfaae6f08de:[WoV] "a" set time of day to 100s (day -1)',
     'sendTimeSync p1',
     'sendTimeSync p2',
+    'log 42:ff2649a2ca7020ab:[WoV] "a" set time of day to 1750s (day 0)',
     'sendTimeSync p1',
     'sendTimeSync p2',
+    'log 40:6862a1e3c389af9f:[WoV] "a" set time of day to 5s (day -1)',
     'sendTimeSync p1',
     'sendTimeSync p2',
+    'log 40:8bd671a99f19deb4:[WoV] "a" set time of day to 0s (day -1)',
     'sendTimeSync p1',
     'sendTimeSync p2',
+    'log 56:88918f5a54f23579:[Admin] "n" — SetTimeOfDay abgelehnt: keine Bere',
     'execute a "fly"',
+    'log 31:4b0d2e4c70f3c68e:[Admin] "a" ran "fly" → ran:fly',
     'execute a "  Fly  on "',
+    'log 42:6691671c1a9d0214:[Admin] "a" ran "  Fly  on " → ran:Fly  on',
     'execute a ""',
+    'log 25:185ef340b71ecef3:[Admin] "a" ran "" → ran:',
     'getDokument2 d2',
     'getDokument2 d1',
     'getDocument d1',
@@ -1104,18 +1143,39 @@ const SOLL_ATTRAPPE: Aufzeichnung = {
     'getDocument zz',
     'getDokument2 d1',
     'getDocument d1',
+    'warn 104:8bfaedcf885b76fb:[Dungeon] \'a\' hat eine veraltete Modulregistry (',
     'upsertDocument 23:9ef74ce4b338647a',
+    'log 52:3f0b42706f043d3f:[Dungeon] \'a\' saved document \'d1\' (3 rooms, 2 pr',
     'upsertDokument2 24:e60d7c728299f75c',
+    'log 53:c5572f37fbf79261:[Dungeon] \'a\' saved 2.0 document \'d2\' (steingrab',
     'upsertDokument2 24:e60d7c728299f75c',
     'enterDungeon a d2',
+    'log 53:c5572f37fbf79261:[Dungeon] \'a\' saved 2.0 document \'d2\' (steingrab',
     'upsertDokument2 24:e60d7c728299f75c',
+    'log 53:c5572f37fbf79261:[Dungeon] \'a\' saved 2.0 document \'d2\' (steingrab',
     'upsertDokument2 24:e60d7c728299f75c',
+    'log 68:2a39372142a6bad1:[Dungeon] \'a\' saved 2.0 document \'d2\' (steingrab',
     'upsertDokument2 24:e60d7c728299f75c',
     'upsertDocument 23:9ef74ce4b338647a',
     'enterDungeon a d1',
+    'log 52:3f0b42706f043d3f:[Dungeon] \'a\' saved document \'d1\' (3 rooms, 2 pr',
     'upsertDocument 23:9ef74ce4b338647a',
+    'log 52:3f0b42706f043d3f:[Dungeon] \'a\' saved document \'d1\' (3 rooms, 2 pr',
     'upsertDocument 23:9ef74ce4b338647a',
+    'log 67:7981f452535eb722:[Dungeon] \'a\' saved document \'d1\' (3 rooms, 2 pr',
     'upsertDocument 23:9ef74ce4b338647a',
+    'log 54:d15fc24bac626c8d:[Dungeon] \'n\' — Modulbau abgelehnt: Keine Berech',
+    'log 89:e607ec82fef51d8c:[Dungeon] \'a\' — Modulbau abgelehnt: Zellzahl x =',
+    'log 83:2bd802c5aa07402e:[Dungeon] \'a\' built module \'Gen_StoneVaultHall4x',
+    'log 185:ab4493bf86b0a60f:[Dungeon] \'a\' — Modulbau abgelehnt: Der Saal \'Ge',
+    'warn 104:8a4d1f82e3369b0d:[Dungeon] \'a\' hat eine veraltete Modulregistry (',
+    'warn 104:8a4d1f82e3369b0d:[Dungeon] \'a\' hat eine veraltete Modulregistry (',
+    'log 59:6971f7c8513f75f4:[Dungeon] \'n\' — Modul löschen abgelehnt: Keine B',
+    'log 157:de8b430d9ebfd0f0:[Dungeon] \'a\' — Modul löschen abgelehnt: Modulna',
+    'log 82:c0a96c3e0c513361:[Dungeon] \'a\' deleted module \'Gen_StoneVaultHall',
+    'log 120:4a0adc25c1e69976:[Dungeon] \'a\' — Modul löschen abgelehnt: Die Reg',
+    'log 95:9d62d779a54136cf:[Dungeon] \'a\' — Modulbau abgelehnt: Modulbau ist',
+    'log 100:6dcda13acd0cfcf3:[Dungeon] \'a\' — Modul löschen abgelehnt: Modulba',
   ],
 };
 const SOLL_ECHT: Aufzeichnung = {
@@ -1141,16 +1201,35 @@ const SOLL_ECHT: Aufzeichnung = {
   zustand: [100, 1750, 5, 0, 0, 0, 2, 1],
   ausnahmen: [],
   notizen: [
+    'log 53:f911fa34cfc45148:[Konto] Spalte konten.avatar_charakter_id nachge',
+    'log 42:0bcdb099a81be718:[Konto] Spalte konten.token_ab nachgezogen',
+    'log 44:1f27737a280d0efa:[Konto] Spalte konten.spieler_ab nachgezogen',
+    'log 45:63bbb1146dd82dc1:[Konto] Spalte konten.profil_text nachgezogen',
+    'log 42:2b588fc686ebc778:[WoV] "e" set time of day to 100s (day -1)',
     'sendTimeSync p1',
     'sendTimeSync p2',
+    'log 42:429d19b587669a8a:[WoV] "e" set time of day to 1750s (day 0)',
     'sendTimeSync p1',
     'sendTimeSync p2',
+    'log 40:a937b929b0bdc988:[WoV] "e" set time of day to 5s (day -1)',
     'sendTimeSync p1',
     'sendTimeSync p2',
+    'log 40:9b8350a6cd4dfe79:[WoV] "e" set time of day to 0s (day -1)',
     'sendTimeSync p1',
     'sendTimeSync p2',
+    'log 56:88918f5a54f23579:[Admin] "n" — SetTimeOfDay abgelehnt: keine Bere',
+    'log 88:8bddfa0866661fb6:[Admin] "e" ran "unbekanntes-kommando 1 2" → Unk',
+    'log 40:319569786a92982f:[Admin] "e" ran "" → Empty admin command',
+    'log 70:d66cc632d585a19e:[Admin] "n" ran "fly" → Admin commands are not a',
     'enterDungeon e k9-doc',
+    'log 63:891f383f2bb09731:[Dungeon] \'e\' saved 2.0 document \'k9-doc\' (stein',
     'enterDungeon e k9-doc',
+    'log 63:891f383f2bb09731:[Dungeon] \'e\' saved 2.0 document \'k9-doc\' (stein',
+    'warn 104:57e215bd7b56b864:[Dungeon] \'e\' hat eine veraltete Modulregistry (',
+    'log 63:891f383f2bb09731:[Dungeon] \'e\' saved 2.0 document \'k9-doc\' (stein',
+    'log 83:b5f5ceb4c62ad8c6:[Dungeon] \'e\' built module \'Gen_StoneVaultHall4x',
+    'warn 104:062883f0fb36a09e:[Dungeon] \'e\' hat eine veraltete Modulregistry (',
+    'log 82:aafee19fb0286111:[Dungeon] \'e\' deleted module \'Gen_StoneVaultHall',
   ],
 };
 
@@ -1160,6 +1239,8 @@ const SOLL_INTERAKTION_ATTRAPPE: Aufzeichnung = {
     't:InteractResult:[true,"Truhe geöffnet"]:22:7c62c134c97a6d14',
     't:ContainerSync:["u",7,19]:26:4376afbcca29916d',
     't:InteractResult:[true,"Truhe geöffnet"]:22:7c62c134c97a6d14',
+    't:ContainerSync:["u",7,2]:9:42cb2b4a17c64193',
+    't:InteractResult:[true,"Truhe geöffnet"]:22:7c62c134c97a6d14',
     't:ContainerSync:["u",7,0]:7:b0cf0ca9c4e0eb10',
     't:InteractResult:[true,"Truhe geöffnet"]:22:7c62c134c97a6d14',
     't:ContainerSync:["u",7,19]:26:bf42688d67219593',
@@ -1167,60 +1248,130 @@ const SOLL_INTERAKTION_ATTRAPPE: Aufzeichnung = {
     't:ContainerSync:["u",7,18]:25:f681633f71bd01d2',
     't:ContainerSync:["u",7,19]:26:bf42688d67219593',
   ],
-  aufrufe: { setInt:  3,  setString:  35,  reviseData:  2,  sendeTruheInhalt:  4,  zdosVon:  11,  kappeLeben:  9,  sichereSpielerSofort:  11,  inventarSync:  6 },
+  aufrufe: { setInt:  3,  setString:  40,  reviseData:  3,  sendeTruheInhalt:  5,  zdosVon:  12,  kappeLeben:  10,  sichereSpielerSofort:  12,  inventarSync:  6 },
   konsole: { log: 2, warn: 2 },
   zustand: [151, 5, 1, 0, 1],
-  ausnahmen: ['TypeError', 'RangeError', 'RangeError'],
+  ausnahmen: ['RangeError', 'RangeError'],
   notizen: [
     'setInt looted=1',
     'setString truheInhalt=19:5b46b599',
+    'call sendeTruheInhalt t 7',
+    'peer t frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
     'setInt looted=1',
+    'setString truheInhalt=[]',
+    'call sendeTruheInhalt t 7',
+    'peer t frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call sendeTruheInhalt t 7',
+    'peer t frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call sendeTruheInhalt t 7',
+    'peer t frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
     'setInt looted=1',
     'setString truheInhalt=18:540dba5e',
+    'call sendeTruheInhalt t 7',
+    'peer t frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'peer t frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call zdosVon a',
+    'setString frisur=H_01',
+    'setString haarfarbe=kastanie',
+    'setString augenfarbe=waldgruen',
+    'setString ruestung=|',
+    'call kappeLeben a',
+    'call sichereSpielerSofort 2|a|ausruestung|undefined',
+    'peer a frisur="H_01" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="|" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call zdosVon a',
+    'setString frisur=H_01',
+    'setString haarfarbe=mittelbraun',
+    'setString augenfarbe=waldgruen',
+    'setString ruestung=|',
+    'call kappeLeben a',
+    'call sichereSpielerSofort 2|a|ausruestung|undefined',
+    'peer a frisur="H_01" haarfarbe="mittelbraun" augenfarbe="waldgruen" ruestung="|" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call zdosVon a',
     'setString frisur=H_01',
     'setString haarfarbe=mittelbraun',
     'setString augenfarbe=fjordblau',
     'setString ruestung=|',
-    'sofort:ausruestung',
-    'setString frisur=H_01',
-    'setString haarfarbe=mittelbraun',
-    'setString augenfarbe=fjordblau',
-    'setString ruestung=|',
-    'sofort:ausruestung',
-    'setString frisur=H_01',
-    'setString haarfarbe=mittelbraun',
-    'setString augenfarbe=fjordblau',
-    'setString ruestung=|',
-    'sofort:ausruestung',
+    'call kappeLeben a',
+    'call sichereSpielerSofort 2|a|ausruestung|undefined',
+    'peer a frisur="H_01" haarfarbe="mittelbraun" augenfarbe="fjordblau" ruestung="|" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call zdosVon a',
     'setString frisur=H_01',
     'setString haarfarbe=dunkelbraun',
-    'setString augenfarbe=fjordblau',
+    'setString augenfarbe=waldgruen',
     'setString ruestung=|',
-    'sofort:ausruestung',
+    'call kappeLeben a',
+    'call sichereSpielerSofort 2|a|ausruestung|undefined',
+    'peer a frisur="H_01" haarfarbe="dunkelbraun" augenfarbe="waldgruen" ruestung="|" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call zdosVon a',
     'setString frisur=H_01',
     'setString haarfarbe=dunkelbraun',
     'setString augenfarbe=eisblau',
     'setString ruestung=|',
-    'sofort:ausruestung',
+    'call kappeLeben a',
+    'call sichereSpielerSofort 2|a|ausruestung|undefined',
+    'peer a frisur="H_01" haarfarbe="dunkelbraun" augenfarbe="eisblau" ruestung="|" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call zdosVon a',
     'setString frisur=H_01',
     'setString haarfarbe=mittelbraun',
-    'setString augenfarbe=fjordblau',
+    'setString augenfarbe=waldgruen',
     'setString ruestung=|',
-    'sofort:ausruestung',
+    'call kappeLeben a',
+    'call sichereSpielerSofort 2|a|ausruestung|undefined',
+    'peer a frisur="H_01" haarfarbe="mittelbraun" augenfarbe="waldgruen" ruestung="|" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call inventarSync a',
+    'peer a frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call inventarSync a',
+    'peer a frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call inventarSync a',
+    'peer a frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'warn 156:1a8233e434b0040b:[WoV] SetAussehen von "a" abgelehnt: frisur="gib',
+    'peer a frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call inventarSync a',
+    'peer a frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call zdosVon m',
     'setString frisur=H_01',
     'setString haarfarbe=mittelbraun',
     'setString augenfarbe=fjordblau',
     'setString ruestung=151:3a7a8d0f',
-    'sofort:ausruestung',
+    'call kappeLeben m',
+    'call sichereSpielerSofort 2|m|ausruestung|undefined',
+    'peer m frisur="H_01" haarfarbe="mittelbraun" augenfarbe="fjordblau" ruestung="||{\\"kopf\\":\\"wildwarden_crown\\",\\"schultern\\":\\"wildwarden_mantle\\",\\"unterarme\\":\\"wildwarden_bracers\\",\\"haende\\":\\"wildwarden_gloves\\",\\"fuesse\\":\\"wildwarden_boots\\"}" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[["wildwarden_crown",true],["wildwarden_vest",false],["wildwarden_robe",false],["wildwarden_mantle",true],["wildwarden_bracers",true],["wildwarden_gloves",true],["wildwarden_boots",true]]',
+    'call zdosVon dd',
+    'setString frisur=H_01',
+    'setString haarfarbe=mittelbraun',
+    'setString augenfarbe=fjordblau',
+    'setString ruestung=151:3a7a8d0f',
+    'call kappeLeben dd',
+    'call sichereSpielerSofort 2|dd|ausruestung|undefined',
+    'peer dd frisur="H_01" haarfarbe="mittelbraun" augenfarbe="fjordblau" ruestung="||{\\"kopf\\":\\"wildwarden_crown\\",\\"schultern\\":\\"wildwarden_mantle\\",\\"unterarme\\":\\"wildwarden_bracers\\",\\"haende\\":\\"wildwarden_gloves\\",\\"fuesse\\":\\"wildwarden_boots\\"}" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[["wildwarden_crown",true],["wildwarden_vest",false],["wildwarden_robe",false],["wildwarden_mantle",true],["wildwarden_bracers",true],["wildwarden_gloves",true],["wildwarden_boots",true],["wildwarden_crown",false],["wildwarden_vest",false],["wildwarden_robe",false],["wildwarden_mantle",false],["wildwarden_bracers",false],["wildwarden_gloves",false],["wildwarden_boots",false]]',
+    'call zdosVon m',
     'setString frisur=H_01',
     'setString haarfarbe=mittelbraun',
     'setString augenfarbe=fjordblau',
     'setString ruestung=|',
-    'sofort:ausruestung',
-    'sofort:ausruestung',
+    'call kappeLeben m',
+    'call sichereSpielerSofort 2|m|ausruestung|undefined',
+    'peer m frisur="H_01" haarfarbe="mittelbraun" augenfarbe="fjordblau" ruestung="|" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[["wildwarden_crown",false],["wildwarden_vest",false],["wildwarden_robe",false],["wildwarden_mantle",false],["wildwarden_bracers",false],["wildwarden_gloves",false],["wildwarden_boots",false]]',
+    'call zdosVon a',
+    'call kappeLeben a',
+    'call sichereSpielerSofort 2|a|ausruestung|undefined',
+    'peer a frisur="H_01" haarfarbe="mittelbraun" augenfarbe="fjordblau" ruestung="|" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'peer a frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call zdosVon f',
     'setString figur=wikingerin',
-    'sofort:figur',
-    'sofort:figur',
+    'call inventarSync f',
+    'call sichereSpielerSofort 2|f|figur|undefined',
+    'log 39:4f872ef66ff94e77:[WoV] "f" spielt jetzt als "wikingerin"',
+    'peer f frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikingerin" position={"x":3,"y":7,"z":5} inventar=[]',
+    'peer f frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikingerin" position={"x":3,"y":7,"z":5} inventar=[]',
+    'warn 85:a08afbdf78f1e46b:[WoV] SetFigur von "f" abgelehnt: "drache" steht',
+    'peer f frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikingerin" position={"x":3,"y":7,"z":5} inventar=[]',
+    'call zdosVon f',
+    'call inventarSync f',
+    'call sichereSpielerSofort 2|f|figur|undefined',
+    'log 39:4f872ef66ff94e77:[WoV] "f" spielt jetzt als "wikingerin"',
+    'peer f frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikingerin" position={"x":3,"y":7,"z":5} inventar=[]',
+    'peer f frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} inventar=[]',
   ],
 };
 const SOLL_INTERAKTION_ECHT: Aufzeichnung = {
@@ -1236,56 +1387,121 @@ const SOLL_INTERAKTION_ECHT: Aufzeichnung = {
   zustand: [1, 19, 151, 5, 151, 4, 1, 0, 1, 1],
   ausnahmen: [],
   notizen: [
-    'sofort:ausruestung',
-    'sofort:ausruestung',
-    'sofort:figur',
+    'log 53:f911fa34cfc45148:[Konto] Spalte konten.avatar_charakter_id nachge',
+    'log 42:0bcdb099a81be718:[Konto] Spalte konten.token_ab nachgezogen',
+    'log 44:1f27737a280d0efa:[Konto] Spalte konten.spieler_ab nachgezogen',
+    'log 45:63bbb1146dd82dc1:[Konto] Spalte konten.profil_text nachgezogen',
+    'peer e frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} worldId="haupt" inventar=[["wildwarden_crown",false],["wildwarden_vest",false],["wildwarden_robe",false],["wildwarden_mantle",false],["wildwarden_bracers",false],["wildwarden_gloves",false],["wildwarden_boots",false]]',
+    'zdo ||||',
+    'peer e frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} worldId="haupt" inventar=[["wildwarden_crown",false],["wildwarden_vest",false],["wildwarden_robe",false],["wildwarden_mantle",false],["wildwarden_bracers",false],["wildwarden_gloves",false],["wildwarden_boots",false]]',
+    'zdo ||||',
+    'peer e frisur="H_02" haarfarbe="kastanie" augenfarbe="waldgruen" ruestung="leder_bh|leder_shorts" figur="wikinger" position={"x":3,"y":7,"z":5} worldId="haupt" inventar=[["wildwarden_crown",false],["wildwarden_vest",false],["wildwarden_robe",false],["wildwarden_mantle",false],["wildwarden_bracers",false],["wildwarden_gloves",false],["wildwarden_boots",false]]',
+    'zdo ||||',
+    'call kappeLeben e',
+    'call sichereSpielerSofort 2|e|ausruestung|undefined',
+    'peer e frisur="H_01" haarfarbe="mittelbraun" augenfarbe="fjordblau" ruestung="||{\\"kopf\\":\\"wildwarden_crown\\",\\"schultern\\":\\"wildwarden_mantle\\",\\"unterarme\\":\\"wildwarden_bracers\\",\\"haende\\":\\"wildwarden_gloves\\",\\"fuesse\\":\\"wildwarden_boots\\"}" figur="wikinger" position={"x":3,"y":7,"z":5} worldId="haupt" inventar=[["wildwarden_crown",true],["wildwarden_vest",false],["wildwarden_robe",false],["wildwarden_mantle",true],["wildwarden_bracers",true],["wildwarden_gloves",true],["wildwarden_boots",true]]',
+    'zdo H_01|mittelbraun|fjordblau|||{"kopf":"wildwarden_crown","schultern":"wildwarden_mantle","unterarme":"wildwarden_bracers","haende":"wildwarden_gloves","fuesse":"wildwarden_boots"}|',
+    'warn 150:c2870c63e2e6e5c5:[WoV] SetAussehen von "e" abgelehnt: frisur="nei',
+    'peer e frisur="H_01" haarfarbe="mittelbraun" augenfarbe="fjordblau" ruestung="||{\\"kopf\\":\\"wildwarden_crown\\",\\"schultern\\":\\"wildwarden_mantle\\",\\"unterarme\\":\\"wildwarden_bracers\\",\\"haende\\":\\"wildwarden_gloves\\",\\"fuesse\\":\\"wildwarden_boots\\"}" figur="wikinger" position={"x":3,"y":7,"z":5} worldId="haupt" inventar=[["wildwarden_crown",true],["wildwarden_vest",false],["wildwarden_robe",false],["wildwarden_mantle",true],["wildwarden_bracers",true],["wildwarden_gloves",true],["wildwarden_boots",true]]',
+    'zdo H_01|mittelbraun|fjordblau|||{"kopf":"wildwarden_crown","schultern":"wildwarden_mantle","unterarme":"wildwarden_bracers","haende":"wildwarden_gloves","fuesse":"wildwarden_boots"}|',
+    'call inventarSync e',
+    'peer e frisur="H_01" haarfarbe="mittelbraun" augenfarbe="fjordblau" ruestung="||{\\"kopf\\":\\"wildwarden_crown\\",\\"schultern\\":\\"wildwarden_mantle\\",\\"unterarme\\":\\"wildwarden_bracers\\",\\"haende\\":\\"wildwarden_gloves\\",\\"fuesse\\":\\"wildwarden_boots\\"}" figur="wikinger" position={"x":3,"y":7,"z":5} worldId="haupt" inventar=[["wildwarden_crown",true],["wildwarden_vest",false],["wildwarden_robe",false],["wildwarden_mantle",true],["wildwarden_bracers",true],["wildwarden_gloves",true],["wildwarden_boots",true]]',
+    'zdo H_01|mittelbraun|fjordblau|||{"kopf":"wildwarden_crown","schultern":"wildwarden_mantle","unterarme":"wildwarden_bracers","haende":"wildwarden_gloves","fuesse":"wildwarden_boots"}|',
+    'call kappeLeben e',
+    'call sichereSpielerSofort 2|e|ausruestung|undefined',
+    'peer e frisur="H_01" haarfarbe="mittelbraun" augenfarbe="fjordblau" ruestung="|" figur="wikinger" position={"x":3,"y":7,"z":5} worldId="haupt" inventar=[["wildwarden_crown",false],["wildwarden_vest",false],["wildwarden_robe",false],["wildwarden_mantle",false],["wildwarden_bracers",false],["wildwarden_gloves",false],["wildwarden_boots",false]]',
+    'zdo H_01|mittelbraun|fjordblau|||',
+    'call inventarSync e',
+    'call sichereSpielerSofort 2|e|figur|undefined',
+    'log 39:d450a73430da5874:[WoV] "e" spielt jetzt als "wikingerin"',
+    'peer e frisur="H_01" haarfarbe="mittelbraun" augenfarbe="fjordblau" ruestung="|" figur="wikingerin" position={"x":3,"y":7,"z":5} worldId="haupt" inventar=[["wildwarden_crown",false],["wildwarden_vest",false],["wildwarden_robe",false],["wildwarden_mantle",false],["wildwarden_bracers",false],["wildwarden_gloves",false],["wildwarden_boots",false]]',
+    'zdo H_01|mittelbraun|fjordblau|||wikingerin',
+    'peer e frisur="H_01" haarfarbe="mittelbraun" augenfarbe="fjordblau" ruestung="|" figur="wikingerin" position={"x":3,"y":7,"z":5} worldId="haupt" inventar=[["wildwarden_crown",false],["wildwarden_vest",false],["wildwarden_robe",false],["wildwarden_mantle",false],["wildwarden_bracers",false],["wildwarden_gloves",false],["wildwarden_boots",false]]',
+    'zdo H_01|mittelbraun|fjordblau|||wikingerin',
+    'warn 85:16fe5dc82d3bda5c:[WoV] SetFigur von "e" abgelehnt: "drache" steht',
+    'peer e frisur="H_01" haarfarbe="mittelbraun" augenfarbe="fjordblau" ruestung="|" figur="wikingerin" position={"x":3,"y":7,"z":5} worldId="haupt" inventar=[["wildwarden_crown",false],["wildwarden_vest",false],["wildwarden_robe",false],["wildwarden_mantle",false],["wildwarden_bracers",false],["wildwarden_gloves",false],["wildwarden_boots",false]]',
+    'zdo H_01|mittelbraun|fjordblau|||wikingerin',
   ],
 };
 const SOLL_CHAT_ATTRAPPE: Aufzeichnung = {
   paket: [
-    'ich:ChatMessage:["0","ich",1,"Hallo Welt",10]:33:a0f1115d71701ce4',
-    'nah:ChatMessage:["0","ich",1,"Hallo Welt",10]:33:a0f1115d71701ce4',
-    'mittel:ChatMessage:["0","ich",1,"Hallo Welt",10]:33:a0f1115d71701ce4',
-    'ich:ChatMessage:["0","ich",0,"Hallo Welt",10]:33:a5bc9d1471ad6f00',
-    'nah:ChatMessage:["0","ich",0,"Hallo Welt",10]:33:a5bc9d1471ad6f00',
-    'ich:ChatMessage:["0","ich",2,"Hallo Welt",10]:33:9026b2815fe0e326',
-    'nah:ChatMessage:["0","ich",2,"Hallo Welt",10]:33:9026b2815fe0e326',
-    'mittel:ChatMessage:["0","ich",2,"Hallo Welt",10]:33:9026b2815fe0e326',
-    'fern:ChatMessage:["0","ich",2,"Hallo Welt",10]:33:9026b2815fe0e326',
-    'ich:ChatMessage:["0","ich",99,"Hallo Welt",10]:33:71477e5feea8f1be',
-    'nah:ChatMessage:["0","ich",99,"Hallo Welt",10]:33:71477e5feea8f1be',
-    'mittel:ChatMessage:["0","ich",99,"Hallo Welt",10]:33:71477e5feea8f1be',
-    'ich:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]:47:a6eb5e1dca444ca7',
-    'nah:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]:47:a6eb5e1dca444ca7',
-    'mittel:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]:47:a6eb5e1dca444ca7',
-    'ich:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]:280:1b15d333c3eab3a3',
-    'nah:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]:280:1b15d333c3eab3a3',
-    'mittel:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]:280:1b15d333c3eab3a3',
-    'ich:ChatMessage:["0","ich",1,"",0]:23:1ddae5bbf873fecf',
-    'nah:ChatMessage:["0","ich",1,"",0]:23:1ddae5bbf873fecf',
-    'mittel:ChatMessage:["0","ich",1,"",0]:23:1ddae5bbf873fecf',
+    'ich:ChatMessage:["0","ich",1,"Hallo Welt",10]:33:bd9f78f5b7b7dbe4',
+    'nah:ChatMessage:["0","ich",1,"Hallo Welt",10]:33:bd9f78f5b7b7dbe4',
+    'mittel:ChatMessage:["0","ich",1,"Hallo Welt",10]:33:bd9f78f5b7b7dbe4',
+    'ich:ChatMessage:["0","ich",0,"Hallo Welt",10]:33:755453c5888265c5',
+    'nah:ChatMessage:["0","ich",0,"Hallo Welt",10]:33:755453c5888265c5',
+    'ich:ChatMessage:["0","ich",2,"Hallo Welt",10]:33:bad3fcbffbb64f43',
+    'nah:ChatMessage:["0","ich",2,"Hallo Welt",10]:33:bad3fcbffbb64f43',
+    'mittel:ChatMessage:["0","ich",2,"Hallo Welt",10]:33:bad3fcbffbb64f43',
+    'fern:ChatMessage:["0","ich",2,"Hallo Welt",10]:33:bad3fcbffbb64f43',
+    'ich:ChatMessage:["0","ich",99,"Hallo Welt",10]:33:40efad2e617e8ed2',
+    'nah:ChatMessage:["0","ich",99,"Hallo Welt",10]:33:40efad2e617e8ed2',
+    'mittel:ChatMessage:["0","ich",99,"Hallo Welt",10]:33:40efad2e617e8ed2',
+    'ich:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]:47:b1b66c529e9fa28d',
+    'nah:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]:47:b1b66c529e9fa28d',
+    'mittel:ChatMessage:["0","ich",1,"Grüße aus Ägir",18]:47:b1b66c529e9fa28d',
+    'ich:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]:280:0846391d8a9b1c3f',
+    'nah:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]:280:0846391d8a9b1c3f',
+    'mittel:ChatMessage:["0","ich",1,"xxxxxxxxxxxxxx",256]:280:0846391d8a9b1c3f',
+    'ich:ChatMessage:["0","ich",1,"",0]:23:8450172bea627a6f',
+    'nah:ChatMessage:["0","ich",1,"",0]:23:8450172bea627a6f',
+    'mittel:ChatMessage:["0","ich",1,"",0]:23:8450172bea627a6f',
   ],
   aufrufe: { getPeers:  9 },
   konsole: { log: 9, warn: 0 },
   zustand: [2],
   ausnahmen: ['RangeError', 'RangeError'],
   notizen: [
+    'log 22:51e7884aa3dedb5c:[Chat] ich: Hallo Welt',
+    'peer ich position={"x":0,"y":3.5,"z":4} worldId="haupt"',
+    'log 22:51e7884aa3dedb5c:[Chat] ich: Hallo Welt',
+    'peer ich position={"x":0,"y":3.5,"z":4} worldId="haupt"',
+    'log 22:51e7884aa3dedb5c:[Chat] ich: Hallo Welt',
+    'peer ich position={"x":0,"y":3.5,"z":4} worldId="haupt"',
+    'log 22:51e7884aa3dedb5c:[Chat] ich: Hallo Welt',
+    'peer ich position={"x":0,"y":3.5,"z":4} worldId="haupt"',
+    'log 30:b911f52ba3b47792:[Chat] ich: Grüße aus Ägir — ß',
+    'peer ich position={"x":0,"y":3.5,"z":4} worldId="haupt"',
+    'log 268:6bb3354af4135cc9:[Chat] ich: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+    'peer ich position={"x":0,"y":3.5,"z":4} worldId="haupt"',
+    'log 12:4ff4c1c5fc2e3550:[Chat] ich: ',
+    'peer ich position={"x":0,"y":3.5,"z":4} worldId="haupt"',
+    'peer ed position={"x":0,"y":15.5,"z":4} worldId="haupt"',
+    'peer ed position={"x":0,"y":15.5,"z":4} worldId="haupt"',
+    'peer ich position={"x":0,"y":3.5,"z":4} worldId="haupt"',
+    'peer ich position={"x":0,"y":3.5,"z":4} worldId="haupt"',
+    'log 18:66738b7103edb0c2:[Chat] ich: allein',
+    'peer ich position={"x":0,"y":3.5,"z":4} worldId="haupt"',
+    'log 16:528b123b78dc94da:[Chat] ich: drin',
+    'peer ich position={"x":0,"y":3.5,"z":4} worldId="dungeon:x"',
   ],
 };
 const SOLL_CHAT_ECHT: Aufzeichnung = {
   paket: [
-    'a:ChatMessage:["0","a",1,"Hallo Ägir",10]:32:e71f7f64d5448a31',
-    'b:ChatMessage:["0","a",1,"Hallo Ägir",10]:32:e71f7f64d5448a31',
-    'a:ChatMessage:["0","a",0,"Hallo Ägir",10]:32:e1e911cdd2282aca',
-    'a:ChatMessage:["0","a",2,"Hallo Ägir",10]:32:805ad08ab68de0c9',
-    'b:ChatMessage:["0","a",2,"Hallo Ägir",10]:32:805ad08ab68de0c9',
-    'd:ChatMessage:["0","a",2,"Hallo Ägir",10]:32:805ad08ab68de0c9',
+    'a:ChatMessage:["0","a",1,"Hallo Ägir",10]:32:c80c08063d897871',
+    'b:ChatMessage:["0","a",1,"Hallo Ägir",10]:32:c80c08063d897871',
+    'a:ChatMessage:["0","a",0,"Hallo Ägir",10]:32:f11f653c72638945',
+    'a:ChatMessage:["0","a",2,"Hallo Ägir",10]:32:1d72cadb942d27c8',
+    'b:ChatMessage:["0","a",2,"Hallo Ägir",10]:32:1d72cadb942d27c8',
+    'd:ChatMessage:["0","a",2,"Hallo Ägir",10]:32:1d72cadb942d27c8',
   ],
   aufrufe: { getPeers:  3 },
   konsole: { log: 7, warn: 0 },
   zustand: [],
   ausnahmen: ['RangeError'],
   notizen: [
+    'log 53:f911fa34cfc45148:[Konto] Spalte konten.avatar_charakter_id nachge',
+    'log 42:0bcdb099a81be718:[Konto] Spalte konten.token_ab nachgezogen',
+    'log 44:1f27737a280d0efa:[Konto] Spalte konten.spieler_ab nachgezogen',
+    'log 45:63bbb1146dd82dc1:[Konto] Spalte konten.profil_text nachgezogen',
+    'log 20:b446cd80dbecfdd6:[Chat] a: Hallo Ägir',
+    'peer a position={"x":0,"y":3.5,"z":4} worldId="haupt"',
+    'log 20:b446cd80dbecfdd6:[Chat] a: Hallo Ägir',
+    'peer a position={"x":0,"y":3.5,"z":4} worldId="haupt"',
+    'log 20:b446cd80dbecfdd6:[Chat] a: Hallo Ägir',
+    'peer a position={"x":0,"y":3.5,"z":4} worldId="haupt"',
+    'peer ed position={"x":0,"y":15.5,"z":4} worldId="haupt"',
+    'peer a position={"x":0,"y":3.5,"z":4} worldId="haupt"',
   ],
 };
 

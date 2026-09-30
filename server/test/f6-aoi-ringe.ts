@@ -10,10 +10,11 @@
  * Geprueft wird (Zeugen in Zahlen):
  *  1. Ring 0: eine Aenderung kommt im naechsten Tick an, immer (100 Laeufe
  *     mit zufaelligem Tick-Versatz).
- *  2. Ring 3 und Ring 4: Aenderung in hoechstens 2 Ticks (je 100 Laeufe); bei
+ *  2. Ring 3 und Ring 4: Aenderung in hoechstens 2 Ticks (je 100 Laeufe; das ist
+ *     hoechstens 1 Tick spaeter als ohne F6, Ring 0-1 nie spaeter); bei
  *     einer Aenderung JEDEN Tick tragen in 40 Ticks hoechstens 20 Pakete
  *     Ring-3-Saetze (vor F6: 40).
- *  3. Zugang in Ring 4: hoechstens 2 Ticks.
+ *  3. Zugang in Ring 4: hoechstens 2 Ticks (hoechstens 1 Tick spaeter als ohne F6).
  *  4. Zerstoerung in Ring 2 und Ring 4 kommt im NAECHSTEN Tick (20 Laeufe mit
  *     zufaelliger Phase; wuerden Zerstoerungen nur mit dem fernen Teil gehen,
  *     waere jeder zweite Lauf verspaetet).
@@ -24,6 +25,8 @@
  *  7. Bytes je Peer (Metriken.syncBytesJePeerLaufend) = am Socket gezaehlte Bytes.
  *  8. 25 Peers, 48.000 ZDOs: Bytes je Peer und Sekunde sowie Ø tickSyncMs
  *     (nur Ausgabe, keine Schranke).
+ *  9. Saettigung: 1 Peer, Fenster ueber dem Deckel, Budget voll, 200 Ticks: Ring 4
+ *     bekommt weiter Saetze (ohne die Budgetabbruch-Ausnahme: 0).
  *
  * Lauf: node_modules/.bin/tsx server/test/f6-aoi-ringe.ts   (aus dem Repo-Stamm)
  */
@@ -402,6 +405,61 @@ async function main(): Promise<void> {
     leer.sort((a, b) => a - b);
     console.log(`  Leerlauf (alles auf Stand): Median ${leer[2]!.toFixed(2)} ms/Tick (min ${leer[0]!.toFixed(2)}, max ${leer[4]!.toFixed(2)}, 5×20 Ticks, 25 Peers)`);
     check('Messung lief (Bytes > 0)', proPeerProSek > 0);
+
+    // ── [9] Saettigung: Budget voll, Fenster ueber dem Deckel, 200 Ticks ──
+    // Zusage: Bei vollem Budget bekommt auch Ring 4 weiter Saetze (der ferne Teil
+    // laeuft nach einem Budgetabbruch jeden Tick). Ohne diese Ausnahme waeren es
+    // 0 Saetze je Tick. 200 Ticks, weil der Zyklus ~30-35 Ticks lang ist und eine
+    // 20-/40-Tick-Zaehlung nur eine Momentaufnahme waere.
+    console.log('\n[9] Saettigung (1 Peer, 335 Aenderungen je Tick im Fenster, Budget 10.240 B, 200 Ticks):');
+    {
+      peers.length = 0;
+      const sat = neuerPeer(BASIS + FLAECHE / 2 + 32, BASIS + FLAECHE / 2 + 32);
+      peers.push(sat);
+      const satSock = socks.get(sat)!;
+      let still2 = 0;
+      let zaehle2 = -1;
+      for (let t = 0; t < 400 && still2 < 3; t++) {
+        intern.syncZDOs();
+        still2 = satSock.pakete.length === zaehle2 ? still2 + 1 : 0;
+        zaehle2 = satSock.pakete.length;
+      }
+      const szone = worldToZone(sat.position);
+      const fensterGroesse = sat.fenster.hole(zdos, szone.x, szone.y, 4).length;
+      const imFenster = alle.filter((z) => ringVon(sat, z) <= 4);
+      const ringVonHash = new Map<number, number>();
+      for (const z of imFenster) ringVonHash.set(z.zdoid.hashCode(), ringVon(sat, z));
+      const jeGruppe = [0, 0, 0];
+      const origMark = sat.markZDOSent.bind(sat);
+      sat.markZDOSent = (id, a, b) => {
+        jeGruppe[gruppeVon(ringVonHash.get(id.hashCode()) ?? 0)]!++;
+        return origMark(id, a, b);
+      };
+      const aendereFenster = (t: number): void => {
+        for (let k = 0; k < 335; k++) aendere(imFenster[Math.floor(rnd() * imFenster.length)]!, t * 1000 + k);
+      };
+      for (let t = 0; t < 30; t++) {
+        aendereFenster(-1 - t);
+        intern.syncZDOs();
+      }
+      jeGruppe.fill(0);
+      const byteStart = satSock.pakete.reduce((sum, p) => sum + p.length, 0);
+      const TICKS = 200;
+      for (let t = 0; t < TICKS; t++) {
+        aendereFenster(t);
+        intern.syncZDOs();
+      }
+      const bytesJeTick = (satSock.pakete.reduce((sum, p) => sum + p.length, 0) - byteStart) / TICKS;
+      sat.markZDOSent = origMark;
+      const je = jeGruppe.map((n) => n / TICKS);
+      console.log(`  Fenster ${fensterGroesse}, Saetze je Tick nah/mitte/aussen ${je.map((n) => n.toFixed(1)).join(' / ')}, Bytes je Tick ${bytesJeTick.toFixed(0)}`);
+      check('Testlage: Fenster ueber dem Deckel 4096', fensterGroesse > 4096, `${fensterGroesse}`);
+      check('Testlage: Budget ist voll (im Mittel mindestens 9.000 B je Tick)', bytesJeTick >= 9000, `${bytesJeTick.toFixed(0)} B`);
+      // Schranke aus der Messung auf dem Kopf (200 Ticks: Ring 4 58,7 Saetze je Tick, Ring 2-3 98,5; main: 64 / 94);
+      // ohne die Budgetabbruch-Ausnahme: 0 (Ring 4) bzw. ~100 (Ring 2-3). Halbe Messung als Schranke.
+      check('Ring 4 bekommt bei vollem Budget ueber 200 Ticks im Mittel mindestens 25 Saetze je Tick', je[2]! >= 25, `${je[2]!.toFixed(1)} je Tick (Kopf: 58,7)`);
+      check('Ring 2-3 bekommt bei vollem Budget ueber 200 Ticks im Mittel mindestens 50 Saetze je Tick', je[1]! >= 50, `${je[1]!.toFixed(1)} je Tick (Kopf: 98,5)`);
+    }
   }
 
   peers.length = 0;

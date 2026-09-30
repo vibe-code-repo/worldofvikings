@@ -148,7 +148,7 @@ export class ZonenFenster {
   /**
    * F6: Ist der FERNE Teil (hinter `nahEnde`) in diesem Tick dran? Einmal je
    * Tick und Peer aufrufen. Er wird nur in jedem 2. Tick geprüft: 100 m und
-   * mehr vom Spieler entfernt sieht man eine Änderung 50 ms später nicht. Immer
+   * mehr vom Spieler entfernt sieht man eine Änderung 50 ms später nicht. Gegenüber dem Stand vor F6 kommt eine ferne Änderung damit höchstens 1 Tick später an (bei Fenstern unter dem Deckel 2 statt 1 Tick); Ring 0–1 nie später. Immer
    * dran ist er, solange ein Rundgang läuft (`cursor` ≠ 0: Fenster über dem
    * Deckel oder Budgetabbruch; dort wäre Aussetzen nur langsamer, nicht
    * billiger), solange der letzte ferne Durchlauf am Budget abbrach (`ferneAktiv`)

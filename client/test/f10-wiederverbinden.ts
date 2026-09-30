@@ -15,6 +15,7 @@
  * Lauf: npx tsx client/test/f10-wiederverbinden.ts   (aus der Repo-Wurzel)
  */
 import {
+  HALTEZEIT_MS,
   WARTE_MAX_MS,
   ZEITLIMIT_MS,
   WiederverbindenSteuerung,
@@ -115,8 +116,10 @@ function baue(verbindeFn?: () => void, aufgegeben?: () => void) {
   s.beiVerbunden();
   pruefe(s.anzahlVersuche === 2, 'Transport steht, Server hat noch nicht angenommen: Zaehler bleibt (F1)');
   s.beiAngenommen();
-  pruefe(s.anzahlVersuche === 0 && log.sperre.netzGesperrt === false, 'Erfolg: Zaehler 0, Figur frei');
-  pruefe(log.texte.at(-1) === null, 'Erfolg: Meldung weg');
+  pruefe(log.sperre.netzGesperrt === false, 'Annahme: Figur sofort frei');
+  laufe(HALTEZEIT_MS);
+  pruefe(s.anzahlVersuche === 0, 'Erfolg (PeerInfo + 10 s gehalten): Zaehler 0');
+  pruefe(log.texte.at(-1) === null, 'Annahme: Meldung weg');
   // neue Serie beginnt wieder bei 1 s
   s.beiGetrennt('');
   pruefe(log.texte.at(-1) === 'netz.verloren.versuch|1|1', 'neue Serie beginnt wieder bei 1 s');
@@ -256,6 +259,60 @@ function baue(verbindeFn?: () => void, aufgegeben?: () => void) {
   pruefe(!input.isDown('KeyW') && input.netzGesperrt, 'F4: nur getrennt: W gilt nicht');
   s.beiAngenommen();
   pruefe(input.isDown('KeyW') && !input.netzGesperrt, 'F4: nach der Annahme ist die eigene Sperre frei');
+}
+
+
+// ── 7. Nachbesserung N2 (Kurzpruefung R1 + Haertung) ────────────────
+// R1: Der Server schickt PeerInfo und schliesst sofort ohne Grund (Beitrittsweg wirft). Auf 7f887abb
+// setzte beiAngenommen die Serie zurueck: 2000 Versuche in 2000 s.
+{
+  const { s, log, laufe } = baue();
+  const warten: number[] = [];
+  let weiter = true;
+  let zyklen = 0;
+  let vergangen = 0;
+  while (weiter && zyklen < 200 && vergangen < 2 * ZEITLIMIT_MS) {
+    weiter = s.beiGetrennt('');
+    if (!weiter) break;
+    zyklen++;
+    warten.push(Number(/\|(\d+)\|/.exec(log.texte.at(-1) ?? '')?.[1]));
+    const vorher = log.verbinde;
+    while (log.verbinde === vorher) { laufe(1000); vergangen += 1000; }
+    s.beiVerbunden();
+    s.beiAngenommen(); // PeerInfo kommt an ...
+    pruefe(log.sperre.netzGesperrt === false, 'R1: bei PeerInfo ist die Figur sofort frei') ;
+    laufe(10); vergangen += 10; // ... und der Server schliesst nach 10 ms
+  }
+  pruefe(!weiter, `R1: PeerInfo + sofort Schliessen gibt auf (nach ${zyklen} Versuchen, ${Math.round(vergangen / 1000)} s)`);
+  pruefe(vergangen <= ZEITLIMIT_MS + 14 * 10, `R1: Gesamtdauer ${Math.round(vergangen / 1000)} s <= 600 s (+ 14 x 10 ms)`);
+  pruefe(JSON.stringify(warten.slice(0, 8)) === JSON.stringify([1, 2, 4, 8, 16, 32, 60, 60]), `R1: Backoff waechst: ${warten.slice(0, 8).join(',')} s`);
+  pruefe(zyklen === 14, `R1: 14 Versuche (${zyklen})`);
+}
+{
+  // gehalten: PeerInfo + 10 s => Reset wie bisher; 1 ms weniger => noch nicht
+  const { s, laufe } = baue();
+  s.beiGetrennt(''); laufe(1000); s.beiGetrennt(''); laufe(2000);
+  pruefe(s.anzahlVersuche === 2, 'Haltezeit: Serie mit 2 Versuchen');
+  s.beiAngenommen();
+  laufe(HALTEZEIT_MS - 1);
+  pruefe(s.anzahlVersuche === 2, 'Haltezeit: nach 9,999 s noch nicht zurueckgesetzt');
+  laufe(1);
+  pruefe(s.anzahlVersuche === 0, 'Haltezeit: nach 10 s zurueckgesetzt');
+  // nicht gehalten: Trennung bei 5 s => Serie laeuft weiter, der Haltetimer feuert nicht nachtraeglich
+  s.beiGetrennt(''); laufe(1000); s.beiAngenommen(); laufe(5000);
+  pruefe(s.beiGetrennt('') === true && s.anzahlVersuche === 2, `Haltezeit: Trennung nach 5 s => Versuch 2 (${s.anzahlVersuche}), Backoff waechst`);
+  laufe(HALTEZEIT_MS * 3);
+  pruefe(s.anzahlVersuche === 2, 'Haltezeit: der gestoppte Haltetimer setzt spaeter nichts zurueck');
+}
+{
+  // Haertung: doppeltes beiGetrennt => nur ein Zaehler, nur ein Verbindungsversuch
+  const { s, log, laufe, offeneTimer } = baue();
+  s.beiGetrennt(''); s.beiGetrennt('');
+  pruefe(offeneTimer() === 1, `Haertung: nach zwei beiGetrennt genau ein offener Timer (${offeneTimer()})`);
+  laufe(1000);
+  pruefe(log.verbinde === 0, 'Haertung: der alte 1-s-Zaehler feuert nicht (kein Versuch nach 1 s)');
+  laufe(1000);
+  pruefe(log.verbinde === 1, `Haertung: genau ein Versuch nach 2 s (${log.verbinde})`);
 }
 
 if (fehler) {

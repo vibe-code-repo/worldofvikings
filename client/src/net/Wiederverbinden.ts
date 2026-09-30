@@ -24,6 +24,14 @@ export const WARTE_FOLGE_MS: readonly number[] = [1_000, 2_000, 4_000, 8_000, 16
 export const WARTE_MAX_MS = 60_000;
 /** Gesamtdauer ohne Erfolg, nach der aufgegeben wird. */
 export const ZEITLIMIT_MS = 10 * 60_000;
+/**
+ * So lange muss die Verbindung nach `PeerInfo` halten, bevor die Serie (Zaehler, Backoff,
+ * 10-min-Frist) zurueckgesetzt wird. Sperre und Meldung fallen schon bei `PeerInfo`. Grund: Ein
+ * Server, dessen Beitrittsweg nach `PeerInfo` wirft und schliesst, schickt `PeerInfo` und trennt
+ * ohne Grund; ein sofortiger Reset liesse den Client jede Sekunde neu verbinden, ohne je
+ * aufzugeben (Kurzpruefung R1).
+ */
+export const HALTEZEIT_MS = 10_000;
 /** Trenngrund des Vorgaengerstandes beim Stopp (alter Server waehrend des ersten Rollouts). */
 const GRUND_ALT_NEUSTART = 'Server shutting down';
 
@@ -93,6 +101,8 @@ export class WiederverbindenSteuerung {
   private start = 0;
   private ansageMs = 0;
   private timer: unknown = null;
+  /** Wartet nach `PeerInfo` die Haltezeit ab, erst dann ist die Serie zurueckgesetzt. */
+  private haltTimer: unknown = null;
   private readonly jetzt: () => number;
   private readonly setzeTimer: (fn: () => void, ms: number) => unknown;
   private readonly loescheTimer: (handle: unknown) => void;
@@ -119,6 +129,7 @@ export class WiederverbindenSteuerung {
    * `false`, wenn aufgegeben ist (Kick oder Zeitlimit; Meldung und Sperre sind dann weg).
    */
   beiGetrennt(reason: string | undefined): boolean {
+    this.stoppeHaltTimer(); // nicht lange genug gehalten: die Serie laeuft weiter, der Backoff waechst
     if (this.versuche === 0) this.start = this.jetzt();
     const e = naechsterVersuch(reason, this.versuche, this.jetzt() - this.start, this.ansageMs);
     if (e.aufgeben) {
@@ -142,12 +153,38 @@ export class WiederverbindenSteuerung {
     // nichts: die Serie laeuft weiter, bis der Server den Spieler angenommen hat
   }
 
-  /** Der Server hat den Spieler angenommen (`PeerInfo`): Serie zuruecksetzen, Figur freigeben. */
+  /**
+   * Der Server hat den Spieler angenommen (`PeerInfo`): Figur freigeben, Meldung weg. Zaehler,
+   * Backoff und Frist bleiben, bis die Verbindung `HALTEZEIT_MS` gehalten hat; trennt der Server
+   * vorher, zaehlt der Versuch als gescheitert (`beiGetrennt` stoppt den Haltetimer).
+   */
   beiAngenommen(): void {
-    this.beende();
+    this.stoppeHaltTimer();
+    if (this.timer !== null) this.loescheTimer(this.timer);
+    this.timer = null;
+    const warGetrennt = this.versuche > 0 || this.ansageMs > 0;
+    this.ansageMs = 0;
+    if (warGetrennt) {
+      this.opt.sperre.netzGesperrt = false;
+      this.opt.zeige(null);
+    }
+    if (this.versuche > 0) {
+      this.haltTimer = this.setzeTimer(() => {
+        this.haltTimer = null;
+        this.versuche = 0;
+      }, HALTEZEIT_MS);
+    }
+  }
+
+  private stoppeHaltTimer(): void {
+    if (this.haltTimer !== null) this.loescheTimer(this.haltTimer);
+    this.haltTimer = null;
   }
 
   private zaehle(zielMs: number): void {
+    // Nie zwei Zaehler gleichzeitig: ein alter Timer wuerde einen zweiten Verbindungsversuch ausloesen.
+    if (this.timer !== null) this.loescheTimer(this.timer);
+    this.timer = null;
     const rest = zielMs - this.jetzt();
     if (rest <= 0) {
       this.opt.zeige(this.opt.uebersetze('netz.verloren.verbinde'));
@@ -169,6 +206,7 @@ export class WiederverbindenSteuerung {
   }
 
   private beende(): void {
+    this.stoppeHaltTimer();
     if (this.timer !== null) this.loescheTimer(this.timer);
     this.timer = null;
     const warGetrennt = this.versuche > 0 || this.ansageMs > 0;

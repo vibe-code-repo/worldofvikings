@@ -470,8 +470,9 @@ export function kiSchritt(
             z.schlaege = 0;
             rueckzugWurf = wuerfel() < s.rueckzugChance;
             if (rueckzugWurf) {
+              // Der Rückzug beginnt in diesem Schritt; der Schlag gilt noch.
               wechsle(z, 'zurueckziehen');
-              return befehl('steht', 0, 0, 0, r.x, r.z, r.d);
+              continue;
             }
           }
         }

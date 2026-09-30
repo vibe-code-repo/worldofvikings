@@ -7,7 +7,7 @@
  */
 import { PacketType } from '@wov/shared';
 import { SchlagBuch, ERGEBNIS_KOMBO, ERGEBNIS_TREFFER, SERVER_KETTE_S, komboRestS } from '../src/net/Quittung';
-import { KETTE_FENSTER_S, abklingzeitMs, neuerSchlagZustand, pruefeSchlag, verbucheSchlag } from '../../server/src/spiel/Treffer';
+import { KETTE_FENSTER_S, SchlagErgebnis, abklingzeitMs, neuerSchlagZustand, pruefeSchlag, verbucheSchlag } from '../../server/src/spiel/Treffer';
 import { verdrahteKampf } from '../src/net/KampfNetz';
 
 let fehler = 0;
@@ -45,6 +45,15 @@ console.log('[1] SchlagBuch:');
   sp2.neu(800, 2);
   const spaet2 = sp2.quittiere({ seq: 1, schritt: 0, ergebnis: ERGEBNIS_KOMBO }, 900);
   check('verspaetete Verweigerung eines Schlags VOR dem letzten Neubeginn der Figur: Kette bleibt', spaet2?.kettenNeu === false, JSON.stringify(spaet2));
+  // N2-3: a refusal (cooldown, stamp, stamina: step 0) is not a chain matter; the figure's chain stays.
+  for (const [name, ergebnis] of [['Abklingzeit', SchlagErgebnis.Abklingzeit], ['Zeit', SchlagErgebnis.Zeit], ['Ausdauer', SchlagErgebnis.Ausdauer]] as const) {
+    for (const gespielt of [1, 2, 3]) {
+      const v = new SchlagBuch();
+      v.neu(0, gespielt);
+      const a = v.quittiere({ seq: 1, schritt: 0, ergebnis }, 40);
+      check(`Verweigerung (${name}, schritt 0) bei gespieltem Schritt ${gespielt} setzt die Kette der Figur NICHT zurueck`, a?.kettenNeu === false, JSON.stringify(a));
+    }
+  }
   const d = new SchlagBuch();
   d.neu(0, 2);
   const z = d.quittiere({ seq: 1, schritt: 1, ergebnis: ERGEBNIS_TREFFER }, 30);
@@ -87,8 +96,18 @@ console.log('\n[2] Verdrahtung (Standin-Socket und -Figur):');
 console.log('[3] Kettenfenster der Figur nie laenger als das des Servers (F4):');
 {
   const serverMs = abklingzeitMs('') + KETTE_FENSTER_S * 1000;
-  check('SERVER_KETTE_S = 0,80 s', SERVER_KETTE_S === 0.8, `${SERVER_KETTE_S} s`);
-  check(`SERVER_KETTE_S laesst mindestens 120 ms Reserve zum Server (${serverMs} ms)`, SERVER_KETTE_S * 1000 <= serverMs - 120);
+  check(`SERVER_KETTE_S = Abklingzeit + Kettenfenster des Servers (${serverMs} ms)`, Math.round(SERVER_KETTE_S * 1000) === serverMs, `${SERVER_KETTE_S} s`);
+  // Figure and server agree on every click gap when nothing is delayed: the figure follows the chain exactly when the server would.
+  let abweichung = 0;
+  for (let gap = 400; gap <= 1400; gap += 5) {
+    const z = neuerSchlagZustand();
+    verbucheSchlag(z, 1000, 1, '');
+    const e = pruefeSchlag(z, { seq: 2, schritt: 0, alterMs: 0, spitzeMs: 400 }, 1000 + gap, '');
+    const serverFolgt = e.ok && e.schritt === 2;
+    const figurFolgt = gap <= SERVER_KETTE_S * 1000;
+    if (e.ok && serverFolgt !== figurFolgt) abweichung++;
+  }
+  check('ohne Verzoegerung zaehlen Figur und Server bei jedem Klickabstand 400..1400 ms gleich (kein Abstand, bei dem sie auseinanderlaufen)', abweichung === 0, `${abweichung} abweichende Abstaende`);
   // Gemessene Clips (WikingerKoerper.glb/WikingerinKoerper.glb): Laenge s, Tempo wie AvatarRig.hiebDauer, Ausstieg 0,25, Fenster 0,6.
   const clips: Array<[string, number, number]> = [
     ['angriff', 3.042, 2.5], ['angriff2', 3.042, 2.5], ['angriff3', 3.125, 2.5],
@@ -103,7 +122,7 @@ console.log('[3] Kettenfenster der Figur nie laenger als das des Servers (F4):')
   check('ein kurzer Schlag (Rest 0,1 s) behaelt sein kuerzeres Fenster (0,7 s)', Math.abs(komboRestS(0.1, 0.6) - 0.7) < 1e-9);
 }
 
-console.log('\n[4] Kettenreserve (N1-3): Klick-zu-Klick der Figur gegen Ankunft-zu-Ankunft des Servers, echte pruefeSchlag:');
+console.log('\n[4] Figur gegen Server bei Latenz und Jitter (N2-1/N2-2): Sprungquote der Figur, Kettenabbruch durch die Quittung, Schadensverlust:');
 {
   // Deterministic generator (mulberry32); every run gives the same numbers.
   const zufall = (seed: number) => () => {
@@ -112,56 +131,92 @@ console.log('\n[4] Kettenreserve (N1-3): Klick-zu-Klick der Figur gegen Ankunft-
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+  interface Lauf {
+    klicks: number;
+    /** The figure played step 1 because its own window (the cap) was over: its jump rate. */
+    sprung: number;
+    /** The figure restarted its chain although its window was open: the server counted lower, the acknowledgement corrected it. */
+    abbruch: number;
+    /** Swings the server refused (cooldown), damage lost entirely. */
+    verweigert: number;
+    /** Swings the server counted with a lower step than the figure played (a finisher counted as step 1). */
+    niedriger: number;
+  }
   /**
-   * `versuche` fresh chains of three swings, `abstandMs` apart (click to click). The figure claims the next step while its
-   * window (`deckelS`, from swing start) is open; a finisher is only claimed then. Each swing reaches the server after
-   * latency +- jitter (uniform, in order like a TCP stream). Loss = a finisher the figure played (step 3) that the
-   * server did not count as step 3: before N2 the server refused it (whole swing, damage included). Each chain starts
-   * fresh, so one loss does not drag the next one along (the figure restarts its chain on the acknowledgement).
+   * An honest player clicks `trials` x `laenge` times; gap click to click: triangular around `mittelS` (standard deviation
+   * `sigmaS`, at least 0.5 s). Each swing reaches the server after latency +- jitter (uniform, in order), the acknowledgement
+   * comes back after the latency. The figure follows the cap `deckelS` (from swing start) and the real `SchlagBuch`; the
+   * server is the real `pruefeSchlag`/`verbucheSchlag`.
    */
-  function simuliere(deckelS: number, latenzMs: number, jitterMs: number, abstandMs: number, versuche: number, seed: number) {
+  function spiel(deckelS: number, latenzMs: number, jitterMs: number, mittelS: number, sigmaS: number, trials: number, seed: number, minS = 0.5): Lauf {
     const r = zufall(seed);
-    const folgt = abstandMs <= deckelS * 1000;
-    let verlust = 0;
-    let endschlaege = 0;
-    for (let v = 0; v < versuche; v++) {
+    const halb = sigmaS * Math.sqrt(6);
+    const lauf: Lauf = { klicks: 0, sprung: 0, abbruch: 0, verweigert: 0, niedriger: 0 };
+    for (let v = 0; v < trials; v++) {
+      const buch = new SchlagBuch();
       const z = neuerSchlagZustand();
-      let letzteAnkunft = -1e9;
-      for (let i = 0; i < 3; i++) {
-        const figur = folgt ? i + 1 : 1;
-        const ankunft = Math.max(i * abstandMs + latenzMs + (r() * 2 - 1) * jitterMs, letzteAnkunft + 1);
-        letzteAnkunft = ankunft;
-        const e = pruefeSchlag(z, { seq: i + 1, schritt: figur, alterMs: 0, spitzeMs: 400 }, ankunft, '');
-        if (!e.ok) break; // cooldown: not a chain matter (the intervals below stay clear of it)
-        if (figur === 3) {
-          endschlaege++;
-          if (e.schritt !== 3) verlust++;
+      const offen: Array<{ seq: number; ack: number; schritt: number; ergebnis: number }> = [];
+      let klick = 0;
+      let ankunft = -1e9;
+      let figur = 0;
+      let neu = false;
+      for (let i = 0; i < 30; i++) {
+        const gap = Math.max(minS, mittelS + halb * (r() + r() - 1));
+        klick += i === 0 ? 0 : gap * 1000;
+        // acknowledgements that arrived before this click
+        offen.sort((a, b) => a.ack - b.ack);
+        while (offen.length && offen[0].ack <= klick) {
+          const o = offen.shift()!;
+          const q = buch.quittiere({ seq: o.seq, schritt: o.schritt, ergebnis: o.ergebnis }, o.ack);
+          if (q?.kettenNeu) neu = true;
         }
-        verbucheSchlag(z, ankunft, e.schritt, '');
+        const offenesFenster = i > 0 && gap <= deckelS;
+        if (i > 0 && !offenesFenster) lauf.sprung++;
+        if (!offenesFenster || figur === 0) figur = 1;
+        else if (neu) {
+          figur = 1;
+          lauf.abbruch++;
+        } else figur = (figur % 3) + 1;
+        neu = false;
+        const seq = buch.neu(klick, figur);
+        ankunft = Math.max(klick + latenzMs + (r() * 2 - 1) * jitterMs, ankunft + 1);
+        const e = pruefeSchlag(z, { seq, schritt: figur, alterMs: 0, spitzeMs: 400 }, ankunft, '');
+        lauf.klicks++;
+        if (e.ok) {
+          verbucheSchlag(z, ankunft, e.schritt, '');
+          if (e.schritt < figur) lauf.niedriger++;
+          offen.push({ seq, ack: ankunft + latenzMs, schritt: e.schritt, ergebnis: ERGEBNIS_TREFFER });
+        } else {
+          lauf.verweigert++;
+          offen.push({ seq, ack: ankunft + latenzMs, schritt: 0, ergebnis: e.ergebnis });
+        }
       }
     }
-    return { verlust, endschlaege, quote: endschlaege ? verlust / endschlaege : 0 };
+    return lauf;
   }
-  /** Worst loss rate over the click intervals `ab`..1000 ms (step 5). */
-  const tabelle = (deckelS: number, latenz: number, jitter: number, ab = 450): number => {
-    let schlechtest = 0;
-    for (let d = ab; d <= 1000; d += 5) schlechtest = Math.max(schlechtest, simuliere(deckelS, latenz, jitter, d, 2000, d * 31 + latenz).quote);
-    return schlechtest;
-  };
+  const pro = (n: number, m: number): string => `${((n / m) * 100).toFixed(2)} %`;
+  const TRIALS = 4000;
+  // Klickabstand 0,75 s +- 0,08 s: the combo rhythm of a player who keeps the chain (the window is 0.95 s).
   for (const lat of [40, 150, 300]) {
-    const alt = tabelle(0.95, lat, 40);
-    const neu = tabelle(SERVER_KETTE_S, lat, 40);
-    console.log(`      Latenz ${lat} +-40 ms, schlechtester Klickabstand 450..1000 ms: Endschlag-Verlust Deckel 0,95 s = ${(alt * 100).toFixed(1)} %, Deckel ${SERVER_KETTE_S} s = ${(neu * 100).toFixed(1)} %`);
-    check(`Latenz ${lat} +-40 ms: Verlustquote mit dem Deckel ${SERVER_KETTE_S} s hoechstens 1 %`, neu <= 0.01, `${(neu * 100).toFixed(2)} %`);
-    check(`Latenz ${lat} +-40 ms: der alte Deckel 0,95 s verlor mehr als 1 % (Probe ist empfindlich)`, alt > 0.01, `${(alt * 100).toFixed(2)} %`);
+    const jitter = lat === 40 ? 40 : 100;
+    const l = spiel(SERVER_KETTE_S, lat, jitter, 0.75, 0.08, TRIALS, 7 + lat);
+    const alt = spiel(0.8, lat, jitter, 0.75, 0.08, TRIALS, 7 + lat);
+    console.log(
+      `      Latenz ${lat} +-${jitter} ms, Klick 0,75 +-0,08 s: Deckel ${SERVER_KETTE_S} s: Figur-Sprung ${pro(l.sprung, l.klicks)}, Kettenabbruch durch Quittung ${pro(l.abbruch, l.klicks)}, ` +
+        `Verlust durch Abklingzeit ${pro(l.verweigert, l.klicks)}, durch Kette (Server zaehlt niedriger) ${pro(l.niedriger, l.klicks)}; Deckel 0,80 s: Figur-Sprung ${pro(alt.sprung, alt.klicks)}`
+    );
+    check(`Latenz ${lat} +-${jitter} ms: Sprungquote der Figur mit dem Deckel ${SERVER_KETTE_S} s hoechstens 1 %`, l.sprung / l.klicks <= 0.01, pro(l.sprung, l.klicks));
+    check(`Latenz ${lat} +-${jitter} ms: der Deckel 0,80 s sprang in mehr als 10 % der Klicks (Probe ist empfindlich)`, alt.sprung / alt.klicks > 0.1, pro(alt.sprung, alt.klicks));
+    check(`Latenz ${lat} +-${jitter} ms: sichtbarer Kettenabbruch durch die Quittung hoechstens 15 % der Klicks`, l.abbruch / l.klicks <= 0.15, pro(l.abbruch, l.klicks));
+    check(`Latenz ${lat} +-${jitter} ms: Verlust durch die Abklingzeit hoechstens 1 % der Schlaege`, l.verweigert / l.klicks <= 0.01, pro(l.verweigert, l.klicks));
+    check(`Latenz ${lat} +-${jitter} ms: Schadensverlust durch die Kette hoechstens 15 % der Schlaege`, l.niedriger / l.klicks <= 0.15, pro(l.niedriger, l.klicks));
   }
-  const breit = tabelle(SERVER_KETTE_S, 300, 100, 600);
-  console.log(`      Latenz 300 +-100 ms, Klickabstand ab 600 ms (zum Vergleich): Deckel ${SERVER_KETTE_S} s = ${(breit * 100).toFixed(1)} %, Deckel 0,95 s = ${(tabelle(0.95, 300, 100, 600) * 100).toFixed(1)} %`);
-  // The serverside half: a finisher claimed after the chain ran out counts as step 1, not as refused.
-  const z = neuerSchlagZustand();
-  verbucheSchlag(z, 1000, 1, '');
-  const rand = pruefeSchlag(z, { seq: 2, schritt: 3, alterMs: 0, spitzeMs: 400 }, 1000 + 950 + 1, '');
-  check('Endschlag 1 ms nach dem Kettenfenster: zaehlt, als Schritt 1', rand.ok && rand.schritt === 1, JSON.stringify(rand));
+  // A player who clicks fast (0,40 s +- 0,08 s, at least 0,3 s): the cooldown of 350 ms refuses swings whose arrival gap jitter squeezed.
+  for (const lat of [40, 150, 300]) {
+    const jitter = lat === 40 ? 40 : 100;
+    const l = spiel(SERVER_KETTE_S, lat, jitter, 0.4, 0.08, TRIALS, 11 + lat, 0.3);
+    console.log(`      Latenz ${lat} +-${jitter} ms, schneller Klick 0,40 +-0,08 s: Verlust durch Abklingzeit ${pro(l.verweigert, l.klicks)}, durch Kette ${pro(l.niedriger, l.klicks)}, Figur-Sprung ${pro(l.sprung, l.klicks)}`);
+  }
 }
 
 console.log(fehler === 0 ? '\nD2 Quittung (Client): alles gruen' : `\nD2 Quittung (Client): ${fehler} FEHLER`);

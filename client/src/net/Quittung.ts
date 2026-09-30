@@ -19,15 +19,16 @@ export interface SchlagFelder {
 }
 
 /**
- * How long (s), counted from the start of a swing, the figure keeps its chain open at most. The server keeps it open
- * 0.95 s from swing START to swing ARRIVAL (cooldown of the slowest weapon 350 ms plus `KETTE_FENSTER_S` 0.6 s,
- * server/src/spiel/Treffer.ts); the client counts click to click, the server arrival to arrival, so the difference of
- * two latencies eats into it. 0.80 s leaves 150 ms: jitter of +-40 ms per swing (80 ms between two) loses no finisher
- * at 40, 150 or 300 ms latency (simulation in client/test/d2-quittung.ts). The figure's own window
- * (clip length / tempo - 0.25 s + 0.6 s = 1.33 .. 1.63 s for the real weapon clips) is longer; without this cap
- * the figure plays blow 2 or 3 where the server already counted blow 1 again.
+ * How long (s), counted from the start of a swing, the figure keeps its chain open at most: the window of the
+ * server, 0.95 s from swing START to swing ARRIVAL (cooldown of the slowest weapon `ABKLINGZEIT_LANGSAMSTE_MS`
+ * 350 ms plus `KETTE_FENSTER_S` 0.6 s, server/src/spiel/Treffer.ts). The client cannot import the server's constants;
+ * client/test/d2-quittung.ts binds this number to them. Since D2 N2 the server never refuses a finisher (it counts it as
+ * step 1), so a lower cap only cost combo window (0.80 s made the figure jump to blow 1 in 22 % of the clicks at
+ * 0.75 s). The figure's own window (clip length / tempo - 0.25 s + 0.6 s = 1.33 .. 1.63 s for the real weapon clips)
+ * is longer; without the cap the figure would play blow 2 or 3 where the server already counts blow 1 again. Where
+ * the arrival differs (latency jitter), the acknowledgement corrects the figure (N1-4).
  */
-export const SERVER_KETTE_S = 0.8;
+export const SERVER_KETTE_S = 0.95;
 
 /** The figure's chain window (s from swing start): its own, but never longer than the server's. */
 export function komboRestS(angriffRest: number, komboFenster: number): number {

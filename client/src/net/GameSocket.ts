@@ -6,6 +6,7 @@
 
 import { PacketType, HANDSHAKE_LEERPASSWORT_SCHLUESSEL, moduleRegistry } from '@wov/shared';
 import type { Vector3, Quaternion } from '@wov/shared';
+import type { SchlagFelder } from './Quittung';
 
 /**
  * Ein DECODER für die ganze Sitzung statt einer je Zeichenkette.
@@ -411,6 +412,15 @@ export class GameSocket {
     this.sendPacket(PacketType.TerrainOp, w.toUint8Array());
   }
 
+  /**
+   * D2: woher `sendAttack` Kettenschritt und Hiebzeit nimmt (KampfNetz). Ohne Quelle geht der Schlag
+   * wie vor D2 raus, ohne die angehaengten Felder, und der Server quittiert nicht.
+   */
+  setzeSchlagQuelle(quelle: (() => SchlagFelder) | null): void {
+    this.schlagQuelle = quelle;
+  }
+  private schlagQuelle: (() => SchlagFelder) | null = null;
+
   /** Nahkampfschlag an der Spielerposition (weapon = Item-Name, '' = Faust). */
   sendAttack(x: number, y: number, z: number, yaw: number, weapon = ''): void {
     const w = new BinaryWriter();
@@ -419,6 +429,13 @@ export class GameSocket {
     w.writeFloat32(z);
     w.writeFloat32(yaw);
     w.writeString(weapon);
+    const felder = this.schlagQuelle?.();
+    if (felder) {
+      w.writeInt32(felder.seq);
+      w.writeInt32(felder.schritt);
+      w.writeFloat32(felder.alterMs);
+      w.writeFloat32(felder.spitzeMs);
+    }
     this.sendPacket(PacketType.Attack, w.toUint8Array());
   }
 

@@ -171,6 +171,7 @@ import {
 } from '@wov/shared/src/bewegung/ausdauer.js';
 import { pickableItem, ZWEIT_DROPS, wuerfleDrop, wuerfleTruhe } from './spiel/Beute.js';
 import { waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
+import { liesSchlagMeldung, pruefeSchlag, verbucheSchlag, trefferAbstand, schreibeQuittung, SchlagErgebnis, TOLERANZ_MAX_M, type SchlagErgebnisWert } from './spiel/Treffer.js';
 import { EIKTHYR_HASH, BOSS_ENTRY, NPC_ENTRY } from './spiel/Sondereintraege.js';
 import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
 import { handleDungeonEditRequest, handleDungeonEditSave, handleDungeonModulBau, handleDungeonModulLoeschen } from './spiel/DungeonEditPakete.js';
@@ -3706,6 +3707,8 @@ export class WovServer {
   }
 
   private handleAttack(peer: Peer, reader: Reader): void {
+    // A packet shorter than position + yaw (16 bytes) is dropped silently; reading it would throw and cut the peer off.
+    if (reader.remaining() < 16) return;
     const pos = reader.readVector3();
     if (!this.schlagErlaubt(peer, pos)) return;
     /*
@@ -3746,12 +3749,22 @@ export class WovServer {
     // Paketname; der gilt nur fuer Clients, die noch nie ein Equip geschickt
     // haben (wirksameWaffe). handleHarvest bekommt dieselbe Waffe weitergereicht.
     waffe = this.waffeFuerSchlag(peer, waffe);
+    // D2: Zeitstempel, Abklingzeit und Kombo (spiel/Treffer.ts) VOR der Ausdauer — ein verworfener
+    // Schlag kostet nichts. Ein aktueller Client bekommt fuer jeden Schlag eine Quittung.
+    const meldung = liesSchlagMeldung(reader.remaining(), reader);
+    const quittiere = (schritt: number, ergebnis: SchlagErgebnisWert): void => {
+      if (meldung) peer.sendPacketWith(PacketType.AttackAck, (w) => schreibeQuittung(w, meldung.seq, schritt, ergebnis));
+    };
+    const jetzt = Date.now();
+    const entscheid = pruefeSchlag(peer.schlag, meldung, jetzt, waffe);
+    if (!entscheid.ok) return quittiere(0, entscheid.ergebnis);
     const nachSchlag = ausdauerAbzug(
       { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
       schlagKosten(this.werteVon(peer).agility),
-      Date.now()
+      jetzt
     );
-    if (!nachSchlag) return;
+    if (!nachSchlag) return quittiere(0, SchlagErgebnis.Ausdauer);
+    verbucheSchlag(peer.schlag, jetzt, entscheid.schritt, waffe);
     peer.stamina = nachSchlag.wert;
     peer.staminaZuletztVerbraucht = nachSchlag.zuletztVerbraucht;
     this.sendPlayerState(peer);
@@ -3774,8 +3787,9 @@ export class WovServer {
     */
     const von = peer.position;
     let ziel: import('./zdo/ZDO.js').ZDO | null = null;
-    let best = WovServer.NAHKAMPF_REICHWEITE ** 2;
-    for (const zdo of this.zdosVon(peer).getZDOsInRadius(von, WovServer.NAHKAMPF_REICHWEITE)) {
+    // D2: Trefferkugel (0;1;1) um die Serverposition; der naechste Kandidat zur Kugelmitte gewinnt.
+    let best = Number.POSITIVE_INFINITY;
+    for (const zdo of this.zdosVon(peer).getZDOsInRadius(von, WovServer.NAHKAMPF_REICHWEITE + TOLERANZ_MAX_M)) {
       const def = this.prefabs.getByHash(zdo.prefabHash);
       const flags = def?.flags ?? 0n;
       // ANGREIFBAR: die eigenen NPCs mit Kampfwerten (shared/npc.ts). Sie
@@ -3784,23 +3798,26 @@ export class WovServer {
       // Ein sterbendes Wesen (Todesclip laeuft) ist nicht mehr zu treffen:
       // sein Leben steht auf 0, und der Schlag risse es als „frisch" hoch.
       if (this.spawns?.stirbt(zdo)) continue;
-      const d = (zdo.position.x - von.x) ** 2 + (zdo.position.z - von.z) ** 2;
-      if (d >= best) continue;
-      // Der Kegel steht NACH dem Abstand, nicht davor: Er kostet einen
-      // Wurzelzug je Kandidat, der Abstand nur zwei Multiplikationen.
+      // Der Kegel steht VOR der Kugel: er ist billiger (kein 3D-Abstand) und hat den Mindestabstand.
       if (!this.imTrefferkegel(von, yaw, zdo.position)) continue;
+      const d = trefferAbstand(von, yaw, zdo.position, this.spawns?.tempo(zdo) ?? 0);
+      if (d === null || d >= best) continue;
       best = d;
       ziel = zdo;
     }
     /*
-      Kein Wesen im Kegel → Ernte. Auch die faellt jetzt um die
-      Serverposition aus, aus demselben Grund wie oben.
+      Kein Wesen in der Kugel → Ernte. Auch die faellt um die Serverposition aus,
+      aus demselben Grund wie oben.
 
       OHNE Kegel, absichtlich: Ein Baum steht still, er umkreist niemanden,
       und ein Fehlschlag beim Faellen ist kein Kampfgefuehl, sondern nur
       Aerger. Die Ernte hat ihre eigenen, engeren Reichweiten (3,2 m).
     */
-    if (!ziel) return this.handleHarvest(peer, von, waffe);
+    if (!ziel) {
+      quittiere(entscheid.schritt, SchlagErgebnis.Fehl);
+      return this.handleHarvest(peer, von, waffe);
+    }
+    quittiere(entscheid.schritt, SchlagErgebnis.Treffer);
     const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
     this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 1, peer.worldId, peer);
     // Startwert aus shared/leben.ts statt aus einem Literal. Der

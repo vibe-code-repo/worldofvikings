@@ -191,6 +191,10 @@ export function ladeGegenstandsDatei(pfad: string, log: GegenstandsLog = console
   }
   if (r.art === 'verworfen') return fallbackLetzterGuter(pfad, r, log);
   if (r.art === 'abgelehnt' || (r.art === 'fehlt' && standVon(gegenstandsLetzterGuterDatei(pfad)) !== null)) return fallbackLetzterGuter(pfad, r, log);
+  // Neither the working copy nor a last good state: a first start, or both files were lost. Data items held in saves
+  // cannot be told apart from removed ones, so they stay kept until the watch has checked them (a first start holds
+  // none: the watch writes the last good state with its first tick and the switch goes off again).
+  if (r.art === 'fehlt') return { ...r, ohneGutenStand: true };
   return r;
 }
 
@@ -317,7 +321,11 @@ export class GegenstandsWache {
 
   private pruefe(): void {
     const stand = standVon(this.d.pfad);
-    if (stand === null) return; // gone for a moment (rename, maintenance): do nothing
+    if (stand === null) {
+      // Gone for a moment (rename, maintenance): do nothing. Only the start without any file asks something of the watch.
+      if (this.ohneGutenStand) this.ohneDatei();
+      return;
+    }
     const anfrageStand = standVon(this.d.bestaetigenPfad);
     const neueAnfrage = anfrageStand !== null && anfrageStand !== this.letzterAnfrageStand;
     if (stand === this.letzterStand && !neueAnfrage) {
@@ -438,6 +446,29 @@ export class GegenstandsWache {
     this.d.neuBinden();
     this.log.log(`[Gegenstaende] angewendet: ${lesung.eintraege.length} Datenitem(s)${entfernt.size > 0 ? `, ${entfernt.size} entfernt` : ''}`);
     this.quittiere('angewendet', hash);
+  }
+
+  /**
+   * Start without working copy and without last good state, and the file is still missing: there is nothing to apply,
+   * so only what is held under an unknown name matters. Nothing held: the state is settled and the last good state is
+   * written (a first start). Something held: its loss needs the confirmation; the file is what the operator creates.
+   */
+  private ohneDatei(): void {
+    if (this.d.speichertGerade?.()) return;
+    const unbekannt = this.d.unbekanntGehalten?.((name) => findItem(name) !== undefined) ?? {};
+    const ids = Object.keys(unbekannt);
+    if (ids.length > 0) {
+      const hash = layoutHash(Buffer.alloc(0));
+      if (this.quittiert?.hash === hash && ids.every((id) => this.quittiert!.ids.has(id))) return; // receipt stands
+      this.log.warn(`[Gegenstaende] Bestaetigung noetig (keine Arbeitsdatei, kein letzter guter Stand), nichts entfernt: ${Object.entries(unbekannt).map(([id, n]) => `${n}x ${id}`).join(', ')} gehalten`);
+      this.quittiert = { hash, ids: new Set(ids) };
+      this.quittiere('bestaetigung-noetig', hash, { gehalten: unbekannt });
+      return;
+    }
+    this.ohneGutenStand = false;
+    this.quittiert = null;
+    this.d.verwahren?.(false);
+    letzterGuterSchreiben(this.d.pfad, this.angewendet, this.log);
   }
 
   private quittiere(status: GegenstandsStatus, hash: string, zusatz: { gehalten?: Record<string, number>; verworfen?: GegenstandsQuittung['verworfen'] } = {}): void {

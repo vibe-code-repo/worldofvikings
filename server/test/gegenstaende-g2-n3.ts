@@ -9,7 +9,7 @@
  *       is taken (old save) gets a free one.
  *  [F3] `rebind()` brings kept stacks back at once when the name is defined again; without a free cell it stays kept.
  *  [F4] Start: last good state missing / 0 byte / broken x working copy missing / 0 byte / broken / valid: every
- *       combination with an existing (unusable) last good state flags `ohneGutenStand`, also a missing working copy.
+ *       combination flags `ohneGutenStand` (N4: also both missing; the first start writes the last good state, see n4).
  *  [F5] Two servers one after the other in one process: `stop()` leaves the keep switch off.
  *  [F6] Watch in the `ohneGutenStand` mode: a confirmation covers only the ids of its receipt (M3) and only the hash
  *       of its receipt, also when the file changed in the same tick (M4).
@@ -139,7 +139,7 @@ async function main(): Promise<void> {
         })());
 
         const zuLang = unpackContainer(`[${Array.from({ length: 12 }, () => '["Wood",50,0,1]').join(',')},["Datenaxt",4,0,1]]`);
-        check('13 entries (old save): the raw stack at the end is kept, one known stack gives way', zuLang.verwahrte.length === 1 && zuLang.all.length === 11 && eindeutig(zellen(zuLang)), `${zuLang.all.length} known, ${zuLang.verwahrte.length} raw`);
+        check('13 entries (old save): the raw stack at the end is kept and no known stack gives way (N4)', zuLang.verwahrte.length === 1 && zuLang.all.length === 12 && eindeutig(zellen(zuLang)), `${zuLang.all.length} known, ${zuLang.verwahrte.length} raw`);
       } finally {
         setzeUnbekannteVerwahren(false);
       }
@@ -229,7 +229,7 @@ async function main(): Promise<void> {
           schreibeArt(t.guter, guter);
           schreibeArt(t.pfad, arbeit, schreibeGegenstandsDatei(eintraege('Holzaxt')));
           const { stand } = t.starte();
-          const soll = !(guter === 'fehlt' && arbeit === 'fehlt'); // nothing was ever there: nothing to protect
+          const soll = true; // also both missing (N4): a save may hold data items nobody can tell from removed ones
           check(`last good ${guter} / working copy ${arbeit}: ohneGutenStand ${soll}, switch ${soll ? 'on' : 'untouched'}`, (stand.ohneGutenStand === true) === soll && t.verwahren.join() === (soll ? 'true' : ''), `art ${stand.art} flag ${stand.ohneGutenStand} switch [${t.verwahren}]`);
         }
       }

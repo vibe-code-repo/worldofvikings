@@ -383,6 +383,8 @@ export default [
   ['server', 'test/gegenstaende-g2-n2.ts'],
   // G2 N3: kept raw stacks count against the chest size, own their cell, come back at `rebind()`; no silent gap at the start (broken last good state + missing file); `stop()` resets the keep switch.
   ['server', 'test/gegenstaende-g2-n3.ts'],
+  // G2 N4: no silent gap when working copy and last good state are both missing (first start settles itself); `rebind()` brings back only usable stacks; a chest list loses no known stack beside raw ones.
+  ['server', 'test/gegenstaende-g2-n4.ts'],
   // G2: the start with a broken, gone or partly discarded working copy loads the LAST GOOD state; player and chest keep their data items over three restarts and saves.
   ['server', 'test/gegenstaende-g2-start.ts'],
   // `createGenerated` mit Generator-Einstellungen (maxRooms/zoneSize): Dokument

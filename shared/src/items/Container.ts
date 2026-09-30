@@ -85,8 +85,9 @@ export function unpackContainer(json: string): Inventory {
   }
   if (!Array.isArray(roh)) return inv;
 
-  // Raw (kept) tuples are never cut: they count against the chest size, and only the known stacks give way when
-  // the list is longer than the chest. Positions follow the list order, so every stack owns its own cell.
+  // Neither kind is cut because of the other: raw (kept) tuples are never cut, and the known stacks give way only
+  // when there are more of them than the chest has cells (manipulated data). Positions follow the list order, so
+  // every stack owns its own cell (a raw one behind a full chest gets a cell outside the grid, it is still packed).
   const kandidaten: { name: string; stack: number; durability: number; quality: number; roh: boolean }[] = [];
   for (const eintrag of roh) {
     if (!Array.isArray(eintrag) || eintrag.length !== 4) continue;
@@ -103,7 +104,7 @@ export function unpackContainer(json: string): Inventory {
     });
   }
   // Deckel: manipulierte/fremde Daten mit mehr Einträgen, als ein Container je legitim erreichen kann (s. Kopfkommentar).
-  let platzFuerBekannte = Math.max(0, CONTAINER_SLOTS - kandidaten.filter((k) => k.roh).length);
+  let platzFuerBekannte = CONTAINER_SLOTS;
   const saved: SavedItemStack[] = [];
   for (const k of kandidaten) {
     if (!k.roh && platzFuerBekannte-- <= 0) continue;

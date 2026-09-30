@@ -234,7 +234,7 @@ export class Inventory {
   }
 
   /**
-   * Kept raw stacks whose name resolves to a definition again come back into `items` (online players do not have
+   * Kept raw stacks whose name resolves to a definition again come back into `items` as plain stacks (checked, never equipped; online players do not have
    * to log in again). The stack keeps its cell if it is free, else it takes a free one; without a free cell it stays
    * kept (nothing is lost) and the next `rebind` tries again.
    */
@@ -242,6 +242,12 @@ export class Inventory {
     for (const s of [...this.verwahrt]) {
       const shared = findItem(s.name);
       if (!shared) continue;
+      if (!Number.isInteger(s.stack) || s.stack < 1 || !Number.isFinite(s.durability) || !Number.isFinite(s.quality)) {
+        // A raw stack that no normal stack could be (amount, durability or quality not a usable number): it stays kept
+        // as it is, nothing is lost and nothing unusable enters the grid.
+        console.warn(`[Inventory] rebind: kept ${s.name} is unusable (stack ${String(s.stack)}, durability ${String(s.durability)}, quality ${String(s.quality)}), it stays kept`);
+        continue;
+      }
       this.verwahrt = this.verwahrt.filter((v) => v !== s);
       let slot: [number, number] | null = null;
       const imRaster =
@@ -253,7 +259,7 @@ export class Inventory {
         console.warn(`[Inventory] rebind: kept ${s.name} x${s.stack} has no free slot, it stays kept`);
         continue;
       }
-      this.items.push({ shared, stack: s.stack, durability: s.durability, quality: s.quality, gridX: slot[0], gridY: slot[1], equipped: s.equipped });
+      this.items.push({ shared, stack: s.stack, durability: s.durability, quality: s.quality, gridX: slot[0], gridY: slot[1], equipped: false });
     }
   }
 

@@ -53,13 +53,26 @@ const HIER = dirname(fileURLToPath(import.meta.url));
  * The modules cut out of `editorMain.ts`, relative to client/src/editor. Their code lay under the boundaries of
  * `editorMain.ts` before it moved, so a boundary check on `editorMain.ts` as a whole runs on each of them as well, one
  * file at a time. test/editor-module-grenze.ts holds the list of modules and fails when one is missing here.
+ * Each module adds one check to SOLL.
  */
 const CUT_OUT_MODULES = ['biome.ts', 'formen.ts', 'seite/helfer.ts'];
 
 let fehler = 0;
+let gut = 0;
+// Expected number of checks. A cut-short run (`process.exit(0)`, an exception, a loop that reads fewer files than the list
+// names) prints no ✗ line -- counted as "0 red" it would pass. So the exit hook prints a red line and sets the exit code,
+// and the end compares ✓ + ✗ with this number.
+const SOLL = 85;
+let fertig = false;
+process.on('exit', () => {
+  if (fertig) return;
+  console.log(`  ✗ abgebrochen: nur ${gut + fehler} von ${SOLL} Prüfungen liefen`);
+  process.exitCode = 1; // also after process.exit(0) in the middle of the run
+});
 function check(name: string, ok: boolean, zusatz = ''): void {
   console.log(`  ${ok ? '✓' : '✗'} ${name}${!ok && zusatz ? ` (${zusatz})` : ''}`);
   if (!ok) fehler++;
+  else gut++;
 }
 
 // ── Fixtures ──────────────────────────────────────────────────────────
@@ -429,12 +442,14 @@ const dialog = quelle('../src/editor/WeltZuruecksetzenDialog.ts');
   check('der Knopf ruft weltZuruecksetzenStarten nur aus resetSektionBauen (nicht aus der Werkzeugleiste)', refs.length === 1 && !!sektion && refs[0]!.getStart() >= sektion.getStart() && refs[0]!.getEnd() <= sektion.getEnd(), `refs=${refs.length}`);
   const weltSektion = funktion(main, 'weltSektionBauen');
   check('resetSektionBauen hängt im Welt-Reiter (weltSektionBauen ruft sie)', !!weltSektion && alle(weltSektion, istAufruf).some((c) => aufrufName(c) === 'resetSektionBauen'));
-  const texte = alle(main, (n): n is ts.StringLiteral => ts.isStringLiteralLike(n) && /welt-zuruecksetzen/.test(n.text));
+  // The predicate stands here once: the check on editorMain.ts and the checks on the cut-out modules use this one function.
+  const namesResetPath: (n: ts.Node) => n is ts.StringLiteral = (n): n is ts.StringLiteral => ts.isStringLiteralLike(n) && /welt-zuruecksetzen/.test(n.text);
+  const texte = alle(main, namesResetPath);
   check('editorMain kennt den Pfad /api/welt-zuruecksetzen nicht selbst (nur weltZuruecksetzen.ts)', texte.length === 0, `n=${texte.length}`);
   // The same boundary for the modules cut out of editorMain.ts, each on its own syntax tree.
   for (const file of CUT_OUT_MODULES) {
     const tree = quelle(`../src/editor/${file}`);
-    const found = alle(tree, (n): n is ts.StringLiteral => ts.isStringLiteralLike(n) && /welt-zuruecksetzen/.test(n.text));
+    const found = alle(tree, namesResetPath);
     check(`${file} kennt den Pfad /api/welt-zuruecksetzen nicht selbst (nur weltZuruecksetzen.ts)`, found.length === 0, `n=${found.length}`);
   }
   const abgleich = funktion(main, 'testweltSchalten');
@@ -460,5 +475,10 @@ const dialog = quelle('../src/editor/WeltZuruecksetzenDialog.ts');
   })());
 }
 
+fertig = true;
+if (gut + fehler !== SOLL) {
+  console.log(`  ✗ Sollzahl: ${gut + fehler} Prüfungen statt ${SOLL}`);
+  fehler++;
+}
 console.log(fehler === 0 ? '\nAlle Prüfungen grün.' : `\n${fehler} Prüfung(en) fehlgeschlagen.`);
 process.exit(fehler > 0 ? 1 : 0);

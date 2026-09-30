@@ -720,15 +720,18 @@ async function main(): Promise<void> {
     ts.createPrinter({ removeComments: true }).printFile(ts.createSourceFile('x.ts', text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)).replace(/"/g, "'"); // independent of line breaks and quote style (prettier)
   const haupt = kanonisch(readFileSync(resolve(EDITOR, 'editorMain.ts'), 'utf-8'));
   const hud = readFileSync(resolve(EDITOR, 'KartenHud.ts'), 'utf-8');
-  const vergleiche = haupt.match(/werkzeug\s*[!=]==\s*'(fluss|see)'/g) ?? [];
+  // Each pattern stands once, directly before its check: the check on editorMain.ts and the checks on the cut-out modules use this one constant.
+  const RIVER_LAKE_BRANCH = /werkzeug\s*[!=]==\s*'(fluss|see)'/g;
+  const vergleiche = haupt.match(RIVER_LAKE_BRANCH) ?? [];
   gleich("editorMain.ts: no `werkzeug === 'fluss'` / `=== 'see'`", vergleiche, []);
-  const zustand = haupt.match(/\b(flussPunkte|flussBreite|flussTiefe|seeRadius|seeTiefe|flussSchliessen)\b/g) ?? [];
+  const RIVER_LAKE_STATE = /\b(flussPunkte|flussBreite|flussTiefe|seeRadius|seeTiefe|flussSchliessen)\b/g;
+  const zustand = haupt.match(RIVER_LAKE_STATE) ?? [];
   gleich('editorMain.ts: no river / lake state or close function left', zustand, []);
   // The same two boundaries for the modules cut out of editorMain.ts, each file on its own.
   for (const file of CUT_OUT_MODULES) {
     const text = kanonisch(readFileSync(resolve(EDITOR, file), 'utf-8'));
-    gleich(`${file}: no \`werkzeug === 'fluss'\` / \`=== 'see'\``, text.match(/werkzeug\s*[!=]==\s*'(fluss|see)'/g) ?? [], []);
-    gleich(`${file}: no river / lake state or close function left`, text.match(/\b(flussPunkte|flussBreite|flussTiefe|seeRadius|seeTiefe|flussSchliessen)\b/g) ?? [], []);
+    gleich(`${file}: no \`werkzeug === 'fluss'\` / \`=== 'see'\``, text.match(RIVER_LAKE_BRANCH) ?? [], []);
+    gleich(`${file}: no river / lake state or close function left`, text.match(RIVER_LAKE_STATE) ?? [], []);
   }
   check('editorMain.ts asks the registry', /from '\.\/werkzeuge'/.test(haupt) && /const registriert = werkzeugMitId\(werkzeug\);/.test(haupt) && /registriert\?\.beiZeigerRunter\(werkzeugKontext/.test(haupt));
   gleich("KartenHud.ts: no 'fluss' / 'see' key", hud.match(/^\s*(fluss|see):/gm) ?? [], []);

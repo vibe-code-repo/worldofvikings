@@ -35,6 +35,15 @@
  * body of its callback is read all the same; a write through the parameter of a callback or through a
  * function of another module; an import alias that is configured later (tsconfig `paths`, `imports` or
  * `exports` in a package.json, `resolve.alias` of the bundler): there is none today.
+ * NOT caught either (each was tried while loading and passes; each needs intent):
+ *   - a writing call reached through `call`: `Object.assign.call(null, F, { … })`
+ *   - a writing call under another name: `const { assign: put } = Object; put(F, { … })`
+ *   - a writing call with spread arguments: `Object.assign(...[F, { … }])`
+ *   - a changing method taken from the prototype: `Array.prototype.push.call(BIOM_TON.grassland, …)`
+ *   - a write through the parameter of a local function: `const set = (o) => { o.a = …; }; set(F);`
+ *   - a getter that writes when it is read: `const o = { get g() { F.a = …; return 1; } }; void o.g;`
+ *   - a module augmentation that names editorMain: `declare module '../editorMain' { … }` (types only, loads nothing)
+ *   - a triple-slash reference to editorMain: `/// <reference path="../editorMain.ts" />` (types only, loads nothing)
  *
  * Run:  npx tsx test/editor-module-grenze.ts    (from client/)
  */
@@ -76,7 +85,7 @@ const MODUL_PFADE: readonly string[] = MODULE.map((m) => pfadVon(m.datei));
  * of these tests runs them on every module as well and names the modules in a list of this name.
  * A module that is added to MODULE above has to be added to the list in each of these files.
  */
-const BOUNDARY_TESTS = ['welt-zuruecksetzen.ts', 'entwurfs-speicher.ts', 'werkzeug-platzieren.ts', 'werkzeug-registry.ts'] as const;
+const BOUNDARY_TESTS = ['welt-zuruecksetzen.ts', 'entwurfs-speicher.ts', 'werkzeug-platzieren.ts', 'werkzeug-registry.ts', 'editor-speichern-basis.ts', 'inselwahl.ts'] as const;
 const LIST_NAME = 'CUT_OUT_MODULES';
 
 /** Built-ins a module may use while it loads: pure, nothing of the page, the network or a store. */
@@ -90,7 +99,7 @@ const WRITING_CALLS = new Set(['assign', 'defineProperty', 'defineProperties', '
 /** Methods that change the object they are called on (arrays, maps, sets). */
 const CHANGING_METHODS = new Set(['push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse', 'fill', 'copyWithin', 'set', 'add', 'delete', 'clear']);
 
-const SOLL = 88;
+const SOLL = 90;
 let gut = 0;
 let fehler = 0;
 function check(name: string, ok: boolean, zusatz = ''): void {

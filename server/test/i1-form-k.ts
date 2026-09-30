@@ -105,6 +105,8 @@ interface FunktionSpec {
   readonly laenge: number;
   /** The packet type whose `case` in `onPacket` calls `this.<name>(peer, reader)` (the name of the method without `handle`); none when no packet leads here. */
   readonly paketTyp?: string;
+  /** A section line (`// ── Title ──`) that stood before the moved method and stays before its forwarding (rule 2.7, 4.5); none for every function of steps 2 and 3. */
+  readonly abschnittDavor?: string;
 }
 interface ModulSpec {
   /** Path from the repository root. */
@@ -350,8 +352,11 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       const kopf = body ? text.slice(m.getStart(sf), body.getStart(sf)).trim() : '';
       if (kopf !== fn.kopf) f.push(`${fn.name}: head of the forwarding is "${kopf}", frozen "${fn.kopf}"`);
       // no comment at the forwarding (rule 4.5): before it only blank space or a section line that stood there; inside it nothing but the one statement
-      const davor = text.slice(m.getFullStart(), m.getStart(sf)).split('\n').map((z) => z.trim()).filter((z) => z !== '' && !/^\/\/ ── .* ─+$/.test(z));
-      if (davor.length > 0) f.push(`${fn.name}: a comment at the forwarding (${davor[0]!.slice(0, 40)}): the forwarding carries none`);
+      // before it: exactly the one new blank line of rule 4.5a and nothing else; a section line only if it stood there before (`abschnittDavor`), a new one is not allowed (H5 of the attack on step 3)
+      const davorText = text.slice(m.getFullStart(), m.getStart(sf));
+      const davor = davorText.split('\n').map((z) => z.trim()).filter((z) => z !== '');
+      if (!same(davor, fn.abschnittDavor === undefined ? [] : [fn.abschnittDavor])) f.push(`${fn.name}: before the forwarding stands ${davor.length === 0 ? 'nothing' : `"${davor[0]!.slice(0, 40)}"`}, allowed is ${fn.abschnittDavor === undefined ? 'nothing (no comment, no new section line)' : `"${fn.abschnittDavor}"`}`);
+      else if (fn.abschnittDavor === undefined && davorText !== '\n\n  ') f.push(`${fn.name}: rule 4.5a wants exactly one new blank line before the forwarding`);
       if (body) {
         const gesamt = text.slice(m.getStart(sf), m.getEnd()).replace(/\s+/g, ' ');
         const erwartet = `${fn.kopf} { return ${fn.name}(this, ${m.parameters.map((p) => p.name.getText(sf)).join(', ')}); }`;
@@ -514,7 +519,13 @@ console.log('\n[0] Self-test of the checks on invented sources');
   const gut = gutesGebaeude();
   check('green: the good class', pruefeKlasse([S], gut, OEFF).length === 0, show(pruefeKlasse([S], gut, OEFF)));
   const mitAbschnitt = gut.replace('\n  private fb(', '\n  // ── Weiterleitungen ─────────────\n  private fb(');
-  check('green: a section line that stood before the forwarding stays allowed', pruefeKlasse([S], mitAbschnitt, OEFF).length === 0, show(pruefeKlasse([S], mitAbschnitt, OEFF)));
+  const SAbschnitt: ModulSpec = { ...S, funktionen: [PAKET('fa'), { ...PAKET('fb'), abschnittDavor: '// ── Weiterleitungen ─────────────' }] };
+  check('green: a section line that stood before the moved method is allowed when the step names it (abschnittDavor)', pruefeKlasse([SAbschnitt], mitAbschnitt, OEFF).length === 0, show(pruefeKlasse([SAbschnitt], mitAbschnitt, OEFF)));
+  check('red: a NEW section line before a forwarding (H5)', pruefeKlasse([S], mitAbschnitt, OEFF).length > 0, show(pruefeKlasse([S], mitAbschnitt, OEFF)) || 'no finding');
+  check('red: a section line other than the named one', pruefeKlasse([SAbschnitt], mitAbschnitt.replace('Weiterleitungen', 'Anderes'), OEFF).length > 0);
+  check('red: the named section line is missing', pruefeKlasse([SAbschnitt], gut, OEFF).length > 0);
+  check('red: two blank lines before a forwarding (rule 4.5a wants one)', pruefeKlasse([S], gut.replace('\n\n  private fb(', '\n\n\n  private fb('), OEFF).length > 0);
+  check('red: no blank line before a forwarding', pruefeKlasse([S], gut.replace('\n\n  private fb(', '\n  private fb('), OEFF).length > 0);
   const klassenFehler: [string, string, readonly string[]][] = [
     ['visibility lost', gut.replace('private fa(', 'fa('), OEFF],
     ['visibility gained a modifier', gut.replace('private fb(', 'protected fb('), OEFF],

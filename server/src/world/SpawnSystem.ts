@@ -275,6 +275,17 @@ export class SpawnSystem {
   }
 
   /**
+   * Speed (m/s) this creature moves at right now, from its mode (D2: tolerance of the hit sphere
+   * for a moving target). 0 for a creature that stands, that is not ours, or that lies dying.
+   */
+  tempo(zdo: ZDO): number {
+    const c = this.eigene(zdo);
+    if (!c || c.stirbtBis !== undefined) return 0;
+    if (c.mode === 'chase' || c.mode === 'flee') return c.entry.runSpeed;
+    return c.mode === 'walk' ? c.entry.walkSpeed : 0;
+  }
+
+  /**
    * The creature of THIS system that is this very ZDO. The id alone is no
    * identity: an instance world has its own ZDOManager with the same
    * serverUserId, so its ZDO can carry the id of a main-world creature —

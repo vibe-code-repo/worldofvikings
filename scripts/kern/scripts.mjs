@@ -26,6 +26,16 @@ export default [
   */
   ['scripts', 'pruefe-feste-ports.mjs'],
   /*
+    I1 step 0 (R0.2 part B, N1): the size guard. No new file above 1,500 lines under client|server|shared|admin/src, the
+    18 large old files stay under their cap or ceiling in `scripts/groessen-grenzen.json` (rules B1-B5), and against
+    the pull request's base (git) a cap only goes down and a new entry needs a file that was already large (M5). It
+    first proves itself on a throwaway tree with a small git history, every rule in both directions, then reads the
+    real tree. ~0.3 s, no assets/.
+
+    Größenwächter: keine neue Datei über 1.500 Zeilen, die großen Altdateien wachsen nicht weiter.
+  */
+  ['scripts', 'pruefe-groessen.mjs'],
+  /*
     Paket 0.10: der Zeuge gegen verwaiste Testdateien. Er liest diese Liste
     am Syntaxbaum und hält jede Testdatei im Baum dagegen (Ordner `test`,
     Dateien `pruefe-*`); was fehlt, muss mit Grund auf seiner Ausnahmeliste

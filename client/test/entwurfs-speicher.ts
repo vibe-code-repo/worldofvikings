@@ -64,13 +64,20 @@ const basisLesen = (sp: EntwurfsSpeicher): string | null | undefined => {
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '../..');
+/**
+ * The modules cut out of `editorMain.ts`, relative to client/src/editor. Their code lay under the boundaries of
+ * `editorMain.ts` before it moved, so a boundary check on `editorMain.ts` as a whole runs on each of them as well, one
+ * file at a time. test/editor-module-grenze.ts holds the list of modules and fails when one is missing here.
+ * Each module adds nine checks to SOLL.
+ */
+const CUT_OUT_MODULES = ['biome.ts', 'formen.ts', 'seite/helfer.ts'];
 
 let fehler = 0;
 let gut = 0;
 // Expected number of checks. A cut-short run (`process.exit(0)`, an exception, a section that never ran) prints no ✗ line and
 // may even exit 0 -- counted as "0 red" it would pass. So the exit hook prints a red line and sets the exit code, and the end
 // compares ✓ + ✗ with this number.
-const SOLL = 315;
+const SOLL = 342;
 let fertig = false;
 process.on('exit', () => {
   if (fertig) return;
@@ -2025,6 +2032,10 @@ console.log('▶ Import: Basis null; „Entwurf behalten“ danach setzt die gez
 console.log('▶ Quelltextprüfung editorMain.ts');
 {
   const quelle = readFileSync(resolve(HIER, '../src/editor/editorMain.ts'), 'utf-8');
+  // The modules cut out of editorMain.ts, each file read once and on its own. A text that must not occur in editorMain.ts as a
+  // whole must not occur in any of them either. Each pattern stands once, directly before its check: the check on
+  // editorMain.ts and the checks on the modules use this one constant.
+  const cutOutTexts = CUT_OUT_MODULES.map((file) => ({ file, text: readFileSync(resolve(HIER, '../src/editor', file), 'utf-8') }));
   // Das Platzieren lief früher als Zweig `if (werkzeug === 'platzieren')` in editorMain.ts; es ist ein Registry-Werkzeug
   // (werkzeuge/platzieren.ts), und was ein Werkzeug am Dokument ändert, geht durch den Kontext in werkzeuge/kontext.ts.
   // Die Zusagen von damals werden hier am VERHALTEN geprüft, nicht mehr im Quelltext gesucht (`if (false) merkeSchritt();`
@@ -2051,10 +2062,13 @@ console.log('▶ Quelltextprüfung editorMain.ts');
       return false;
     }
   };
+  const OLD_PLACE_BRANCH = /werkzeug\s*===\s*['"]platzieren['"]/;
+  const OWN_AENDERE = /aendere:\s*\(neu\)/;
   check(
     'editorMain.ts hat weder den alten Platzieren-Zweig noch einen eigenen `aendere`',
-    !/werkzeug\s*===\s*['"]platzieren['"]/.test(quelle) && !/aendere:\s*\(neu\)/.test(quelle)
+    !OLD_PLACE_BRANCH.test(quelle) && !OWN_AENDERE.test(quelle)
   );
+  for (const { file, text } of cutOutTexts) check(`${file} hat weder den alten Platzieren-Zweig noch einen eigenen \`aendere\``, !OLD_PLACE_BRANCH.test(text) && !OWN_AENDERE.test(text));
   const startDokument = sanitizeWorldLayout(JSON.parse(readFileSync(resolve(WURZEL, 'server/data/welten/dev.json'), 'utf-8')))!;
   // Der Kern des Editors (werkzeuge/kontext.ts) mit einem Host, der seine Aufrufe protokolliert: `merkeSchritt`, `alles` und der
   // Rückgängig-Stapel sind die ECHTEN, dieselben, die editorMain.ts benutzt.
@@ -2414,20 +2428,36 @@ console.log('▶ Quelltextprüfung editorMain.ts');
       (ts.getModifiers(kontextVars[0]!.parent.parent as ts.VariableStatement) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
   );
   const HAKEN = ['beiZeigerRunter', 'beiZeigerBewegt', 'beiZeigerHoch', 'beiZeigerAbbruch', 'beiFlaechenKlick', 'beiDoppelklick', 'beiTaste', 'zeichneOverlay', 'seitenleiste', 'abbrechen'];
-  const hakenAufrufe = aufrufeIn(haupt).filter((c) => ts.isPropertyAccessExpression(c.expression) && HAKEN.includes(aufrufName(c)!) && c.arguments.length > 0);
-  // `const ktx = werkzeugKontext;` ist dasselbe Objekt: ein Alias zählt, wenn er (über höchstens 4 Stufen) auf `werkzeugKontext` zurückgeht
-  const loeseAlias = (id: ts.Identifier, tiefe = 0): string => {
-    if (tiefe > 4) return id.text;
-    const d = knoten(haupt).find((n): n is ts.VariableDeclaration => ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === id.text && n.initializer !== undefined && ts.isIdentifier(n.initializer));
-    return d ? loeseAlias(d.initializer as ts.Identifier, tiefe + 1) : id.text;
+  // The rule stands here once: the check on editorMain.ts and the checks on the cut-out modules call this one function.
+  const hookCheck = (tree: ts.SourceFile): { calls: ts.CallExpression[]; others: ts.CallExpression[] } => {
+    const calls = aufrufeIn(tree).filter((c) => ts.isPropertyAccessExpression(c.expression) && HAKEN.includes(aufrufName(c)!) && c.arguments.length > 0);
+    // `const ktx = werkzeugKontext;` ist dasselbe Objekt: ein Alias zählt, wenn er (über höchstens 4 Stufen) auf `werkzeugKontext` zurückgeht
+    const loeseAlias = (id: ts.Identifier, tiefe = 0): string => {
+      if (tiefe > 4) return id.text;
+      const d = knoten(tree).find((n): n is ts.VariableDeclaration => ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === id.text && n.initializer !== undefined && ts.isIdentifier(n.initializer));
+      return d ? loeseAlias(d.initializer as ts.Identifier, tiefe + 1) : id.text;
+    };
+    const others = calls.filter((c) => !(ts.isIdentifier(c.arguments[0]!) && loeseAlias(c.arguments[0] as ts.Identifier) === 'werkzeugKontext'));
+    return { calls, others };
   };
-  const fremdeKontexte = hakenAufrufe.filter((c) => !(ts.isIdentifier(c.arguments[0]!) && loeseAlias(c.arguments[0] as ts.Identifier) === 'werkzeugKontext'));
+  const { calls: hakenAufrufe, others: fremdeKontexte } = hookCheck(haupt);
   check(
     `editorMain.ts: jeder Werkzeug-Haken (${HAKEN.length} Arten, ${hakenAufrufe.length} Aufrufstellen) bekommt \`werkzeugKontext\` — keiner einen anderen Kontext (abweichend: ${fremdeKontexte.length})`,
     hakenAufrufe.length >= 12 && fremdeKontexte.length === 0,
     fremdeKontexte.map((c) => c.getText().slice(0, 60)).join(' | ')
   );
   check('… und alle Haken-Arten kommen vor (kein Haken wurde stillschweigend aus dem Editor genommen)', HAKEN.every((h) => hakenAufrufe.some((c) => aufrufName(c) === h)), HAKEN.filter((h) => !hakenAufrufe.some((c) => aufrufName(c) === h)).join(','));
+  // The same boundary for the modules cut out of editorMain.ts, each on its own syntax tree. The lower bound of 12 call sites
+  // stays with editorMain.ts: a module may call no hook at all, but every hook it calls gets `werkzeugKontext`.
+  const cutOutTrees = CUT_OUT_MODULES.map((file) => ({ file, tree: baum(readFileSync(resolve(HIER, '../src/editor', file), 'utf-8'), file) }));
+  for (const { file, tree } of cutOutTrees) {
+    const { calls: hookCalls, others: otherContexts } = hookCheck(tree);
+    check(
+      `${file}: jeder Werkzeug-Haken (${HAKEN.length} Arten, ${hookCalls.length} Aufrufstellen) bekommt \`werkzeugKontext\` — keiner einen anderen Kontext (abweichend: ${otherContexts.length})`,
+      otherContexts.length === 0,
+      otherContexts.map((c) => c.getText().slice(0, 60)).join(' | ')
+    );
+  }
   // Die großen Editor-Funktionen gehen unverpackt in den Kern (oder in einem Pfeil `() => f()`), nie als Attrappe.
   const glieder = (e: ts.Expression, sf: ts.SourceFile, tiefe = 0): Map<string, ts.Expression> | null => {
     if (tiefe > 6) return null;
@@ -2525,12 +2555,18 @@ console.log('▶ Quelltextprüfung editorMain.ts');
     return ts.isIdentifier(k) ? k.text : null;
   };
   const SCHREIBER = ['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf'];
-  const schreibzugriffe = knoten(haupt).filter(
+  // The predicate stands here once: the check on editorMain.ts and the checks on the cut-out modules use this one function.
+  const writesToContext: (n: ts.Node) => boolean =
     (n) =>
       (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment && !ts.isIdentifier(n.left) && wurzelName(n.left) === 'werkzeugKontext') ||
-      (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && SCHREIBER.includes(n.expression.name.text) && n.arguments.length > 0 && wurzelName(n.arguments[0]!) === 'werkzeugKontext')
-  );
+      (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && SCHREIBER.includes(n.expression.name.text) && n.arguments.length > 0 && wurzelName(n.arguments[0]!) === 'werkzeugKontext');
+  const schreibzugriffe = knoten(haupt).filter(writesToContext);
   check('editorMain.ts: kein Schreibzugriff auf `werkzeugKontext` (Zuweisung an ein Glied, Object.assign, defineProperty)', schreibzugriffe.length === 0, schreibzugriffe.map((n) => n.getText().slice(0, 60)).join(' | '));
+  // The same boundary for the modules cut out of editorMain.ts, each on its own syntax tree.
+  for (const { file, tree } of cutOutTrees) {
+    const writes = knoten(tree).filter(writesToContext);
+    check(`${file}: kein Schreibzugriff auf \`werkzeugKontext\` (Zuweisung an ein Glied, Object.assign, defineProperty)`, writes.length === 0, writes.map((n) => n.getText().slice(0, 60)).join(' | '));
+  }
 
   const rueckruf = /beiFremdem: \(fremd, info\) => \{([\s\S]*?)\n  \},\n\}\);/.exec(quelle)?.[1] ?? '';
   const iM = rueckruf.indexOf('verlauf.uebernahme(layout, fremd);');
@@ -2539,20 +2575,29 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   check('… legt den Rückgängig-Punkt VOR der Übernahme an (verlauf.uebernahme(layout) vor layout = fremd)', iM >= 0 && iL > iM, `Positionen ${iM} < ${iL}`);
   check('… und schreibt nicht zurück: alles(…, false)', /alles\('bearbeitet', false\)/.test(rueckruf));
   check('… und meldet es', rueckruf.includes('Entwurf aus einem anderen Tab übernommen'));
-  check('… entscheidet über den Schritt nur im SchrittVerlauf (eine Schrittklasse, Flag statt Objektidentität), ohne eigenen Zugriff auf den Wiederherstellen-Stapel', !/zukunft/.test(rueckruf) && !/brauchtSchritt\(|UebernahmeSchritte|uebernahmeSchritte/.test(quelle));
+  const OWN_STEP_RULE = /brauchtSchritt\(|UebernahmeSchritte|uebernahmeSchritte/;
+  check('… entscheidet über den Schritt nur im SchrittVerlauf (eine Schrittklasse, Flag statt Objektidentität), ohne eigenen Zugriff auf den Wiederherstellen-Stapel', !/zukunft/.test(rueckruf) && !OWN_STEP_RULE.test(quelle));
+  for (const { file, text } of cutOutTexts) check(`${file}: keine eigene Schrittregel neben dem SchrittVerlauf (kein brauchtSchritt(…), keine UebernahmeSchritte)`, !OWN_STEP_RULE.test(text));
   check('… und sagt bei verworfenem Wiederherstellen-Ast dazu, dass Wiederherstellen nicht mehr möglich ist', /const \{ verworfen \} = verlauf\.uebernahme\(layout, fremd\);/.test(rueckruf) && /verworfen > 0 \? ' Wiederherstellen ist nach der Übernahme nicht mehr möglich\.'/.test(rueckruf));
   check('… setzt halbfertige Werkzeuge zurück: griff, alle Registry-Werkzeuge (abbrechen), polygonPunkte, startpunktModus', /griff = null;/.test(rueckruf) && /for \(const w of WERKZEUGE\) w\.abbrechen\(werkzeugKontext\);/.test(rueckruf) && /polygonPunkte = \[\];/.test(rueckruf) && /startpunktModus = null;/.test(rueckruf));
   const wieder = /function wiederherstellen\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
   const zurueck = /function rueckgaengig\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
-  check('Editor benutzt den SchrittVerlauf: merkeSchritt → verlauf.merke(layout), Strg+Z → verlauf.zurueck(layout), Strg+Y → verlauf.vor(layout) (Grenze 50 liegt in der Klasse)', /function merkeSchritt\(ersetzt = false\): void \{\s*verlauf\.merke\(host\.layout\(\), ersetzt\);/.test(kernQuelle) && /\bconst merkeSchritt\s*=\s*\w+\.merkeSchritt\b/.test(quelle) && /verlauf\.zurueck\(layout\)/.test(zurueck) && /verlauf\.vor\(layout\)/.test(wieder) && !/const vergangenheit|const zukunft/.test(quelle));
+  const OWN_STACKS = /const vergangenheit|const zukunft/;
+  check('Editor benutzt den SchrittVerlauf: merkeSchritt → verlauf.merke(layout), Strg+Z → verlauf.zurueck(layout), Strg+Y → verlauf.vor(layout) (Grenze 50 liegt in der Klasse)', /function merkeSchritt\(ersetzt = false\): void \{\s*verlauf\.merke\(host\.layout\(\), ersetzt\);/.test(kernQuelle) && /\bconst merkeSchritt\s*=\s*\w+\.merkeSchritt\b/.test(quelle) && /verlauf\.zurueck\(layout\)/.test(zurueck) && /verlauf\.vor\(layout\)/.test(wieder) && !OWN_STACKS.test(quelle));
+  for (const { file, text } of cutOutTexts) check(`${file}: keine eigenen Stapel neben dem SchrittVerlauf (kein const vergangenheit, kein const zukunft)`, !OWN_STACKS.test(text));
   const speichern = /function speichereEntwurf\([\s\S]*?\n\}\n/.exec(quelle)?.[0] ?? '';
   check('speichereEntwurf: \u201Ezu groß\u201C nur bei \u201Evoll\u201C, \u201Eohne-zettel\u201C hat eine eigene, harmlose Meldung', /=== 'voll'\) \{\s*shell\.meldung\('Entwurf zu groß/.test(speichern) && /'ohne-zettel'\) \{[\s\S]*?Begleitzettel fehlt/.test(speichern) && (speichern.match(/zu groß/g) ?? []).length === 1);
   check('pageshow mit persisted gleicht den Entwurf ab (bfcache-Seite bekam keine Ereignisse)', /addEventListener\('pageshow', \(e\) => \{\s*if \(e\.persisted\) entwurfsSpeicher\.abgleichen\(\);/.test(quelle));
   check('pagehide hängt den Speicher aus (nicht bei bfcache: persisted)', /addEventListener\('pagehide', \(e\) => \{\s*if \(!e\.persisted\) entwurfsSpeicher\.schliessen\(\);/.test(quelle));
-  check('Der Editor liest und schreibt den Entwurf nur noch über den Speicher (kein entwurfSchreiben/entwurfLesen mehr)', !/\bentwurfSchreiben\s*\(/.test(quelle) && !/\bentwurfLesen\s*\(/.test(quelle));
+  const DRAFT_WRITE_CALL = /\bentwurfSchreiben\s*\(/;
+  const DRAFT_READ_CALL = /\bentwurfLesen\s*\(/;
+  check('Der Editor liest und schreibt den Entwurf nur noch über den Speicher (kein entwurfSchreiben/entwurfLesen mehr)', !DRAFT_WRITE_CALL.test(quelle) && !DRAFT_READ_CALL.test(quelle));
+  for (const { file, text } of cutOutTexts) check(`${file} liest und schreibt den Entwurf nicht selbst (kein entwurfSchreiben/entwurfLesen)`, !DRAFT_WRITE_CALL.test(text) && !DRAFT_READ_CALL.test(text));
   const abgleichTeil = quelle.slice(quelle.indexOf('async function weltAbgleich'));
   check('Der Abgleich beim Start liest und übernimmt mit EINEM Zugriff (entwurfNachAbgleich, kein getrenntes abgleichen()/lesen())', abgleichTeil.includes('entwurfsSpeicher.entwurfNachAbgleich()') && !abgleichTeil.includes('entwurfsSpeicher.lesen()') && !abgleichTeil.includes('entwurfsSpeicher.abgleichen()'));
-  check('Start-Abgleich: der Schritt vor dem Ersetzen hängt an brauchtSchrittVorErsetzen(layout, stand.layout) — nicht mehr an Regionen/Platzierungen', /if \(brauchtSchrittVorErsetzen\(layout, stand\.layout\)\) \{\s*merkeSchritt\(true\);/.test(abgleichTeil) && !/layout\.regions\.length > 0 \|\| \(layout\.placements/.test(quelle));
+  const OLD_STEP_CONDITION = /layout\.regions\.length > 0 \|\| \(layout\.placements/;
+  check('Start-Abgleich: der Schritt vor dem Ersetzen hängt an brauchtSchrittVorErsetzen(layout, stand.layout) — nicht mehr an Regionen/Platzierungen', /if \(brauchtSchrittVorErsetzen\(layout, stand\.layout\)\) \{\s*merkeSchritt\(true\);/.test(abgleichTeil) && !OLD_STEP_CONDITION.test(quelle));
+  for (const { file, text } of cutOutTexts) check(`${file}: keine Entscheidung über den Schritt an Regionen/Platzierungen (die alte Bedingung)`, !OLD_STEP_CONDITION.test(text));
   check('Laden vom Server ohne Schritt setzt die Übernahme-Regel zurück (verlauf.ohneSchritt())', /else \{\s*verlauf\.ohneSchritt\(\);[^}]*\}\s*layout = stand\.layout;/.test(abgleichTeil));
 
   // Jede Zuweisung an `layout` ausser den bekannten legt vorher einen Schritt an.
@@ -2593,7 +2638,10 @@ console.log('▶ Quelltextprüfung editorMain.ts');
   const zurueckFn = /function rueckgaengig\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
   const wiederFn = /function wiederherstellen\(\): void \{([\s\S]*?)\n\}\n/.exec(quelle)?.[1] ?? '';
   check('Rückgängig und Wiederherstellen setzen ihre Meldung nur, wenn der Schreibversuch NICHT übernommen hat (const grund = alles(); nur bei grund ok …)', /const grund = alles\(\);[\s\S]*?if \(grund === 'ok'\)/.test(zurueckFn) && /const grund = alles\(\);[\s\S]*?if \(grund === 'ok'\)/.test(wiederFn));
-  check('Serverstand: „NICHT geladen“, wenn der Schreibversuch einen fremden Stand übernommen hat — im Start-Abgleich und nach 409', /const geschrieben = alles\('server'\);\s*const folge = serverstandFolge\(geschrieben\);[\s\S]*?if \(folge === 'nicht-geladen'\) \{[\s\S]*?Serverstand NICHT geladen[\s\S]*?if \(folge === 'stehen-lassen'\) return;/.test(abgleichTeil) && /const grund = alles\('server'\);\s*const folge = serverstandFolge\(grund\);[\s\S]*?if \(folge === 'geladen'\) \{[\s\S]*?Serverstand geladen/.test(quelle) && !/serverstandFolge\(alles\(/.test(quelle) && !/alles\('server'\)\) \{/.test(quelle));
+  const UNNAMED_WRITE_RESULT = /serverstandFolge\(alles\(/;
+  const WRITE_RESULT_AS_CONDITION = /alles\('server'\)\) \{/;
+  check('Serverstand: „NICHT geladen“, wenn der Schreibversuch einen fremden Stand übernommen hat — im Start-Abgleich und nach 409', /const geschrieben = alles\('server'\);\s*const folge = serverstandFolge\(geschrieben\);[\s\S]*?if \(folge === 'nicht-geladen'\) \{[\s\S]*?Serverstand NICHT geladen[\s\S]*?if \(folge === 'stehen-lassen'\) return;/.test(abgleichTeil) && /const grund = alles\('server'\);\s*const folge = serverstandFolge\(grund\);[\s\S]*?if \(folge === 'geladen'\) \{[\s\S]*?Serverstand geladen/.test(quelle) && !UNNAMED_WRITE_RESULT.test(quelle) && !WRITE_RESULT_AS_CONDITION.test(quelle));
+  for (const { file, text } of cutOutTexts) check(`${file}: das Ergebnis des Schreibversuchs wird nicht unbenannt weitergereicht (kein serverstandFolge(alles(…)), kein alles('server') als Bedingung)`, !UNNAMED_WRITE_RESULT.test(text) && !WRITE_RESULT_AS_CONDITION.test(text));
   check('Import und wieder einsetzen: keine eigene Meldung über der der Übernahme (if (grund === \'ok\'))', /const grund = alles\('import'\);[\s\S]*?if \(grund === 'ok'\)/.test(quelle) && /const grund = alles\(\);\s*vorschauAnstossen\(\);\s*if \(grund === 'ok'\) \{\s*shell\.meldung\(\s*`Verdrängten Entwurf wieder eingesetzt/.test(sektion));
 
   // Runde 5: Quote, Vorrang des Entwurfs, Ring-Grenze, Texte
@@ -2612,7 +2660,11 @@ console.log('▶ Quelltextprüfung editorMain.ts');
 
   // Runde 6
   check('Start entfernt einen alten Sammelschlüssel einmal, mit Konsolen-Hinweis: if (alterRingSchluesselEntfernen(umgebung.speicher)) { console.info(… wov-editor-verdraengt … entfernt', /if \(alterRingSchluesselEntfernen\(umgebung\.speicher\)\) \{\s*console\.info\(\s*'\[editor\][^']*wov-editor-verdraengt\) entfernt/.test(quelle));
-  check('Kein `uebernommen`-Boolean-Weg mehr: keine Aufrufstelle wertet alles()/speichereEntwurf() als „übernommen“ (const uebernommen = alles… kommt nicht mehr vor)', !/const uebernommen = alles\(/.test(quelle) && !/if \(!uebernommen\)/.test(quelle) && !/if \(uebernommen\)/.test(quelle));
+  const TAKEN_OVER_FROM_WRITE = /const uebernommen = alles\(/;
+  const IF_NOT_TAKEN_OVER = /if \(!uebernommen\)/;
+  const IF_TAKEN_OVER = /if \(uebernommen\)/;
+  check('Kein `uebernommen`-Boolean-Weg mehr: keine Aufrufstelle wertet alles()/speichereEntwurf() als „übernommen“ (const uebernommen = alles… kommt nicht mehr vor)', !TAKEN_OVER_FROM_WRITE.test(quelle) && !IF_NOT_TAKEN_OVER.test(quelle) && !IF_TAKEN_OVER.test(quelle));
+  for (const { file, text } of cutOutTexts) check(`${file}: kein \`uebernommen\`-Boolean-Weg (kein const uebernommen = alles(…), kein if (uebernommen))`, !TAKEN_OVER_FROM_WRITE.test(text) && !IF_NOT_TAKEN_OVER.test(text) && !IF_TAKEN_OVER.test(text));
   const poly = /function polygonSchliessen[\s\S]*?merkeSchritt\(\);[^\n]*\n\s*layout = \{ \.\.\.layout, regions/.test(quelle);
   const hoch = /\[arr\[i\], arr\[i \+ 1\]\] = [^\n]*\n\s*merkeSchritt\(\);[^\n]*\n\s*layout = \{ \.\.\.layout, regions: arr \}/.test(quelle);
   check('Polygon schliessen und „nach oben" (bisher ohne Schritt) legen jetzt einen an', poly && hoch, `polygon=${poly}, nachOben=${hoch}`);

@@ -24,12 +24,19 @@ import type { SeitenHost, WerkzeugKontext } from '../src/editor/werkzeuge/typ';
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '../..');
 const EDITOR = resolve(HIER, '../src/editor');
+/**
+ * The modules cut out of `editorMain.ts`, relative to client/src/editor. Their code lay under the boundaries of
+ * `editorMain.ts` before it moved, so a boundary check on `editorMain.ts` as a whole runs on each of them as well, one
+ * file at a time. test/editor-module-grenze.ts holds the list of modules and fails when one is missing here.
+ * Each module adds three checks to SOLL.
+ */
+const CUT_OUT_MODULES = ['biome.ts', 'formen.ts', 'seite/helfer.ts'];
 
 let fehler = 0;
 let gut = 0;
 // Expected number of checks. A crash in the middle (an exception, a section that never ran) prints no ✗ line -- counted
 // as "0 red" it would pass; so the end (and the exit hook) compares ✓ + ✗ with this number.
-const SOLL = 180;
+const SOLL = 189;
 let fertig = false;
 process.on('exit', () => {
   if (fertig) return;
@@ -1065,9 +1072,19 @@ async function main(): Promise<void> {
     const haupt = kanonisch(readFileSync(resolve(EDITOR, 'editorMain.ts'), 'utf-8'));
     const hud = readFileSync(resolve(EDITOR, 'KartenHud.ts'), 'utf-8');
     const index = readFileSync(resolve(EDITOR, 'werkzeuge', 'index.ts'), 'utf-8');
-    gleich("editorMain.ts: no `werkzeug === 'platzieren'` branch", haupt.match(/werkzeug\s*[!=]==\s*'platzieren'/g) ?? [], []);
-    gleich('editorMain.ts: no `spawnPrefab`, no `layoutMitPlatzierung`', haupt.match(/\b(spawnPrefab|layoutMitPlatzierung)\b/g) ?? [], []);
-    check('editorMain.ts: a release counts as "on the map" only when the element under the pointer IS the map (elementFromPoint), so a floating panel over the map aborts the drag like the sidebar', /document\.elementFromPoint\(e\.clientX, e\.clientY\) === overlay/.test(haupt) && !/getBoundingClientRect\(\);\s*const drin/.test(haupt));
+    // The modules cut out of editorMain.ts, each file read once and on its own. A boundary that holds for editorMain.ts as a
+    // whole runs on each of them as well. Each pattern stands once, directly before its check: the check on editorMain.ts and
+    // the checks on the modules use this one constant.
+    const cutOutTexts = CUT_OUT_MODULES.map((file) => ({ file, text: kanonisch(readFileSync(resolve(EDITOR, file), 'utf-8')) }));
+    const PLACE_BRANCH = /werkzeug\s*[!=]==\s*'platzieren'/g;
+    gleich("editorMain.ts: no `werkzeug === 'platzieren'` branch", haupt.match(PLACE_BRANCH) ?? [], []);
+    for (const { file, text } of cutOutTexts) gleich(`${file}: no \`werkzeug === 'platzieren'\` branch`, text.match(PLACE_BRANCH) ?? [], []);
+    const OLD_PLACE_NAMES = /\b(spawnPrefab|layoutMitPlatzierung)\b/g;
+    gleich('editorMain.ts: no `spawnPrefab`, no `layoutMitPlatzierung`', haupt.match(OLD_PLACE_NAMES) ?? [], []);
+    for (const { file, text } of cutOutTexts) gleich(`${file}: no \`spawnPrefab\`, no \`layoutMitPlatzierung\``, text.match(OLD_PLACE_NAMES) ?? [], []);
+    const OLD_RELEASE_TEST = /getBoundingClientRect\(\);\s*const drin/;
+    check('editorMain.ts: a release counts as "on the map" only when the element under the pointer IS the map (elementFromPoint), so a floating panel over the map aborts the drag like the sidebar', /document\.elementFromPoint\(e\.clientX, e\.clientY\) === overlay/.test(haupt) && !OLD_RELEASE_TEST.test(haupt));
+    for (const { file, text } of cutOutTexts) check(`${file}: no release test by the rectangle of the map (\`getBoundingClientRect(); const drin\`)`, !OLD_RELEASE_TEST.test(text));
     check('editorMain.ts: a click on a floating panel over the map reaches the tool (capture listener on the map container -> beiFlaechenKlick), the map itself does not count', /flaeche\.addEventListener\('pointerdown', \(e\) => \{\s*if \(e\.target === overlay[^\n]*\)\s*return;\s*werkzeugMitId\(werkzeug\)\?\.beiFlaechenKlick\?\.\(werkzeugKontext\);\s*\}, true\)/.test(haupt));
     check('editorMain.ts: the catalog puts the tool into SETZEN ("Klick auf die Karte setzt es")', /platzierenWerkzeug\.setzePrefab\(prefab\);\s*platzierenWerkzeug\.setzeModus\('setzen'\);/.test(haupt));
     check("editorMain.ts: the pointer hooks are CALLED (move, up, cancel), the pointer is captured, Delete is passed on", /\?\.beiZeigerBewegt\?\.\(werkzeugKontext/.test(haupt) && /registriert\.beiZeigerHoch\?\.\(werkzeugKontext/.test(haupt) && /addEventListener\('pointercancel', zeigerAbbruch\)/.test(haupt) && /addEventListener\('lostpointercapture', zeigerAbbruch\)/.test(haupt) && /\.beiZeigerAbbruch\?\.\(werkzeugKontext\)/.test(haupt) && /zeigerId: e\.pointerId/.test(haupt) && /setPointerCapture\(e\.pointerId\)/.test(haupt) && /WERKZEUG_TASTEN_CODES\.has\(e\.code\)/.test(haupt) && /\?\.beiTaste\?\.\(werkzeugKontext, e\)/.test(haupt));

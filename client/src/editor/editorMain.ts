@@ -42,7 +42,6 @@ import {
   HOCHNORD_FLORA_NAMEN,
   ASCHE_FLORA_NAMEN,
   dungeon2,
-  type BiomeName,
   type ContinentDef,
   type RegionDef,
   type WorldLayout,
@@ -118,14 +117,13 @@ import { gameUrl } from './spielAdresse';
 import { onReturn, openReturnChannel } from './testflug/ruecksprung';
 import { platzierungZuBefund } from './werkzeuge/platzieren';
 import { erzeugeEditorKern } from './werkzeuge/kontext';
-import type { SeitenHost, WerkzeugKontext } from './werkzeuge/typ';
+import type { WerkzeugKontext } from './werkzeuge/typ';
 // Das Gestaltungssystem des Editors. Literale Farbwerte in dieser Datei
 // waren bis hierher der Normalfall ('#1d2431', '#3a3325', '#e8d48a' …) —
 // sechs Dateien mit je eigener Palette, und jede vergessene Zeile blieb
 // als Fleck stehen. Ab jetzt kommt jede Farbe, jedes Maß und jedes
 // Bedienelement aus design.ts.
 import {
-  BIOM_TON,
   F,
   M,
   PFAD,
@@ -142,6 +140,9 @@ import {
   sinnbild,
   stil,
 } from './design';
+import { BIOME_FARBE, biomTon } from './biome';
+import { FORMEN } from './formen';
+import { breiterKnopf, hinweisZeile, seitenHost } from './seite/helfer';
 // Regions-Vorlagen, Feldvalidierung, Kontinente und Startpunkt-Logik
 // (Aufgaben B2/B10) — eigene, DOM-freie Datei (Begruendung dort und in
 // befundSchwere.ts).
@@ -196,121 +197,6 @@ import {
 // Reihenfolge wäre also nur scheinbar gesichert.
 await ladeModulRegistrierung();
 await ladeHochgeladeneRegistrierung();
-
-const BIOME_NAMEN: BiomeName[] = [
-  'grassland', 'blackforest', 'swamp', 'mountain', 'plains', 'mistlands', 'ashlands', 'deepnorth',
-];
-/**
- * Biomtöne — früher standen die acht Farbwerte hier als Literale und
- * wichen von denen der Kartenvorschau ab (dieselbe Insel war in der
- * Liste anders grün als auf der Karte). Jetzt sind es die Töne aus
- * `BIOM_TON`: `[0]` ist die FÜLLUNG (das Farbquadrat der Regionsliste),
- * `[1]` die KONTUR (der Strich im Karten-Overlay).
- *
- * `BIOME_FARBE` behält seinen Namen, weil `zeichneOverlay()` ihn
- * benutzt — dort ändert sich nur der Ton, nicht die Zeile.
- */
-const biomTon = (b: BiomeName): readonly [string, string] => BIOM_TON[b] ?? [F.gedimmt3, F.gedimmt];
-const BIOME_FARBE: Record<BiomeName, string> = Object.fromEntries(
-  BIOME_NAMEN.map((b) => [b, biomTon(b)[1]])
-) as Record<BiomeName, string>;
-
-/**
- * Vordefinierte Inselformen — jede erzeugt eine Region-Form um den
- * Klickpunkt. Polygon-Generatoren streuen die Radien leicht, damit Küsten
- * organisch wirken (das Layout speichert die fertigen Punkte, nicht das
- * Rezept). Erweiterbar: neuer Eintrag hier genügt, das Menü baut sich
- * daraus auf.
- */
-interface FormDef {
-  id: string;
-  name: string;
-  erzeuge: (x: number, z: number, groesse: number) => RegionDef['shape'];
-}
-const rundPoly = (
-  x: number,
-  z: number,
-  n: number,
-  radius: (winkel: number, i: number) => number,
-  drehung = Math.random() * Math.PI * 2
-): RegionDef['shape'] => ({
-  kind: 'polygon',
-  points: Array.from({ length: n }, (_, i) => {
-    const w = drehung + (i / n) * Math.PI * 2;
-    const r = radius(w, i);
-    return [Math.round(x + Math.cos(w) * r), Math.round(z + Math.sin(w) * r)] as [number, number];
-  }),
-});
-const zufall = (basis: number, streuung: number): number => basis * (1 - streuung + Math.random() * streuung * 2);
-const FORMEN: readonly FormDef[] = [
-  { id: 'kreis', name: '● Kreis', erzeuge: (x, z, g) => ({ kind: 'circle', x: Math.round(x), z: Math.round(z), radius: Math.round(g) }) },
-  {
-    id: 'oval',
-    name: '⬭ Oval',
-    erzeuge: (x, z, g) => {
-      const dreh = Math.random() * Math.PI;
-      return rundPoly(x, z, 24, (w) => {
-        const rx = g;
-        const rz = g * 0.62;
-        const c = Math.cos(w - dreh);
-        const s2 = Math.sin(w - dreh);
-        return zufall((rx * rz) / Math.hypot(rz * c, rx * s2), 0.05);
-      }, 0);
-    },
-  },
-  {
-    id: 'langinsel',
-    name: '⟟ Langinsel',
-    erzeuge: (x, z, g) => {
-      const dreh = Math.random() * Math.PI;
-      return rundPoly(x, z, 28, (w) => {
-        const rx = g * 1.7;
-        const rz = g * 0.45;
-        const c = Math.cos(w - dreh);
-        const s2 = Math.sin(w - dreh);
-        return zufall((rx * rz) / Math.hypot(rz * c, rx * s2), 0.09);
-      }, 0);
-    },
-  },
-  {
-    id: 'halbmond',
-    name: '☾ Halbmond',
-    erzeuge: (x, z, g) => {
-      // Außenbogen + eingerückter Innenbogen — eine Bucht-Insel.
-      const dreh = Math.random() * Math.PI * 2;
-      const punkte: [number, number][] = [];
-      const n = 14;
-      for (let i = 0; i <= n; i++) {
-        const w = dreh + (i / n) * Math.PI * 1.35 - Math.PI * 0.675;
-        const r = zufall(g, 0.06);
-        punkte.push([Math.round(x + Math.cos(w) * r), Math.round(z + Math.sin(w) * r)]);
-      }
-      for (let i = n; i >= 0; i--) {
-        const w = dreh + (i / n) * Math.PI * 1.35 - Math.PI * 0.675;
-        const r = zufall(g * 0.55, 0.08);
-        const vx = x + Math.cos(dreh) * g * 0.28;
-        const vz = z + Math.sin(dreh) * g * 0.28;
-        punkte.push([Math.round(vx + Math.cos(w) * r), Math.round(vz + Math.sin(w) * r)]);
-      }
-      return { kind: 'polygon', points: punkte };
-    },
-  },
-  {
-    id: 'zacken',
-    name: '✶ Zackenküste',
-    erzeuge: (x, z, g) => rundPoly(x, z, 26, () => zufall(g, 0.32)),
-  },
-  {
-    id: 'plateau',
-    name: '▭ Plateau',
-    erzeuge: (x, z, g) =>
-      rundPoly(x, z, 20, (w) => {
-        const c = Math.abs(Math.cos(w));
-        const s2 = Math.abs(Math.sin(w));
-        return zufall(Math.min(g / Math.max(c, 0.0001), (g * 0.7) / Math.max(s2, 0.0001)), 0.04);
-      }),
-  },
-];
 
 // ── Zustand ──────────────────────────────────────────────────────────
 /**
@@ -1840,42 +1726,6 @@ function imPolygon(pts: ReadonlyArray<readonly [number, number]>, x: number, z: 
 }
 
 // ── Seitenleiste ─────────────────────────────────────────────────────
-/**
- * Vollbreiter Knopf der Seitenleiste.
- *
- * Früher trug er seine Farben selbst ('#1d2431' auf '#3a3325'), jetzt
- * ist er der `knopf()` aus design.ts — nur auf Blockbreite gezogen. Die
- * Leiste ist 332 px schmal, und die Bewuchs-Bündel tragen lange
- * Beschriftungen („Mischwald (dichte und lichte Zonen)"); nebeneinander
- * wären sie nicht lesbar.
- */
-function breiterKnopf(text: string, cb: () => void, pfad?: string): HTMLButtonElement {
-  const b = knopf(text, cb, { hoehe: M.knopfHoeheKlein, pfad });
-  b.style.width = '100%';
-  b.style.fontSize = '12px';
-  // Kein eigener `margin`: Die Behälter setzen ihren Abstand per `gap`
-  // (die Shell-Sektion tut es auch). Beides zusammen addierte sich sonst
-  // sichtbar auf.
-  return b;
-}
-
-/** Hinweiszeile unter einem Werkzeug — was der nächste Klick bewirkt. */
-const hinweisZeile = (text: string): HTMLDivElement =>
-  el('div', stil({ 'font-size': '11px', 'line-height': '1.5', color: F.gedimmt }), text);
-
-/** Die Bausteine, die ein registriertes Werkzeug für seinen Seitenleisten-Block bekommt. */
-const seitenHost: SeitenHost = {
-  hinweis: hinweisZeile,
-  beschriftet: (text, inhalt) => beschriftet(text, inhalt),
-  breiterKnopf: (text, cb, pfad) => breiterKnopf(text, cb, pfad),
-};
-
-/** Beschriftung im Entwurfsstil über einem Bedienelement. */
-function beschriftet(text: string, inhalt: HTMLElement): HTMLDivElement {
-  const s = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '5px' }));
-  s.append(el('span', beschriftungStil(), text), inhalt);
-  return s;
-}
 
 // ── Zustand der Seitenleiste ─────────────────────────────────────────
 /**

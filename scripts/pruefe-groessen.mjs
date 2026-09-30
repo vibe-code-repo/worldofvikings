@@ -153,21 +153,28 @@ export function leseEintrag(wert) {
  */
 export function basisAusGit(wurzel, ref) {
   const git = (...a) => execFileSync('git', a, { cwd: wurzel, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 28 });
+  let sha = '';
+  try {
+    sha = git('rev-parse', '--short=8', `${ref}^{commit}`).trim();
+  } catch {
+    /* Name ohne Commit */
+  }
+  const anzeige = sha && !ref.includes(sha) ? `${ref}@${sha}` : ref;
   let text;
   try {
     text = git('show', `${ref}:${GRENZEN_DATEI}`);
   } catch {
-    return { grenzen: null, zeilen: () => null, name: ref, fehlt: `${GRENZEN_DATEI} steht auf der Basis ${ref} nicht (erster PR mit dem Wächter)` };
+    return { grenzen: null, zeilen: () => null, name: anzeige, fehlt: `${GRENZEN_DATEI} steht auf der Basis ${anzeige} nicht (erster PR mit dem Wächter)` };
   }
   let grenzen;
   try {
     grenzen = JSON.parse(text);
   } catch {
-    return { grenzen: null, zeilen: () => null, name: ref, fehlt: `${GRENZEN_DATEI} auf der Basis ${ref} ist kein gültiges JSON` };
+    return { grenzen: null, zeilen: () => null, name: anzeige, fehlt: `${GRENZEN_DATEI} auf der Basis ${anzeige} ist kein gültiges JSON` };
   }
   return {
     grenzen,
-    name: ref,
+    name: anzeige,
     zeilen: (pfad) => {
       try {
         return zaehleText(git('show', `${ref}:${pfad}`));

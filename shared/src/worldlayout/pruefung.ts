@@ -240,8 +240,7 @@ function platzierungsBefunde(layout: WorldLayout): LayoutBefund[] {
 }
 
 /**
- * Befunde zu den Bausatz-Instanzen: ein unbekannter Bausatz (Datei fehlt) und unbekannte Teil-Prefabs, die Letzteren
- * je NAME und Bausatz gezählt (eine Zeile „U_Palisade (51 Teile in startdorf)“, nicht 51 Zeilen). Der Server schont
+ * Befunde zu den Bausatz-Instanzen: ein unbekannter Bausatz (Datei fehlt) und unbekannte Teil-Prefabs sowie Teil-Prefabs ohne eigenes Modell und verwaiste `kennungen`; Prefabs je NAME und Bausatz gezählt (eine Zeile „U_Palisade (51 Teile in startdorf)“, nicht 51 Zeilen). Der Server schont
  * die Objekte einer unbekannten Instanz; hier steht nur der Hinweis. Ein unbekannter Bausatz ist absichtlich kein
  * Schreibfehler (422), sonst wäre das Dokument auf einem Rechner ohne die Datei nicht mehr speicherbar.
  */
@@ -255,18 +254,41 @@ function bausatzBefunde(layout: WorldLayout, katalog: ReadonlyMap<string, Bausat
       befunde.push({ wo: 'bausaetze', art: 'bausatz', text: `unbekannter Bausatz: ${i.bausatz} (Instanz ${i.id})`, ref });
       continue;
     }
+    // Eine Adresse für eine Teil-id, die der Bausatz nicht hat, wird nirgends angewendet, bleibt aber stehen und
+    // würde von einem später eingefügten Teil mit dieser id übernommen. Je INSTANZ gemeldet (die Adressen gehören ihr).
+    const teilIds = new Set(bausatz.teile.map((t) => t.id));
+    for (const teilId of Object.keys(i.kennungen ?? {})) {
+      if (teilIds.has(teilId)) continue;
+      befunde.push({
+        wo: 'bausaetze',
+        art: 'bausatz',
+        text: `verwaiste Kennung: Instanz ${i.id}, Teil ${teilId} ist nicht im Bausatz ${i.bausatz} (gebundene Adresse ${i.kennungen![teilId]})`,
+        ref,
+      });
+    }
     // Zwei Instanzen desselben Bausatzes melden dieselben Prefabs nur einmal.
     if (gezaehlt.has(i.bausatz)) continue;
     gezaehlt.add(i.bausatz);
     const fremde = new Map<string, number>();
+    const ohneModell = new Map<string, number>();
     for (const t of bausatz.teile) {
       if (!PREFABS_BY_NAME.has(t.prefab)) fremde.set(t.prefab, (fremde.get(t.prefab) ?? 0) + 1);
+      // `else`, wie bei den Platzierungen: Ein Name, den es gar nicht gibt, ist nicht noch zusätzlich „kein eigenes Modell“.
+      else if (!istEigenesModell(t.prefab)) ohneModell.set(t.prefab, (ohneModell.get(t.prefab) ?? 0) + 1);
     }
     for (const [name, anzahl] of fremde) {
       befunde.push({
         wo: 'bausaetze',
         art: 'bausatz',
         text: `unbekanntes Prefab: ${name} (${anzahl} Teil${anzahl === 1 ? '' : 'e'} in ${i.bausatz})`,
+        ref,
+      });
+    }
+    for (const [name, anzahl] of ohneModell) {
+      befunde.push({
+        wo: 'bausaetze',
+        art: 'modell',
+        text: `kein eigenes Modell: ${name} (${anzahl} Teil${anzahl === 1 ? '' : 'e'} in ${i.bausatz})`,
         ref,
       });
     }

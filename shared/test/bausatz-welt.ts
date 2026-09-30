@@ -17,6 +17,7 @@ import {
   layoutSchreiben,
   layoutText,
 } from '../src/worldlayout/layoutDatei.js';
+import { PREFABS_BY_NAME, istEigenesModell } from '../src/prefabs.js';
 import { pruefeLayout } from '../src/worldlayout/pruefung.js';
 import { OP_COLLECTIONS, wende } from '../src/worldlayout/ops.js';
 import { sanitizeWorldLayout } from '../src/worldlayout/sanitize.js';
@@ -204,6 +205,44 @@ try {
   pruefe('unbekanntes Prefab je Name und Bausatz gezählt (2 Teile, eine Zeile, trotz 2 Instanzen)', befunde.filter((b) => b.text.startsWith('unbekanntes Prefab: U_Nichts')).length === 1 && befunde.some((b) => b.text === 'unbekanntes Prefab: U_Nichts (2 Teile in kit)'), JSON.stringify(befunde.map((b) => b.text)));
   pruefe('Einzahl: 1 Teil; insgesamt 3 Befunde (Bausatz + 2 Prefab-Namen)', befunde.some((b) => b.text === 'unbekanntes Prefab: U_Anderes (1 Teil in kit)') && befunde.length === 3, String(befunde.length));
   pruefe('ohne Katalog: keine Bausatz-Befunde', pruefeLayout(welt).every((b) => b.art !== 'bausatz'));
+}
+
+// ── pruefeLayout: kein eigenes Modell, verwaiste Kennungen (N3) ─────────
+{
+  const namen = [...PREFABS_BY_NAME.keys()];
+  const eigen = namen.find((n) => istEigenesModell(n))!;
+  const fremd = namen.find((n) => !istEigenesModell(n))!;
+  pruefe('Probe: je ein eigenes und ein fremdes Prefab gefunden', !!eigen && !!fremd);
+  const kit = sanitizeBausatz({
+    bausatzVersion: 1,
+    id: 'kit',
+    name: 'Kit',
+    grundflaeche: { halbX: 5, halbZ: 5 },
+    teile: [
+      { id: 'p1', prefab: fremd, dx: 0, dz: 0, yaw: 0, scale: 1 },
+      { id: 'p2', prefab: fremd, dx: 1, dz: 0, yaw: 0, scale: 1 },
+      { id: 'p3', prefab: eigen, dx: 2, dz: 0, yaw: 0, scale: 1 },
+    ],
+  })!;
+  const katalog = new Map([['kit', kit]]);
+  const welt = sanitizeWorldLayout({
+    ...dev,
+    bausaetze: [
+      inst({ id: 'k-1', bausatz: 'kit', kennungen: { p1: 'adr-1', weg: 'adr-weg' } }),
+      inst({ id: 'k-2', bausatz: 'kit', x: 9, kennungen: { weg: 'adr-zwei' } }),
+      inst({ id: 'k-3', bausatz: 'kit', x: 18 }),
+    ],
+  })!;
+  const befunde = pruefeLayout(welt, katalog);
+  const modell = befunde.filter((b) => b.art === 'modell' && b.wo === 'bausaetze');
+  pruefe('kein eigenes Modell: je Name und Bausatz gezählt (2 Teile, eine Zeile, trotz 3 Instanzen)', modell.length === 1 && modell[0]!.text === `kein eigenes Modell: ${fremd} (2 Teile in kit)`, JSON.stringify(modell.map((b) => b.text)));
+  pruefe('kein eigenes Modell: das eigene Prefab wird nicht gemeldet', !befunde.some((b) => b.text.includes(`: ${eigen} `)));
+  pruefe('kein eigenes Modell: ohne Katalog kein Befund für Teile', pruefeLayout(welt).every((b) => b.wo !== 'bausaetze'));
+  const verwaist = befunde.filter((b) => b.text.startsWith('verwaiste Kennung'));
+  pruefe('verwaiste Kennung: je Instanz eine Zeile (k-1, k-2), nicht für p1 und nicht für k-3', verwaist.length === 2 && verwaist.every((b) => b.art === 'bausatz' && b.wo === 'bausaetze'), JSON.stringify(verwaist.map((b) => b.text)));
+  pruefe('verwaiste Kennung: Text nennt Instanz, Teil-id und Adresse', verwaist.some((b) => b.text.includes('k-1') && b.text.includes('weg') && b.text.includes('adr-weg') && b.ref?.id === 'k-1') && verwaist.some((b) => b.text.includes('k-2') && b.text.includes('adr-zwei') && b.ref?.id === 'k-2'));
+  pruefe('verwaiste Kennung: gültiger Eintrag (p1 → adr-1) bleibt stumm', !befunde.some((b) => b.text.includes('adr-1')));
+  pruefe('verwaiste Kennung: ohne Katalog kein Befund', pruefeLayout(welt).every((b) => !b.text.startsWith('verwaiste Kennung')));
 }
 
 // ── Vorgang auf `bausaetze` ─────────────────────────────────────────────

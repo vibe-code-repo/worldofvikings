@@ -78,6 +78,8 @@ export function loeseBausaetzeAuf(
       const { id: teilId, prefab, dx, dz, dy, yaw: teilYaw, pitch, roll, scale: skalaRoh, einebnen, gruppe } = t;
       // the scale triple is copied once as well, the copy is checked and passed on
       const skala = Array.isArray(skalaRoh) && skalaRoh.length === 3 ? ([skalaRoh[0], skalaRoh[1], skalaRoh[2]] as BausatzSkala) : skalaRoh;
+      // An address in `kennungen` for a part id this kit does not have is never applied here, but it stays in the document:
+      // a part inserted later with that id would take it over. `pruefeLayout` reports such orphans.
       const adresse = kennungen !== undefined && Object.hasOwn(kennungen, teilId) ? kennungen[teilId] : undefined;
       const id = typeof adresse === 'string' ? adresse : `${i.id}#${teilId}`;
       if (!endlich(dx) || !endlich(dz) || !endlich(teilYaw) || !skalaEndlich(skala) || [dy, pitch, roll].some((w) => w !== undefined && !endlich(w))) {

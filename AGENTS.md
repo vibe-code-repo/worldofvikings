@@ -505,6 +505,14 @@ umlauts are valid in the manifest, a release reason needs words (10 letters or
 digits, 4 different ones, besides the 20 visible characters), and the output marks
 a rule that checked 0 places.
 
+Version 1.2 (second fix round) turned the two weakest rules into free lists: a default
+value of a form k parameter passes only as a plain literal (a name, member access, cast,
+conditional or template with a substitution is B12), and rule B9 reports every read of a
+moved name that a statement of the rest in front of the old place can reach by any mention
+of a function, member name or computed access (release `lesen:<name>`, all sites listed).
+An assignment to a moved `let`/`var` is found through casts and judged by its binding with
+the type checker.
+
 A step is delivered with its manifest under `tools/verschiebung/zeugen/` and the
 output of the proof in the pull request. The self-tests `tools/test/verschiebung-*.ts`
 run in the CI; the probe on real files with the git history,

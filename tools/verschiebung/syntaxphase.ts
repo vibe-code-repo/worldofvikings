@@ -11,7 +11,7 @@ import type { BezeichnerPaar } from './bindung';
 import { gebundenesThis, istThis, pruefeUnterstuetzt, vergleicheFormK, vergleicheWoertlich } from './formk';
 import { pruefeKlebstoff } from './klebstoff';
 import { kommentareIn, pruefeKlebstoffKommentare, pruefeVerschobeneKommentare, type KlebstoffBereich } from './kommentare';
-import { pruefeLaden, pruefeLesenVorDerStelle, pruefeZuweisungAusDemRest, type LadeUmgebung } from './laden';
+import { pruefeLaden, pruefeLesenVorDerStelle, sammleZuweisungenAusDemRest, type LadeUmgebung, type Zuweisung } from './laden';
 import { pruefeOrt } from './ort';
 import { deklarierteNamen, dekoratoren, mitgliedName, modifikatoren, syntaxFehler } from './stuecke';
 import { kurz, ortVon, ortVonKnoten, type Datei, type KnotenBezug, type Manifest, type Protokoll, type Stueck } from './typen';
@@ -30,6 +30,8 @@ export interface SyntaxErgebnis {
   gelockert: { name: string; was: string; ort: { datei: Datei; pos: number } }[];
   /** Extents of old pieces that carry a finding of rule B2 or B3. */
   gestoert: { von: number; bis: number }[];
+  /** Places where the rest assigns to a name equal to that of a moved `let`/`var`: rule B12 decides with the old program. */
+  zuweisungen: Zuweisung[];
 }
 
 function bezug(datei: Datei, n: ts.Node): KnotenBezug {
@@ -65,7 +67,7 @@ export function syntaxPhase(manifest: Manifest, alt: Datei, rest: Datei, ziele: 
     for (const b of liste) roh.push({ ...b, neuDatei, ...zusatz });
   };
   const bereiche: KlebstoffBereich[] = [];
-  const erg: SyntaxErgebnis = { zerlegung: z, knotenPaare, bezeichner: [], aufrufe: [], gelockert: [], gestoert: [] };
+  const erg: SyntaxErgebnis = { zerlegung: z, knotenPaare, bezeichner: [], aufrufe: [], gelockert: [], gestoert: [], zuweisungen: [] };
   const stoere = (s: Stueck): void => {
     erg.gestoert.push({ von: s.von, bis: s.bis });
   };
@@ -154,7 +156,7 @@ export function syntaxPhase(manifest: Manifest, alt: Datei, rest: Datei, ziele: 
     pruefeOrt(f.name, f.alt.knoten, alt, p);
     pruefeLaden(f.name, f.alt, alt, z.restAlt, ladeUmgebung, p);
     pruefeLesenVorDerStelle(f.name, f.alt, alt, alleAlt, z.restAlt, p);
-    pruefeZuweisungAusDemRest(f.name, f.alt, alt, z.restAlt, p);
+    erg.zuweisungen.push(...sammleZuweisungenAusDemRest(f.name, f.alt, alt, z.restAlt, p));
   }
 
   // -- form k --

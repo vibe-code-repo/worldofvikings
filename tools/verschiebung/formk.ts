@@ -175,31 +175,39 @@ export function ersteWirkung(ausdruck: ts.Node): { knoten: ts.Node; was: string 
   return fund;
 }
 
-/** What the default value of a parameter does that a forwarder cannot pass on: read `this` or yield `undefined`. `null` if nothing. */
-export function vorgabeProblem(ausdruck: ts.Node): { knoten: ts.Node; was: string } | null {
-  let fund: { knoten: ts.Node; was: string } | null = null;
+/**
+ * True for a default value the forwarder can pass on without a trace: a literal that is not
+ * `undefined` (number, string without substitution, `true`, `false`, `null`, a negated number, a
+ * bigint or regular expression), an array or object literal that holds only such literals, and a
+ * function value (writing one down runs nothing). Everything else can yield `undefined` or has an
+ * effect: the function would then evaluate its own default value a second time (rule 5, R-D).
+ */
+function istErlaubteVorgabe(e: ts.Expression): boolean {
+  if (ts.isNumericLiteral(e) || ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e) || ts.isBigIntLiteral(e) || ts.isRegularExpressionLiteral(e)) return true;
+  if (e.kind === K.TrueKeyword || e.kind === K.FalseKeyword || e.kind === K.NullKeyword) return true;
+  if (ts.isPrefixUnaryExpression(e)) return e.operator === K.MinusToken && (ts.isNumericLiteral(e.operand) || ts.isBigIntLiteral(e.operand));
+  if (ts.isArrayLiteralExpression(e)) return e.elements.every(istErlaubteVorgabe);
+  if (ts.isObjectLiteralExpression(e)) {
+    return e.properties.every((x) => ts.isPropertyAssignment(x) && (ts.isIdentifier(x.name) || ts.isStringLiteral(x.name) || ts.isNumericLiteral(x.name)) && istErlaubteVorgabe(x.initializer));
+  }
+  return ts.isArrowFunction(e) || ts.isFunctionExpression(e);
+}
+
+/**
+ * What the default value of a parameter does that a forwarder cannot pass on, as a free list: anything
+ * that is not a plain literal (see `istErlaubteVorgabe`). `dieses` is set if it reads `this`. `null` if nothing.
+ */
+export function vorgabeProblem(ausdruck: ts.Node): { knoten: ts.Node; was: string; dieses: boolean } | null {
+  if (istErlaubteVorgabe(ausdruck as ts.Expression)) return null;
+  let fund: ts.Node | null = null;
   const geh = (n: ts.Node): void => {
     if (fund || ts.isFunctionLike(n) || ts.isClassLike(n)) return;
-    if (istThis(n)) fund = { knoten: n, was: 'reads `this`' };
+    if (istThis(n)) fund = n;
     else ts.forEachChild(n, geh);
   };
   geh(ausdruck);
-  if (fund) return fund;
-  const undef = (e: ts.Expression): ts.Node | null => {
-    if (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e) || ts.isNonNullExpression(e) || ts.isTypeAssertionExpression(e)) return undef(e.expression);
-    if (ts.isIdentifier(e) && e.text === 'undefined') return e;
-    if (ts.isVoidExpression(e)) return e;
-    if (ts.isConditionalExpression(e)) return undef(e.whenTrue) ?? undef(e.whenFalse);
-    if (ts.isBinaryExpression(e)) {
-      const t = e.operatorToken.kind;
-      if (t === K.QuestionQuestionToken || t === K.BarBarToken || t === K.AmpersandAmpersandToken) return undef(e.left) ?? undef(e.right);
-      if (t === K.CommaToken) return undef(e.right);
-    }
-    return null;
-  };
-  const u = ausdruck as ts.Expression;
-  const k = undef(u);
-  return k ? { knoten: k, was: 'can yield `undefined`' } : null;
+  if (fund) return { knoten: fund, was: 'reads `this`', dieses: true };
+  return { knoten: ausdruck, was: `is not a plain literal (${kurz(ausdruck.getText(), 40)}): it may yield \`undefined\` or act`, dieses: false };
 }
 
 /** True if `this` stands in a part that a nested class or member evaluates around itself (computed name, decorator, `extends`). */
@@ -252,7 +260,7 @@ export function pruefeUnterstuetzt(paar: { name: string; alt: { knoten: ts.Node 
       const pn = ts.isIdentifier(par.name) ? par.name.text : '?';
       if (w) melde('vorgabe', w.knoten, `default value of parameter "${pn}" contains ${w.was}: it would be evaluated in the forwarder and in the function`, `vorgabe:${paar.name}.${pn}`);
       const v = vorgabeProblem(par.initializer);
-      if (v) melde('vorgabe-this-undefined', v.knoten, `default value of parameter "${pn}" ${v.was}: if the forwarder passes \`undefined\` on, the function evaluates its own default value a second time`);
+      if (v && (!w || v.dieses)) melde('vorgabe-this-undefined', v.knoten, `default value of parameter "${pn}" ${v.was}: if the forwarder passes \`undefined\` on, the function evaluates its own default value a second time`);
     }
   }
   eigeneKnoten(m, (n) => {

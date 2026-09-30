@@ -499,7 +499,7 @@ export default [
   // Dateien darin, wird der Test rot. Begruendung bei der Funktion.
   ['tools', 'test/terrain-schichten.ts', brauchtBodenQuellen()],
   /*
-    Move proof (tools/verschiebung/), six self-tests. Small source texts in memory, no assets,
+    Move proof (tools/verschiebung/), seven self-tests. Small source texts in memory, no assets,
     no installed packages: they run in the CI checkout. ~10 s each, aufruf ~20 s.
      - altbestand: the 151 fixtures of the earlier proof tool, transferred, each with the
        expectation it had there and a reason where the result differs.
@@ -508,6 +508,9 @@ export default [
      - nachbesserung: the gaps of the third attack (V2-A1 to A13) and the nine mutants that survived
        the earlier self-tests, one fixture each; also starts the command line self-test and
        interrupts it (~40 s).
+     - klassen: the second fix round (V2N): default values as a free list, reads while loading by
+       names (conservative), assignment targets through casts and by binding, and the fixtures of the
+       14 surviving mutants.
      - nachangriff: the forgeries of both attacks on the earlier tool, each in its smallest form.
      - regeln: every rule bites. For each rule B1 to B13 at least one green and one red fixture,
        and every red fixture names exactly the rules that must report.
@@ -516,6 +519,7 @@ export default [
   */
   ['tools/test', 'verschiebung-altbestand.ts'],
   ['tools/test', 'verschiebung-aufruf.ts'],
+  ['tools/test', 'verschiebung-klassen.ts'],
   ['tools/test', 'verschiebung-nachangriff.ts'],
   ['tools/test', 'verschiebung-nachbesserung.ts'],
   ['tools/test', 'verschiebung-regeln.ts'],

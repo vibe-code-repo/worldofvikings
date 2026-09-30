@@ -38,6 +38,14 @@
     {
       "schluessel": "laden:BIOME_FARBE",
       "begruendung": "Built while loading from BIOME_NAMEN (a literal list that moves along) and BIOM_TON (a literal table of ./design, a module without imports). In the old state it was evaluated after the two top-level awaits that load the registries, now before them. It reads no registry, so the two awaits cannot change its value."
+    },
+    {
+      "schluessel": "lesen:seitenHost",
+      "begruendung": "The statements named hand `seiteBauen`, `pruefberichtBauen`, `weltSektionBauen` (which reach this name) to `erzeugeEditorKern` as values and register event listeners whose callbacks call them. `erzeugeEditorKern` (werkzeuge/kontext.ts) only stores the host functions and calls `host.seiteBauen()` and its siblings inside its own closures (`alles`, the tool hooks), never while it is being built; an event callback runs after the module has loaded. So `seitenHost` is initialised before any of these functions runs, in the old and in the new order."
+    },
+    {
+      "schluessel": "lesen:hinweisZeile",
+      "begruendung": "The statements named hand `seiteBauen`, `pruefberichtBauen`, `weltSektionBauen` (which reach this name) to `erzeugeEditorKern` as values and register event listeners whose callbacks call them. `erzeugeEditorKern` (werkzeuge/kontext.ts) only stores the host functions and calls `host.seiteBauen()` and its siblings inside its own closures (`alles`, the tool hooks), never while it is being built; an event callback runs after the module has loaded. So `hinweisZeile` is initialised before any of these functions runs, in the old and in the new order."
     }
   ]
 }

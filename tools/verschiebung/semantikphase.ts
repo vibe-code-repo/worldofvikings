@@ -7,6 +7,7 @@
  * hold their type information at the same time.
  */
 import { beschreibe, pruefeBindung, type Deskriptor } from './bindung';
+import { pruefeZuweisungen } from './laden';
 import { pruefeAufruf, pruefeKontexttyp, pruefeLockerung } from './kontexttyp';
 import { baueProgramm, type Programm } from './programm';
 import { ModulGraph, vergleicheOrdnung } from './reihenfolge';
@@ -45,6 +46,8 @@ export function semantikPhase(e: SemantikEingabe, p: Protokoll): SemantikErgebni
   let altProgramm: Programm | null = baueProgramm({ wurzel: e.wurzel, stand: e.standAlt }, manifest.quelle, []);
   const altInfo = { dateien: altProgramm.dateien, tsconfig: altProgramm.tsconfig };
   const altAntworten: Map<string, Deskriptor> = beschreibe(altProgramm, manifest.quelle, syntax.bezeichner.filter((b) => !b.ueberspringen && !b.erwartet).map((b) => b.alt));
+  // Rule B12 (form 0): which assigned names are the moved variable itself, decided by the binding in the old program.
+  pruefeZuweisungen(syntax.zuweisungen, beschreibe(altProgramm, manifest.quelle, syntax.zuweisungen.flatMap((z) => [z.ziel, ...z.deklariert])), e.alt, p);
   altProgramm = null;
 
   const neu = baueProgramm({ wurzel: e.wurzel, stand: e.standNeu }, manifest.quelle, zielPfade);

@@ -332,7 +332,7 @@ function baue(verbindeFn?: () => void, aufgegeben?: () => void) {
 // ── 8. Nachbesserung N3 (Nachpruefung B1/B3): Haltezeit nach der Uhr, nicht nur nach dem Timer ──
 {
   // B1: Tab eingefroren: PeerInfo, 30 min nur Uhr, close kommt VOR dem nachgeholten Haltetimer.
-  const { s, log, friere, taue } = baue();
+  const { s, log, friere, taue, offeneTimer } = baue();
   s.beiGetrennt(''); // Versuch 1
   pruefe(s.anzahlVersuche === 1, 'B1: Serie mit 1 Versuch');
   s.beiAngenommen();
@@ -340,7 +340,7 @@ function baue(verbindeFn?: () => void, aufgegeben?: () => void) {
   const r = s.beiGetrennt('');
   pruefe(r === true, `B1: 30 min gehalten (Timer eingefroren): Trennung verbindet neu statt aufzugeben (${r})`);
   pruefe(s.anzahlVersuche === 1 && log.texte.at(-1) === 'netz.verloren.versuch|1|1', `B1: neue Serie, Backoff wieder 1 s (${log.texte.at(-1)})`);
-  pruefe(taue() >= 0 && s.anzahlVersuche === 1, 'B1: der nachgeholte Haltetimer setzt nichts mehr zurueck');
+  pruefe(taue() === 0 && offeneTimer() === 1 && s.anzahlVersuche === 1, `B1: nichts Faelliges (taue 0), nur der neue Zaehler offen (${offeneTimer()}), Versuche bleiben 1`);
 }
 {
   // B3: Drosselung: Serie 9 min 20 s alt, PeerInfo, Haltetimer kommt zu spaet, close davor.
@@ -362,6 +362,42 @@ function baue(verbindeFn?: () => void, aufgegeben?: () => void) {
   s.beiGetrennt(''); s.beiGetrennt(''); s.beiAngenommen();
   friere(HALTEZEIT_MS - 1);
   pruefe(s.beiGetrennt('') === true && s.anzahlVersuche === 3, `B1-Grenze: 9,999 s nach der Uhr: Serie laeuft weiter (Versuch ${s.anzahlVersuche})`);
+}
+
+
+// ── 9. N4 (Nachpruefung N3, nur Test): Mutanten fangen ─────────────────
+{
+  // A1: PeerInfo, Trennung nach 3 s, danach nur Fehlversuche ohne PeerInfo. Ein nie geloeschtes
+  // `angenommenAb` wuerde bei jedem Fehlversuch (Uhr > 10 s nach dem alten PeerInfo) die Serie
+  // zuruecksetzen: nie aufgegeben.
+  const { s, log, laufe } = baue();
+  s.beiGetrennt(''); laufe(1000); s.beiVerbunden(); s.beiAngenommen();
+  laufe(3000);
+  let weiter = s.beiGetrennt('');
+  pruefe(weiter && s.anzahlVersuche === 2, `A1: Trennung 3 s nach PeerInfo: Versuch 2 (${s.anzahlVersuche})`);
+  let zyklen = 1;
+  let t = 4000;
+  while (weiter && zyklen < 200 && t < 2 * ZEITLIMIT_MS) {
+    const vorher = log.verbinde;
+    while (log.verbinde === vorher) { laufe(1000); t += 1000; }
+    s.beiVerbunden(); // Anmeldepaket raus, nie PeerInfo
+    weiter = s.beiGetrennt('');
+    if (weiter) zyklen++;
+  }
+  pruefe(!weiter, `A1: nach dem einen PeerInfo nur noch Fehlversuche: Aufgabe nach ${zyklen + 1} Trennungen, ${Math.round(t / 1000)} s`);
+  pruefe(t <= ZEITLIMIT_MS, `A1: Gesamtdauer ${Math.round(t / 1000)} s <= 600 s`);
+  pruefe(zyklen >= 13 && zyklen <= 15, `A1: rund 14 Zyklen (${zyklen})`);
+}
+{
+  // A2: Grenze der Uhr: genau HALTEZEIT_MS gehalten, close vor dem Timer => Reset (>=, nicht >).
+  const { s, log, friere, taue, offeneTimer } = baue();
+  s.beiGetrennt(''); s.beiGetrennt('');
+  pruefe(s.anzahlVersuche === 2, 'A2: Serie mit 2 Versuchen');
+  s.beiAngenommen();
+  friere(HALTEZEIT_MS);
+  pruefe(s.beiGetrennt('') === true && s.anzahlVersuche === 1, `A2: genau 10 s nach der Uhr, close vor dem Timer: Reset, Versuch 1 (${s.anzahlVersuche})`);
+  pruefe(log.texte.at(-1) === 'netz.verloren.versuch|1|1', `A2: Backoff wieder 1 s (${log.texte.at(-1)})`);
+  pruefe(taue() === 0 && offeneTimer() === 1 && s.anzahlVersuche === 1, 'A2: kein zweiter Reset durch den gestoppten Haltetimer');
 }
 
 if (fehler) {

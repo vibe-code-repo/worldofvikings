@@ -911,6 +911,8 @@ async function teilC(): Promise<void> {
     ['-5', '-5'],
     ['1e15', '1e15'],
     ['Text', '"abc"'],
+    ['100.000-fach verschachteltes Array', '['.repeat(100_000) + ']'.repeat(100_000)],
+    ['1-MB-Text', '"' + 'a'.repeat(1_000_000) + '"'],
   ];
   for (const [name, wert] of faelle) {
     rmSync(dir, { recursive: true, force: true });
@@ -939,11 +941,15 @@ async function teilC(): Promise<void> {
     const alt = console.warn;
     console.warn = (...x: unknown[]): void => void warnungen.push(x.map(String).join(' '));
     const b = bau();
+    let initFehler = '';
     try {
       b.init();
+    } catch (e) {
+      initFehler = String(e).slice(0, 120);
     } finally {
       console.warn = alt;
     }
+    check(`worldTime ${name}: init() läuft durch`, initFehler === '', initFehler);
     const t = b.worldTime;
     check(
       `Speicherdatei mit worldTime ${name}: der Server setzt einen gültigen Wert`,
@@ -954,6 +960,13 @@ async function teilC(): Promise<void> {
       `… mit Warnzeile`,
       warnungen.some((w) => w.includes('Weltzeit')),
       warnungen.find((w) => w.includes('Weltzeit')) ?? 'keine',
+    );
+    const weltzeitZeilen = warnungen.filter((w) => w.includes('Weltzeit'));
+    check(`… genau eine Warnzeile zur Weltzeit`, weltzeitZeilen.length === 1, String(weltzeitZeilen.length));
+    check(
+      `… und sie ist höchstens 260 Zeichen lang`,
+      weltzeitZeilen.every((w) => w.length <= 260),
+      String(Math.max(0, ...weltzeitZeilen.map((w) => w.length))),
     );
     let fehler = '';
     let pakete = 0;

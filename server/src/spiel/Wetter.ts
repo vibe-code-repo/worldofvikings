@@ -192,9 +192,26 @@ export function fuehreWetterBefehlAus(
  */
 export const WELTZEIT_MAX = 1e10;
 
-/** Wert für den Warntext: Zahlen wie sie sind (auch NaN, ±Infinity), sonst als JSON ("270" ≠ 270, Objekte lesbar). */
+/** Längste Wertanzeige im Warntext; der Rest wird mit „… (N Zeichen)“ abgeschnitten. */
+const ZEIGE_MAX = 150;
+
+/**
+ * Wert für den Warntext, wirft nie: Zahlen wie sie sind (auch NaN, ±Infinity), sonst als JSON ("270" ≠ 270,
+ * Objekte lesbar). Scheitert JSON (zu tief verschachtelt, BigInt, Zyklus), gilt `String`, scheitert auch das
+ * `typeof`. Lange Werte werden gekürzt: Die Datei kann beliebig groß und beschädigt sein.
+ */
 function zeige(roh: unknown): string {
-  return typeof roh === 'number' ? String(roh) : (JSON.stringify(roh) ?? String(roh));
+  let text: string;
+  try {
+    text = typeof roh === 'number' ? String(roh) : (JSON.stringify(roh) ?? String(roh));
+  } catch {
+    try {
+      text = String(roh);
+    } catch {
+      text = `<${typeof roh}>`;
+    }
+  }
+  return text.length > ZEIGE_MAX ? `${text.slice(0, ZEIGE_MAX)} … (${text.length} Zeichen)` : text;
 }
 
 /**

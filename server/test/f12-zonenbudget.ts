@@ -24,9 +24,12 @@
  *     nach dem Abarbeiten ist `pending` leer; eine Zone in zwei Schlangen
  *     wird genau einmal erzeugt.
  *
- *  5. Zonen teurer als der Anteil je Spieler (5 Spieler, 8 ms je Zone): jeder
- *     Spieler kommt in höchstens n Ticks dran (Reihum wandert), die Summe je
- *     Tick bleibt ≤ Budget + eine Zone (der Deckel gilt auch im Mindestanteil).
+ *  5. Zonen teurer als der Anteil je Spieler (n = 5, 6, 8 Spieler, 8 ms je
+ *     Zone, bei n = 6, 8 je 15 ms): bei unveränderter Liste kommt jeder Spieler in höchstens n Ticks
+ *     dran (Reihum wandert über alle, auch bei gerader Zahl), die Summe je Tick
+ *     bleibt ≤ Budget + eine Zone (der Deckel gilt auch im Mindestanteil).
+ *  6. Jeder Spieler bekommt seinen Anteil je Tick, auch gegen einen Läufer.
+ *  7. Schon erzeugte Schlangenköpfe werden auch bei Budget 0 freigegeben.
  *
  * Lauf: npx tsx server/test/f12-zonenbudget.ts   (aus der Wurzel)
  */
@@ -233,25 +236,30 @@ console.log('== 4. Abgang, kein Leck; geteilte Zone einmal ==');
   check('pending leer (geteilt)', n.innen.pending.size === 0, `pending=${n.innen.pending.size}`);
 }
 
-// ── 5. Zonen teurer als der Anteil je Spieler: reihum, Deckel je Tick ──
-console.log('== 5. 5 Spieler, eine Zone = 8 ms (Anteil je Spieler 2,4 ms), Budget 12 ms ==');
-{
+/** Erzeuger-Stellvertreter: jede erzeugte Zone kostet `kosten` ms auf der simulierten Uhr. */
+function mitKosten(kosten: number): { m: ReturnType<typeof neu>; erzeugt: string[]; jetzt: () => number } {
   let t = 0;
   const m = neu(() => t);
   const zm = m.zm as unknown as { generateZone: (z: { x: number; y: number }) => boolean };
-  const N = 5;
-  const KOSTEN = 8;
-  const BUDGET = 12;
   const echte = zm.generateZone.bind(zm);
-  let erzeugt: string[] = [];
+  const erzeugt: string[] = [];
   zm.generateZone = (z): boolean => {
     const ok = echte(z);
     if (ok) {
       erzeugt.push(key(z.x, z.y));
-      t += KOSTEN;
+      t += kosten;
     }
     return ok;
   };
+  return { m, erzeugt, jetzt: () => t };
+}
+
+// ── 5. Zonen teurer als der Anteil je Spieler: reihum, Deckel je Tick ──
+// 15 ms > Budget: nur eine Zone je Tick, dann zählt allein der Reihum-Start (gerade Zahlen fangen Sprünge um 2).
+for (const [N, KOSTEN] of [[5, 8], [6, 15], [8, 15]]) {
+  console.log(`== 5. ${N} Spieler, eine Zone = ${KOSTEN} ms, Budget 12 ms ==`);
+  const BUDGET = 12;
+  const { m, erzeugt, jetzt } = mitKosten(KOSTEN);
   // Fenster weit auseinander (20 Zonen), damit jede erzeugte Zone einem Spieler gehört.
   const zentrum = (i: number): number => i * 20;
   const spieler: Spieler[] = [];
@@ -259,14 +267,15 @@ console.log('== 5. 5 Spieler, eine Zone = 8 ms (Anteil je Spieler 2,4 ms), Budge
   const gehoert = (k: string, i: number): boolean => Math.abs(Number(k.split(',')[0]) - zentrum(i)) <= 4;
   const proTick: number[][] = [];
   let maxMs = 0;
-  for (let k = 0; k < 20; k++) {
-    erzeugt = [];
-    const t0 = t;
+  const TICKS = 4 * N;
+  for (let k = 0; k < TICKS; k++) {
+    erzeugt.length = 0;
+    const t0 = jetzt();
     tick(m, spieler, BUDGET);
-    maxMs = Math.max(maxMs, t - t0);
+    maxMs = Math.max(maxMs, jetzt() - t0);
     proTick.push(spieler.map((_, i) => erzeugt.filter((z) => gehoert(z, i)).length));
   }
-  // Kein Spieler geht in n aufeinanderfolgenden Ticks leer aus (jeder hat noch offene Zonen: 81 > 20).
+  // Jeder Spieler hat noch offene Zonen (81 > 2 je Tick): keine Lücke von n Ticks (Liste bleibt unverändert).
   let laengsteLuecke = 0;
   for (let i = 0; i < N; i++) {
     let luecke = 0;
@@ -275,10 +284,45 @@ console.log('== 5. 5 Spieler, eine Zone = 8 ms (Anteil je Spieler 2,4 ms), Budge
       laengsteLuecke = Math.max(laengsteLuecke, luecke);
     }
   }
-  check(`jeder Spieler kommt in höchstens n=${N} Ticks dran (längste Lücke < n)`, laengsteLuecke < N, `längste Lücke=${laengsteLuecke} Ticks`);
+  check(`n=${N}: jeder Spieler kommt in höchstens n Ticks dran (längste Lücke < n)`, laengsteLuecke < N, `längste Lücke=${laengsteLuecke} Ticks`);
   const jeSpieler = spieler.map((_, i) => proTick.reduce((a, z) => a + z[i], 0));
-  check('nach 20 Ticks hat jeder Spieler Zonen bekommen, verteilt ±2', Math.min(...jeSpieler) >= 1 && Math.max(...jeSpieler) - Math.min(...jeSpieler) <= 2, `Zonen je Spieler=${jeSpieler.join('/')}`);
-  check('Summe je Tick ≤ Budget + eine Zone', maxMs <= BUDGET + KOSTEN, `max ${maxMs} ms (Grenze ${BUDGET + KOSTEN})`);
+  check(`n=${N}: alle bekommen Zonen, verteilt ±2`, Math.min(...jeSpieler) >= 1 && Math.max(...jeSpieler) - Math.min(...jeSpieler) <= 2, `Zonen je Spieler=${jeSpieler.join('/')}`);
+  check(`n=${N}: Summe je Tick ≤ Budget + eine Zone`, maxMs <= BUDGET + KOSTEN, `max ${maxMs} ms (Grenze ${BUDGET + KOSTEN})`);
+}
+
+// ── 6. Jeder Spieler bekommt seinen Anteil, auch gegen einen Läufer ─────
+console.log('== 6. 4 Stehende (ferne Zonen) + 1 Läufer mit frischem Fenster, Zone = 2 ms, Budget 12 ms ==');
+{
+  const { m, erzeugt } = mitKosten(2);
+  const zentrum = (i: number): number => i * 20;
+  const steh: Spieler[] = [0, 1, 2, 3].map((i) => ({ id: 'st' + i, pos: p(zentrum(i), 0) }));
+  for (let k = 0; k < 6; k++) tick(m, steh, 12); // nahe Zonen weg, es bleiben ferne (großer Abstand)
+  const gehoert = (z: string, i: number): boolean => Math.abs(Number(z.split(',')[0]) - zentrum(i)) <= 4;
+  let kleinste = Infinity;
+  const summe = [0, 0, 0, 0];
+  for (let k = 0; k < 20; k++) {
+    // Der Läufer betritt jeden Tick eine neue Zone: seine Zonen sind immer nah (Abstand 0), sie gewinnen Phase 2.
+    erzeugt.length = 0;
+    tick(m, [{ id: 'run', pos: p(100, k) }, ...steh], 12);
+    steh.forEach((_, i) => {
+      const n = erzeugt.filter((z) => gehoert(z, i)).length;
+      kleinste = Math.min(kleinste, n);
+      summe[i] += n;
+    });
+  }
+  check('jeder Stehende bekommt in jedem Tick seinen Anteil (≥ 1 Zone)', kleinste >= 1, `kleinste Zahl in einem Tick=${kleinste}, je Stehender in 20 Ticks=${summe.join('/')}`);
+}
+
+// ── 7. Schon erzeugte Zone am Schlangenkopf bei verbrauchtem Budget ─────
+console.log('== 7. Zonen von außen erzeugt, dann Ticks mit Budget 0: pending läuft leer ==');
+{
+  const m = neu();
+  const s: Spieler[] = [{ id: 'B', pos: p(0, 0) }];
+  tick(m, s, 0);
+  check('Schlange steht (81 Zonen)', m.innen.pending.size === 81, `pending=${m.innen.pending.size}`);
+  for (const z of m.innen.queue.slice()) m.zm.erzeugeZone(z);
+  for (let i = 0; i < 10; i++) tick(m, s, 0);
+  check('schon erzeugte Einträge werden freigegeben, auch ohne Budget', m.innen.pending.size === 0 && m.innen.queue.length === 0, `pending=${m.innen.pending.size} queue=${m.innen.queue.length}`);
 }
 
 console.log(failures === 0 ? '\n=== F12: ALL PASSED ===' : `\n=== F12: ${failures} FAILURES ===`);

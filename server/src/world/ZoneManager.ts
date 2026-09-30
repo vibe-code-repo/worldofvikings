@@ -446,9 +446,12 @@ export class ZoneManager {
    * players with open zones are served round robin (the start moves each
    * tick), each for `MIN_ANTEIL_MS` (or budget / players if smaller), the
    * rest goes to the player whose next open zone is nearest. When one zone
-   * costs more than a player's share, not every player is served every tick,
-   * but every player with open zones comes up within at most n ticks (n =
-   * number of players). The tick overshoots the budget by at most one zone. A zone in several queues is generated once.
+   * costs more than a player's share, not every player is served every tick;
+   * as long as the player list stays unchanged, every player with open zones
+   * comes up within at most n ticks (n = number of players). The round-robin
+   * start is a list index, so a login or logout can make a player wait one
+   * round longer. The tick overshoots the budget by at most one zone.
+   * A zone in several queues is generated once.
    * The id must not change between ticks. Returns the zones generated.
    */
   updateJeSpieler(spieler: readonly { id: string; pos: Vector3 }[], budgetMs = 12): number {

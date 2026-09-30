@@ -177,7 +177,8 @@ not memory, is the limit (load 12 on 8 cores with two full runs). So:
 | What | Places | Take it with |
 |---|---|---|
 | `typecheck`, `build`, `npm ci` | 2 | `tools/sperre.sh build -- <command>` |
-| full test run (`npm test`) | 2, each in its own worktree | `tools/sperre.sh test -- npm test` |
+| full test run (`npm test`), DEV rollout (`tools/wov-update.sh`) | 2, each in its own worktree | `tools/sperre.sh test -- npm test` |
+| one test file or a short probe run (not a full `npm test`) | 4 | `tools/sperre.sh einzeltest -- <command>` |
 | frame-time measurement | 1 | the four `tools/pw-*` measurement tools (`pw-fps-bench`, `pw-testflug-bench`, `pw-schatten-g18-g20`, `pw-schatten-ii-zuordnung`) lock `~/.cache/wov-mess.lock` themselves: start them plainly. `tools/sperre.sh measure -- <command>` (one place) is for any other measurement without its own lock |
 | workers per orchestrator on wov-dev | 4 | (a rule, not a lock) |
 
@@ -189,12 +190,13 @@ ignores `WOV_SPERREN`. A test run that is timing-sensitive (a measurement, a sus
 red) is repeated alone.
 
 The name must fit the work: `typecheck`, `build` and `npm ci` always under `build`, full
-test runs under `test`. The tool binds the number of places per name, not which work
+test runs and the rollout under `test`, single test files and short probes under
+`einzeltest`. Mutant and probe series take the lock per run, not for the whole series. Worktrees whose `tools/sperre.sh` does not know `einzeltest` yet (branched before this change) use `test` until they merge main. The tool binds the number of places per name, not which work
 goes under which name (`sperre.sh test -- npm run typecheck` works and would sneak
 past the build limit), so that part is a promise of the caller.
 
 `tools/sperre.sh <name> -- <command>` is a counting semaphore on `flock`. The number
-of places is fixed in the tool (`build` 2, `test` 2, `measure` 1), not chosen by the
+of places is fixed in the tool (`build` 2, `test` 2, `measure` 1, `einzeltest` 4), not chosen by the
 caller: an unknown name, or a number that does not match (`build 3`), exits 64 with a
 `sperre: usage:` line. The old form `<name> <n> -- <command>` is accepted only while
 `<n>` equals the table. It takes the first free place (`<name>.lock`, then
@@ -229,7 +231,7 @@ What the lock covers, and what it does not:
   name run past the lock (12 at once measured), each with its stderr line; the pass costs
   no place and is no protection against misuse. It exists so that a commit under a lock
   cannot wait for itself.
-- **Never take one lock under the other** (`build` inside `test`, `test` inside `build`):
+- **Never take one lock under the other** (`build` inside `test`, `test` inside `build`, and likewise `einzeltest` inside either, or either inside `einzeltest`):
   two of each, crossed, wait on each other for ever without a message. Release the first
   lock, then take the second. The tool does not refuse it, so that the hook (`build`)
   keeps working under any caller. The lock files in `.slots` are part of the contract: deleting one lifts the lock,
@@ -353,7 +355,7 @@ tools/sperre.sh build -- npm run build
 ```
 
 plus the tests **affected** by your change, one file at a time under
-`tools/sperre.sh test --` (see the next section) — not the collective `npm test`.
+`tools/sperre.sh einzeltest --` (see the next section) — not the collective `npm test`.
 "Affected" means: every test file you added or changed, the tests of the
 modules you touched (`git grep` the changed file's path or its exports under
 `*/test/`), and `scripts/pruefe-runner-liste.mjs` whenever you added a test
@@ -395,7 +397,7 @@ runs with `cwd: client`. To run one file exactly the way the collective run
 does, read its package and its file off the matching `KERN` entry and:
 
 ```bash
-tools/sperre.sh test -- bash -c 'cd <package> && "$OLDPWD/node_modules/.bin/tsx" <file>'
+tools/sperre.sh einzeltest -- bash -c 'cd <package> && "$OLDPWD/node_modules/.bin/tsx" <file>'
 ```
 
 (`$OLDPWD` is the repository root here, because `sperre.sh` runs the command

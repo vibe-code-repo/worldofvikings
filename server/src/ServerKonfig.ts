@@ -21,6 +21,7 @@ import { parse as parseYaml } from 'yaml';
 import { type ServerConfig } from './WovServer.js';
 import { SPIELER_SICHERUNG_INTERVALL_MS } from './spiel/SpielerSicherung.js';
 import { BENUTZERNAME_REGEX, CHARAKTERNAME_REGEX } from './konto/KontoApi.js';
+import { nameHatSteuerzeichen } from './net/Namen.js';
 import {
   ADMINKONTO_PASSWORT_ENV,
   type StandardKontoVorgabe,
@@ -300,6 +301,11 @@ function leseStandardKontoBlock(
   }
   if (!CHARAKTERNAME_REGEX.test(charakter)) {
     maengel.push(`charakter "${charakter}" ist kein gueltiger Charaktername`);
+  }
+  // Die Namensregel der Registrierung und des Spielbeitritts (NetManager): ein
+  // Charaktername mit Hangul-Fuellzeichen o. ae. sieht leer aus.
+  if (nameHatSteuerzeichen(charakter)) {
+    maengel.push('charakter enthaelt unsichtbare Zeichen oder Steuerzeichen');
   }
   if (maengel.length > 0) {
     for (const m of maengel) {

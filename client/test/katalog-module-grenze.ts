@@ -927,7 +927,7 @@ interface ForwardedModule {
   readonly specifier: string;
   /** The former methods, in the order of the class. `keepsPrivate`: the method is not in the context, so `private` stays. */
   readonly former: ReadonlyArray<{ readonly name: string; readonly params: readonly string[]; readonly keepsPrivate: boolean }>;
-  /** What the functions use of the class through their first parameter: three fields, one accessor, four methods (G2); six fields and five methods (G3). */
+  /** What the functions use of the class through their first parameter: three fields, one accessor, four methods (G2); seven fields and four methods (G3). */
   readonly context: readonly string[];
   readonly aliasName: string;
   /** Name of the first parameter of every function: `k`, and `kat` where `k` is a loop variable in the bodies. */

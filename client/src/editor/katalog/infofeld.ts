@@ -16,7 +16,7 @@ import type { StoreEintrag } from '../StoreKatalogDaten';
 import type { Kennzahlen } from './konstanten';
 import type { KatalogKontext } from './kontext';
 
-/** What this module uses of the class: six fields and five methods, 11 members. */
+/** What this module uses of the class: seven fields and four methods, 11 members. */
 type InfofeldKontext = KatalogKontext<
   | 'infoBlock'
   | 'aufPlatzieren'

@@ -12,39 +12,48 @@
  * je Muster, Teiltreffer ohne Beachtung der Groß- und Kleinschreibung (kein
  * regulärer Ausdruck, damit ein Tippfehler in der Liste nichts sprengt).
  *
- * Vor jedem Vergleich wird der Text normalisiert (NFKC, Zeichen der
- * Kategorien Cf und Mn entfernt, klein geschrieben); die Sperrliste genauso.
- * Steuer- und Formatzeichen (Cc, Cf: Bidi, Null-Breite) im Rohtext lehnt das
- * Werkzeug ganz ab. Wörter über 40 Zeichen werden beim Eintragen abgelehnt.
+ * Zeichen: Titel und Punkte dürfen nur Zeichen der Positivliste enthalten
+ * (`unerlaubteZeichen` in `wov-web/src/lib/devlog.ts`, dort als Block „Allowed
+ * text“ beschrieben). Jedes andere Zeichen lehnt das Werkzeug ab und nennt es
+ * als `U+XXXX`. Darüber hinaus gibt es wenige Muster auf dem normalisierten
+ * Text (NFKC, Akzente und punktloses i gefaltet, klein geschrieben, – und —
+ * als -): Hash, PR-/Issue-Nummer, Domain, IPv4, IPv6, Serverkürzel, Port,
+ * Dateiendung. Wörter über 40 Zeichen werden beim Eintragen abgelehnt.
  *
  * Schreiben: temporäre Datei im selben Ordner, dann `rename` — ein Abbruch
  * hinterlässt die alte Datei ganz. Ein zweiter Lauf mit demselben Eintrag
  * ergibt byte-gleiche Ausgabe.
  *
- * Gleichzeitige Läufe schließt eine Kernel-Sperre aus: Der Lauf startet sich
- * unter `flock -n -E 75 <datei>.lock` selbst neu. Die Sperre ist atomar, fällt
- * mit dem Tod des Prozesses (auch SIGKILL) und braucht keine Wartezeit; die
- * leere Datei `<datei>.lock` bleibt liegen und ist kein Zustand. Entfernt ein
- * Lauf ungültige Alteinträge, legt er vorher `<datei>.bak-<UTC>` ab (höchstens
- * 5 bleiben, nur Dateien genau dieses Namensmusters).
+ * Gleichzeitige Läufe schließt eine Kernel-Sperre aus: Das Werkzeug öffnet
+ * `<datei>.lock` selbst (Modus 0600, `O_NOFOLLOW`; ein Symlink ergibt Exit 2)
+ * und sperrt den offenen Deskriptor mit `flock -n -E 75 3`. Die Sperre hängt
+ * an der offenen Datei und damit an diesem Prozess: Sie fällt mit seinem Tod
+ * (auch SIGKILL), niemand wartet, und es gibt keinen Neustart und keine
+ * Umgebungsvariable, die sie vortäuschen könnte. Die leere Datei `<datei>.lock`
+ * bleibt liegen und ist kein Zustand. Pfade werden vorher absolut aufgelöst
+ * (`--datei -x.json` ist ein Dateiname, kein Schalter). Entfernt ein Lauf
+ * ungültige Alteinträge, legt er vorher `<datei>.bak-<UTC>` ab (höchstens 5
+ * bleiben, nur Dateien genau dieses Namensmusters).
  *
  * `--pruefen --eintrag <tag.json> [--sperrliste <datei>]` prüft nur (Schema,
  * Wortlänge, Zeichen, Spuren): schreibt nichts, nimmt keine Sperre.
  *
  * Exit: 0 eingetragen (bzw. Prüfung bestanden), 1 Eintrag abgelehnt (Schema
- * oder interne Spur), 2 Aufruf- oder Dateifehler, 3 Ziel gesperrt (ein anderer
- * Lauf schreibt gerade).
+ * oder interne Spur), 2 Aufruf- oder Dateifehler (auch: flock fehlt oder
+ * scheitert, Sperrdatei ist ein Symlink), 3 Ziel gesperrt (ein anderer Lauf
+ * schreibt gerade).
  *
  * Inserts one day's entry into devlog.json: schema from the shared module,
  * rejects internal traces, atomic write, idempotent.
  */
 import { spawnSync } from "node:child_process";
 import {
-  appendFileSync,
   closeSync,
+  constants,
   copyFileSync,
   existsSync,
   fchmodSync,
+  fstatSync,
   fsyncSync,
   openSync,
   readdirSync,
@@ -53,8 +62,8 @@ import {
   unlinkSync,
   writeSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { basename, dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   DATEI_MAX_BYTES,
   fuegeEin,
@@ -62,6 +71,7 @@ import {
   pruefeEintrag,
   pruefeWortLaenge,
   SPRACHEN,
+  unerlaubteZeichen,
 } from "../../wov-web/src/lib/devlog.ts";
 
 /**
@@ -77,8 +87,18 @@ export function glaette(text) {
     .replace(/\s+/gu, " ");
 }
 
+/**
+ * Normalisierte Fassung für alle Muster und die Sperrliste: geglättet, Akzente
+ * abgelöst (NFD ohne Mn: „ä“ wird „a“), punktloses „ı“ wird „i“, klein, und
+ * Halbgeviert- und Geviertstrich werden zu „-“.
+ */
 export function normalisiert(text) {
-  return glaette(text).toLowerCase();
+  return glaette(text)
+    .normalize("NFD")
+    .replace(/\p{Mn}/gu, "")
+    .replace(/\u0131/g, "i")
+    .toLowerCase()
+    .replace(/[\u2013\u2014]/g, "-");
 }
 
 /** Endungen, die nach Quelltext, Betriebs- oder Mediendatei riechen. */
@@ -116,84 +136,80 @@ function endungTreffer(glatt) {
   return undefined;
 }
 
-const WURZELORDNER =
-  /(?:^|[^\w/])(?:server|client|shared|tools|scripts|deploy|wov-web|src|admin|packages)\/[\w.-]/;
-
 /**
- * Hash-Kandidat: Hexzeichen, auch mit Bindestrichen dazwischen. Ohne
- * Bindestrich gilt er ab 7 Zeichen mit Ziffer UND Buchstabe a–f, oder ab 10
- * Zeichen nur aus Buchstaben a–f („deadbeefcafe“; „defaced“ bleibt frei). Mit
- * Bindestrich müssen alle Teile eine Ziffer tragen und zusammen Ziffer und
- * Buchstabe haben: „a1b2-c3d4e5“ ist ein Hash, „Feb-2026“ und „Cafe-2026“
- * nicht. Reine Zahlen („1000000 Gold“) sind nie einer.
+ * Hash-Kandidat auf dem normalisierten Text: eine Folge von 7 bis 40 Hexzeichen
+ * (0-9, a-f) zwischen Nicht-Wortzeichen. Sie gilt als Hash, wenn sie Ziffern
+ * UND Buchstaben enthält und mindestens dreimal zwischen Ziffer und Buchstabe
+ * wechselt („a1c7232d“), oder wenn sie ab 10 Zeichen nur aus a-f besteht
+ * („deadbeefcafe“). „Facade2026“ (ein Wechsel) und „defaced“ (7 Buchstaben)
+ * bleiben frei, reine Zahlen auch.
  */
 function hashTreffer(n) {
-  for (const m of n.matchAll(
-    /(?<![\p{L}\p{N}_])[0-9a-f]+(?:-[0-9a-f]+)*(?![\p{L}\p{N}_])/gu,
-  )) {
-    const teile = m[0].split("-");
-    const hex = teile.join("");
-    if (hex.length < 7 || hex.length > 40) continue;
+  for (const m of n.matchAll(/(?<![\p{L}\p{N}_])[0-9a-f]{7,40}(?![\p{L}\p{N}_])/gu)) {
+    const hex = m[0];
     const ziffer = /\d/.test(hex);
     const buchstabe = /[a-f]/.test(hex);
-    if (teile.length === 1) {
-      if ((ziffer && buchstabe) || (!ziffer && hex.length >= 10)) return m[0];
-    } else if (ziffer && buchstabe && teile.every((t) => /\d/.test(t))) {
-      return m[0];
+    if (!ziffer && !buchstabe) continue;
+    if (!ziffer) {
+      if (hex.length >= 10) return hex;
+      continue;
     }
+    if (!buchstabe) continue;
+    const wechsel = hex.replace(/\d+/g, "0").replace(/[a-f]+/g, "a").length - 1;
+    if (wechsel >= 3) return hex;
+  }
+  return undefined;
+}
+
+/** Häufige Endungen von Domainnamen; „wort.de“ oder „wort . de“ ist eine Adresse. */
+const TLD = "(?:com|de|org|net|io|dev|app|gg|eu|info|xyz|me|co|uk|us|ru|cn|tv)";
+/** Ein IPv4-Teil: 0-255 ohne führende Null. */
+const OKTETT = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
+const IPV4 = new RegExp(`(?<!\\d)(?:${OKTETT}\\s*\\.\\s*){3}${OKTETT}(?!\\d)`);
+const DOMAIN = new RegExp(
+  `(?<![a-z0-9])www\\s*\\.|` +
+    `(?<![a-z0-9-])[a-z0-9][a-z0-9-]*\\.${TLD}(?![a-z0-9])|` +
+    `(?<![a-z0-9-])[a-z0-9][a-z0-9-]* \\. ${TLD}(?![a-z0-9])|` +
+    `(?<![a-z0-9-])[a-z0-9][a-z0-9-]*\\s+dot\\s+${TLD}(?![a-z0-9])|` +
+    `(?<![a-z0-9])localhost|` +
+    `(?<![\\p{L}\\p{N}])g[\\s.-]*i[\\s.-]*t[\\s.-]*h[\\s.-]*u[\\s.-]*b`,
+  "u",
+);
+
+/** IPv6: ab zwei Doppelpunkten mit Hexgruppen („fe80::1“, „::1“). „20:00“ hat einen und bleibt frei. */
+function ipv6Treffer(n) {
+  for (const m of n.matchAll(/(?<![a-z0-9:])[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,}(?![a-z0-9:])/g)) {
+    if (/[0-9a-f]/.test(m[0])) return m[0];
   }
   return undefined;
 }
 
 /**
- * Die Regeln, je mit Namen für die Meldung. `n` ist der normalisierte Text
+ * Die Muster, je mit Namen für die Meldung. `n` ist der normalisierte Text
  * (klein), `g` der geglättete mit Großschreibung.
  */
 const REGELN = [
   {
-    name: "fremde Schrift",
-    // Nur Latin, Common (Ziffern, Satzzeichen, Emoji) und Inherited: ein
-    // kyrillisches „о“ in einem Sperrwort wäre sonst unsichtbar.
-    treffer: (_n, g) =>
-      /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u.exec(g)?.[0],
-  },
-  {
-    // `#` mit einer Ziffer („Platz #1“) ist erlaubt, ab zwei Ziffern gesperrt;
-    // Schlagwörter sperren mit `#` oder `/` oder ab zwei Ziffern.
+    // Schlagwort plus Zahl ab 3 Ziffern; „Pull 10 enemies“ und „PR 12“ bleiben frei, `#` ist ohnehin gesperrt.
     name: "PR- oder Issue-Nummer",
     treffer: (n) =>
-      /#\s*\d{2,}/.exec(n)?.[0] ??
-      /\b(?:pull[\s_-]*requests?|prs?|pulls?|issues?|gh|commits?)(?:[\s_-]*[#/][\s_-]*\d+|[\s_-]*\d{2,})/.exec(
-        n,
-      )?.[0],
+      /(?<![a-z0-9])(?:prs?|pull[\s-]*requests?|issues?|commits?|gh)[\s-]*\d{3,}/.exec(n)?.[0],
   },
   { name: "Commit-Hash", treffer: (n) => hashTreffer(n) },
+  { name: "Adresse (Domain)", treffer: (n) => DOMAIN.exec(n)?.[0] },
+  { name: "Serveradresse (IPv4)", treffer: (n) => IPV4.exec(n)?.[0] },
+  { name: "Serveradresse (IPv6)", treffer: (n) => ipv6Treffer(n) },
   {
-    name: "Adresse (URL)",
-    treffer: (n) =>
-      /(?<![\p{L}\p{N}_])[a-z][a-z0-9+.-]*\s*[:∶꞉]\s*\/\//u.exec(n)?.[0] ??
-      /mailto\s*:|www\./.exec(n)?.[0] ??
-      /(?<![\p{L}\p{N}])g[\s._·-]*i[\s._·-]*t[\s._·-]*h[\s._·-]*u[\s._·-]*b/u.exec(n)?.[0],
+    name: "Serveradresse (Hexzahl)",
+    treffer: (n) => /(?<![a-z0-9])0x[0-9a-f]{6,}/.exec(n)?.[0],
   },
   {
-    name: "Serveradresse oder Heimpfad",
-    treffer: (n) =>
-      /localhost\s*:\s*\d+|(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?(?!\d)|(?<![\p{L}\p{N}_])wov[\s_-]*(?:dev|host|lab|live)(?![\p{L}\p{N}_])|(?<![\p{L}\p{N}_])ports?\s*:?\s*\d+|(?<![\w.-])~\//u.exec(
-        n,
-      )?.[0],
+    name: "Serveradresse (Kürzel)",
+    treffer: (n) => /(?<![a-z0-9])wov[\W_]*(?:dev|host|lab|live)(?![a-z0-9])/.exec(n)?.[0],
   },
   {
-    // Ein Pfad zählt nur mit Wurzelordner, führendem / ./ ../ ~/ oder Laufwerk
-    // (oder über die Endungsregel); „Feuer/Wasser/Erde“ und „3/4“ sind keiner.
-    name: "Dateipfad",
-    treffer: (n) => {
-      const p = n.replace(/\\/g, "/");
-      return (
-        WURZELORDNER.exec(p)?.[0].trim() ??
-        /(?:^|[\s("'])(?:\.{1,2}\/|~\/|\/)[\w.-]+/.exec(p)?.[0].trim() ??
-        /(?<![\w])[a-z]\s?:\/[\w.-]+/.exec(p)?.[0]
-      );
-    },
+    name: "Serveradresse (Port)",
+    treffer: (n) => /(?<![a-z0-9])ports?\s*:?\s*\d+/.exec(n)?.[0],
   },
   { name: "Dateiendung", treffer: (_n, g) => endungTreffer(g) },
 ];
@@ -218,12 +234,6 @@ export function leseSperrliste(text) {
     .filter((z) => z !== "" && !z.startsWith("#"));
 }
 
-/** Erstes Zeichen der Kategorien Cc oder Cf im Rohtext, als `U+XXXX`. */
-function steuerzeichen(text) {
-  const m = /[\p{Cc}\p{Cf}]/u.exec(text);
-  return m ? `U+${m[0].codePointAt(0).toString(16).toUpperCase().padStart(4, "0")}` : undefined;
-}
-
 /** Findet interne Spuren; leere Liste heißt sauber. */
 export function findeSpuren(eintrag, sperrliste = []) {
   const gelesen = sperrliste.map((m) => [normalisiert(m).trim(), m]).filter(([m]) => m !== "");
@@ -231,10 +241,10 @@ export function findeSpuren(eintrag, sperrliste = []) {
   const roh = new Map(gelesen);
   const funde = [];
   for (const [ort, text] of texteVon(eintrag)) {
-    const zeichen = steuerzeichen(text);
-    if (zeichen) funde.push(`${ort}: Steuer- oder Formatzeichen ${zeichen}`);
+    const falsch = unerlaubteZeichen(text);
+    if (falsch.length > 0) funde.push(`${ort}: Zeichen nicht erlaubt ${falsch.slice(0, 8).join(" ")}`);
     const g = glaette(text);
-    const n = g.toLowerCase();
+    const n = normalisiert(text);
     for (const regel of REGELN) {
       const t = regel.treffer(n, g);
       if (t) funde.push(`${ort}: ${regel.name} „${t}“`);
@@ -299,6 +309,8 @@ function argumente(argv) {
   }
   if (!aus.eintrag) throw new Error("--eintrag ist Pflicht");
   if (!aus.pruefen && !aus.datei) throw new Error("--datei ist Pflicht (außer mit --pruefen)");
+  // Absolut auflösen: ein führendes „-“ im Namen ist dann nie ein Schalter.
+  for (const k of ["datei", "eintrag", "sperrliste"]) if (aus[k] !== undefined) aus[k] = resolve(aus[k]);
   return aus;
 }
 
@@ -314,41 +326,49 @@ function leseJson(pfad, was) {
 export const SICHERUNGEN_MAX = 5;
 /** Exit-Code von `flock -E`, wenn die Sperre belegt ist; wird zu Exit 3. */
 const FLOCK_BELEGT = 75;
-/** Gesetzt im Kindprozess, der die Sperre schon hält. */
-const GEHALTEN = "DEVLOG_EINTRAGEN_SPERRE_GEHALTEN";
 
 /**
- * Führt den Lauf unter der Kernel-Sperre `<datei>.lock` aus: startet dasselbe
- * Skript unter `flock -n -E 75`. Die Sperre hängt an der offenen Datei, nicht
- * an einem Dateinamen oder einer PID; sie fällt mit dem Prozess, auch bei
- * SIGKILL, und niemand wartet. Gibt den Exit-Code zurück (3 = belegt).
+ * Nimmt die Kernel-Sperre `<datei>.lock`: öffnet sie mit Modus 0600 und
+ * `O_NOFOLLOW` (ein Symlink ergibt Exit 2) und lässt `flock -n -E 75 3` den
+ * offenen Deskriptor sperren. Die Sperre hängt an der offenen Datei dieses
+ * Prozesses, nicht an einem Namen oder einer PID; sie fällt mit dem Prozess,
+ * auch bei SIGKILL, und niemand wartet. Der Deskriptor bleibt bis zum Ende offen.
+ * Gibt `0` zurück, wenn die Sperre gehalten wird, sonst den Exit-Code (3 = belegt).
  */
-function unterSperre(a, argv) {
-  const sperre = `${a.datei}.lock`;
+function nimmSperre(datei) {
+  const sperre = `${datei}.lock`;
+  let fd;
   try {
-    closeSync(openSync(sperre, "a", 0o644)); // nicht anlegbar: Dateifehler (2), nicht „belegt“
+    fd = openSync(sperre, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
+    if (!fstatSync(fd).isFile()) throw new Error("keine gewöhnliche Datei");
   } catch (e) {
-    console.error(`Sperrdatei ${sperre} nicht anlegbar: ${e.message}`);
+    if (fd !== undefined) closeSync(fd);
+    console.error(`Sperrdatei ${sperre} nicht anlegbar (Symlink, Verzeichnis oder Rechte): ${e.message}`);
     return 2;
   }
-  const r = spawnSync(
-    "flock",
-    ["-n", "-E", String(FLOCK_BELEGT), sperre, process.execPath, fileURLToPath(import.meta.url), ...argv],
-    { stdio: "inherit", env: { ...process.env, [GEHALTEN]: "1" } },
-  );
+  const r = spawnSync("flock", ["-n", "-E", String(FLOCK_BELEGT), "3"], {
+    stdio: ["ignore", "inherit", "inherit", fd],
+  });
   if (r.error) {
     console.error(`flock nicht startbar: ${r.error.message}`);
+    closeSync(fd);
     return 2;
   }
   if (r.status === FLOCK_BELEGT) {
     console.error(`Ziel gesperrt: ${sperre} ist belegt, ein anderer Lauf schreibt gerade`);
+    closeSync(fd);
     return 3;
   }
-  if (r.status === null) {
-    console.error(`Lauf abgebrochen (Signal ${r.signal})`);
+  if (r.status !== 0) {
+    console.error(
+      r.status === null
+        ? `flock abgebrochen (Signal ${r.signal})`
+        : `flock unerwartet beendet (Exit ${r.status})`,
+    );
+    closeSync(fd);
     return 2;
   }
-  return r.status;
+  return 0;
 }
 
 /**
@@ -384,7 +404,8 @@ export function main(argv) {
     return 2;
   }
   if (a.pruefen) return pruefenNur(a);
-  if (process.env[GEHALTEN] !== "1") return unterSperre(a, argv);
+  const sperre = nimmSperre(a.datei);
+  if (sperre !== 0) return sperre;
   return eintragen(a);
 }
 
@@ -428,15 +449,6 @@ function pruefenNur(a) {
   return 0;
 }
 
-/** Nur für den Nebenläufigkeitstest: hält den Lauf kurz in der Sperre und protokolliert Ein- und Austritt. */
-function sperrHook() {
-  const datei = process.env.DEVLOG_EINTRAGEN_TEST_HOOK;
-  if (!datei) return;
-  appendFileSync(datei, `ein ${process.pid} ${process.hrtime.bigint()}\n`);
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30);
-  appendFileSync(datei, `aus ${process.pid} ${process.hrtime.bigint()}\n`);
-}
-
 function eintragen(a) {
   let eintrag;
   let vorhanden = [];
@@ -453,7 +465,6 @@ function eintragen(a) {
     console.error(e.message);
     return 2;
   }
-  sperrHook();
 
   const geprueft = pruefeGanz(eintrag, sperrliste);
   if (geprueft.code !== 0) {

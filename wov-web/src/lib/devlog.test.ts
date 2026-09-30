@@ -12,6 +12,7 @@ import {
   pruefeEintrag,
   pruefeWortLaenge,
   serialisiere,
+  unerlaubteZeichen,
   WORT_MAX,
 } from './devlog';
 import { localizedPath } from './i18n';
@@ -213,6 +214,44 @@ describe('devlog: Einfügen und Kürzen', () => {
     expect(Buffer.byteLength(einMehr)).toBeGreaterThan(DATEI_MAX_BYTES);
     // Mit kleiner Grenze bleibt mindestens der neueste Eintrag.
     expect(fuegeEin(vorhanden, gross(300), 10).eintraege).toHaveLength(1);
+  });
+});
+
+describe('devlog: Zeichen-Positivliste (Allowed text)', () => {
+  it('lässt Buchstaben mit Umlauten, Ziffern, die Satzzeichen der Liste und Emoji durch', () => {
+    const ok = [
+      'Ärger über Straße und Öl, ñ ł',
+      'Mo, Di; Mi: frei! (ok?) 10 % + 5 € & mehr',
+      '„Zitat“ ‚so‘ ’s "gerade" – Gedankenstrich — lang - kurz',
+      '🐺 ⚔ ❤️ 👍🏽 🇩🇪',
+    ];
+    for (const t of ok) expect(unerlaubteZeichen(t)).toEqual([]);
+  });
+
+  it('nennt jedes andere Zeichen einmal als U+XXXX', () => {
+    expect(unerlaubteZeichen('Client/Server')).toEqual(['U+002F']);
+    expect(unerlaubteZeichen('Platz #1 und #2')).toEqual(['U+0023']);
+    expect(unerlaubteZeichen('a/b\\c_d')).toEqual(['U+002F', 'U+005C', 'U+005F']);
+  });
+
+  it('lehnt Steuer-, Format-, Leerraum- und Fremdzeichen ab', () => {
+    const abgelehnt: [string, string][] = [
+      ['x\ty', 'U+0009'],
+      ['x\ny', 'U+000A'],
+      ['x\u00a0y', 'U+00A0'],
+      ['x\u200dy', 'U+200D'],
+      ['x\u202ey', 'U+202E'],
+      ['x\u00ady', 'U+00AD'],
+      ['a\u0308', 'U+0308'],
+      ['\u043e', 'U+043E'],
+      ['\u03b1', 'U+03B1'],
+      ['x\u2010y', 'U+2010'],
+      ['x\u2212y', 'U+2212'],
+      ['10\u00d73', 'U+00D7'],
+      ['\uff47', 'U+FF47'],
+      ['\u0262', 'U+0262'],
+    ];
+    for (const [t, code] of abgelehnt) expect(unerlaubteZeichen(t)).toEqual([code]);
   });
 });
 

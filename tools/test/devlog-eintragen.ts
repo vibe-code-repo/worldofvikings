@@ -1,8 +1,10 @@
 /**
  * PRÜFT tools/devlog/eintragen.mjs: Schema, jede Sperrregel, Einfügen,
  * Ersetzen, Kürzen auf 512 KB, Byte-Gleichheit beim zweiten Lauf und
- * atomares Schreiben, die Kernel-Sperre (Exit 3), den Prüfmodus und die
- * Rechte der Zieldatei.
+ * atomares Schreiben, die Kernel-Sperre (Exit 3, Sperrdatei 0600 ohne
+ * Symlink, flock fehlt oder scheitert), den Prüfmodus und die Rechte der
+ * Zieldatei. Die Regeln sind die Zeichen-Positivliste plus wenige Muster;
+ * die Tabellen unten nennen je Fall die erwartete Regel.
  *
  * Die Sperrliste der echten Läufe liegt nicht im Repo; hier steht nur eine
  * Fixture-Sperrliste mit harmlosen Wörtern (`foobar`).
@@ -11,6 +13,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -18,6 +21,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -171,16 +175,17 @@ try {
     ort === "titel"
       ? tag("2026-09-02", text)
       : tag("2026-09-02", "T", { de: { titel: "T", punkte: [text] } });
-  abgelehnt("PR-Nummer", mit("Behoben in #123."), /PR- oder Issue-Nummer.*#123/);
-  abgelehnt("Issue-Nummer im Titel", mit("Fix für #77", "titel"), /PR- oder Issue-Nummer/);
+  abgelehnt("`#` ist kein erlaubtes Zeichen", mit("Behoben in #123."), /Zeichen nicht erlaubt U\+0023/);
+  abgelehnt("Hash-Zeichen im Titel", mit("Fix für #77", "titel"), /de\.titel.*Zeichen nicht erlaubt U\+0023/);
+  abgelehnt("PR-Nummer mit Wort", mit("Behoben in PR 123."), /PR- oder Issue-Nummer.*pr 123/);
   abgelehnt("Commit-Hash (7 Zeichen)", mit("Stand a1b2c3d erreicht"), /Commit-Hash.*a1b2c3d/);
   abgelehnt(
     "Commit-Hash (40 Zeichen)",
     mit(`Stand ${"0123456789abcdef".repeat(2)}01234567 erreicht`),
     /Commit-Hash/,
   );
-  abgelehnt("Dateipfad mit Wurzelordner", mit("Geändert in server/src/Welt"), /Dateipfad/);
-  abgelehnt("Dateipfad absolut", mit("Liegt in /opt/wov"), /Dateipfad/);
+  abgelehnt("Schrägstrich (Pfad)", mit("Geändert in server/src/Welt"), /Zeichen nicht erlaubt U\+002F/);
+  abgelehnt("Schrägstrich (absoluter Pfad)", mit("Liegt in /opt/wov"), /Zeichen nicht erlaubt U\+002F/);
   abgelehnt("Endung .ts", mit("In Welt.ts geändert"), /Dateiendung.*Welt\.ts/);
   abgelehnt("Endung .mjs", mit("Läuft über tag.mjs"), /Dateiendung/);
   abgelehnt("Endung .json", mit("Steht in server.json"), /Dateiendung/);
@@ -206,131 +211,200 @@ try {
     const harmlos = [
       "Die Wölfe jagen schneller.",
       "1000000 Gold im Schatz",
-      "Tag und/oder Nacht",
+      "Tag und Nacht",
       "Er war defaced und entfaced",
-      "Angriff / Verteidigung",
+      "Angriff - Verteidigung",
       "Version 1.2 ist da",
     ];
     const r = lauf(d, tag("2026-09-02", "T", { de: { titel: "T", punkte: harmlos } }));
     pruefe("Harmlose Texte werden nicht abgelehnt", r.rc === 0, r.err);
   }
 
-  // ── Nachbesserung N1: Tabelle aus dem Prüfbericht (Kopf b35b9756) ────
-  // Je Zeile: Text, erwartete Regel (oder null = darf durch). Geprüft wird
-  // findeSpuren direkt, damit jede Zeile einzeln rot oder grün wird.
+  // ── N3: Zeichen-Positivliste plus Muster ──────────────────────────────
+  // Je Zeile: Text, erwartete Regel. Geprüft wird findeSpuren direkt, damit jede
+  // Zeile einzeln rot oder grün wird. Die Tabellen stehen auch im Bericht N3/N4.
   {
     const sperr = ["foobar", "kaiser"];
+    const zeichen = "Zeichen nicht erlaubt";
     const nummer = "PR- oder Issue-Nummer";
+    const hash = "Commit-Hash";
+    const domain = "Adresse (Domain)";
+    const v4 = "Serveradresse (IPv4)";
+    const v6 = "Serveradresse (IPv6)";
+    const hex = "Serveradresse (Hexzahl)";
+    const kuerzel = "Serveradresse (Kürzel)";
+    const port = "Serveradresse (Port)";
+    const endung = "Dateiendung";
     const gesperrt: [string, string][] = [
-      ["Fix #１２３", nummer],
-      ["＃123", nummer],
-      ["Fix # 123", nummer], // Leerzeichen nach dem Zeichen (F6)
-      ["Fix #  45", nummer],
-      ["PR 12", nummer],
-      ["pull #5", nummer],
-      ["issue/7", nummer],
+      // PR- und Issue-Nummern (N1, N1+N2, N2)
+      ["Fix #１２３", zeichen],
+      ["＃123", zeichen],
+      ["Fix # 123", zeichen],
+      ["Fix #  45", zeichen],
+      ["pull #5", zeichen],
+      ["issue/7", zeichen],
+      ["pull/123", zeichen],
+      ["#１２", zeichen],
       ["PR 123", nummer],
-      ["Pull Request 12", nummer],
-      ["pull/123", nummer],
+      ["PR 181", nummer],
+      ["Pull Request 123", nummer],
       ["GH-123", nummer],
-      ["issue 45", nummer],
-      ["Commit 77", nummer],
-      ["https://github.com/o/r/pull/5", "Adresse"],
-      ["siehe www.example.org", "Adresse"],
-      ["github.com/o/r", "Adresse"],
-      ["http://x", "Adresse"],
-      ["a1b2-c3d4e5", "Commit-Hash"],
-      ["A1B2C3D4", "Commit-Hash"],
-      ["server\\src", "Dateipfad"],
-      ["C:\\Users\\x", "Dateipfad"],
-      ["C:/Users/x", "Dateipfad"],
-      ["/opt/wov", "Dateipfad"],
-      ["./lauf", "Dateipfad"],
-      ["liegt in ~/foo", "Serveradresse"],
-      ["localhost:2713", "Serveradresse"],
-      ["wov-dev", "Serveradresse"],
-      ["wov dev", "Serveradresse"], // F6: Leerzeichen statt Bindestrich
-      ["wov_live", "Serveradresse"],
-      ["Wov Host", "Serveradresse"],
-      ["127.0.0.1", "Serveradresse"],
-      ["127.0.0.1:2713", "Serveradresse"],
-      ["Port 2467", "Serveradresse"],
-      ["port:8080", "Serveradresse"],
-      ["localhost : 2713", "Serveradresse"],
-      ["github . com/x", "Adresse"], // F6: Trennzeichen
-      ["github\u00a0.\u00a0com", "Adresse"],
-      ["github dot com", "Adresse"],
-      ["g i t h u b", "Adresse"],
-      ["GitHub", "Adresse"],
-      ["hxxp://example.org", "Adresse"],
-      ["https\u2236//x", "Adresse"], // Doppelpunkt U+2236
-      ["ssh://host", "Adresse"],
-      ["ftp://x", "Adresse"],
-      ["file:///etc", "Adresse"],
-      ["mailto:a@b.c", "Adresse"],
-      ["deadbeefcafe", "Commit-Hash"], // F6: nur Buchstaben a-f, ab 10 Zeichen
-      ["Hash deadbeefcafe123", "Commit-Hash"],
-      ["c :/x", "Dateipfad"],
-      ["wov-web/static", "Dateipfad"], // Wurzelordner wov-web
-      ["bild.png", "Dateiendung"],
-      ["notiz.txt", "Dateiendung"],
-      ["setup.exe", "Dateiendung"],
-      ["lib.so", "Dateiendung"],
-      ["main.cpp", "Dateiendung"],
-      ["main.c", "Dateiendung"],
-      ["kopf.h", "Dateiendung"],
-      ["kopf.hpp", "Dateiendung"],
-      ["lib.rs", "Dateiendung"],
-      ["main.go", "Dateiendung"],
-      ["x.rb", "Dateiendung"],
-      ["x.lua", "Dateiendung"],
-      ["x.sql", "Dateiendung"],
-      ["x.csv", "Dateiendung"],
-      ["x.xml", "Dateiendung"],
-      ["x.ini", "Dateiendung"],
-      ["x.toml", "Dateiendung"],
-      ["x.zip", "Dateiendung"],
-      ["x.gz", "Dateiendung"],
-      ["x.tar", "Dateiendung"],
-      ["x.gltf", "Dateiendung"],
-      ["x.fbx", "Dateiendung"],
-      ["x.wav", "Dateiendung"],
-      ["x.ogg", "Dateiendung"],
-      ["x.mp3", "Dateiendung"],
-      ["x.ktx2", "Dateiendung"],
-      ["x.bin", "Dateiendung"],
-      ["x.jpg", "Dateiendung"],
-      ["x.jpeg", "Dateiendung"],
-      ["x.webp", "Dateiendung"],
-      ["x.svg", "Dateiendung"],
-      ["x.gif", "Dateiendung"],
-      ["x.log", "Dateiendung"],
-      ["x.dll", "Dateiendung"],
-      ["a1b2-c3d4e5", "Commit-Hash"],
-      ["f\u043e\u043ebar", "fremde Schrift"], // F5: kyrillisches „о“ statt „o“
-      ["f\u03bf\u03bfbar", "fremde Schrift"], // griechisches „ο“
-      ["g\u0456thub.com", "fremde Schrift"], // kyrillisches „і“
-      ["Привет", "fremde Schrift"],
-      ["こんにちは", "fremde Schrift"],
-      ["WOV-Host", "Serveradresse"],
-      ["wov-lab", "Serveradresse"],
-      ["wov-live", "Serveradresse"],
-      ["tool.py", "Dateiendung"],
-      ["run.sh", "Dateiendung"],
-      ["style.css", "Dateiendung"],
-      ["index.html", "Dateiendung"],
-      ["modell.glb", "Dateiendung"],
-      ["szene.blend", "Dateiendung"],
-      ["nginx.conf", "Dateiendung"],
-      ["WovServer.ts", "Dateiendung"],
-      ["Welt.TS", "Dateiendung"],
-      ["dir/foo.js", "Dateiendung"],
-      ["server.js", "Dateiendung"],
+      ["issue 450", nummer],
+      ["Commit 777", nummer],
+      ["pr-1234", nummer],
+      // Adressen
+      ["https://github.com/o/r/pull/5", zeichen],
+      ["siehe www.example.org", domain],
+      ["github.com/o/r", zeichen],
+      ["http://x", zeichen],
+      ["hxxp://example.org", zeichen],
+      ["https\u2236//x", zeichen],
+      ["ssh://host", zeichen],
+      ["ftp://x", zeichen],
+      ["file:///etc", zeichen],
+      ["mailto:a@b.c", zeichen],
+      ["ｈｔｔｐ：／／", zeichen],
+      ["h t t p : / / x", zeichen],
+      ["github . com/x", zeichen],
+      ["github\u00a0.\u00a0com", zeichen],
+      ["github dot com", domain],
+      ["g i t h u b", domain],
+      ["GitHub", domain],
+      ["𝐠𝐢𝐭𝐡𝐮𝐛", zeichen],
+      ["ɢɪᴛʜᴜʙ", zeichen], // Kleinkapitälchen: kein Latin-Buchstabe der erlaubten Blöcke
+      ["gıthub", domain], // punktloses i wird gefaltet
+      ["wov‐dev", zeichen], // U+2010
+      ["git‑hub", zeichen], // U+2011
+      ["git ‑ hub", zeichen],
+      ["ＷＯＶ−ＤＥＶ", zeichen], // U+2212 und Vollbreite
+      ["example.com", domain],
+      ["foo.de", domain],
+      ["wov.de", domain],
+      ["wov.dev", domain],
+      ["foo dot com", domain],
+      ["foo . org", domain],
+      ["Wow.gg", domain],
+      ["localhost", domain],
+      ["localhost:2713", domain],
+      ["localhost : 2713", domain],
+      // IP-Adressen und Server
+      ["127.0.0.1", v4],
+      ["127.0.0.1:2713", v4],
+      ["10.0.0.1:8080", v4],
+      ["192.168.0.1", v4],
+      ["127 . 0 . 0 . 1", v4],
+      ["127．0．0．1", zeichen],
+      ["Update 1.2.3.4", v4], // dokumentiert: Versionen haben höchstens drei Teile
+      ["[::1]", zeichen],
+      ["::1", v6],
+      ["fe80::1", v6],
+      ["2001:db8::1", v6],
+      ["::ffff:127.0.0.1", v6],
+      ["0x7f000001", hex],
+      ["wov-dev", kuerzel],
+      ["wov dev", kuerzel],
+      ["wovdev", kuerzel],
+      ["WOV_LIVE", zeichen],
+      ["wov_live", kuerzel],
+      ["Wov Host", kuerzel],
+      ["WOV-Host", kuerzel],
+      ["wov-lab", kuerzel],
+      ["wov-live", kuerzel],
+      ["wov . dev", kuerzel],
+      ["Port 2467", port],
+      ["Ports 2467", port],
+      ["port:8080", port],
+      ["liegt in ~/foo", zeichen],
+      // Hashes
+      ["a1b2c3d", hash],
+      ["A1B2C3D4", hash],
+      ["a1c7232d", hash],
+      ["deadbeefcafe", hash],
+      [`Stand ${"0123456789abcdef".repeat(2)}01234567 erreicht`, hash],
+      // Pfade
+      ["server\\src", zeichen],
+      ["C:\\Users\\x", zeichen],
+      ["C:/Users/x", zeichen],
+      ["/opt/wov", zeichen],
+      ["./lauf", zeichen],
+      ["c :/x", zeichen],
+      ["wov-web/static", zeichen],
+      ["dir/foo.js", zeichen],
+      // Endungen
+      ["bild.png", endung],
+      ["notiz.txt", endung],
+      ["setup.exe", endung],
+      ["lib.so", endung],
+      ["main.cpp", endung],
+      ["main.c", endung],
+      ["kopf.h", endung],
+      ["kopf.hpp", endung],
+      ["lib.rs", endung],
+      ["main.go", endung],
+      ["x.rb", endung],
+      ["x.lua", endung],
+      ["x.sql", endung],
+      ["x.csv", endung],
+      ["x.xml", endung],
+      ["x.ini", endung],
+      ["x.toml", endung],
+      ["x.zip", endung],
+      ["x.gz", endung],
+      ["x.tar", endung],
+      ["x.gltf", endung],
+      ["x.fbx", endung],
+      ["x.wav", endung],
+      ["x.ogg", endung],
+      ["x.mp3", endung],
+      ["x.ktx2", endung],
+      ["x.bin", endung],
+      ["x.jpg", endung],
+      ["x.jpeg", endung],
+      ["x.webp", endung],
+      ["x.svg", endung],
+      ["x.gif", endung],
+      ["x.log", endung],
+      ["x.dll", endung],
+      ["tool.py", endung],
+      ["run.sh", endung],
+      ["style.css", endung],
+      ["index.html", endung],
+      ["modell.glb", endung],
+      ["szene.blend", endung],
+      ["nginx.conf", endung],
+      ["WovServer.ts", endung],
+      ["Welt.TS", endung],
+      ["server.js", endung],
+      // andere Schriften und Zeichen
+      ["f\u043e\u043ebar", zeichen], // kyrillisches „о“ statt „o“
+      ["f\u03bf\u03bfbar", zeichen], // griechisches „ο“
+      ["g\u0456thub.com", zeichen], // kyrillisches „і“
+      ["Привет", zeichen],
+      ["こんにちは", zeichen],
+      ["a\u0308", zeichen], // zerlegtes „ä“ (kombinierendes Zeichen)
+      ["x\u200dy", zeichen], // ZWJ
+      ["x\u00a0y", zeichen], // geschütztes Leerzeichen
+      ["x\ty", zeichen],
+      ["x\ny", zeichen],
+      ["Wolf_Rudel", zeichen],
+      ["a=b", zeichen],
+      ["a<b", zeichen],
+      ["{x}", zeichen],
+      ["a|b", zeichen],
+      ["a*b", zeichen],
+      ["a$b", zeichen],
+      ["a^b", zeichen],
+      ["a`b", zeichen],
+      ["a@b", zeichen],
+      ["a~b", zeichen],
+      ["a[0]", zeichen],
+      // Sperrliste auf dem normalisierten Text
       ["foo\u200bbar", "Sperrwort"], // Null-Breite im Sperrwort
       ["foo\u00adbar", "Sperrwort"], // weiche Trennung
       ["foo\u0336bar", "Sperrwort"], // kombinierendes Zeichen (Mn)
       ["ｆｏｏｂａｒ", "Sperrwort"], // Vollbreite
       ["Kaiſer", "Sperrwort"], // langes s
+      ["Fóöbar", "Sperrwort"], // Akzente werden gefaltet
     ];
     for (const [text, regel] of gesperrt) {
       const funde = findeSpuren({ de: { titel: "T", punkte: [text] } }, sperr).join("|");
@@ -340,71 +414,132 @@ try {
         `Funde: ${funde || "keine"}`,
       );
     }
+    // Freigabe-Fälle aus F7 und B8: die Positivliste und die Muster lassen sie durch.
     const erlaubt = [
-      "Feuer/Wasser/Erde",
-      "Siehe a/b/c dazu", // die Regel „zwei Schrägstriche“ entfiel (N1)
-      "Schwert/Axt/Bogen",
-      "Mo/Di/Mi",
-      "1/2/3",
-      "30/09/2026",
-      "10 km/h",
-      "3/4 der Karte",
       "Node.js",
       "Vue.js",
-      "und/oder",
-      "Angriff / Verteidigung",
+      "Node.JS",
+      "Wir nutzen node.js nicht",
       "Version 1.2",
-      "Level 3",
+      "Version 1.2.3",
       "v1.2.3",
+      "v1.2.3-beta",
       "2026-09-30",
       "deadbeef",
+      "Level 3",
       "Die Regierung spricht 3 Sätze",
       "Der Commit-Ablauf ist kürzer",
       "Der Prüfer kommt um 3 Uhr",
-      // F7: Überfilterung an echten Spielertexten
-      "Platz #1 der Rangliste",
-      "Rang #9",
       "Feb-2026",
       "Cafe-2026",
       "Fade-2026",
       "Bade-2026",
       "Ade-1234",
       "ABC-DEF-12345",
+      "Facade2026",
+      "Decade2026",
+      "Bad1234",
       "Pull 3 Gegner",
+      "Pull 10 enemies",
       "issue 2 wichtig",
       "Stufe 3 pr 1",
-      "Wir nutzen node.js nicht",
-      "Node.JS",
+      "PR 12",
+      "Commit 77",
       "Heute.Html ist nett",
       "Dienstag.Sh",
       "Ja.Md",
       "Das heißt d.h. dies",
       "Sieg über Wölfe 🐺 und Bären 🐻",
+      "⚔ 🛡 🐺 ❤️ 👍🏽 🇩🇪",
       "Ärger über Straße und Öl",
-      "Version 1.2.3",
       "Es gibt 25 Ziegen",
       "Der Wolf hat Hunger",
+      "um 20:00 Uhr",
+      "am 30.09.2026",
+      "am 10.5.2026",
+      "10.000 Gold",
+      "1.000.000 Gold",
+      "10.000.000.000 Gold",
+      "999.999.999.999 Gold",
+      "Preis 9.99",
+      "Mo, Di; Mi: frei!",
+      "„Zitat“ – Text — noch mehr, ‚so‘ und ’s",
+      "Rabatt 20% + Bonus & Zubehör (5 €)",
+      'Sie sagt "Hallo" zu Ihm',
+      "Gold. Me und du", // Satzpunkt mit Leerzeichen danach ist keine Domain
+      "Hinweis:: Text",
     ];
     for (const text of erlaubt) {
       const funde = findeSpuren({ de: { titel: "T", punkte: [text] } }, sperr);
       pruefe(`Erlaubt: ${JSON.stringify(text)}`, funde.length === 0, funde.join("|"));
     }
+    // Überfilterung, die aus der Positivliste folgt: dokumentiert (Allowed text in devlog.ts), kein Befund.
+    const dokumentiertAbgelehnt: [string, string][] = [
+      ["Client/Server", zeichen],
+      ["Server/Src", zeichen],
+      ["Nutzt /heim", zeichen],
+      ["/gruppe", zeichen],
+      ["/w Name Text", zeichen],
+      ["Platz #1 der Rangliste", zeichen],
+      ["Rang #9", zeichen],
+      ["Feuer/Wasser/Erde", zeichen],
+      ["3/4 der Karte", zeichen],
+      ["und/oder", zeichen],
+      ["10 km/h", zeichen],
+      ["Schwert/Axt/Bogen", zeichen],
+      ["α-Test", zeichen],
+      ["Ω-Waffe", zeichen],
+      ["🧑‍🌾", zeichen],
+      ["zwei\nZeilen", zeichen],
+      ["Soft\u00adhyphen", zeichen],
+      ["Patch 2.0.1.3", v4],
+      ["Sektor 12.34.56.78", v4],
+      ["Commit 100 Gold", nummer],
+      ["Uhrzeit 20:00:30", v6],
+      ["Fertig.go", endung],
+      ["Kap.h", endung],
+    ];
+    for (const [text, regel] of dokumentiertAbgelehnt) {
+      const funde = findeSpuren({ de: { titel: "T", punkte: [text] } }, sperr).join("|");
+      pruefe(
+        `Dokumentiert abgelehnt: ${JSON.stringify(text)} (${regel})`,
+        funde.includes(regel),
+        `Funde: ${funde || "keine"}`,
+      );
+    }
+    // Bekannte Restlücken (Karte N3: Bindestrich-Hash entfällt, Kurz-, Dezimal- und Oktal-IP nicht erfasst).
+    // Die Tabelle hält den Ist-Zustand fest; wer eine Lücke schließt, ändert hier bewusst.
+    const restluecken = [
+      "deadbeef-1234567",
+      "a1b2-c3d4e5",
+      "deadbeefcafe123",
+      "127.1",
+      "2130706433",
+      "0177.0.0.1",
+      "cafebabe",
+    ];
+    for (const text of restluecken) {
+      const funde = findeSpuren({ de: { titel: "T", punkte: [text] } }, sperr);
+      pruefe(`Restlücke bleibt frei (dokumentiert): ${JSON.stringify(text)}`, funde.length === 0, funde.join("|"));
+    }
     const leer = findeSpuren({ de: { titel: "T", punkte: ["Ein ganz normaler Satz"] } }, ["", "  ", "\u200b"]);
     pruefe("Sperrliste: Zeile, die nach dem Glätten leer ist, sperrt nichts", leer.length === 0, leer.join());
+    const benannt = findeSpuren({ de: { titel: "T", punkte: ["a/b"] } }, sperr).join("|");
+    pruefe("Meldung nennt das Zeichen als U+XXXX", /U\+002F/.test(benannt), benannt);
   }
 
   // ── Steuer- und Formatzeichen im Rohtext ─────────────────────────────
-  abgelehnt("Bidi-Zeichen U+202E", mit("abc\u202Edef"), /Steuer- oder Formatzeichen U\+202E/);
+  abgelehnt("Bidi-Zeichen U+202E", mit("abc\u202Edef"), /Zeichen nicht erlaubt U\+202E/);
   abgelehnt("Null-Breite im Titel", mit("ab\u200Bc", "titel"), /de\.titel.*U\+200B/);
-  abgelehnt("Steuerzeichen Zeilenumbruch", mit("eins\nzwei"), /Steuer- oder Formatzeichen U\+000A/);
-  abgelehnt("Steuerzeichen NUL", mit("a\u0000b"), /Steuer- oder Formatzeichen U\+0000/);
+  abgelehnt("Steuerzeichen Zeilenumbruch", mit("eins\nzwei"), /Zeichen nicht erlaubt U\+000A/);
+  abgelehnt("Steuerzeichen NUL", mit("a\u0000b"), /Zeichen nicht erlaubt U\+0000/);
 
   // ── Überlange Wörter (nur beim Eintragen) ────────────────────────────
   abgelehnt("Wort mit 41 Zeichen im Punkt", mit(`Das ${"x".repeat(41)} geht nicht`), /Wort mit mehr als 40/);
   abgelehnt("Wort mit 41 Zeichen im Titel", mit("x".repeat(41), "titel"), /de\.titel.*Wort mit mehr als 40/);
   {
     const d = ordner();
-    const r = lauf(d, mit(`${"x".repeat(40)} ${"ä".repeat(40)}`));
+    const r = lauf(d, mit(`${"x".repeat(40)} ${"ö".repeat(40)}`));
     pruefe("Wörter mit genau 40 Zeichen sind erlaubt", r.rc === 0, r.err);
   }
 
@@ -547,10 +682,32 @@ try {
   }
   {
     // 4 Prozesse × 40 Runden um dieselbe Datei: nie zwei zugleich in der Sperre.
+    // Gemessen wird von außen: `NODE_OPTIONS=--import <Modul>` hängt sich an renameSync (das
+    // Schreiben in der Sperre), hält dort 30 ms und protokolliert Ein- und Austritt. Im Werkzeug
+    // selbst gibt es keinen Testhaken.
     const d = ordner();
     const eintragDatei = join(d, "tag.json");
     writeFileSync(eintragDatei, JSON.stringify(tag("2026-09-05")));
     const hookDatei = join(d, "hook.log");
+    const modul = join(ARBEIT, "messhaken.mjs");
+    writeFileSync(
+      modul,
+      [
+        'import fs from "node:fs";',
+        'import { syncBuiltinESMExports } from "node:module";',
+        "const log = process.env.DEVLOG_MESS_LOG;",
+        "const echt = fs.renameSync;",
+        "fs.renameSync = (...a) => {",
+        "  fs.appendFileSync(log, `ein ${process.pid} ${process.hrtime.bigint()}\\n`);",
+        "  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30);",
+        "  const r = echt(...a);",
+        "  fs.appendFileSync(log, `aus ${process.pid} ${process.hrtime.bigint()}\\n`);",
+        "  return r;",
+        "};",
+        "syncBuiltinESMExports();",
+        "",
+      ].join("\n"),
+    );
     const start = (): Promise<number | null> =>
       new Promise((fertig) => {
         const c = spawn(
@@ -558,7 +715,7 @@ try {
           [WERKZEUG, "--datei", join(d, "devlog.json"), "--eintrag", eintragDatei],
           {
             stdio: "ignore",
-            env: { ...process.env, DEVLOG_EINTRAGEN_TEST_HOOK: hookDatei },
+            env: { ...process.env, NODE_OPTIONS: `--import ${modul}`, DEVLOG_MESS_LOG: hookDatei },
           },
         );
         c.on("close", (rc) => fertig(rc));
@@ -584,7 +741,7 @@ try {
       }
     }
     pruefe(
-      "4 Prozesse × 40 Runden: 0 Überschneidungen in der Sperre",
+      "4 Prozesse × 40 Runden: 0 Überschneidungen in der Sperre (Messung von außen)",
       ueberschneidungen === 0 && eintritte >= 40,
       `Überschneidungen=${ueberschneidungen} Eintritte=${eintritte}`,
     );
@@ -592,6 +749,109 @@ try {
       "Jede Runde hat einen Sieger, alle anderen enden mit Exit 3 (kein anderer Code)",
       rundenOhneSieger === 0 && fremdeCodes === 0,
       `ohne Sieger=${rundenOhneSieger} fremde Codes=${fremdeCodes}`,
+    );
+    const quelle = readFileSync(WERKZEUG, "utf8");
+    pruefe(
+      "Kein Testhaken und keine Sperr-Umgebungsvariable im Werkzeug (B3, B4)",
+      !/TEST_HOOK|SPERRE_GEHALTEN|sperrHook/.test(quelle),
+    );
+  }
+  {
+    // B4: Eine Umgebungsvariable von außen schaltet die Sperre nicht ab.
+    const d = ordner();
+    const sperre = join(d, "devlog.json.lock");
+    const halter = spawn("flock", [sperre, "sleep", "60"], { stdio: "ignore", detached: true });
+    const halterPid = halter.pid as number;
+    await new Promise((r) => setTimeout(r, 300));
+    const vortaeuschung = {
+      DEVLOG_EINTRAGEN_SPERRE_GEHALTEN: "1",
+      DEVLOG_EINTRAGEN_SPERRFD: "3",
+      DEVLOG_EINTRAGEN_SPERRE: "gehalten",
+    };
+    const r = lauf(d, tag("2026-09-01"), [], vortaeuschung);
+    pruefe(
+      "B4: Sperr-Markierung von außen bei belegter Sperre: weiter Exit 3, nichts geschrieben",
+      r.rc === 3 && !existsSync(join(d, "devlog.json")),
+      `rc=${r.rc} ${r.err}`,
+    );
+    process.kill(-halterPid, "SIGKILL");
+  }
+  {
+    // B5: führendes „-“ im Dateinamen ist ein Name, kein Schalter.
+    const d = ordner();
+    const eintragDatei = join(d, "tag.json");
+    writeFileSync(eintragDatei, JSON.stringify(tag("2026-09-09")));
+    const r = spawnSync(process.execPath, [WERKZEUG, "--datei", "-x.json", "--eintrag", eintragDatei], {
+      cwd: d,
+      encoding: "utf8",
+    });
+    pruefe(
+      "B5: --datei -x.json (führendes Minus): Exit 0, Datei und Sperrdatei mit diesem Namen",
+      r.status === 0 && existsSync(join(d, "-x.json")) && existsSync(join(d, "-x.json.lock")),
+      `rc=${r.status} ${r.stderr}`,
+    );
+  }
+  {
+    // B6: flock fehlt, stirbt durch ein Signal oder endet unerwartet: nie Exit 0, nichts geschrieben.
+    const d = ordner();
+    const leerBin = join(d, "leerbin");
+    mkdirSync(leerBin);
+    const fehlt = lauf(d, tag("2026-09-01"), [], { PATH: leerBin });
+    pruefe(
+      "B6: flock fehlt (PATH ohne flock): Exit 2 mit Meldung, nichts geschrieben",
+      fehlt.rc === 2 && /flock nicht startbar/.test(fehlt.err) && !existsSync(join(d, "devlog.json")),
+      `rc=${fehlt.rc} ${fehlt.err}`,
+    );
+    const attrappe = (name: string, koerper: string): string => {
+      const bin = join(d, name);
+      mkdirSync(bin);
+      writeFileSync(join(bin, "flock"), `#!/bin/sh\n${koerper}\n`);
+      chmodSync(join(bin, "flock"), 0o755);
+      return bin;
+    };
+    const signal = lauf(d, tag("2026-09-01"), [], { PATH: attrappe("signalbin", "kill -9 $$") });
+    pruefe(
+      "B6: flock stirbt durch Signal: Exit 2 (nicht 0), nichts geschrieben",
+      signal.rc === 2 && /Signal/.test(signal.err) && !existsSync(join(d, "devlog.json")),
+      `rc=${signal.rc} ${signal.err}`,
+    );
+    const seltsam = lauf(d, tag("2026-09-01"), [], { PATH: attrappe("seltsambin", "exit 64") });
+    pruefe(
+      "B5: flock endet mit unbekanntem Exit 64: Exit 2 (nicht 64), nichts geschrieben",
+      seltsam.rc === 2 && !existsSync(join(d, "devlog.json")),
+      `rc=${seltsam.rc} ${seltsam.err}`,
+    );
+    const belegt = lauf(d, tag("2026-09-01"), [], { PATH: attrappe("belegtbin", "exit 75") });
+    pruefe(
+      "flock meldet belegt (75): Exit 3",
+      belegt.rc === 3 && !existsSync(join(d, "devlog.json")),
+      `rc=${belegt.rc} ${belegt.err}`,
+    );
+  }
+  {
+    // B9: Sperrdatei mit 0600 und ohne Symlink.
+    const d = ordner();
+    const ok = lauf(d, tag("2026-09-01"));
+    const modus = statSync(join(d, "devlog.json.lock")).mode & 0o777;
+    pruefe("B9: Sperrdatei entsteht mit Modus 0600", ok.rc === 0 && modus === 0o600, `rc=${ok.rc} modus=${modus.toString(8)}`);
+    const d2 = ordner();
+    const opfer = join(d2, "opfer.txt");
+    symlinkSync(opfer, join(d2, "devlog.json.lock"));
+    const r = lauf(d2, tag("2026-09-01"));
+    pruefe(
+      "B9: Sperrdatei ist ein Symlink ins Leere: Exit 2, Ziel nicht angelegt, nichts geschrieben",
+      r.rc === 2 && !existsSync(opfer) && !existsSync(join(d2, "devlog.json")),
+      `rc=${r.rc} ${r.err}`,
+    );
+    const d3 = ordner();
+    const vorhanden = join(d3, "vorhanden.txt");
+    writeFileSync(vorhanden, "fremd");
+    symlinkSync(vorhanden, join(d3, "devlog.json.lock"));
+    const r3 = lauf(d3, tag("2026-09-01"));
+    pruefe(
+      "B9: Sperrdatei ist ein Symlink auf eine Datei: Exit 2, Inhalt unberührt",
+      r3.rc === 2 && readFileSync(vorhanden, "utf8") === "fremd",
+      `rc=${r3.rc} ${r3.err}`,
     );
   }
 
@@ -645,14 +905,14 @@ try {
     const sauber = pruefen(tag("2026-09-08"));
     pruefe("--pruefen: sauberer Eintrag Exit 0, ohne --datei", sauber.rc === 0 && /bestanden/.test(sauber.aus), sauber.err);
     pruefe("--pruefen: schreibt nichts (Ordner unverändert)", readdirSync(d).join() === "pruef.json", readdirSync(d).join());
-    const spur = pruefen(tag("2026-09-08", "Fix # 123"));
+    const spur = pruefen(tag("2026-09-08", "Fix PR 123"));
     pruefe("--pruefen: Spur Exit 1 mit Meldung", spur.rc === 1 && /PR- oder Issue-Nummer/.test(spur.err), spur.err);
     const wort = pruefen(tag("2026-09-08", "x".repeat(41)));
     pruefe("--pruefen: überlanges Wort Exit 1", wort.rc === 1 && /Wort mit mehr als 40/.test(wort.err), wort.err);
     const schema = pruefen({ datum: "2026-09-08", de: tag("x").de });
     pruefe("--pruefen: Schemafehler Exit 1", schema.rc === 1 && /en: fehlt/.test(schema.err), schema.err);
     const fremdSchrift = pruefen(tag("2026-09-08", "fооbar"));
-    pruefe("--pruefen: fremde Schrift Exit 1", fremdSchrift.rc === 1 && /fremde Schrift/.test(fremdSchrift.err), fremdSchrift.err);
+    pruefe("--pruefen: fremde Schrift Exit 1", fremdSchrift.rc === 1 && /Zeichen nicht erlaubt U\+043E/.test(fremdSchrift.err), fremdSchrift.err);
     const sl = join(d, "sl.txt");
     writeFileSync(sl, "foobar\n");
     const liste = pruefen(tag("2026-09-08", "Das Foobar"), ["--sperrliste", sl]);

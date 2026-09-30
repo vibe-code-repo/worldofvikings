@@ -63,6 +63,53 @@ export function istDatum(x: unknown): x is string {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === x;
 }
 
+/*
+ * Allowed text
+ * ============
+ * The insert tool accepts titles and points only from this character list.
+ * Everything else is rejected and named as `U+XXXX`; this is deliberate and
+ * over-filtering that follows from the list is documented here, not a defect.
+ *
+ *   - Latin letters (Basic Latin, Latin-1 Supplement, Latin Extended-A and -B,
+ *     so umlauts and ß), without × and ÷. No other script, no IPA or
+ *     phonetic letters, no combining marks (write precomposed letters).
+ *   - Digits 0-9 and the space U+0020 (no other space, no tab, no line break).
+ *   - Punctuation: . , ! ? : ; ' " „ “ ” ‚ ‘ ’ ( ) - – — % + & €
+ *   - Emoji (Extended_Pictographic), optionally followed by U+FE0F, skin-tone
+ *     modifiers and regional indicators (flags). No zero-width joiner, so
+ *     joined emoji sequences such as a farmer are rejected.
+ *
+ * Rejected on purpose: / \ # @ _ = < > ~ ` | * [ ] { } $ ^, all Cc and Cf
+ * characters (zero-width joiner, bidi marks, soft hyphen), other dashes and
+ * hyphens than - – —, other spaces. Consequences the writer must follow:
+ * "Client und Server" instead of "Client/Server", "Platz 1" instead of
+ * "Platz #1", no chat commands such as "/heim".
+ *
+ * On top of the list the tool rejects a few patterns on the normalised text
+ * (NFKC, diacritics and dotless i folded, lower case, – and — as -): hashes
+ * (7+ hex characters with at least three digit/letter changes, or 10+
+ * characters from a-f only), "pr|pull request|issue|commit|gh" followed by a
+ * number of 3+ digits, domains (`word.tld` or `word . tld` or `word dot tld`
+ * for common TLDs, `localhost`, `www.`, `github`), IPv4 addresses (four parts
+ * 0-255 without leading zeros; "Update 1.2.3.4" is rejected, versions have at
+ * most three parts), IPv6 (two or more colons with hex groups), server names
+ * (`wov` + any separator + dev|host|lab|live), `port` + number, file
+ * endings, and every line of the blocklist file kept outside the repository.
+ */
+const ERLAUBT_ZEICHEN =
+  /^(?:[A-Za-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F0-9 .,!?:;'"\u201E\u201C\u201D\u201A\u2018\u2019()\u002D\u2013\u2014%+&\u20AC\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}]|\uFE0F)$/u;
+
+/** Characters of `text` outside the allowed list, each once, as `U+XXXX` (in order of first use). */
+export function unerlaubteZeichen(text: string): string[] {
+  const aus: string[] = [];
+  for (const z of text) {
+    if (ERLAUBT_ZEICHEN.test(z)) continue;
+    const code = `U+${(z.codePointAt(0) as number).toString(16).toUpperCase().padStart(4, '0')}`;
+    if (!aus.includes(code)) aus.push(code);
+  }
+  return aus;
+}
+
 /** Fehlermeldungen zu einem Sprachblock; leer = gültig. */
 export function pruefeText(x: unknown, name: string): string[] {
   if (!istObjekt(x)) return [`${name}: Objekt erwartet`];

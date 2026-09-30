@@ -513,6 +513,16 @@ of a function, member name or computed access (release `lesen:<name>`, all sites
 An assignment to a moved `let`/`var` is found through casts and judged by its binding with
 the type checker.
 
+Version 1.3 (third fix round): a function or class value as a default value of a
+form k parameter is no plain literal and is no longer free: the forwarder creates it
+in the scope of its own parameters, so it needs a release `vorgabe:<method>.<parameter>`
+and never passes if it mentions a parameter of the method or itself. Rule B9 counts the
+mention of a variable that carries a function, method, getter or class (and an object
+literal used at once) as a read, which covers the implicit calls of the language (spread,
+template, `+`, `await`, `for of`, `Object.*`, `JSON.stringify`). A side-effect import
+`import '<module>';` directly behind the unchanged import of the same module is glue
+(form k rule 4.6b), any other one is a finding (release `seiteneffekt:<module>`).
+
 A step is delivered with its manifest under `tools/verschiebung/zeugen/` and the
 output of the proof in the pull request. The self-tests `tools/test/verschiebung-*.ts`
 run in the CI; the probe on real files with the git history,

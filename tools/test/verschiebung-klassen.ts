@@ -258,6 +258,10 @@ for (const [id, p] of [
   lauf.fall({ id, name: `\`${p}\`: a function value is red without a release (B12 vorgabe-funktion)`, soll: ['B12'], teile: teileFn, eingabe: () => fk(p) });
   lauf.fall({ id: `${id}f`, name: `\`${p}\`: green with the release \`vorgabe:m.x\` (it mentions no parameter of the method)`, soll: [], freigegeben: ['vorgabe:m.x'], eingabe: () => fk(p, undefined, ['vorgabe:m.x']) });
 }
+lauf.fall({ id: 'N319', name: 'a property name that equals a parameter name is no mention of the parameter (`this.zahl` with a parameter `zahl`): green with the release', soll: [], freigegeben: ['vorgabe:m.x'], eingabe: () => fk('zahl: number, x = (): number => this.zahl', 'return [x(), zahl];', ['vorgabe:m.x']) });
+lauf.fall({ id: 'N324', name: 'M01: a function inside a list or object literal is no plain literal (red, no release)', soll: ['B12'], teile: ['B12/vorgabe-this-undefined'], eingabe: () => fk('x = [(): number => 1]') });
+lauf.fall({ id: 'N325', name: 'M01: a function as a property of an object literal is no plain literal (red, no release)', soll: ['B12'], teile: ['B12/vorgabe-this-undefined'], eingabe: () => fk('x = { f: (): number => 1 }') });
+lauf.fall({ id: 'N326', name: 'M14: the release key names the method and the parameter (`vorgabe:m.y` for a parameter `y`)', soll: [], freigegeben: ['vorgabe:m.y'], eingabe: () => fk('y = (): number => this.zahl', 'return [y(), this.zahl];', ['vorgabe:m.y']) });
 lauf.fall({ id: 'N314', name: 'A07/M06: a class expression as a default value is red without a release (B12 vorgabe)', soll: ['B12'], teile: ['B12/vorgabe'], eingabe: () => fk('x = class {}') });
 lauf.fall({ id: 'N315', name: 'A07/M06: a class expression without a parameter mention is green with the release', soll: [], freigegeben: ['vorgabe:m.x'], eingabe: () => fk('x = class {}', undefined, ['vorgabe:m.x']) });
 lauf.fall({ id: 'N316', name: 'a release for the wrong parameter does not cover a function value (and is itself a finding)', soll: ['B11', 'B12'], teile: teileFn, eingabe: () => fk('x = (): number => 1', undefined, ['vorgabe:m.y']) });
@@ -311,6 +315,10 @@ for (const [id, was, text] of [
   ['L80', 'a carrier inside a call that makes a variable: `const h = mk({ get g() {} })`, then a spread of `h`', 'function mk<T>(x: T): T {\n  return x;\n}\nconst h = mk({\n  get g(): number {\n    return GRENZE;\n  },\n});\n\nexport const S = { ...h };'],
   ['L81', 'a nested literal `{ inner: { get g() {} } }` spread through its variable', 'const cfg = {\n  inner: {\n    get g(): number {\n      return GRENZE;\n    },\n  },\n};\n\nexport const S = JSON.stringify(cfg);'],
   ['L82', 'a class field that holds a carrier: `new K()` and a spread of its field', 'class K {\n  o = {\n    get g(): number {\n      return GRENZE;\n    },\n  };\n}\n\nexport const S = { ...new K().o };'],
+  ['L85', 'a function-valued property of a literal that is an argument: `Object.values({ f: () => GRENZE })[0]()`', 'export const S = Object.values({ f: (): number => GRENZE })[0]!();'],
+  ['L86', 'a class field with an arrow function, reached through `Object.values(new K())`', 'class K {\n  f = (): number => GRENZE;\n}\n\nexport const S = Object.values(new K())[0]!();'],
+  ['L87', 'a variable that holds an instance of an anonymous class with a getter, spread', 'const inst = new (class {\n  get g(): number {\n    return GRENZE;\n  }\n})();\n\nexport const S = { ...inst };'],
+  ['L88', 'a carrier bound through a destructuring pattern: `const { o } = { o: { get g() {} } }`, then spread', 'const { o } = {\n  o: {\n    get g(): number {\n      return GRENZE;\n    },\n  },\n};\n\nexport const S = { ...o };'],
   ['L83', 'M11: a computed method name of a bound literal reads the name while the literal is built', 'export const o = {\n  [String(GRENZE)]() {\n    return 1;\n  },\n};'],
   ['L84', 'M11: the same with an unbound literal: `Object.keys({ [GRENZE]() {} })`', 'export const S = Object.keys({\n  [String(GRENZE)]() {\n    return 1;\n  },\n});'],
 ] as const) {
@@ -322,6 +330,8 @@ for (const [id, was, text] of [
   ['G51', 'a bound literal in an `export default` that is not run while loading', 'export default {\n  get g(): number {\n    return GRENZE;\n  },\n};'],
   ['G52', 'a carrier that does not read the moved name may be mentioned', 'const o = {\n  toString(): string {\n    return "x";\n  },\n};\n\nexport const S = `${o}`;'],
   ['G53', 'a literal without a function or a getter that is spread', 'const o = { a: 1, b: [2, 3] };\n\nexport const S = { ...o };'],
+  ['G55', 'a nested bound literal with a getter that is never mentioned in front', 'const cfg = {\n  inner: {\n    get g(): number {\n      return GRENZE;\n    },\n  },\n};\nexport const VOR = 1;'],
+  ['G56', 'a list of literals with a getter, bound to a variable that is never mentioned in front', 'const liste = [\n  {\n    get g(): number {\n      return GRENZE;\n    },\n  },\n];\nexport const VOR = 1;'],
   ['G54', 'a class whose method reads the name, but the class is not mentioned in front', 'class K {\n  lies(): number {\n    return GRENZE;\n  }\n}\nexport const VOR = 1;'],
 ] as const) {
   lauf.fall({ id, name: `green: ${was}`, soll: [], eingabe: () => grenze(text.includes('const GRENZE') ? text : `${text}${SPAET}`) });
@@ -343,6 +353,7 @@ const KOPF = "import { Werk } from './werk';\nimport { ANDERES } from './anderes
 const glue = (nach: string, zeile = "import './werk';\n") => (t: string): string => muss(t, t.replace(nach, `${nach}${zeile}`), nach);
 lauf.fall({ id: 'S01', name: 'without the glue the order changes (the moved code takes the value import along): B10 is red', soll: ['B10'], eingabe: () => seite(KOPF) });
 lauf.fall({ id: 'S02', name: 'the glue directly behind the unchanged import: green (order as before)', soll: [], eingabe: () => mit(seite(KOPF), { rest: glue("import { Werk } from './werk';\n") }) });
+lauf.fall({ id: 'S10', name: 'K07: the glue behind the import of the module that is NOT the first import of the file: green', soll: [], eingabe: () => mit(seite("import { ANDERES } from './anderes';\nimport { Werk } from './werk';\n"), { rest: glue("import { Werk } from './werk';\n") }) });
 lauf.fall({ id: 'S03', name: 'the same line at another place (behind the other import) is no glue: B5 import-seiteneffekt, released only by `seiteneffekt:./werk`', soll: ['B5', 'B10'], teile: ['B5/import-seiteneffekt'], eingabe: () => mit(seite(KOPF), { rest: glue("import { ANDERES } from './anderes';\n") }) });
 lauf.fall({ id: 'S04', name: 'a side-effect import of a module the old state never imported: B5 import-seiteneffekt', soll: ['B5', 'B10'], teile: ['B5/import-seiteneffekt'], eingabe: () => mit(seite(KOPF), { rest: glue("import { Werk } from './werk';\n", "import './frei';\n") }) });
 lauf.fall({ id: 'S05', name: 'the same, released under `seiteneffekt:./frei`: only B10 stays (the order of evaluation changed)', soll: ['B10'], freigegeben: ['seiteneffekt:./frei'], eingabe: () => mit(seite(KOPF), { rest: glue("import { Werk } from './werk';\n", "import './frei';\n"), freigaben: [{ schluessel: 'seiteneffekt:./frei', begruendung: GRUND }] }) });

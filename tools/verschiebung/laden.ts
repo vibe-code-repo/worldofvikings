@@ -315,11 +315,11 @@ function ladeCode(st: ts.Node, b: Einheit): void {
 function traegerCode(init: ts.Node, b: Einheit): void {
   const geh = (x: ts.Node): void => {
     if (ts.isTypeNode(x)) return;
-    if (ts.isFunctionLike(x) || ts.isClassLike(x)) {
+    if (ts.isFunctionLike(x)) {
       ganz(x, b);
       return;
     }
-    ts.forEachChild(x, geh);
+    ts.forEachChild(x, geh); // a class written inline runs at once in `ladeCode`, so a unit of the variable needs none
   };
   geh(init);
 }

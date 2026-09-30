@@ -13,8 +13,9 @@ function pickableItem(prefabName: string): { name: string; amount: number } | nu
     [/^Pickable_Stone/i, 'Stone', 1],
     [/flint/i, 'Flint', 1],
     [/mushroom/i, 'Mushroom', 1],
-    [/(raspberry|berry)/i, 'Raspberry', 1],
+    // Blueberries first: `berry` also matches `blueberry`.
     [/blueberr/i, 'Blueberries', 1],
+    [/(raspberry|berry)/i, 'Raspberry', 1],
     [/thistle/i, 'Thistle', 1],
     [/dandelion/i, 'Dandelion', 1],
     [/seedcarrot|carrot/i, 'Carrot', 1],
@@ -77,8 +78,11 @@ const TRUHEN: Array<[RegExp, Array<[string, number, number]>]> = [
   [/./, [['Coins', 2, 10], ['Flint', 1, 3], ['Wood', 3, 8], ['Raspberry', 3, 6]]],
 ];
 
+/** An empty name (chest without a known prefab) matches no pattern: it holds nothing (`name: ''`, `amount: 0`), no dice. */
 function wuerfleTruhe(prefabName: string): { name: string; amount: number } {
-  const tabelle = TRUHEN.find(([re]) => re.test(prefabName))![1];
+  const zeile = TRUHEN.find(([re]) => re.test(prefabName));
+  if (!zeile) return { name: '', amount: 0 };
+  const tabelle = zeile[1];
   const [item, min, max] = tabelle[(Math.random() * tabelle.length) | 0]!;
   return { name: item, amount: min + ((Math.random() * (max - min + 1)) | 0) };
 }

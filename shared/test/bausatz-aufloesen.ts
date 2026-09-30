@@ -211,6 +211,32 @@ const katalog = (...k: Bausatz[]): Map<string, Bausatz> => new Map(k.map((b) => 
     pruefe(`C2 rohe kennungen ${JSON.stringify(roh)}: keine Adresse, kein Wurf (s#0,s#weg)`, geworfen === '' && ids === 's#0,s#weg', geworfen || ids);
   }
 }
+// N6 D1: kennungen is read exactly once (getter: first an object, then "ab"; never the address "a")
+{
+  const k = kit('r', [teil('0'), teil('weg')]);
+  let n = 0;
+  const i = { id: 's', bausatz: 'r', x: 0, z: 0 };
+  Object.defineProperty(i, 'kennungen', { enumerable: true, get: () => (n++ === 0 ? { weg: 'gut' } : 'ab') });
+  const ids = loeseBausaetzeAuf({ bausaetze: [i as never] }, katalog(k)).teile.map((t) => t.id).join();
+  pruefe('D1 kennungen wird genau einmal gelesen (gut,s#0, kein "a")', n === 1 && ids === 'gut,s#0', `${n} Lesezugriffe, ${ids}`);
+}
+// N6 D2: kennungen with a null prototype or frozen are valid kennungen
+{
+  const k = kit('r', [teil('0'), teil('weg')]);
+  const nullProto = Object.assign(Object.create(null) as Record<string, string>, { weg: 'nw' });
+  for (const [titel, roh] of [['null-Prototyp', nullProto], ['eingefroren', Object.freeze({ weg: 'fw' })]] as const) {
+    const ids = loeseBausaetzeAuf({ bausaetze: [{ id: 's', bausatz: 'r', x: 0, z: 0, kennungen: roh } as never] }, katalog(k)).teile.map((t) => t.id).join();
+    pruefe(`D2 kennungen ${titel}: Adresse angewendet`, ids === `${roh.weg},s#0`, ids);
+  }
+}
+// N6 D3: boxed String/Number/Boolean objects are no kennungen (no address from the characters of 'ab')
+{
+  const k = kit('r', [teil('0'), teil('weg')]);
+  for (const roh of [new String('ab'), new Number(5), new Boolean(true)] as unknown[]) {
+    const ids = loeseBausaetzeAuf({ bausaetze: [{ id: 's', bausatz: 'r', x: 0, z: 0, kennungen: roh } as never] }, katalog(k)).teile.map((t) => t.id).join();
+    pruefe(`D3 kennungen ${Object.prototype.toString.call(roh)}: keine Adresse (s#0,s#weg)`, ids === 's#0,s#weg', ids);
+  }
+}
 // M3: jede Platzierung des echten dev.json als Teil, Anker mm-Koordinate mit yaw 0 — byte-gleich zum Vergleichsschlüssel
 {
   const dev = sanitizeWorldLayout(JSON.parse(readFileSync(fileURLToPath(new URL('../../server/data/welten/dev.json', import.meta.url)), 'utf8')))!;

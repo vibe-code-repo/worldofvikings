@@ -331,6 +331,19 @@ try {
       const b = pruefeLayout(w, new Map([['kit', kitVon([teilMit('p1', eigen)])]]));
       pruefe(`B5 rohe kennungen ${JSON.stringify(roh)}: keine Zeilen daraus`, !b.some((x) => x.text.startsWith('verwaiste Kennung')), JSON.stringify(b.map((x) => x.text)));
     }
+    // N6 D3: boxed primitives are no kennungen either
+    for (const roh of [new String('ab'), new Number(5), new Boolean(true)] as unknown[]) {
+      const w = { ...weltMit([]), bausaetze: [{ id: 'r', bausatz: 'kit', x: 0, z: 0, kennungen: roh }] } as never;
+      const b = pruefeLayout(w, new Map([['kit', kitVon([teilMit('p1', eigen)])]]));
+      pruefe(`D3 geboxte kennungen ${Object.prototype.toString.call(roh)}: keine Zeilen daraus`, !b.some((x) => x.text.startsWith('verwaiste Kennung')), JSON.stringify(b.map((x) => x.text)));
+    }
+    // N6 D2: null prototype and frozen kennungen count; an orphan address is reported
+    const nullProto = Object.assign(Object.create(null) as Record<string, string>, { fremd: 'nf' });
+    for (const [titel, roh] of [['null-Prototyp', nullProto], ['eingefroren', Object.freeze({ fremd: 'ff' })]] as const) {
+      const w = { ...weltMit([]), bausaetze: [{ id: 'r', bausatz: 'kit', x: 0, z: 0, kennungen: roh }] } as never;
+      const b = pruefeLayout(w, new Map([['kit', kitVon([teilMit('p1', eigen)])]])).filter((x) => x.text.startsWith('verwaiste Kennung'));
+      pruefe(`D2 kennungen ${titel}: verwaiste fremd gemeldet`, b.length === 1 && b[0]!.text.includes('fremd (Adresse'), JSON.stringify(b.map((x) => x.text)));
+    }
   }
 }
 

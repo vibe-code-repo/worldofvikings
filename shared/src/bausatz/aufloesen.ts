@@ -11,7 +11,8 @@
  * - rotation is right-handed around +Y (as `yawQuaternion`): `x' = dx·cosθ + dz·sinθ`,
  *   `z' = −dx·sinθ + dz·cosθ`.
  * - the result is sorted by id, so the order of the parts inside a kit file does not matter.
- * - `kennungen` that is no plain object (raw input: string, array, null, number) counts as none.
+ * - `kennungen` that is no plain object (raw input: a string, array, null, number, boolean, function, or a boxed
+ *   String/Number/Boolean object) counts as none.
  * - `kennungen` is read as own properties only (a part id `constructor` is an ordinary string id).
  * - the resolver checks what it is given: a part or instance with a non-finite number is left out with a named
  *   `fehler`, never a NaN in the result.
@@ -39,11 +40,14 @@ const kopiereSkala = (a: readonly number[]): BausatzSkala => {
   return (laenge === 3 ? [a[0]!, a[1]!, a[2]!] : []) as unknown as BausatzSkala;
 };
 /**
- * The `kennungen` of a RAW (unsanitized) instance: only a plain object counts. A string, array, null, number or boolean
- * is "no kennungen" (never an address taken from a string's characters, never a TypeError). Shared by this resolver and `pruefeLayout`.
+ * The `kennungen` of a RAW (unsanitized) instance: only an object counts. A string, array, null, number, boolean, function
+ * and a boxed String/Number/Boolean object is "no kennungen" (never an address taken from a string's characters, never a
+ * TypeError). Objects with a null prototype or frozen ones count. Shared by this resolver and `pruefeLayout`.
  */
 export function rohKennungen(roh: unknown): Readonly<Record<string, unknown>> | undefined {
-  return typeof roh === 'object' && roh !== null && !Array.isArray(roh) ? (roh as Readonly<Record<string, unknown>>) : undefined;
+  if (typeof roh !== 'object' || roh === null || Array.isArray(roh)) return undefined;
+  if (roh instanceof String || roh instanceof Number || roh instanceof Boolean) return undefined;
+  return roh as Readonly<Record<string, unknown>>;
 }
 
 const skalaEndlich = (s: BausatzSkala): boolean => (typeof s === 'number' ? endlich(s) : Array.isArray(s) && s.length === 3 && s.every(endlich));

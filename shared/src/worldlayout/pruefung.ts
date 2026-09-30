@@ -261,7 +261,7 @@ function bausatzBefunde(layout: WorldLayout, katalog: ReadonlyMap<string, Bausat
     }
     // Eine Adresse für eine Teil-id, die der Bausatz nicht hat, wird nirgends angewendet, bleibt aber stehen und
     // würde von einem später eingefügten Teil mit dieser id übernommen. Je INSTANZ gemeldet (die Adressen gehören ihr).
-    // Raw (unsanitized) `kennungen` that is not a plain object (string, array, null) counts as no `kennungen`.
+    // Raw (unsanitized) `kennungen` that is no plain object (string, array, null, number, boolean, function, boxed primitive) counts as no `kennungen`.
     const kennungen = rohKennungen(i.kennungen);
     const teilIds = new Set(bausatz.teile.map((t) => t.id));
     // ONE finding per instance (count, the first few part ids with their addresses), not one per key: a kit that loses

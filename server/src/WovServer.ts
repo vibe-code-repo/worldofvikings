@@ -4341,24 +4341,6 @@ export class WovServer {
   }
 
   /**
-   * Figurenwahl des Clients (Paket SetFigur).
-   *
-   * WAS HIER GEPRUEFT WIRD: Der Client schickt eine Kennung, und der
-   * Server glaubt sie NICHT — `istFigur()` entscheidet, ob sie in der
-   * gemeinsamen Liste steht. Ohne diese Pruefung landete ein beliebiger
-   * String am ZDO, und jeder andere Client versuchte, ihn als
-   * Modelldateinamen zu laden.
-   *
-   * WARUM DER WEG UEBER DAS ZDO: Der Member am Charakter-ZDO ist der
-   * einzige Ort, an dem die Wahl AUTOMATISCH bei allen ankommt, die den
-   * Spieler sehen — ZDOSync erledigt Verteilung und Nachzuegler. Ein
-   * eigenes Broadcast-Paket muesste beides selbst loesen und wuerde bei
-   * jemandem, der spaeter in Sichtweite kommt, schweigen.
-   *
-   * Ein Wechsel MITTEN IM SPIEL ist damit ebenfalls abgedeckt: Er
-   * aendert denselben Member, und der Sync traegt ihn weiter.
-   */
-  /**
    * Frisur und Ruestung des Clients (Paket SetAussehen).
    *
    * Wie handleSetFigur: geprueft wird gegen die GEMEINSAME Liste
@@ -4438,6 +4420,24 @@ export class WovServer {
     this.sichereSpielerSofort(peer, 'ausruestung');
   }
 
+  /**
+   * Figurenwahl des Clients (Paket SetFigur).
+   *
+   * WAS HIER GEPRUEFT WIRD: Der Client schickt eine Kennung, und der
+   * Server glaubt sie NICHT — `istFigur()` entscheidet, ob sie in der
+   * gemeinsamen Liste steht. Ohne diese Pruefung landete ein beliebiger
+   * String am ZDO, und jeder andere Client versuchte, ihn als
+   * Modelldateinamen zu laden.
+   *
+   * WARUM DER WEG UEBER DAS ZDO: Der Member am Charakter-ZDO ist der
+   * einzige Ort, an dem die Wahl AUTOMATISCH bei allen ankommt, die den
+   * Spieler sehen — ZDOSync erledigt Verteilung und Nachzuegler. Ein
+   * eigenes Broadcast-Paket muesste beides selbst loesen und wuerde bei
+   * jemandem, der spaeter in Sichtweite kommt, schweigen.
+   *
+   * Ein Wechsel MITTEN IM SPIEL ist damit ebenfalls abgedeckt: Er
+   * aendert denselben Member, und der Sync traegt ihn weiter.
+   */
   private handleSetFigur(peer: Peer, reader: Reader): void {
     const gewuenscht = reader.readString();
     if (!istFigur(gewuenscht)) {

@@ -27,6 +27,7 @@ import { pathToFileURL } from 'node:url';
 import { bausatzText, rundePosition, rundeWinkel, sanitizeBausatzInstanzen, bausatzInstanzenFehler, sanitizeBausatzMitBericht } from '../shared/src/bausatz/sanitize.ts';
 import { STORE_KATALOG_NACH_PREFAB } from '../shared/src/storeKatalogDaten.ts';
 import { istNpcPrefab } from '../shared/src/npc.ts';
+import { loeseBausaetzeAuf } from '../shared/src/bausatz/aufloesen.ts';
 import { layoutText } from '../shared/src/worldlayout/layoutDatei.ts';
 import { ID_RE } from '../shared/src/worldlayout/platzierungsId.ts';
 
@@ -328,20 +329,6 @@ const eintragVon = (prefab, x, z, yaw, scale, einebnen) =>
   JSON.stringify({ prefab, x: rundePosition(x), z: rundePosition(z), yaw: rundeWinkel(yaw ?? 0), scale: rundeWinkel(scale ?? 1), einebnen: einebnen ?? null });
 
 /**
- * Own back-calculation (the resolver of C2 does not exist yet): anchor + offset, instance yaw 0 only.
- * @returns {Map<string, string>} resolved id → canonical entry
- */
-function loeseAuf(bausatz, instanz) {
-  if ((instanz.yaw ?? 0) !== 0) throw new Error('Rückrechnung kennt nur Instanz-yaw 0');
-  const aus = new Map();
-  for (const t of bausatz.teile) {
-    const id = instanz.kennungen?.[t.id] ?? `${instanz.id}#${t.id}`;
-    aus.set(id, eintragVon(t.prefab, instanz.x + t.dx, instanz.z + t.dz, t.yaw, t.scale, t.einebnen));
-  }
-  return aus;
-}
-
-/**
  * @param {any} welt parsed world document
  * @param {{ region: string, id: string, name?: string }} optionen
  */
@@ -391,12 +378,13 @@ export function konvertiereStartdorf(welt, optionen) {
   const rl = rundlauf(bausatz);
   // Proof: resolved entries equal the entries of the placements before.
   const kanonisch = sanitizeBausatzMitBericht(JSON.parse(rl.text)).bausatz;
-  const aufgeloest = loeseAuf(kanonisch, instanzKanonisch);
+  const aufloesung = loeseBausaetzeAuf(neueWelt, [kanonisch]);
+  const aufgeloest = new Map(aufloesung.teile.map((t) => [t.id, eintragVon(t.prefab, t.x, t.z, t.yaw, t.scale, t.einebnen)]));
   let gleich = 0;
   let abweichend = 0;
   for (const p of uebernommen) {
     const vorher = eintragVon(p.prefab, p.x, p.z, p.yaw, p.scale, p.einebnen);
-    if (aufgeloest.get(p.id) === vorher) gleich += 1;
+    if (aufloesung.fehler.length === 0 && aufgeloest.get(p.id) === vorher) gleich += 1;
     else abweichend += 1;
   }
   const bericht = {
@@ -414,7 +402,7 @@ export function konvertiereStartdorf(welt, optionen) {
     anker,
     grundflaeche: bausatz.grundflaeche,
     instanzen: neueWelt.bausaetze.length,
-    aufloesen: { verfahren: 'eigene Rückrechnung (Anker + Versatz, Instanz-yaw 0)', gleich, abweichend, eintraege: aufgeloest.size },
+    aufloesen: { verfahren: 'loeseBausaetzeAuf (C2)', fehler: aufloesung.fehler.length, unbekannt: aufloesung.unbekannt.length, gleich, abweichend, eintraege: aufgeloest.size },
     ausgabe: { bytes: rl.bytes, sha256: rl.sha256, rundlaufGleich: rl.rundlaufGleich, sanitizerMeldungen: rl.sanitizerMeldungen },
   };
   return { bausatzText: rl.text, weltText: layoutText(neueWelt), bericht };

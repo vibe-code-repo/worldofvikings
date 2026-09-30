@@ -204,7 +204,9 @@ because their defaults are Mike's lab subnets, not yours:
 you missed it. It is not in the template because there is no sensible default value
 to put there; leaving it unset means the published default `admin` stays in force.
 
-`WOV_SESSION_SECRET_HEX` is **optional** and not in the template.
+`WOV_SESSION_SECRET_HEX` is **optional** and not in the template — optional only for tests;
+**mandatory for a production server** that players should be able to reconnect to after a
+restart (without it every restart issues new identities, see below).
 `server/src/WovServer.ts` explains why: without it, the server picks a fresh random
 session secret from memory on every restart, which invalidates every previously
 issued session token (players just log in again) — accepted as fine for normal

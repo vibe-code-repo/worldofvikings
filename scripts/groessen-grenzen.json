@@ -11,7 +11,7 @@
   "client/src/entities/EntityManager.ts": 2750,
   "client/src/main.ts": {"frei": true, "hoechstens": 3700},
   "client/src/player/AvatarRig.ts": 2650,
-  "server/src/WovServer.ts": 7400,
+  "server/src/WovServer.ts": 7200,
   "shared/src/dungeon2/builder.ts": 1700,
   "shared/src/dungeon2/generator.ts": 1900,
   "shared/src/dungeonRasterGenerator.ts": 2700,

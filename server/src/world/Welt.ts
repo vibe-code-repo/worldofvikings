@@ -175,14 +175,28 @@ export class Welt {
    * `ziele` sind die Positionen, die Kreaturen angreifen dürfen (Standard: alle
    * `positionen`). Ein toter Spieler bleibt in `positionen` — Zonen, Spawns und
    * Routen laufen weiter — fällt aber aus `ziele` heraus.
+   *
+   * `kennungen` (optional) sind die Kennungen der Spieler, Eintrag i gehört zu
+   * `positionen[i]`; sie dürfen zwischen Ticks nicht wechseln (Verbindungs-Id).
+   * Mit ihnen bekommt jeder Spieler ein eigenes Zonenbudget (reihum); ohne
+   * fällt die Zählung auf den Listenindex zurück.
+   *
+   * `zielInfo` (optional) ist parallel zu `ziele`: Kennung und Blickrichtung je
+   * Ziel für die KI der Kreaturen (Aggro-Tabelle, Umlaufen); ohne sie zählt
+   * das SpawnSystem die Ziele nach Listenindex und kennt keinen Blick.
    */
   tick(
     deltaSec: number,
     positionen: readonly Vector3[],
     ziele: readonly Vector3[] = positionen,
+    kennungen?: readonly string[],
     zielInfo: readonly SpawnZielInfo[] = []
   ): { neueZonen: number } {
-    const neueZonen = this.mitZonengenerierung ? this.zones.update(positionen) : 0;
+    const neueZonen = !this.mitZonengenerierung
+      ? 0
+      : kennungen && kennungen.length === positionen.length
+        ? this.zones.updateJeSpieler(positionen.map((pos, i) => ({ id: kennungen[i], pos })))
+        : this.zones.update(positionen);
     this.spawns?.update(deltaSec, positionen, ziele, zielInfo);
     this.routen.update(deltaSec, positionen);
     this.aggro.update(deltaSec, ziele);

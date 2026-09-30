@@ -19,6 +19,7 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
+import { execFileSync } from 'child_process';
 import { join } from 'path';
 import { leseServerKonfig } from '../src/ServerKonfig.js';
 import {
@@ -339,6 +340,44 @@ function teilA(): void {
       negativOk = false;
       negativFehler = String(e);
     }
+  }
+  // N2 (Nachprüfung #178): Weltzeit ±Infinity und NaN mit Dauern > 1 — auf dem alten Stand läuft der Heap voll bzw. es fliegt
+  // ein TypeError. Eigener Prozess mit kleinem Heap und Zeitgrenze, damit ein Rückfall den Test nicht aufhängt.
+  {
+    const code = [
+      "import { Biome, STANDARD_WETTER_DEFINITIONEN, WetterWuerfel, pruefeWetterDefinitionen } from '@wov/shared';",
+      'const d = JSON.parse(JSON.stringify(STANDARD_WETTER_DEFINITIONEN));',
+      "d.biome.find((b) => b.biom === 'Meadows').zustaende.forEach((e) => { e.fensterMin = 2; e.fensterMax = 4; });",
+      'const p = pruefeWetterDefinitionen(d);',
+      'const w = new WetterWuerfel(p.defs);',
+      'const out = {};',
+      "for (const [k, t] of [['plusInf', Infinity], ['minusInf', -Infinity], ['nan', NaN]]) {",
+      "  try { out[k] = !!w.wetterFuer(Biome.Meadows, t).umgebung; } catch (e) { out[k] = 'Fehler: ' + e.message; }",
+      '}',
+      "console.log('ERGEBNIS ' + JSON.stringify(out));",
+    ].join('\n');
+    let antwort = '';
+    let ok = false;
+    try {
+      antwort = execFileSync(
+        process.execPath,
+        ['--max-old-space-size=200', '--import', 'tsx', '--input-type=module', '-e', code],
+        {
+          cwd: resolve(__dirname, '..'),
+          timeout: 20_000,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      );
+      ok = antwort.includes('ERGEBNIS {"plusInf":true,"minusInf":true,"nan":true}');
+    } catch (e) {
+      antwort = `Prozess gescheitert oder Zeitgrenze (20 s): ${String((e as Error).message).slice(0, 120)}`;
+    }
+    check(
+      'Weltzeit +Infinity, -Infinity, NaN mit Dauer 2-4: Antwort ohne Fehler und ohne Heap-Überlauf (20 s, 200 MB)',
+      ok,
+      antwort.trim().slice(0, 160),
+    );
   }
   check(
     'negative Weltzeit (Fenster -50..5) mit Dauer 2-4: kein Fehler, gleiche Antwort in zwei Instanzen',

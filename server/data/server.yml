@@ -284,9 +284,11 @@ uploads:
 # gesetzter Zufallsgenerator aus dem Topf des Bioms. Fuer Wiesen sind das
 # 86 % Clear und je 3,4 % Rain, Misty, ThunderStorm, LightRain.
 #
-# Beide Werte gehen beim Anmelden als Paket WeltWetter an jeden Client,
-# damit ALLE Spieler dieselbe Stimmung sehen. Der Server selbst rechnet
-# nicht damit -- Wetter und Licht sind Clientsache.
+# Beide Werte gehen beim Anmelden als Paket WeltWetter an jeden Client.
+# Das Wetter selbst zieht seit F9 der Server je Biom (shared/data/wetter/
+# biome.json) und schickt es jedem Spieler als Paket WetterZustand; der
+# Client wuerfelt dann nicht mehr selbst. Eine feste `umgebung` unten
+# ueberstimmt den Wuerfel fuer alle.
 wetter:
   # Name einer Umgebung aus shared/src/envData.json (Clear, Misty, Rain,
   # ThunderStorm, LightRain, Snow, SwampRain, ...). Leer = wuerfeln wie

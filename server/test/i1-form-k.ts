@@ -58,7 +58,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import * as ts from 'typescript';
-import { PacketType, WORLD_TIME_LENGTH, dungeon2, Inventory, WILDWARDEN_PARTS, findItem, FRISUR_VORGABE, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, FIGUREN, TRUHE_INHALT_MEMBER, TRUHE_LOOTED_MEMBER, packContainer, unpackContainer, ChatMsgType } from '@wov/shared';
+import { PacketType, WORLD_TIME_LENGTH, dungeon2, Inventory, WILDWARDEN_PARTS, findItem, FRISUR_VORGABE, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, FIGUREN, HAARFARBEN, AUGENFARBEN, TRUHE_INHALT_MEMBER, TRUHE_LOOTED_MEMBER, packContainer, unpackContainer, ChatMsgType } from '@wov/shared';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import { WovServer, createWovServer } from '../src/WovServer.js';
@@ -835,6 +835,8 @@ function messeInteraktionAttrappe(): Aufzeichnung3 {
     lauf('handleSetAussehen', 7, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', ''));
     lauf('handleSetAussehen', 8, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE));
     lauf('handleSetAussehen', 9, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE));
+    lauf('handleSetAussehen', 25, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', '', HAARFARBEN[1]!.id));
+    lauf('handleSetAussehen', 26, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', '', HAARFARBEN[1]!.id, AUGENFARBEN[1]!.id));
     lauf('handleSetAussehen', 10, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, '{}'));
     lauf('handleSetAussehen', 11, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, '{kaputt'));
     lauf('handleSetAussehen', 12, peerI(a, 'a'), paketS(FRISUR_VORGABE, '', '', HAARFARBE_VORGABE, AUGENFARBE_VORGABE, JSON.stringify({ kopf: 'wildwarden_vest' })));
@@ -1054,7 +1056,7 @@ const SOLL_INTERAKTION_ATTRAPPE: Aufzeichnung3 = {
     't:ContainerSync:["u",7,18]',
     't:ContainerSync:["u",7,19]',
   ],
-  aufrufe: { setInt:  3,  setString:  27,  reviseData:  2,  sendeTruheInhalt:  4,  zdosVon:  9,  kappeLeben:  7,  sichereSpielerSofort:  9,  inventarSync:  6 },
+  aufrufe: { setInt:  3,  setString:  35,  reviseData:  2,  sendeTruheInhalt:  4,  zdosVon:  11,  kappeLeben:  9,  sichereSpielerSofort:  11,  inventarSync:  6 },
   konsole: { log: 2, warn: 2 },
   zustand: [151, 5, 1, 0, 1],
   ausnahmen: ['TypeError', 'RangeError', 'RangeError'],
@@ -1077,6 +1079,16 @@ const SOLL_INTERAKTION_ATTRAPPE: Aufzeichnung3 = {
     'setString frisur=H_01',
     'setString haarfarbe=mittelbraun',
     'setString augenfarbe=fjordblau',
+    'setString ruestung=|',
+    'sofort:ausruestung',
+    'setString frisur=H_01',
+    'setString haarfarbe=dunkelbraun',
+    'setString augenfarbe=fjordblau',
+    'setString ruestung=|',
+    'sofort:ausruestung',
+    'setString frisur=H_01',
+    'setString haarfarbe=dunkelbraun',
+    'setString augenfarbe=eisblau',
     'setString ruestung=|',
     'sofort:ausruestung',
     'setString frisur=H_01',

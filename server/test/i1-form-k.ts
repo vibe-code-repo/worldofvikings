@@ -362,6 +362,10 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
         const erwartet = `${fn.kopf} { return ${fn.name}(this, ${m.parameters.map((p) => p.name.getText(sf)).join(', ')}); }`;
         if (gesamt !== erwartet) f.push(`${fn.name}: the forwarding reads "${gesamt.slice(0, 120)}", expected "${erwartet}" (a comment or another token inside it)`);
       }
+      // behind it on the same line: nothing; a comment there belongs to the trivia of the next member and escapes the comparison of the text above (H8)
+      const zeilenEnde = text.indexOf('\n', m.getEnd());
+      const dahinter = text.slice(m.getEnd(), zeilenEnde === -1 ? text.length : zeilenEnde);
+      if (dahinter.trim() !== '') f.push(`${fn.name}: behind the forwarding on its last line stands "${dahinter.trim().slice(0, 40)}"`);
       if (ts.canHaveDecorators(m) && (ts.getDecorators(m) ?? []).length > 0) f.push(`${fn.name}: a decorator`);
       const st = body?.statements ?? [];
       const r = st[0];
@@ -524,6 +528,9 @@ console.log('\n[0] Self-test of the checks on invented sources');
   check('red: a NEW section line before a forwarding (H5)', pruefeKlasse([S], mitAbschnitt, OEFF).length > 0, show(pruefeKlasse([S], mitAbschnitt, OEFF)) || 'no finding');
   check('red: a section line other than the named one', pruefeKlasse([SAbschnitt], mitAbschnitt.replace('Weiterleitungen', 'Anderes'), OEFF).length > 0);
   check('red: the named section line is missing', pruefeKlasse([SAbschnitt], gut, OEFF).length > 0);
+  const hinten = (z: string): string => gut.replace('    return fa(this, peer, reader);\n  }\n', `    return fa(this, peer, reader);\n  }${z}\n`);
+  check('red: a line comment behind a forwarding on its last line (H8)', pruefeKlasse([S], hinten(' // comment'), OEFF).length > 0, show(pruefeKlasse([S], hinten(' // comment'), OEFF)) || 'no finding');
+  check('red: a block comment behind a forwarding on its last line (H8)', pruefeKlasse([S], hinten(' /* comment */'), OEFF).length > 0, show(pruefeKlasse([S], hinten(' /* comment */'), OEFF)) || 'no finding');
   check('red: two blank lines before a forwarding (rule 4.5a wants one)', pruefeKlasse([S], gut.replace('\n\n  private fb(', '\n\n\n  private fb('), OEFF).length > 0);
   check('red: no blank line before a forwarding', pruefeKlasse([S], gut.replace('\n\n  private fb(', '\n  private fb('), OEFF).length > 0);
   const klassenFehler: [string, string, readonly string[]][] = [

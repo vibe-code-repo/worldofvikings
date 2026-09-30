@@ -91,6 +91,39 @@ const f32 = Math.fround;
 // ── Reference zone constants ────────────────────────────────────────
 const NEAR_ZRADIUS = 2;
 const DISTANT_ZRADIUS = 2;
+/** Per-player share of the per-tick zone budget in the round-robin phase (ms). */
+const MIN_ANTEIL_MS = 2;
+
+/** One open zone in a player's queue; `d2` = squared zone distance to that player when queued. */
+interface OffeneZone {
+  x: number;
+  y: number;
+  d2: number;
+}
+
+/** Per-player generation queue (ring order, nearest first). */
+interface SpielerSchlange {
+  zx: number;
+  zy: number;
+  offen: OffeneZone[];
+  /** Read position in `offen` (consumed entries are skipped, compacted lazily). */
+  kopf: number;
+}
+
+/**
+ * Offsets of the (NEAR+DISTANT) square around a player, nearest first
+ * (squared distance, then z, then x). Computed once: a player's queue is a
+ * filtered copy of this table, so no per-tick sort is needed.
+ */
+const RING_OFFSETS: readonly { dx: number; dz: number; d2: number }[] = (() => {
+  const num = NEAR_ZRADIUS + DISTANT_ZRADIUS;
+  const out: { dx: number; dz: number; d2: number }[] = [];
+  for (let dz = -num; dz <= num; dz++) {
+    for (let dx = -num; dx <= num; dx++) out.push({ dx, dz, d2: dx * dx + dz * dz });
+  }
+  out.sort((a, b) => a.d2 - b.d2 || a.dz - b.dz || a.dx - b.dx);
+  return out;
+})();
 /** Inner world radius in zones: 10500 / 64 (int division!) = 164. */
 const WORLD_INNER_ZRADIUS = Math.floor(10500 / 64);
 
@@ -151,6 +184,8 @@ export interface ZoneManagerOptions {
    * Default: `assets/manifest.json` from disk — the client fetches the same file.
    */
   manifest?: ReadonlyMap<string, ManifestModell>;
+  /** Clock for the per-tick zone budget in ms (default `Date.now`); tests drive it. */
+  zeit?: () => number;
 }
 
 /** `assets/manifest.json` from disk; missing or unreadable → empty (radius falls back to `renderScale`). */
@@ -240,9 +275,15 @@ function overlapsClearArea(
 export class ZoneManager {
   /** Zones already generated. */
   private readonly generated = new Set<string>();
-  /** Enqueued but not yet generated (budget deferral). */
-  private readonly pending = new Set<string>();
-  private readonly queue: ZoneID[] = [];
+  /** Enqueued but not yet generated (budget deferral): zone key → number of player queues holding it. */
+  private readonly pending = new Map<string, number>();
+  /** One generation queue per player (key = stable player id). */
+  private readonly schlangen = new Map<string, SpielerSchlange>();
+  /** Round-robin start; moves on every tick so no player is always served first. */
+  private rundenStart = 0;
+  private readonly zeit: () => number;
+  /** Diagnostics of the last update: how many head-of-queue comparisons the pick needed. */
+  readonly diagnose = { abstandsvergleiche: 0 };
 
   /** Generated features — keyed by the zone of the instance position. */
   private readonly generatedFeatures = new Map<string, FeatureInstance>();
@@ -296,6 +337,7 @@ export class ZoneManager {
     this.worldVegetation = options.worldVegetation ?? true;
     this.locationOverrides = options.locationOverrides ?? false;
     this.dungeonsEnabled = options.dungeonsEnabled ?? true;
+    this.zeit = options.zeit ?? Date.now;
     this.regionGeo = geo instanceof RegionGeo ? geo : null;
     if (this.regionGeo) {
       const b = layoutBounds(this.regionGeo.layout);
@@ -386,97 +428,188 @@ export class ZoneManager {
   }
 
   /**
-   * Server-tick entry point: enqueue missing zones around every peer
-   * (nearby-zone generation per peer), then drain with a time budget
-   * (the reference blocks inline; we spread over ticks to avoid hitches).
-   * Returns the number of zones generated this call.
+   * Server-tick entry point (compatibility form): enqueue missing zones
+   * around every position, then drain with a time budget. The positions are
+   * numbered by list index; use `updateJeSpieler` when a stable player id
+   * exists. Returns the number of zones generated this call.
    */
   update(peerPositions: readonly Vector3[], budgetMs = 12): number {
-    for (const pos of peerPositions) {
-      this.enqueueNearbyZones(pos);
-    }
+    return this.updateJeSpieler(
+      peerPositions.map((pos, i) => ({ id: String(i), pos })),
+      budgetMs
+    );
+  }
 
-    // G-POP: cull stale entries + sort nearest-first every tick. The old FIFO
-    // kept generating zones behind a fast-moving player before the ones
-    // ahead, and there is no content dependency on generation order (each
-    // zone's content is seeded per-zone).
-    if (peerPositions.length > 0 && this.queue.length > 1) {
-      const pz = peerPositions.map(
-        (p) => [HeightmapProvider.worldToZone(p.x), HeightmapProvider.worldToZone(p.z)] as const
-      );
-      const num = NEAR_ZRADIUS + DISTANT_ZRADIUS + 1; // keep a 1-zone buffer
-      const minD2 = (x: number, y: number): number => {
-        let best = Infinity;
-        for (const [px, py] of pz) {
-          const d = (x - px) * (x - px) + (y - py) * (y - py);
-          if (d < best) best = d;
-        }
-        return best;
-      };
-      // In-place cull (queue is readonly): drop zones no peer is near anymore
-      for (let i = this.queue.length - 1; i >= 0; i--) {
-        const z = this.queue[i];
-        let keep = false;
-        for (const [px, py] of pz) {
-          if (Math.max(Math.abs(z.x - px), Math.abs(z.y - py)) <= num) {
-            keep = true;
-            break;
-          }
-        }
-        if (!keep) {
-          this.pending.delete(zoneKey(z.x, z.y));
-          this.queue.splice(i, 1);
-        }
-      }
-      if (this.queue.length > 1) {
-        this.queue.sort((a, b) => minD2(a.x, a.y) - minD2(b.x, b.y));
-      }
-    }
+  /**
+   * Server-tick entry point with player ids: one queue per player (ring
+   * order, nearest zone first). `budgetMs` is the global cap of the tick;
+   * players with open zones are served round robin (the start moves each
+   * tick), each for `MIN_ANTEIL_MS` (or budget / players if smaller), the
+   * rest goes to the player whose next open zone is nearest. When one zone
+   * costs more than a player's share, not every player is served every tick;
+   * as long as the player list stays unchanged, every player with open zones
+   * comes up within at most n ticks (n = number of players). The round-robin
+   * start is a list index, so a login or logout can make a player wait one
+   * round longer. The tick overshoots the budget by at most one zone.
+   * A zone in several queues is generated once.
+   * The id must not change between ticks. Returns the zones generated.
+   */
+  updateJeSpieler(spieler: readonly { id: string; pos: Vector3 }[], budgetMs = 12): number {
+    this.diagnose.abstandsvergleiche = 0;
+    const reihe = this.gleicheSchlangenAb(spieler);
+    const n = reihe.length;
+    if (n === 0) return 0;
+
+    // Rotate so the round-robin start wanders (also breaks ties in phase 2).
+    const start = this.rundenStart % n;
+    this.rundenStart = (start + 1) % n;
+    const rotiert = reihe.slice(start).concat(reihe.slice(0, start));
 
     let generated = 0;
-    const deadline = Date.now() + budgetMs;
-    while (this.queue.length > 0) {
-      if (Date.now() >= deadline) {
+    let jetzt = this.zeit();
+    const deadline = jetzt + budgetMs;
+
+    // Phase 1: everyone with open zones gets a guaranteed share.
+    const anteil = Math.min(MIN_ANTEIL_MS, budgetMs / n);
+    for (const sl of rotiert) {
+      const ende = Math.min(deadline, jetzt + anteil);
+      while (jetzt < ende) {
+        const offen = this.naechsteOffene(sl);
+        if (!offen) break;
+        generated += this.erzeugeOffene(sl, offen);
+        jetzt = this.zeit();
+      }
+    }
+
+    // Phase 2: the rest of the budget to the nearest open zone across players.
+    for (;;) {
+      let best: OffeneZone | null = null;
+      let bestSl: SpielerSchlange | null = null;
+      for (const sl of rotiert) {
+        const offen = this.naechsteOffene(sl);
+        if (!offen) continue;
+        this.diagnose.abstandsvergleiche++;
+        if (!best || offen.d2 < best.d2) {
+          best = offen;
+          bestSl = sl;
+        }
+      }
+      if (!best || !bestSl) break;
+      if (jetzt >= deadline) {
         // Budget used up with zones still queued: deferred to the next tick.
         erfasseBudgetAbbruch();
         break;
       }
-      const zone = this.queue.shift()!;
-      this.pending.delete(zoneKey(zone.x, zone.y));
-      if (this.generateZone(zone)) generated++;
+      generated += this.erzeugeOffene(bestSl, best);
+      jetzt = this.zeit();
     }
     return generated;
   }
 
   /**
-   * Nearby-zone generation:
-   * center zone first, then the full (NEAR+DISTANT) square, z outer / x inner.
-   * The reference polls+generates inline; we enqueue in the same order.
+   * Brings the per-player queues in line with the current players: drops the
+   * queues of players that left (their zones fall out of `pending`) and
+   * rebuilds a queue when its player changed zone (G-POP: zones behind a
+   * fast mover are dropped). Returns the queues in
+   * list order.
    */
-  private enqueueNearbyZones(refPoint: Vector3): void {
-    const zx = HeightmapProvider.worldToZone(refPoint.x);
-    const zy = HeightmapProvider.worldToZone(refPoint.z);
+  private gleicheSchlangenAb(spieler: readonly { id: string; pos: Vector3 }[]): SpielerSchlange[] {
+    const reihe: SpielerSchlange[] = [];
+    const aktiv = new Set<string>();
+    for (const s of spieler) {
+      if (aktiv.has(s.id)) continue;
+      aktiv.add(s.id);
+      const zx = HeightmapProvider.worldToZone(s.pos.x);
+      const zy = HeightmapProvider.worldToZone(s.pos.z);
+      let sl = this.schlangen.get(s.id);
+      if (!sl) {
+        sl = { zx: NaN, zy: NaN, offen: [], kopf: 0 };
+        this.schlangen.set(s.id, sl);
+      }
+      if (sl.zx !== zx || sl.zy !== zy) {
+        this.baueSchlange(sl, zx, zy);
+      }
+      reihe.push(sl);
+    }
+    for (const [id, sl] of this.schlangen) {
+      if (aktiv.has(id)) continue;
+      this.gibSchlangeFrei(sl);
+      this.schlangen.delete(id);
+    }
+    return reihe;
+  }
 
-    const tryEnqueue = (x: number, y: number): void => {
+  /** Nearby-zone generation for one player: the whole window, nearest first. */
+  private baueSchlange(sl: SpielerSchlange, zx: number, zy: number): void {
+    this.gibSchlangeFrei(sl);
+    for (const o of RING_OFFSETS) {
+      const x = zx + o.dx;
+      const y = zy + o.dz;
       // Generation guard: inside the world radius && !generated
       // (im Layout-Modus: Layout-Bbox statt Weltradius, s. zoneErlaubt)
-      if (!this.zoneErlaubt(x, y)) return;
+      if (!this.zoneErlaubt(x, y)) continue;
       const key = zoneKey(x, y);
-      if (this.generated.has(key) || this.pending.has(key)) return;
-      this.pending.add(key);
-      this.queue.push({ x, y });
-    };
+      if (this.generated.has(key)) continue;
+      this.pending.set(key, (this.pending.get(key) ?? 0) + 1);
+      sl.offen.push({ x, y, d2: o.d2 });
+    }
+    sl.zx = zx;
+    sl.zy = zy;
+  }
 
-    // Prioritize center zone
-    tryEnqueue(zx, zy);
+  /** Empties a queue and releases its zones from `pending`. */
+  private gibSchlangeFrei(sl: SpielerSchlange): void {
+    for (let i = sl.kopf; i < sl.offen.length; i++) {
+      this.gibFrei(zoneKey(sl.offen[i].x, sl.offen[i].y));
+    }
+    sl.offen.length = 0;
+    sl.kopf = 0;
+  }
 
-    const num = NEAR_ZRADIUS + DISTANT_ZRADIUS;
-    for (let z = zy - num; z <= zy + num; z++) {
-      for (let x = zx - num; x <= zx + num; x++) {
-        if (x === zx && z === zy) continue;
-        tryEnqueue(x, z);
+  private gibFrei(key: string): void {
+    const rest = (this.pending.get(key) ?? 1) - 1;
+    if (rest <= 0) this.pending.delete(key);
+    else this.pending.set(key, rest);
+  }
+
+  /** Next zone of this queue that is still ungenerated (skips zones another queue generated). */
+  private naechsteOffene(sl: SpielerSchlange): OffeneZone | null {
+    while (sl.kopf < sl.offen.length) {
+      const o = sl.offen[sl.kopf];
+      const key = zoneKey(o.x, o.y);
+      if (!this.generated.has(key)) return o;
+      this.gibFrei(key);
+      sl.kopf++;
+    }
+    sl.offen.length = 0;
+    sl.kopf = 0;
+    return null;
+  }
+
+  /** Consumes the head of a queue and generates that zone; 1 when it was generated. */
+  private erzeugeOffene(sl: SpielerSchlange, o: OffeneZone): number {
+    sl.kopf++;
+    this.gibFrei(zoneKey(o.x, o.y));
+    if (sl.kopf >= 64) {
+      sl.offen.splice(0, sl.kopf);
+      sl.kopf = 0;
+    }
+    return this.generateZone({ x: o.x, y: o.y }) ? 1 : 0;
+  }
+
+  /** Test/diagnostic access: the open zones of all queues, de-duplicated (one player: nearest first). */
+  get queue(): ZoneID[] {
+    const gesehen = new Set<string>();
+    const out: ZoneID[] = [];
+    for (const sl of this.schlangen.values()) {
+      for (let i = sl.kopf; i < sl.offen.length; i++) {
+        const key = zoneKey(sl.offen[i].x, sl.offen[i].y);
+        if (gesehen.has(key)) continue;
+        gesehen.add(key);
+        out.push({ x: sl.offen[i].x, y: sl.offen[i].y });
       }
     }
+    return out;
   }
 
   /**
@@ -1236,7 +1369,8 @@ export class ZoneManager {
   /**
    * Zonen-Rücksetzer (zonenRuecksetzer.ts): nimmt eine Zone aus `generated`,
    * damit `erzeugeZone` sie neu aufbauen kann. Liefert false, wenn sie gar
-   * nicht erzeugt war.
+   * nicht erzeugt war. Die Spielerschlangen lesen ihr Fenster nur beim Zonenwechsel
+   * neu; wer eine Zone zurücknimmt, erzeugt sie sofort neu (`erzeugeZone`).
    */
   nimmZoneZurueck(zone: ZoneID): boolean {
     return this.generated.delete(zoneKey(zone.x, zone.y));

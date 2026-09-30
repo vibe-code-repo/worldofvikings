@@ -382,25 +382,33 @@ export class InputManager {
    * and the camera keeps turning (`consumeMouseDelta` is not touched).
    */
   gesperrt = false;
+  /**
+   * Zweite, unabhaengige Sperre: die Wiederverbindung nach einem Serverneustart (F10). Getrennt
+   * von `gesperrt`, damit keiner von beiden die Sperre des anderen loescht (tot UND getrennt).
+   */
+  netzGesperrt = false;
+  private get eingabeGesperrt(): boolean {
+    return this.gesperrt || this.netzGesperrt;
+  }
   private static readonly TOT_ERLAUBT: ReadonlySet<string> = new Set(['Escape', 'F1', 'F11']);
 
   isDown(code: string): boolean {
-    return this.keys.has(code) && (!this.gesperrt || InputManager.TOT_ERLAUBT.has(code));
+    return this.keys.has(code) && (!this.eingabeGesperrt || InputManager.TOT_ERLAUBT.has(code));
   }
 
   /** True for one frame after the key went down. */
   wasPressed(code: string): boolean {
-    return this.keysPressed.has(code) && (!this.gesperrt || InputManager.TOT_ERLAUBT.has(code));
+    return this.keysPressed.has(code) && (!this.eingabeGesperrt || InputManager.TOT_ERLAUBT.has(code));
   }
 
   /** 0 = left, 1 = middle, 2 = right. */
   isMouseDown(button: number): boolean {
-    return !this.gesperrt && this.mouse.has(button);
+    return !this.eingabeGesperrt && this.mouse.has(button);
   }
 
   /** True for one frame after the button went down. */
   wasMousePressed(button: number): boolean {
-    return !this.gesperrt && this.mousePressed.has(button);
+    return !this.eingabeGesperrt && this.mousePressed.has(button);
   }
 
   /**

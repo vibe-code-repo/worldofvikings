@@ -201,12 +201,41 @@ async function main(): Promise<void> {
     assert.equal(haus.einebnen, 5);
     assert.equal(haus.dy, undefined);
     assert.equal(sBausatz.teile.find((t: { id: string }) => t.id === 'u-fass_3_2').scale, 2);
-    assert.equal(sBausatz.teile.find((t: { id: string }) => t.id === 'u-zaun_4_5').yaw, 3.420845);
+    assert.equal(sBausatz.teile.find((t: { id: string }) => t.id === 'u-zaun_4_5').yaw, 3.4208453);
   });
   pruefe('start village: resolved entries equal the placements before (3 of 3), figures need no entry', () => {
     assert.deepEqual({ gleich: sb.aufloesen.gleich, abweichend: sb.aufloesen.abweichend }, { gleich: 3, abweichend: 0 });
     assert.equal(sb.ausgabe.rundlaufGleich, true);
     assert.equal(sb.ausgabe.sanitizerMeldungen, 0);
+  });
+  const weltMit = (p: unknown[]) => {
+    const w = JSON.parse(JSON.stringify(welt));
+    w.placements.push(...p);
+    return w;
+  };
+  pruefe('start village: a yaw with more than 6 decimals goes into the part unchanged, and resolves back to the same number', () => {
+    const teilYaw = sBausatz.teile.find((t: { id: string }) => t.id === 'u-zaun_4_5').yaw;
+    assert.equal(teilYaw, 3.4208453);
+    assert.notEqual(teilYaw, Math.round(teilYaw * 1e6) / 1e6);
+    assert.ok(s.bausatzText.includes('3.4208453'));
+    assert.equal(sb.aufloesen.abweichend, 0);
+  });
+  pruefe('start village: a part id that is an Object.prototype name (constructor) resolves to its own placement id; __proto__ is refused by name', () => {
+    const w = weltMit([{ id: 'constructor', prefab: 'U_Haus', x: 1.5, z: 1.5, yaw: 0.25, scale: 1.23456789 }]);
+    const r = k.konvertiereStartdorf(w, { region: 'dorf', id: 'startdorf' });
+    const inst = JSON.parse(r.weltText).bausaetze[0];
+    assert.ok(Object.hasOwn(inst.kennungen, 'constructor'));
+    assert.equal(inst.kennungen.constructor, 'constructor');
+    assert.equal(JSON.parse(r.bausatzText).teile.find((t: { id: string }) => t.id === 'constructor').scale, 1.23456789, 'scale is carried over raw');
+    assert.deepEqual({ gleich: r.bericht.aufloesen.gleich, abweichend: r.bericht.aufloesen.abweichend, fehler: r.bericht.aufloesen.fehler }, { gleich: sb.teile + 1, abweichend: 0, fehler: 0 });
+    const w2 = weltMit([{ id: '__proto__', prefab: 'U_Haus', x: 1.5, z: 1.5, yaw: 0 }]);
+    assert.throws(() => k.konvertiereStartdorf(w2, { region: 'dorf', id: 'startdorf' }), /ohne gültige id/);
+  });
+  pruefe('anchor: reported anchor is on the millimetre grid in both modes; a placement off that grid shows up as a mismatch in the resolve check', () => {
+    const mm = (v: number): boolean => v === Math.round(v * 1000) / 1000;
+    assert.ok(mm(sb.anker.x) && mm(sb.anker.z) && mm(vb.anker.x) && mm(vb.anker.z));
+    const r = k.konvertiereStartdorf(weltMit([{ id: 'schief_1', prefab: 'U_Haus', x: 1.0004, z: 1.5, yaw: 0 }]), { region: 'dorf', id: 'startdorf' });
+    assert.deepEqual({ gleich: r.bericht.aufloesen.gleich, abweichend: r.bericht.aufloesen.abweichend }, { gleich: sb.teile, abweichend: 1 });
   });
   pruefe('start village: two runs give the same bytes; an unknown region fails', () => {
     const s2 = k.konvertiereStartdorf(welt, { region: 'dorf', id: 'startdorf' });
@@ -264,11 +293,11 @@ async function main(): Promise<void> {
     ]);
     const r = k.konvertiereVillage(d, { id: 'mini' });
     const t = (id: string) => JSON.parse(r.bausatzText).teile.find((x: { id: string }) => x.id === id);
-    assert.equal(t('w_7').yaw, Math.round((7 - 2 * Math.PI) * 1e6) / 1e6);
-    assert.equal(t('w_m7').yaw, Math.round((-7 + 2 * Math.PI) * 1e6) / 1e6);
+    assert.equal(t('w_7').yaw, 7 - 2 * Math.PI);
+    assert.equal(t('w_m7').yaw, -7 + 2 * Math.PI);
     assert.ok(k.quaternionAbstand(k.quaternionAusEuler([0, 7, 0]), k.quaternionAusWinkeln({ yaw: t('w_7').yaw })) < 1e-9);
-    assert.equal(t('w_pi').yaw, 3.141593);
-    assert.equal(t('w_mpi').yaw, 3.141593);
+    assert.equal(t('w_pi').yaw, Math.PI);
+    assert.equal(t('w_mpi').yaw, Math.PI);
     assert.equal(t('w_p2pi').pitch, undefined);
     assert.equal(r.bericht.zaehlregel.gekippt, vb.zaehlregel.gekippt, 'pitch 2π is not tilted');
     assert.equal(k.normiereWinkel(0.5), 0.5);
@@ -295,6 +324,18 @@ async function main(): Promise<void> {
     assert.deepEqual(r.bericht.idAbgeleitet, [...vb.idAbgeleitet, { von: 'dup', zu: 'dup-2' }]);
     const ids = JSON.parse(r.bausatzText).teile.map((x: { id: string }) => x.id);
     assert.ok(ids.includes('dup') && ids.includes('dup-2'));
+  });
+
+  pruefe('village: angles and scale are not rounded (a pitch of 1e-9 stays, the count does not call it tilted; a scale triple off by 1e-9 stays a triple)', () => {
+    const r = k.konvertiereVillage(mitEntitaeten([{ id: 'roh_1', ...gut, rotation: [1e-9, 0.123456789, 0], scale: [2, 2, 2 + 1e-9] }]), { id: 'mini' });
+    const t = JSON.parse(r.bausatzText).teile.find((x: { id: string }) => x.id === 'roh_1');
+    assert.equal(t.yaw, 0.123456789);
+    assert.equal(t.pitch, 1e-9);
+    assert.deepEqual(t.scale, [2, 2, 2 + 1e-9]);
+    assert.equal(r.bericht.zaehlregel.gekippt, vb.zaehlregel.gekippt);
+    assert.equal(r.bericht.zaehlregel.ungleichmaessig, vb.zaehlregel.ungleichmaessig);
+    assert.equal(r.bericht.ausgabe.rundlaufGleich, true);
+    assert.equal(r.bericht.ausgabe.sanitizerMeldungen, 0);
   });
 
   pruefe('thinning: a rock-like prefab that is not a cliff stays', () => {

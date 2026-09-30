@@ -25,7 +25,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { bausatzText, rundePosition, rundeWinkel, sanitizeBausatzInstanzen, bausatzInstanzenFehler, sanitizeBausatzMitBericht } from '../shared/src/bausatz/sanitize.ts';
+import { bausatzText, rundePosition, sanitizeBausatzInstanzen, bausatzInstanzenFehler, sanitizeBausatzMitBericht } from '../shared/src/bausatz/sanitize.ts';
 import { STORE_KATALOG_NACH_PREFAB } from '../shared/src/storeKatalogDaten.ts';
 import { istNpcPrefab } from '../shared/src/npc.ts';
 import { loeseBausaetzeAuf } from '../shared/src/bausatz/aufloesen.ts';
@@ -116,11 +116,8 @@ export function quaternionAbstand(a, b) {
 
 // ── Common: build the kit object from parts ─────────────────────────────────
 
-/** One number only when all three components agree on the 1e-6 grid (the counting tolerance); any other triple stays a triple. */
-export const skalaAusTripel = (s) => {
-  const r = s.map(rundeWinkel);
-  return r[0] === r[1] && r[1] === r[2] ? r[0] : r;
-};
+/** One number only when all three components are exactly equal; any other triple stays a triple. Nothing is rounded: the kit sanitizer keeps scale as it is, like a placement. */
+export const skalaAusTripel = (s) => (s[0] === s[1] && s[1] === s[2] ? s[0] : [s[0], s[1], s[2]]);
 
 /** Rounded centroid of x/z (m, mm). */
 function schwerpunkt(punkte) {
@@ -270,9 +267,9 @@ export function konvertiereVillage(roh, optionen) {
     prefab: t.prefab,
     dx: rundePosition(t.x - anker.x),
     dz: rundePosition(t.z - anker.z),
-    yaw: rundeWinkel(t.w.yaw),
-    ...(rundeWinkel(t.w.pitch) !== 0 ? { pitch: rundeWinkel(t.w.pitch) } : {}),
-    ...(rundeWinkel(t.w.roll) !== 0 ? { roll: rundeWinkel(t.w.roll) } : {}),
+    yaw: t.w.yaw + 0,
+    ...(t.w.pitch !== 0 ? { pitch: t.w.pitch } : {}),
+    ...(t.w.roll !== 0 ? { roll: t.w.roll } : {}),
     scale: skalaAusTripel(t.skala),
     gruppe: t.gruppe,
   }));
@@ -290,7 +287,7 @@ export function konvertiereVillage(roh, optionen) {
     medianY: rundePosition(med),
     schwelle: HOEHE_SCHWELLE,
     fehlerTeile: hoehenfehler,
-    fehlerAnteil: rundeWinkel(hoehenfehler / teile.length),
+    fehlerAnteil: Math.round((hoehenfehler / teile.length) * 1e6) / 1e6,
     minY: rundePosition(min(ys)),
     maxY: rundePosition(max(ys)),
   };
@@ -324,7 +321,7 @@ function eulerBelege(entities) {
     .filter(([, e]) => e)
     .map(([art, e]) => {
       const w = eulerZuWinkeln(e.rotation);
-      const neu = { yaw: rundeWinkel(w.yaw), pitch: rundeWinkel(w.pitch), roll: rundeWinkel(w.roll) };
+      const neu = { yaw: w.yaw, pitch: w.pitch, roll: w.roll };
       return { art, id: e.id, rotation: e.rotation, abstand: quaternionAbstand(quaternionAusEuler(e.rotation), quaternionAusWinkeln(neu)) };
     });
 }
@@ -349,9 +346,12 @@ export function punktInForm(form, x, z) {
 
 const istFigur = (p) => p.npc !== undefined || p.route !== undefined || istNpcPrefab(p.prefab);
 
-/** Canonical comparison entry of a placement or a resolved part: prefab, x/z to 1 mm, yaw, scale, einebnen. */
-const eintragVon = (prefab, x, z, yaw, scale, einebnen) =>
-  JSON.stringify({ prefab, x: rundePosition(x), z: rundePosition(z), yaw: rundeWinkel(yaw ?? 0), scale: rundeWinkel(scale ?? 1), einebnen: einebnen ?? null });
+/**
+ * Comparison key of a placement or a resolved part, the shape of `eintrag()` in `server/src/world/layoutLiveAbgleich.ts`
+ * (a copy: that module is not importable from `tools/`): raw values, defaults count like a missing field, no rounding here.
+ */
+const eintragVon = (id, prefab, x, z, yaw, scale, einebnen) =>
+  JSON.stringify([id ?? null, prefab, x, z, yaw ?? 0, scale ?? 1, null, einebnen ?? 0, null]);
 
 /**
  * @param {any} welt parsed world document
@@ -381,8 +381,8 @@ export function konvertiereStartdorf(welt, optionen) {
     prefab: p.prefab,
     dx: rundePosition(p.x - anker.x),
     dz: rundePosition(p.z - anker.z),
-    yaw: rundeWinkel(p.yaw ?? 0),
-    scale: rundeWinkel(p.scale ?? 1),
+    yaw: p.yaw ?? 0,
+    scale: p.scale ?? 1,
     ...(p.einebnen !== undefined ? { einebnen: p.einebnen } : {}),
   }));
   const bausatz = {
@@ -410,11 +410,11 @@ export function konvertiereStartdorf(welt, optionen) {
   // Proof: resolved entries equal the entries of the placements before.
   const kanonisch = sanitizeBausatzMitBericht(JSON.parse(rl.text)).bausatz;
   const aufloesung = loeseBausaetzeAuf(neueWelt, [kanonisch]);
-  const aufgeloest = new Map(aufloesung.teile.map((t) => [t.id, eintragVon(t.prefab, t.x, t.z, t.yaw, t.scale, t.einebnen)]));
+  const aufgeloest = new Map(aufloesung.teile.map((t) => [t.id, eintragVon(t.id, t.prefab, t.x, t.z, t.yaw, t.scale, t.einebnen)]));
   let gleich = 0;
   let abweichend = 0;
   for (const p of uebernommen) {
-    const vorher = eintragVon(p.prefab, p.x, p.z, p.yaw, p.scale, p.einebnen);
+    const vorher = eintragVon(p.id, p.prefab, p.x, p.z, p.yaw, p.scale, p.einebnen);
     if (aufloesung.fehler.length === 0 && aufgeloest.get(p.id) === vorher) gleich += 1;
     else abweichend += 1;
   }

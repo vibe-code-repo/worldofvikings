@@ -11,7 +11,7 @@
     { "id": "npc-1_1_1", "prefab": "NPC_1", "x": 1, "z": 1, "yaw": 0, "npc": { "name": "Test" } },
     { "id": "baum_100", "prefab": "BirkeHoch1", "x": 100, "z": 100, "yaw": 2 },
     { "id": "voelva_2", "prefab": "Voelva", "x": 2, "z": -2, "yaw": 0.3218 },
-    { "id": "u-zaun_4_5", "prefab": "U_Zaun", "x": -4.1234567, "z": 5, "yaw": 3.4208453 }
+    { "id": "u-zaun_4_5", "prefab": "U_Zaun", "x": -4.123, "z": 5, "yaw": 3.4208453 }
   ],
   "routes": []
 }

@@ -250,6 +250,7 @@ export const TEXT_AUSNAHMEN: readonly { datei: string; grund: string }[] = [
   { datei: 'tools/dungeon2-e2e.mjs', grund: 'nennt den Pfad nur in einem erzeugten Import (Pfad als Daten), liest die Datei nicht' },
   { datei: 'scripts/pruefe-groessen.mjs', grund: 'nennt den Pfad als Eintrag der Liste FREI_ERLAUBT (Daten), liest die Datei nur zum Zeilenzählen' },
   { datei: 'server/test/i1t-beute-waffe.ts', grund: 'nennt den Pfad server/src/WovServer.ts als Konstante seines Scanners (CLASS_FILE); liest Deklarationen und Importe aller Dateien unter server/src am Syntaxbaum, kein Muster an einen Block gebunden' },
+  { datei: 'tools/verschiebung/pruefstand/echt.ts', grund: 'nennt den Pfad als Konstante WOV (Daten): die Probe holt Alt- und Neustand der Datei aus Git und ändert sie als Fälschung, prüft keinen Block von WovServer.ts auf ein Muster' },
 ];
 
 /**
@@ -261,6 +262,7 @@ export const FEHLTREFFER: readonly { name: string; datei: string; grund: string 
   { name: 'zeigeTreffer', datei: 'client/test/tod-treffer-avatar.ts', grund: 'AvatarRig.zeigeTreffer (Client), nicht das Serverfeld gleichen Namens' },
   { name: 'onPacket', datei: 'server/test/i1-form-k.ts', grund: 'Name, unter dem das Mitglied im Syntaxbaum der Klasse gesucht wird (Text, kein Zugriff zur Laufzeit)' },
   { name: 'handleParry', datei: 'tools/test/i1-verschiebung.ts', grund: 'Fixture-Name des Verschiebebeweis-Selbsttests, keine Server-Nutzung' },
+  { name: 'geklemmteEintraege', datei: 'tools/verschiebung/pruefstand/echt.ts', grund: 'Name in der Namensliste der Echt-Probe des Verschiebebeweises (Zeichenkette), keine Server-Nutzung' },
 ];
 
 // ── Syntaxbaum von WovServer.ts ──────────────────────────────────────────────────────────────

@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "alt": "git:de09eeb2",
+  "neu": "git:b4dad1d0",
+  "quelle": "client/src/entities/EntityManager.ts",
+  "ziele": [
+    {
+      "datei": "client/src/entities/konstanten.ts",
+      "woertlich": [
+        "DYNAMIC_FLAGS",
+        "f32",
+        "COLLIDER_RANGE",
+        "REBUILD_BUDGET_MS",
+        "SCHWUNG_RESERVE_M",
+        "COLLIDER_REBUILD_STEP",
+        "VEGETATIONS_NEUPACK_M",
+        "vegetationsMatrizenImRadius",
+        "SHOW_COLLIDERS",
+        "INDEX_ZELLE_M",
+        "zellenSchluessel",
+        "RENDER_ZELLE_M",
+        "ZELL_MAX_INSTANZEN",
+        "ZELL_SCHNITT_AB",
+        "SPRITE_NEUPACK_M",
+        "ZELL_POOL_DECKEL"
+      ]
+    },
+    {
+      "datei": "client/src/entities/typen.ts",
+      "woertlich": [
+        "StatischeInstanz",
+        "IndexEintrag",
+        "bucketSchluessel",
+        "leseSteinKitOverride",
+        "StaticBucket",
+        "DynamischeInstanz",
+        "Vector3Like",
+        "DynamicEntity"
+      ]
+    },
+    {
+      "datei": "client/src/entities/lod.ts",
+      "woertlich": [
+        "GANG_NICK_TMP",
+        "ANIMATIONS_LOD_MIN_RADIUS_M",
+        "LOD_MITTE_TMP",
+        "berechneLodHuelle",
+        "istKugelImSichtkegel",
+        "huellkoerperAufweiten",
+        "RESERVE_MIN_TMP",
+        "RESERVE_MAX_TMP"
+      ]
+    },
+    {
+      "datei": "client/src/entities/toenung.ts",
+      "woertlich": [
+        "INSTANZ_TOENUNG_AN",
+        "TOENUNG_LUMA",
+        "TOENUNG_TON",
+        "toenungsRauschen",
+        "instanzToenung",
+        "darfGetoentWerden",
+        "TOENUNGS_PUFFER",
+        "schreibeToenung"
+      ]
+    },
+    {
+      "datei": "client/src/entities/zellMesh.ts",
+      "woertlich": [
+        "netzAusMastern",
+        "schreibeInstanzen",
+        "MODELL_HOEHE",
+        "merkeModellHoehe",
+        "groessteInstanzSkala",
+        "gemesseneModellHoehe",
+        "alsOrtsfestEinfrieren",
+        "ZELL_GEOMETRIE",
+        "zellMeshAusPrototyp"
+      ]
+    },
+    {
+      "datei": "client/src/entities/zdoMatrix.ts",
+      "woertlich": [
+        "composeZdoWorld"
+      ]
+    },
+    {
+      "datei": "client/src/entities/platzhalter.ts",
+      "woertlich": [
+        "platzhalterMaterialien",
+        "makePlaceholder"
+      ]
+    }
+  ],
+  "einstiege": [
+    "client/src/main.ts"
+  ],
+  "freigaben": [
+    {
+      "schluessel": "laden:DYNAMIC_FLAGS",
+      "begruendung": "Bitwise OR of five members of the enum PrefabFlag of @wov/shared. @wov/shared is evaluated before konstanten.ts in both states (rule B10, entry client/src/main.ts: same order); the result is a number that is computed once."
+    },
+    {
+      "schluessel": "laden:f32",
+      "begruendung": "Reads Math.fround, a built-in function of the language, as a reference. No call, no state."
+    },
+    {
+      "schluessel": "laden:SHOW_COLLIDERS",
+      "begruendung": "Reads the address of the PAGE (location.search) once while loading, not the address of the file. Between the old and the new moment of evaluation only the six other new modules are evaluated, and none of them touches location (attack report of N1, section 5)."
+    },
+    {
+      "schluessel": "laden:ZELL_SCHNITT_AB",
+      "begruendung": "Reads Number.MAX_SAFE_INTEGER, a constant of the language."
+    },
+    {
+      "schluessel": "laden:GANG_NICK_TMP",
+      "begruendung": "Creates one empty Quaternion as a reused work object; the constructor only stores numbers. @babylonjs/core/Maths/math.vector is evaluated before the module in both states, and no statement of the rest that acts while loading ran before the declaration in the old state."
+    },
+    {
+      "schluessel": "laden:LOD_MITTE_TMP",
+      "begruendung": "Creates one empty Vector3 as a reused work object; the constructor only stores numbers. @babylonjs/core/Maths/math.vector is evaluated before the module in both states, and no statement of the rest that acts while loading ran before the declaration in the old state."
+    },
+    {
+      "schluessel": "laden:RESERVE_MIN_TMP",
+      "begruendung": "Creates one empty Vector3 as a reused work object; the constructor only stores numbers. @babylonjs/core/Maths/math.vector is evaluated before the module in both states, and no statement of the rest that acts while loading ran before the declaration in the old state."
+    },
+    {
+      "schluessel": "laden:RESERVE_MAX_TMP",
+      "begruendung": "Creates one empty Vector3 as a reused work object; the constructor only stores numbers. @babylonjs/core/Maths/math.vector is evaluated before the module in both states, and no statement of the rest that acts while loading ran before the declaration in the old state."
+    },
+    {
+      "schluessel": "laden:TOENUNGS_PUFFER",
+      "begruendung": "Creates one empty WeakMap, a built-in of the language. Nothing reads or fills the map while modules load; no statement of the rest that acts while loading ran before the declaration in the old state."
+    },
+    {
+      "schluessel": "laden:MODELL_HOEHE",
+      "begruendung": "Creates one empty WeakMap, a built-in of the language. Nothing reads or fills the map while modules load; no statement of the rest that acts while loading ran before the declaration in the old state."
+    },
+    {
+      "schluessel": "laden:ZELL_GEOMETRIE",
+      "begruendung": "Creates one empty WeakMap, a built-in of the language. Nothing reads or fills the map while modules load; no statement of the rest that acts while loading ran before the declaration in the old state."
+    },
+    {
+      "schluessel": "laden:platzhalterMaterialien",
+      "begruendung": "Creates one empty WeakMap. In the old state it stood behind the class EntityManager, now it is created before the class is defined. The class has no static member, no static block and no decorator, so defining it reads nothing; the map is only read inside makePlaceholder, which runs when it is called."
+    }
+  ]
+}

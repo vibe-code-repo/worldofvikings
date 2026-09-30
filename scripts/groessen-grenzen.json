@@ -1,6 +1,6 @@
 {
   "admin/src/main.ts": {"frei": true, "hoechstens": 2900},
-  "client/src/editor/GegenstandsKatalog.ts": {"frei": true, "hoechstens": 4150},
+  "client/src/editor/GegenstandsKatalog.ts": 3800,
   "client/src/editor/editorMain.ts": 5150,
   "client/src/engine/AssetManager.ts": 2000,
   "client/src/engine/GrassClutter.ts": 1900,

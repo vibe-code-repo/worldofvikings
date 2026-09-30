@@ -499,7 +499,7 @@ export default [
   // Dateien darin, wird der Test rot. Begruendung bei der Funktion.
   ['tools', 'test/terrain-schichten.ts', brauchtBodenQuellen()],
   /*
-    Move proof (tools/verschiebung/), four self-tests. Small source texts in memory, no assets,
+    Move proof (tools/verschiebung/), five self-tests. Small source texts in memory, no assets,
     no installed packages: they run in the CI checkout. ~10 s each, aufruf ~20 s.
      - altbestand: the 151 fixtures of the earlier proof tool, transferred, each with the
        expectation it had there and a reason where the result differs.
@@ -508,11 +508,14 @@ export default [
      - nachangriff: the forgeries of both attacks on the earlier tool, each in its smallest form.
      - regeln: every rule bites. For each rule B1 to B13 at least one green and one red fixture,
        and every red fixture names exactly the rules that must report.
+     - typen: `tsc -p tools/verschiebung/tsconfig.json`, because `npm run typecheck` covers the
+       four workspaces and not tools/.
   */
   ['tools/test', 'verschiebung-altbestand.ts'],
   ['tools/test', 'verschiebung-aufruf.ts'],
   ['tools/test', 'verschiebung-nachangriff.ts'],
   ['tools/test', 'verschiebung-regeln.ts'],
+  ['tools/test', 'verschiebung-typen.ts'],
   ['tools', 'test/vorschau-buendeln-typpruefung.ts'],
   // Preview bundle stays untracked; the update script's dirty-tree warning is run for real,
   // and the tracked appearance.json is checked against its generator.

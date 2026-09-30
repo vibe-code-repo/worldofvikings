@@ -92,7 +92,20 @@ function baue(verbindeFn?: () => void, aufgegeben?: () => void) {
     }
     jetzt = ziel;
   };
-  return { s, log, laufe, offeneTimer: () => geplant.length };
+  /** Nur die Uhr laeuft, kein Timer feuert (eingefrorener oder gedrosselter Tab). */
+  const friere = (ms: number): void => { jetzt += ms; };
+  /** Alle inzwischen faelligen Timer feuern (der Tab kommt zurueck). */
+  const taue = (): number => {
+    let n = 0;
+    for (;;) {
+      geplant.sort((a, b) => a.ab - b.ab);
+      const f = geplant[0];
+      if (!f || f.ab > jetzt) break;
+      geplant.shift(); n++; f.fn();
+    }
+    return n;
+  };
+  return { s, log, laufe, friere, taue, offeneTimer: () => geplant.length };
 }
 
 {
@@ -313,6 +326,42 @@ function baue(verbindeFn?: () => void, aufgegeben?: () => void) {
   pruefe(log.verbinde === 0, 'Haertung: der alte 1-s-Zaehler feuert nicht (kein Versuch nach 1 s)');
   laufe(1000);
   pruefe(log.verbinde === 1, `Haertung: genau ein Versuch nach 2 s (${log.verbinde})`);
+}
+
+
+// ── 8. Nachbesserung N3 (Nachpruefung B1/B3): Haltezeit nach der Uhr, nicht nur nach dem Timer ──
+{
+  // B1: Tab eingefroren: PeerInfo, 30 min nur Uhr, close kommt VOR dem nachgeholten Haltetimer.
+  const { s, log, friere, taue } = baue();
+  s.beiGetrennt(''); // Versuch 1
+  pruefe(s.anzahlVersuche === 1, 'B1: Serie mit 1 Versuch');
+  s.beiAngenommen();
+  friere(30 * 60_000);
+  const r = s.beiGetrennt('');
+  pruefe(r === true, `B1: 30 min gehalten (Timer eingefroren): Trennung verbindet neu statt aufzugeben (${r})`);
+  pruefe(s.anzahlVersuche === 1 && log.texte.at(-1) === 'netz.verloren.versuch|1|1', `B1: neue Serie, Backoff wieder 1 s (${log.texte.at(-1)})`);
+  pruefe(taue() >= 0 && s.anzahlVersuche === 1, 'B1: der nachgeholte Haltetimer setzt nichts mehr zurueck');
+}
+{
+  // B3: Drosselung: Serie 9 min 20 s alt, PeerInfo, Haltetimer kommt zu spaet, close davor.
+  const { s, log, laufe, friere, taue } = baue();
+  s.beiGetrennt(''); laufe(1000); s.beiVerbunden(); // Versuch 1
+  s.beiGetrennt(''); // Versuch 2, Zaehler 2 s
+  friere(9 * 60_000 + 15_000); // Uhr springt, Timer gedrosselt
+  taue();
+  pruefe(log.verbinde === 2, `B3: Versuch 2 ausgeloest (${log.verbinde})`);
+  s.beiVerbunden(); s.beiAngenommen();
+  friere(55_000);
+  const r = s.beiGetrennt('');
+  pruefe(r === true, `B3: 55 s gehaltene Verbindung fuehrt nicht zur Aufgabe, obwohl die Serie 10:11 alt ist (${r})`);
+  pruefe(s.anzahlVersuche === 1, `B3: neue Serie (Versuche ${s.anzahlVersuche})`);
+}
+{
+  // Grenze: 9,999 s nach der Uhr gehalten (Timer eingefroren) zaehlt NICHT als gehalten.
+  const { s, friere } = baue();
+  s.beiGetrennt(''); s.beiGetrennt(''); s.beiAngenommen();
+  friere(HALTEZEIT_MS - 1);
+  pruefe(s.beiGetrennt('') === true && s.anzahlVersuche === 3, `B1-Grenze: 9,999 s nach der Uhr: Serie laeuft weiter (Versuch ${s.anzahlVersuche})`);
 }
 
 if (fehler) {

@@ -103,6 +103,8 @@ export class WiederverbindenSteuerung {
   private timer: unknown = null;
   /** Wartet nach `PeerInfo` die Haltezeit ab, erst dann ist die Serie zurueckgesetzt. */
   private haltTimer: unknown = null;
+  /** Uhrzeit der Annahme (`PeerInfo`): die Haltezeit gilt nach der Uhr, auch wenn der Timer (Tab eingefroren) zu spaet kommt. */
+  private angenommenAb: number | null = null;
   private readonly jetzt: () => number;
   private readonly setzeTimer: (fn: () => void, ms: number) => unknown;
   private readonly loescheTimer: (handle: unknown) => void;
@@ -130,6 +132,10 @@ export class WiederverbindenSteuerung {
    */
   beiGetrennt(reason: string | undefined): boolean {
     this.stoppeHaltTimer(); // nicht lange genug gehalten: die Serie laeuft weiter, der Backoff waechst
+    // Nach der Uhr lange genug gehalten, der Haltetimer aber nicht rechtzeitig gelaufen (eingefrorener
+    // oder gedrosselter Tab): die Serie gilt als erledigt, wie beim Haltetimer (Nachpruefung B1/B3).
+    if (this.angenommenAb !== null && this.jetzt() - this.angenommenAb >= HALTEZEIT_MS) this.versuche = 0;
+    this.angenommenAb = null;
     if (this.versuche === 0) this.start = this.jetzt();
     const e = naechsterVersuch(reason, this.versuche, this.jetzt() - this.start, this.ansageMs);
     if (e.aufgeben) {
@@ -160,6 +166,7 @@ export class WiederverbindenSteuerung {
    */
   beiAngenommen(): void {
     this.stoppeHaltTimer();
+    this.angenommenAb = this.jetzt();
     if (this.timer !== null) this.loescheTimer(this.timer);
     this.timer = null;
     const warGetrennt = this.versuche > 0 || this.ansageMs > 0;
@@ -171,6 +178,7 @@ export class WiederverbindenSteuerung {
     if (this.versuche > 0) {
       this.haltTimer = this.setzeTimer(() => {
         this.haltTimer = null;
+        this.angenommenAb = null;
         this.versuche = 0;
       }, HALTEZEIT_MS);
     }
@@ -207,6 +215,7 @@ export class WiederverbindenSteuerung {
 
   private beende(): void {
     this.stoppeHaltTimer();
+    this.angenommenAb = null;
     if (this.timer !== null) this.loescheTimer(this.timer);
     this.timer = null;
     const warGetrennt = this.versuche > 0 || this.ansageMs > 0;

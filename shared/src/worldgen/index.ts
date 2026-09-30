@@ -16,3 +16,4 @@ export * from './terrainRampen.js';
 export * from './felsRauschen.js';
 export * from './bodenKacheln.js';
 export * from './bodenMischung.js';
+export * from './waldDichte.js';

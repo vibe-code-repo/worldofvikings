@@ -370,6 +370,15 @@ export default [
   */
   ['client', 'test/instanz-toenung.ts'],
   ['client/test', 'ironward.ts'],
+  // Item tooltip DOM path with a fake DOM, no innerHTML by syntax tree, comparison rule (N1 of the attack).
+  // Item tooltip with data items (#152): data text in de/en, level and rarity from the entry, fallback without values.
+  ['client', 'test/item-tooltip-daten.ts'],
+  ['client', 'test/item-tooltip-dom.ts'],
+  // Item tooltip: the five windows hide an open tooltip when they rebuild their cells (real panels, fake DOM).
+  ['client', 'test/item-tooltip-panels.ts'],
+  // Item-Tooltip (2026-09-29): Tooltip-Inhalt de/en mit den echten Katalogen und
+  // Vergleich mit dem Getragenen (rein). Keine Assets noetig.
+  ['client', 'test/item-tooltip.ts'],
   /*
     Kampftoene (client/src/engine/Audio/KampfToene.ts): Schwung zum
     Hiebzeitpunkt, Treffer/Parade nur mit HitEffect, Faust ohne Schwung,
@@ -694,6 +703,10 @@ export default [
   // (0 = voll), den eingeschlossenen Rand und die X/Z-Distanz ab.
   ['client', 'test/vegetations-grenze.ts'],
   ['client', 'test/village-biome.ts'],
+  // Waldambiente (2026-09-29): Walddichte gegen die echte Streuung der dev.json
+  // (Korrelation, Drift-Waechter, ~40 s) und Lautstaerke-Regeln der Schleifen
+  // (Dichte, Glaettung, Tag/Nacht, Aus-Faelle, Regler). Rein, keine Assets noetig.
+  ['client', 'test/wald-ambiente.ts'],
   ['client', 'test/wasser-farben.ts'],
   // Der Wasser-Refraktionspass darf gestreute Vegetation nicht anhand der
   // weltweiten Thin-Instance-Hülle als "eingetaucht" einstufen. Auf der

@@ -17,9 +17,10 @@
 import WebSocket from 'ws';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { execFileSync } from 'child_process';
+import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 import { join } from 'path';
 import { leseServerKonfig } from '../src/ServerKonfig.js';
 import {
@@ -36,7 +37,13 @@ import {
 } from '@wov/shared';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
-import { WetterDienst, fuehreWetterBefehlAus, type WetterEmpfaenger } from '../src/spiel/Wetter.js';
+import {
+  WELTZEIT_MAX,
+  WetterDienst,
+  fuehreWetterBefehlAus,
+  pruefeGeladeneWeltzeit,
+  type WetterEmpfaenger,
+} from '../src/spiel/Wetter.js';
 import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
@@ -351,7 +358,7 @@ function teilA(): void {
       'const p = pruefeWetterDefinitionen(d);',
       'const w = new WetterWuerfel(p.defs);',
       'const out = {};',
-      "for (const [k, t] of [['plusInf', Infinity], ['minusInf', -Infinity], ['nan', NaN]]) {",
+      "for (const [k, t] of [['plusInf', Infinity], ['minusInf', -Infinity], ['nan', NaN], ['gross', 1e15]]) {",
       "  try { out[k] = !!w.wetterFuer(Biome.Meadows, t).umgebung; } catch (e) { out[k] = 'Fehler: ' + e.message; }",
       '}',
       "console.log('ERGEBNIS ' + JSON.stringify(out));",
@@ -369,12 +376,12 @@ function teilA(): void {
           stdio: ['ignore', 'pipe', 'pipe'],
         },
       );
-      ok = antwort.includes('ERGEBNIS {"plusInf":true,"minusInf":true,"nan":true}');
+      ok = antwort.includes('ERGEBNIS {"plusInf":true,"minusInf":true,"nan":true,"gross":true}');
     } catch (e) {
       antwort = `Prozess gescheitert oder Zeitgrenze (20 s): ${String((e as Error).message).slice(0, 120)}`;
     }
     check(
-      'Weltzeit +Infinity, -Infinity, NaN mit Dauer 2-4: Antwort ohne Fehler und ohne Heap-Überlauf (20 s, 200 MB)',
+      'Weltzeit +Infinity, -Infinity, NaN, 1e15 mit Dauer 2-4: Antwort ohne Fehler und ohne Heap-Überlauf (20 s, 200 MB)',
       ok,
       antwort.trim().slice(0, 160),
     );
@@ -873,10 +880,114 @@ async function teilB(): Promise<void> {
   }
 }
 
+// ════════════════════════════════ Teil C ════════════════════════════════
+/** N3 (Kurzprüfung #178): Die Weltzeit aus der Speicherdatei wird geprüft, bevor Wetterdienst und Würfel sie sehen. */
+async function teilC(): Promise<void> {
+  console.log('\n[C] Geladene Weltzeit aus der Speicherdatei');
+  const u = pruefeGeladeneWeltzeit;
+  check(
+    'reine Funktion: Infinity, -Infinity, NaN, null, Text, -5, 1e15, WELTZEIT_MAX+1 gelten nicht',
+    [Infinity, -Infinity, NaN, null, 'abc', -5, 1e15, WELTZEIT_MAX + 1].every(
+      (x) => u(x, 900).wert === 900 && !!u(x, 900).warnung,
+    ),
+  );
+  check(
+    'reine Funktion: 0, 900, 1e9 und WELTZEIT_MAX bleiben unverändert, ohne Warnung',
+    [0, 900, 1e9, WELTZEIT_MAX].every((x) => u(x, 7).wert === x && u(x, 7).warnung === undefined),
+  );
+  const dir = resolve(TMP, 'weltzeit');
+  const faelle: [string, string][] = [
+    ['Infinity (1e400 in der Datei)', '1e400'],
+    ['-Infinity (-1e400)', '-1e400'],
+    ['NaN (JSON kennt es nicht, es steht als null)', 'null'],
+    ['-5', '-5'],
+    ['1e15', '1e15'],
+    ['Text', '"abc"'],
+  ];
+  for (const [name, wert] of faelle) {
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    const bau = () =>
+      createWovServer({
+        port: 0, // nie gebunden (nur init(), kein start())
+        worldName: 'world',
+        worldSeed: 'KxSYuZquuw',
+        worldFeatures: false,
+        worldVegetation: false,
+        worldCreatures: false,
+        dungeonsEnabled: false,
+        worldsDir: dir,
+        kontenDir: resolve(dir, 'konten'),
+      });
+    const a = bau();
+    a.init();
+    a.saveWorld();
+    const datei = resolve(dir, 'world.db.zst');
+    const json = zstdDecompressSync(readFileSync(datei)).toString('utf-8');
+    const neu = json.replace(/"worldTime":[^,}]+/, `"worldTime":${wert}`);
+    if (neu === json) throw new Error('worldTime in der Speicherdatei nicht gefunden');
+    writeFileSync(datei, zstdCompressSync(neu));
+    const warnungen: string[] = [];
+    const alt = console.warn;
+    console.warn = (...x: unknown[]): void => void warnungen.push(x.map(String).join(' '));
+    const b = bau();
+    try {
+      b.init();
+    } finally {
+      console.warn = alt;
+    }
+    const t = b.worldTime;
+    check(
+      `Speicherdatei mit worldTime ${name}: der Server setzt einen gültigen Wert`,
+      Number.isFinite(t) && t >= 0 && t <= WELTZEIT_MAX,
+      String(t),
+    );
+    check(
+      `… mit Warnzeile`,
+      warnungen.some((w) => w.includes('Weltzeit')),
+      warnungen.find((w) => w.includes('Weltzeit')) ?? 'keine',
+    );
+    let fehler = '';
+    let pakete = 0;
+    try {
+      const dienst = new WetterDienst(
+        new WetterWuerfel(),
+        { umgebung: WETTER_AUTOMATISCH, nebelDichte: -1 },
+        () => Biome.Meadows,
+        'haupt',
+      );
+      dienst.sendeAn(
+        {
+          position: { x: 0, y: 0, z: 0 },
+          worldId: 'haupt',
+          dungeonId: null,
+          nurEditor: false,
+          authenticated: true,
+          sendPacketWith: (_t, fn) => {
+            const wr = new Writer();
+            fn(wr);
+            pakete++;
+          },
+        },
+        t,
+      );
+    } catch (e) {
+      fehler = String(e);
+    }
+    check(
+      `… der WetterDienst baut damit ein Paket ohne Ausnahme`,
+      fehler === '' && pakete === 1,
+      fehler || `${pakete} Paket`,
+    );
+  }
+  rmSync(dir, { recursive: true, force: true });
+}
+
 async function main(): Promise<void> {
   try {
     teilA();
     await teilB();
+    await teilC();
   } finally {
     rmSync(TMP, { recursive: true, force: true });
   }

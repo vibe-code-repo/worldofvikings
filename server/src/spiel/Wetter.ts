@@ -185,3 +185,22 @@ export function fuehreWetterBefehlAus(
   dienst.setze(zustand, biom);
   return { ok: true, active: false, message: `Wetter ${biom ?? 'überall'}: ${zustand}` };
 }
+
+/**
+ * Obergrenze der geladenen Weltzeit: 1e10 s (317 Jahre, Fenster 1,5e7 — weit unter der Int32-Grenze des Pakets
+ * `WetterZustand` bei 1,4e12 s). Mehr erreicht kein echter Spielstand: Die Weltzeit läuft mit Faktor 1.
+ */
+export const WELTZEIT_MAX = 1e10;
+
+/**
+ * Prüft die `worldTime` aus einer Speicherdatei. Nicht endlich (±Infinity, NaN, null, Text), negativ oder über
+ * `WELTZEIT_MAX` gilt `vorgabe`, dazu ein Warntext. Sonst kam ±Infinity bis zum `writeInt32` des Wetterpakets
+ * (RangeError im Sekundentakt) und 1e15 füllte die Laufliste des Würfels.
+ */
+export function pruefeGeladeneWeltzeit(roh: unknown, vorgabe: number): { wert: number; warnung?: string } {
+  if (typeof roh === 'number' && Number.isFinite(roh) && roh >= 0 && roh <= WELTZEIT_MAX) return { wert: roh };
+  return {
+    wert: vorgabe,
+    warnung: `Gespeicherte Weltzeit ${String(roh)} unbrauchbar (erlaubt: 0 bis ${WELTZEIT_MAX}) — es gilt ${vorgabe}`,
+  };
+}

@@ -106,7 +106,7 @@ import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/Worl
 import { SpielerSicherung, SPIELER_SICHERUNG_INTERVALL_MS, neuerAls } from './spiel/SpielerSicherung.js';
 import { WeltZdoSicherung, ueberlagern as weltZdoUeberlagern } from './spiel/WeltZdoSicherung.js';
 import { Stempel } from './spiel/Stempel.js';
-import { WetterDienst, fuehreWetterBefehlAus } from './spiel/Wetter.js';
+import { WetterDienst, fuehreWetterBefehlAus, pruefeGeladeneWeltzeit } from './spiel/Wetter.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
@@ -6443,7 +6443,9 @@ export class WovServer {
       return;
     }
 
-    this.worldTime = data.worldTime;
+    const weltzeit = pruefeGeladeneWeltzeit(data.worldTime, TIME_DAY);
+    if (weltzeit.warnung) console.warn(`[WoV] ${weltzeit.warnung}`);
+    this.worldTime = weltzeit.wert;
     this.zones.restoreGeneratedZones(data.zones);
     // Spieler-Terraforming VOR den ZDOs herstellen (Vegetations-Nachsetzen
     // unten misst gegen den fertigen Boden).

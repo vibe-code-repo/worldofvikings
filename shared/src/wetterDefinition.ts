@@ -70,6 +70,14 @@ export interface WetterDefinitionen {
   biome: WetterBiom[];
 }
 
+/**
+ * Bis zu diesem Fenster baut `WetterWuerfel` die Laufliste für Dauern > 1 auf; darüber zieht jedes Fenster
+ * seinen eigenen Lauf (sicherer Pfad, ohne Liste). Gemessen (Ersatzdatei 2–4): 1.000.000 Fenster = 72 ms und
+ * +13 MB Heap, 4.000.000 = 303 ms und +41 MB, 1e12 = Heap voll. 1.000.000 Fenster sind 666.000.000 s Weltzeit
+ * (21 Jahre); für alle Zeiten darunter bleibt das Ergebnis bitgleich zum Stand vor der Grenze.
+ */
+export const WETTER_LAUF_FENSTER_MAX = 1_000_000;
+
 /** Obergrenze für `fensterMax`: 1000 Fenster sind rund 7,7 Tage Weltzeit am Stück. */
 export const WETTER_FENSTER_MAX = 1000;
 
@@ -284,7 +292,7 @@ export class WetterWuerfel {
   private laufBei(bit: Biome, eintraege: readonly WetterEintrag[], n: number): Lauf {
     // Läufe beginnen bei Fenster 0; vor der Weltzeit 0 gibt es keine, jedes Fenster ist ein eigener Lauf.
     // Dasselbe für nicht endliche Zeiten (±Infinity, NaN): Die Schleife unten käme nie ans Ende bzw. rechnet mit NaN.
-    if (!Number.isFinite(n) || n < 0 || eintraege.every((e) => e.fensterMin === 1 && e.fensterMax === 1)) return this.zieheLauf(eintraege, n);
+    if (!Number.isFinite(n) || n < 0 || n > WETTER_LAUF_FENSTER_MAX || eintraege.every((e) => e.fensterMin === 1 && e.fensterMax === 1)) return this.zieheLauf(eintraege, n);
     let liste = this.laeufe.get(bit);
     if (!liste) this.laeufe.set(bit, (liste = []));
     let naechster = liste.length > 0 ? liste[liste.length - 1].start + liste[liste.length - 1].laenge : 0;

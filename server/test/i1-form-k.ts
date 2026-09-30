@@ -28,6 +28,9 @@
  *     up to the `{`, nothing added such as a decorator or a default value), whose body is the ONE statement
  *     `return <name>(this, <parameters in order>);`; the function is imported under its own name (no `as`) from its
  *     module, the name is bound nowhere else at module level; `onPacket` still calls `this.<name>(peer, reader)`.
+ *     Gaps of the first version, closed after the attack on step 2 (I12-B3): `k?.x` is no receiver, `k` and `this` may not stand in a default
+ *     value of a parameter, `SpielKontext` must be the one from `./Kontext.js` (`import type`, own name), the forwarding carries no comment
+ *     (before it or inside it), and an index signature of the class counts as a public member.
  *  6. The list of the NON-PRIVATE members of `WovServer` (fields, methods, parameter properties of the constructor) is
  *     frozen. Every step that needs a private member in its context relaxes it to public, and that widens the surface of
  *     the class for good; here the step says so, in `PUBLIC_MEMBERS`. A relaxation that is not listed turns this red.
@@ -258,10 +261,13 @@ function pruefeModul(spec: ModulSpec, text: string): string[] {
         if (declariert) f.push(`line ${line(n)}: ${fn.name?.text} declares a second \`k\`, the context is shadowed`);
         else if (ts.isPropertyAccessExpression(par) && par.name === n) {
           /* `x.k`: a member called k, not the context */
+        } else if (ts.isPropertyAccessExpression(par) && par.expression === n && par.questionDotToken !== undefined) {
+          f.push(`line ${line(n)}: ${fn.name?.text} reads \`k?.${par.name.getText(sf)}\`: the context is never missing, an optional chain would hide a missing member`);
         } else if (!(ts.isPropertyAccessExpression(par) && par.expression === n)) f.push(`line ${line(n)}: ${fn.name?.text} uses \`k\` as a value (${par.getText(sf).slice(0, 40)}): only \`k.<member>\` is allowed`);
       }
       ts.forEachChild(n, gehe);
     };
+    for (const par of fn.parameters) gehe(par); // default values and types of the parameters: no `this`, `k` only as a receiver
     if (fn.body) gehe(fn.body);
   }
   // 3. the context type and the members read
@@ -289,6 +295,13 @@ function pruefeModul(spec: ModulSpec, text: string): string[] {
     if (fn.body) gehe(fn.body);
   }
   if (!same([...gelesen].sort(), [...spec.mitglieder].sort())) f.push(`the members read as k.<member> are [${[...gelesen].sort()}], the context lists [${[...spec.mitglieder].sort()}]: none in reserve, none missing`);
+  // the context type is `SpielKontext` from `./Kontext.js`, imported as `import type { SpielKontext }` under its own name: a look-alike from another file could be `any`
+  {
+    const importe = sf.statements.filter((x): x is ts.ImportDeclaration => ts.isImportDeclaration(x) && !!x.importClause?.namedBindings && ts.isNamedImports(x.importClause.namedBindings) && x.importClause.namedBindings.elements.some((e) => e.name.text === 'SpielKontext'));
+    const el = importe[0]?.importClause?.namedBindings;
+    const ok = importe.length === 1 && importe[0]!.importClause!.isTypeOnly && ts.isStringLiteral(importe[0]!.moduleSpecifier) && importe[0]!.moduleSpecifier.text === './Kontext.js' && !!el && ts.isNamedImports(el) && el.elements.length === 1 && el.elements[0]!.propertyName === undefined;
+    if (!ok) f.push('`SpielKontext` must come from `import type { SpielKontext } from \'./Kontext.js\'`, one import, under its own name');
+  }
   // 4. the value imports
   if (!same(wertSpezifizierer, spec.wertImporte)) f.push(`the value imports are [${wertSpezifizierer}], expected exactly [${spec.wertImporte}] (an \`import { type X }\` counts as a value import)`);
   return f;
@@ -332,6 +345,14 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       const body = m.body;
       const kopf = body ? text.slice(m.getStart(sf), body.getStart(sf)).trim() : '';
       if (kopf !== fn.kopf) f.push(`${fn.name}: head of the forwarding is "${kopf}", frozen "${fn.kopf}"`);
+      // no comment at the forwarding (rule 4.5): before it only blank space or a section line that stood there; inside it nothing but the one statement
+      const davor = text.slice(m.getFullStart(), m.getStart(sf)).split('\n').map((z) => z.trim()).filter((z) => z !== '' && !/^\/\/ ── .* ─+$/.test(z));
+      if (davor.length > 0) f.push(`${fn.name}: a comment at the forwarding (${davor[0]!.slice(0, 40)}): the forwarding carries none`);
+      if (body) {
+        const gesamt = text.slice(m.getStart(sf), m.getEnd()).replace(/\s+/g, ' ');
+        const erwartet = `${fn.kopf} { return ${fn.name}(this, ${m.parameters.map((p) => p.name.getText(sf)).join(', ')}); }`;
+        if (gesamt !== erwartet) f.push(`${fn.name}: the forwarding reads "${gesamt.slice(0, 120)}", expected "${erwartet}" (a comment or another token inside it)`);
+      }
       if (ts.canHaveDecorators(m) && (ts.getDecorators(m) ?? []).length > 0) f.push(`${fn.name}: a decorator`);
       const st = body?.statements ?? [];
       const r = st[0];
@@ -369,6 +390,7 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       for (const p of m.parameters) if (ts.getModifiers(p)?.length && !hasMod(p, ts.SyntaxKind.PrivateKeyword) && !hasMod(p, ts.SyntaxKind.ProtectedKeyword) && ts.isIdentifier(p.name)) oeff.push(p.name.text);
       continue;
     }
+    if (ts.isIndexSignatureDeclaration(m)) { oeff.push('<index signature>'); continue; } // an index signature opens the class to every name (SpielKontext<\'privatesFeld\'>)
     if (!m.name) continue;
     if (hasMod(m, ts.SyntaxKind.PrivateKeyword) || hasMod(m, ts.SyntaxKind.ProtectedKeyword)) continue;
     oeff.push(ts.isIdentifier(m.name) || ts.isStringLiteral(m.name) ? m.name.text + (hasMod(m, ts.SyntaxKind.StaticKeyword) ? ' (static)' : '') : `<${m.name.getText(sf)}>`);
@@ -445,6 +467,11 @@ console.log('\n[0] Self-test of the checks on invented sources');
     ['import { type X } counts as a value import', gutePakete(gutesModul, MF("import type { Peer } from '../net/Peer.js';", "import { type Peer } from '../net/Peer.js';"))],
     ['a value import of the class file', gutePakete(gutesModul, MF("import type { Peer }", "import { WovServer } from '../WovServer.js';\nimport type { Peer }"))],
     ['a value import missing', gutePakete(gutesModul, MF("import { PacketType } from '@wov/shared';\n", ''), MF('PacketType.Chat', '1'))],
+    ['an optional chain on the context (I12-B3)', gutePakete(gutesModul, MF('  k.a.x(peer, reader, PacketType.Chat);', '  k?.a.x(peer, reader, PacketType.Chat);'))],
+    ['SpielKontext from another file (I12-B3)', gutePakete(gutesModul, MF("from './Kontext.js';", "from '../util/Anders.js';"))],
+    ['SpielKontext imported under another name (I12-B3)', gutePakete(gutesModul, MF("import type { SpielKontext } from './Kontext.js';", "import type { SpielKontext as SK } from './Kontext.js';\nimport type { SpielKontext } from './Anders.js';"))],
+    ['the context in a default value of a parameter (I12-B3)', gutePakete(gutesModul, MF('function fa(k: TestKontext, peer: Peer, reader: Reader): void {', 'function fa(k: TestKontext, peer: Peer, reader: Reader = (k as never as Reader)): void {'))],
+    ['this in a default value of a parameter (I12-B3)', gutePakete(gutesModul, MF('function fa(k: TestKontext, peer: Peer, reader: Reader): void {', 'function fa(k: TestKontext, peer: Peer, reader: Reader = this.r): void {'))],
   ];
   for (const [name, text] of modulFehler) {
     const f = pruefeModul(S, text);
@@ -482,6 +509,8 @@ console.log('\n[0] Self-test of the checks on invented sources');
   const OEFF = ['config', 'net'];
   const gut = gutesGebaeude();
   check('green: the good class', pruefeKlasse([S], gut, OEFF).length === 0, show(pruefeKlasse([S], gut, OEFF)));
+  const mitAbschnitt = gut.replace('\n  private fb(', '\n  // ── Weiterleitungen ─────────────\n  private fb(');
+  check('green: a section line that stood before the forwarding stays allowed', pruefeKlasse([S], mitAbschnitt, OEFF).length === 0, show(pruefeKlasse([S], mitAbschnitt, OEFF)));
   const klassenFehler: [string, string, readonly string[]][] = [
     ['visibility lost', gut.replace('private fa(', 'fa('), OEFF],
     ['visibility gained a modifier', gut.replace('private fb(', 'protected fb('), OEFF],
@@ -509,6 +538,10 @@ console.log('\n[0] Self-test of the checks on invented sources');
     ['a public member made private', gutesGebaeude('', 'private net = 1;'), OEFF],
     ['a parameter property relaxed', gutesGebaeude('', 'readonly net = 1;', 'readonly config: number, readonly geheim: number'), OEFF],
     ['a public method added', gutesGebaeude('  neu(): void {}'), OEFF],
+    ['a doc comment at the forwarding (I12-B3)', gut.replace('  private fa(', '  /** forwarding, see spiel/Test.ts */\n  private fa('), OEFF],
+    ['a line comment at the forwarding (I12-B3)', gut.replace('  private fb(', '  // forwards\n  private fb('), OEFF],
+    ['a comment inside the forwarding (I12-B3)', gut.replace('return fa(this, peer, reader);', 'return fa(this /* the server */, peer, reader);'), OEFF],
+    ['an index signature in the class (I12-B3)', gutesGebaeude('', 'readonly net = 1;\n  [name: string]: unknown;'), OEFF],
     ['a static public member added', gutesGebaeude('  static readonly X = 1;'), OEFF],
   ];
   for (const [name, text, oeff] of klassenFehler) {

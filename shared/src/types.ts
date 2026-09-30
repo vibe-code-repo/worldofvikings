@@ -479,6 +479,14 @@ export enum PacketType {
    * würfelt weiter selbst. Siehe shared/wetterDefinition.ts, server/spiel/Wetter.ts.
    */
   WetterZustand = 87,
+  /**
+   * Server → the attacker only, one per `Attack` that carried the D2 fields: Int32 seq (echo of
+   * the client's), Int32 schritt (combo step the server counted, 0 = refused), Int32 ergebnis
+   * (0 hit, 1 miss, 2 combo refused, 3 cooldown, 4 stamp out of window, 5 stamina).
+   * `Attack` carries them appended after the weapon: Int32 seq, Int32 schritt, Float32 alterMs,
+   * Float32 spitzeMs. An old client sends none and gets no ack; an old server ignores the tail.
+   */
+  AttackAck = 88,
 }
 
 /**

@@ -18,6 +18,7 @@ import { ZDORevision } from '../zdo/ZDO.js';
 import { ZonenFenster } from '../zdo/ZonenFenster.js';
 import { Writer } from '../io/Writer.js';
 import { Reader } from '../io/Reader.js';
+import { neuerSchlagZustand, type SchlagZustand } from '../spiel/Treffer.js';
 import { PacketType } from '@wov/shared';
 import type { WebSocket } from 'ws';
 import { randomBytes } from 'node:crypto';
@@ -265,6 +266,9 @@ export class Peer {
   blickYaw: number | null = null;
   /** Zeitstempel (ms) der Meldung, aus der `blickYaw` stammt. */
   blickYawZeit = 0;
+
+  /** Combo chain and cooldown of the melee swings (D2, spiel/Treffer.ts). */
+  schlag: SchlagZustand = neuerSchlagZustand();
 
   constructor(socket: WebSocket, name: string, userId: bigint) {
     this.socket = socket;

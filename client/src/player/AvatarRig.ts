@@ -72,6 +72,7 @@ import type { Scene } from '@babylonjs/core/scene';
 import { AUSSEHEN_ORDNER, FIGUR_VORGABE, modellDateiZu } from '@wov/shared';
 import { toeneFigurMeshes } from '../engine/FigurToenung.js';
 import { hiebSpitzeS } from './hiebSpitze';
+import { komboRestS } from '../net/Quittung';
 
 /** Körpermaße in Metern (die Figur ist ~1,8 m hoch). */
 const SPIELER_HOEHE = 1.8;
@@ -1455,7 +1456,7 @@ export class AvatarRig {
     // Die Uhr endet UEBERBLEND_AUSSTIEG vor dem Clipende: dann beginnt die
     // Rueckkehr, waehrend der Hieb noch seine letzten Bilder spielt.
     this.angriffRest = Math.max(0.05, this.hiebDauer(clip) - UEBERBLEND_AUSSTIEG);
-    this.komboRest = this.angriffRest + KOMBO_FENSTER;
+    this.komboRest = komboRestS(this.angriffRest, KOMBO_FENSTER);
 
     if (this.aktiv === clip) {
       // ── Schon am Schlagen: SELBST neu anstossen ──────────────────
@@ -1600,6 +1601,11 @@ export class AvatarRig {
    */
   get hiebSpitzeS(): number {
     return this.clipAngriff ? hiebSpitzeS(this.angriffIndex, this.clipAngriff.grp.speedRatio) : NaN;
+  }
+
+  /** The server counted the combo differently (D2 acknowledgement): the next swing starts at blow 1. */
+  kettenEnde(): void {
+    this.komboRest = 0;
   }
 
   /** Laeuft gerade ein Schlag? Fuer HUD und Messzellen. */

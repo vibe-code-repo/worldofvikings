@@ -19,6 +19,8 @@ import { FEATURES } from '../features.js';
 import { SPAWN_TABLE } from '../spawnData.js';
 import { PREFABS_BY_NAME, istEigenesModell } from '../prefabs.js';
 import { istNpcPrefab } from '../npc.js';
+import { rohKennungen } from '../bausatz/aufloesen.js';
+import type { Bausatz } from '../bausatz/types.js';
 import type { PlacementDef, WorldLayout } from './types.js';
 import { gleicherInhalt, zusammengefassteDuplikate } from './platzierungsId.js';
 import { MAX_KANDIDATEN } from './compile.js';
@@ -27,7 +29,7 @@ import { ueberlappungsGruppen, type UeberlappungsGruppe } from './kartenAuswertu
 export interface LayoutBefund {
   /** Regions-ID bzw. 'placements' — wo der Fund liegt. */
   wo: string;
-  art: 'vegetation' | 'location' | 'spawn' | 'placement' | 'route' | 'welt' | 'modell';
+  art: 'vegetation' | 'location' | 'spawn' | 'placement' | 'route' | 'welt' | 'modell' | 'bausatz';
   text: string;
   /**
    * Der eine Eintrag, um den es geht, als Adresse — nur bei Befunden, die GENAU eine Platzierung meinen
@@ -35,7 +37,7 @@ export interface LayoutBefund {
    * damit zum Objekt, statt den Text zu zerlegen. Befunde, die Objekte zählen („kein eigenes Modell: X (n)“)
    * oder ein exaktes Duplikat melden, das schon zusammengelegt ist, tragen keine.
    */
-  ref?: { sammlung: 'placements'; id: string };
+  ref?: { sammlung: 'placements' | 'bausaetze'; id: string };
 }
 
 /** Die Adresse einer Platzierung für einen Befund; ohne `id` (ungeprüftes Dokument) keine. */
@@ -43,7 +45,11 @@ function refVon(p: PlacementDef): Pick<LayoutBefund, 'ref'> {
   return p.id === undefined ? {} : { ref: { sammlung: 'placements', id: p.id } };
 }
 
-export function pruefeLayout(layout: WorldLayout): LayoutBefund[] {
+/**
+ * `bausaetze`: der Katalog der geladenen Bausatz-Dateien (Id → Bausatz). Ohne Katalog entfällt die Bausatz-Prüfung
+ * (der Aufrufer kennt die Dateien nicht, z. B. der Editor im Browser).
+ */
+export function pruefeLayout(layout: WorldLayout, bausaetze?: ReadonlyMap<string, Bausatz>): LayoutBefund[] {
   const befunde: LayoutBefund[] = [];
   const vegNamen = new Set(FOLIAGE.map((f) => f.prefabName));
   const locNamen = new Set(FEATURES.map((f) => f.name));
@@ -116,7 +122,9 @@ export function pruefeLayout(layout: WorldLayout): LayoutBefund[] {
       });
     }
   }
-  befunde.push(...platzierungsBefunde(layout));
+  // appended in loops, never as spread arguments: a spread of ~100 000 findings overflows the call stack
+  for (const b of platzierungsBefunde(layout)) befunde.push(b);
+  if (bausaetze) for (const b of bausatzBefunde(layout, bausaetze)) befunde.push(b);
   for (const [name, anzahl] of fremdeModelle) {
     befunde.push({
       wo: 'placements',
@@ -147,7 +155,7 @@ export function pruefeLayout(layout: WorldLayout): LayoutBefund[] {
       text: 'Kein Startpunkt gesetzt (defaultSpawn oder continent.spawn) — Spawn liegt am Ursprung',
     });
   }
-  befunde.push(...ueberlappungsBefunde(layout));
+  for (const b of ueberlappungsBefunde(layout)) befunde.push(b);
   return befunde;
 }
 
@@ -229,6 +237,76 @@ function platzierungsBefunde(layout: WorldLayout): LayoutBefund[] {
     }
     if (gleiche) gleiche.push(p);
     else nachPrefab.set(p.prefab, [p]);
+  }
+  return befunde;
+}
+
+/** How many orphaned part ids one instance finding names. */
+const VERWAIST_GENANNT = 5;
+
+/**
+ * Befunde zu den Bausatz-Instanzen: ein unbekannter Bausatz (Datei fehlt) und unbekannte Teil-Prefabs sowie Teil-Prefabs ohne eigenes Modell und verwaiste `kennungen`; Prefabs je NAME und Bausatz gezählt (eine Zeile „U_Palisade (51 Teile in startdorf)“, nicht 51 Zeilen). Der Server schont
+ * die Objekte einer unbekannten Instanz; hier steht nur der Hinweis. Ein unbekannter Bausatz ist absichtlich kein
+ * Schreibfehler (422), sonst wäre das Dokument auf einem Rechner ohne die Datei nicht mehr speicherbar.
+ */
+function bausatzBefunde(layout: WorldLayout, katalog: ReadonlyMap<string, Bausatz>): LayoutBefund[] {
+  const befunde: LayoutBefund[] = [];
+  const gezaehlt = new Set<string>();
+  for (const i of layout.bausaetze ?? []) {
+    const ref = { sammlung: 'bausaetze', id: i.id } as const;
+    const bausatz = katalog.get(i.bausatz);
+    if (!bausatz) {
+      befunde.push({ wo: 'bausaetze', art: 'bausatz', text: `unbekannter Bausatz: ${i.bausatz} (Instanz ${i.id})`, ref });
+      continue;
+    }
+    // Eine Adresse für eine Teil-id, die der Bausatz nicht hat, wird nirgends angewendet, bleibt aber stehen und
+    // würde von einem später eingefügten Teil mit dieser id übernommen. Je INSTANZ gemeldet (die Adressen gehören ihr).
+    // Raw (unsanitized) `kennungen` that is no plain object (string, array, null, number, boolean, function, boxed primitive, object with a `Symbol.toStringTag`) counts as no `kennungen`.
+    const kennungen = rohKennungen(i.kennungen);
+    const teilIds = new Set(bausatz.teile.map((t) => t.id));
+    // ONE finding per instance (count, the first few part ids with their addresses), not one per key: a kit that loses
+    // its parts orphans every key of every instance. `art: 'welt'` so the editor shows it as a hint, not an error.
+    const verwaist: string[] = [];
+    let anzahlVerwaist = 0;
+    for (const teilId of Object.keys(kennungen ?? {})) {
+      if (teilIds.has(teilId)) continue;
+      anzahlVerwaist++;
+      if (verwaist.length < VERWAIST_GENANNT) verwaist.push(`${teilId} (Adresse ${String(kennungen![teilId])})`);
+    }
+    if (anzahlVerwaist > 0) {
+      befunde.push({
+        wo: 'bausaetze',
+        art: 'welt',
+        text: `verwaiste Kennungen: Instanz ${i.id}, ${anzahlVerwaist} Teil-id${anzahlVerwaist === 1 ? '' : 's'} nicht im Bausatz ${i.bausatz}: ${verwaist.join(', ')}${anzahlVerwaist > verwaist.length ? ', …' : ''}`,
+        ref,
+      });
+    }
+    // Zwei Instanzen desselben Bausatzes melden dieselben Prefabs nur einmal.
+    if (gezaehlt.has(i.bausatz)) continue;
+    gezaehlt.add(i.bausatz);
+    const fremde = new Map<string, number>();
+    const ohneModell = new Map<string, number>();
+    for (const t of bausatz.teile) {
+      if (!PREFABS_BY_NAME.has(t.prefab)) fremde.set(t.prefab, (fremde.get(t.prefab) ?? 0) + 1);
+      // `else`, wie bei den Platzierungen: Ein Name, den es gar nicht gibt, ist nicht noch zusätzlich „kein eigenes Modell“.
+      else if (!istEigenesModell(t.prefab)) ohneModell.set(t.prefab, (ohneModell.get(t.prefab) ?? 0) + 1);
+    }
+    for (const [name, anzahl] of fremde) {
+      befunde.push({
+        wo: 'bausaetze',
+        art: 'bausatz',
+        text: `unbekanntes Prefab: ${name} (${anzahl} Teil${anzahl === 1 ? '' : 'e'} in ${i.bausatz})`,
+        ref,
+      });
+    }
+    for (const [name, anzahl] of ohneModell) {
+      befunde.push({
+        wo: 'bausaetze',
+        art: 'modell',
+        text: `kein eigenes Modell: ${name} (${anzahl} Teil${anzahl === 1 ? '' : 'e'} in ${i.bausatz})`,
+        ref,
+      });
+    }
   }
   return befunde;
 }

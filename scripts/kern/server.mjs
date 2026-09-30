@@ -138,6 +138,8 @@ export default [
   ['server', 'test/beute-daten.ts'],
   ['server', 'test/bewuchs-freiraum-huellen.ts'],
   ['server', 'test/bewuchs-freiraum.ts'],
+  // D2: server decides hits from geometry and time (hit sphere, swing window, combo ack, cooldown).
+  ['server', 'test/d2-treffer.ts'],
   // G1-Durchsicht (verwaiste Tests, 20.08.2026): init() ohne start() —
   // kein Port, kein Socket. Haelt getGroundHeight(0,0) gegen den
   // D1-verifizierten Wert UND die Fallphysik-Konvergenz fest, damit ein

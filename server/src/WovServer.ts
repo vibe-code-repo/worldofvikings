@@ -3674,6 +3674,8 @@ export class WovServer {
   }
 
   private handleAttack(peer: Peer, reader: Reader): void {
+    // A packet shorter than position + yaw (16 bytes) is dropped silently; reading it would throw and cut the peer off.
+    if (reader.remaining() < 16) return;
     const pos = reader.readVector3();
     if (!this.schlagErlaubt(peer, pos)) return;
     /*

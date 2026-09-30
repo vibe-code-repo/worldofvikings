@@ -44,6 +44,8 @@ export const KETTE_FENSTER_S = 0.6;
 export const KETTE_LAENGE = 3;
 /** Zwei Attack-Pakete naeher als das zaehlen hoechstens einmal (ms). */
 export const DOPPEL_MS = 50;
+/** Clock jitter (ms) allowed when a claimed swing age reaches back into the previous swing's cooldown. */
+export const UEBERLAPP_TOLERANZ_MS = 50;
 /** Abklingzeit (ms) je Waffe; ohne Eintrag gilt die der langsamsten. */
 export const ABKLINGZEIT_LANGSAMSTE_MS = 350;
 export const ABKLINGZEIT_JE_WAFFE_MS: Readonly<Record<string, number>> = {};
@@ -105,6 +107,12 @@ export function pruefeSchlag(z: SchlagZustand, m: SchlagMeldung | null, jetzt: n
     const spitze = Number.isFinite(m.spitzeMs) ? Math.min(Math.max(m.spitzeMs, 0), SPITZE_MAX_MS) : 0;
     // Negative age = a stamp from the future; too old = the window of this swing is over.
     if (!Number.isFinite(m.alterMs) || m.alterMs < 0 || m.alterMs > spitze + SCHLAG_FENSTER_S * 1000) {
+      return { ok: false, ergebnis: SchlagErgebnis.Zeit };
+    }
+    // The age is the client's word. The server checks it against its own clock: a swing cannot have begun before the
+    // previous accepted one was off cooldown. (An age of 0 claims nothing; it gains nothing either, because a hit is
+    // always resolved against the server's state at arrival, never at the claimed time.)
+    if (m.alterMs > 0 && z.letzteZeit > 0 && jetzt - m.alterMs < z.letzteZeit + z.abklingMs - UEBERLAPP_TOLERANZ_MS) {
       return { ok: false, ergebnis: SchlagErgebnis.Zeit };
     }
   }

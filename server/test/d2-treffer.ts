@@ -379,6 +379,43 @@ async function main(): Promise<void> {
       `Zeiten ms: ${dauern.map((d) => d.toFixed(0)).join(', ')}; Mittel ${mittel.toFixed(0)}, Max ${max.toFixed(0)}`
     );
 
+    // ── [11] F3: ein luegender Client (Alter 0) gewinnt nichts ─────
+    console.log('\n[11] F3: Alter 0 gemeldet, der Schlag aber verspaetet — es zaehlt der Zustand des Servers bei Ankunft:');
+    mitte = await neuerPlatz(700, 700);
+    await blicke(ws, YAW_MINUS_Z);
+    frisch();
+    const weg = ziel(vorn(mitte, YAW_MINUS_Z, 1.5));
+    server.zdos.destroyZDO(weg.zdoid); // das Ziel war beim Klick da, bei der Ankunft nicht mehr in Reichweite
+    const wegNeu = ziel(vorn(mitte, YAW_MINUS_Z, 5));
+    q = await schlage(mitte, { alterMs: 0, spitzeMs: 400 });
+    check('verspaeteter Schlag, Alter 0: das inzwischen entfernte Ziel wird nicht getroffen', hp(wegNeu) === 0 && q?.ergebnis === SchlagErgebnis.Fehl, `hp 0 -> ${hp(wegNeu)}; ${zeige(q)}`);
+    server.zdos.destroyZDO(wegNeu.zdoid);
+    frisch();
+    const k1 = await schlage(mitte, { schritt: 1, alterMs: 0 }, 1300);
+    const k2 = await schlage(mitte, { schritt: 2, alterMs: 0 }, 400);
+    check('zweiter Schlag 1,3 s spaeter mit Alter 0 und Schritt 2: der Server zaehlt Schritt 1 (Kette neu)', k1?.schritt === 1 && k2?.schritt === 1, `${zeige(k1)} | ${zeige(k2)}`);
+
+    // ── [12] F6: Kurzpakete trennen den Peer nicht ─────────────────
+    console.log('\n[12] F6: Attack-Pakete mit 0 bis 15 Byte werden still verworfen, der Peer bleibt verbunden:');
+    mitte = await neuerPlatz(800, 800);
+    await blicke(ws, YAW_MINUS_Z);
+    frisch();
+    for (let n = 0; n <= 15; n++) {
+      ws.send(Buffer.concat([Buffer.from([P.Attack]), Buffer.alloc(n, 0x01)]));
+      await warte(60);
+    }
+    await warte(300);
+    check(
+      'nach 16 Kurzpaketen (0..15 Byte): Verbindung offen, Peer noch beim Server',
+      ws.readyState === WebSocket.OPEN && server.net.getPeers().some((p) => p.name === 'Schlaeger'),
+      `readyState ${ws.readyState}, Peers ${server.net.getPeers().length}`
+    );
+    frisch();
+    const nachKurz = ziel(vorn(mitte, YAW_MINUS_Z, 1.5));
+    q = await schlage(mitte);
+    check('der naechste gueltige Schlag trifft', hp(nachKurz) === 20 - FAUST_SCHADEN && q?.ergebnis === SchlagErgebnis.Treffer, `hp 20 -> ${hp(nachKurz)}; ${zeige(q)}`);
+    server.zdos.destroyZDO(nachKurz.zdoid);
+
     // ── [10] reine Regeln an den Grenzen ──────────────────────────
     console.log('\n[10] Reine Regeln an den Grenzen:');
     const z0 = neuerSchlagZustand();
@@ -403,6 +440,16 @@ async function main(): Promise<void> {
     check(`${kante + 1} ms (ausserhalb): die Kette beginnt neu, Schritt 1`, aussen.ok && aussen.schritt === 1);
     const weit = pruefeSchlag(z0, m(1), 1000 + kante + 500, '');
     check('weit nach dem Fenster: Schritt 1', weit.ok && weit.schritt === 1);
+    // F3: das Alter ist das Wort des Clients; der Server prueft es an der eigenen Uhr. Ein Schlag kann nicht
+    // begonnen haben, bevor der vorige (1000 ms, Abklingzeit 350 ms, Toleranz 50 ms) frei war.
+    const ehrlich = pruefeSchlag(z0, m(2, 0), 1400, '');
+    check('F3: Alter 0 bei 1400 ms (ehrlich oder gelogen): die Uhr des Servers entscheidet, Schritt 2', ehrlich.ok && ehrlich.schritt === 2);
+    const rand3 = pruefeSchlag(z0, m(2, 100), 1400, '');
+    check('F3: Alter 100 ms bei 1400 ms (Beginn 1300 = Ende der Abklingzeit minus Toleranz): gerade noch gueltig', rand3.ok);
+    const rueck = pruefeSchlag(z0, m(2, 101), 1400, '');
+    check('F3: Alter 101 ms bei 1400 ms (Beginn vor dem Ende des vorigen Schlags): abgelehnt, Zeit', !rueck.ok && rueck.ergebnis === SchlagErgebnis.Zeit);
+    const ueberlappt = pruefeSchlag(z0, m(2, 380), 1400, '');
+    check('F3: Alter 380 ms bei 1400 ms (Schlag haette den vorigen ueberlappt): abgelehnt, Zeit', !ueberlappt.ok && ueberlappt.ergebnis === SchlagErgebnis.Zeit);
     // F2: Spitzendeckel (600 ms) + Fenster 200 ms = 800 ms, auch wenn der Client eine riesige Spitze meldet.
     const riesig = { seq: 1, schritt: 1, spitzeMs: 6_000_000 };
     const riesigAlt = pruefeSchlag(neuerSchlagZustand(), { ...riesig, alterMs: 5000 }, 9000, '');

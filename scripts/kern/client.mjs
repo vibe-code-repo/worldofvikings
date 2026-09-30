@@ -688,6 +688,11 @@ export default [
   */
   ['client', 'test/tod-treffer-meldung.ts'],
   /*
+    D5: die Beute- und Inventarmeldungen des Servers (`@key` oder `@key|{json}`): jeder Schluessel in beiden Katalogen,
+    Parameter fuellen die Platzhalter, Kreatur- und Itemnamen uebersetzt, kaputte Parameter verstecken die Meldung nicht.
+  */
+  ['client', 'test/beute-meldung.ts'],
+  /*
     Tod und Treffer sichtbar: Wurzelbewegung der Liege-/Bueck-Clips (A4: nie die Hoehe festnageln, die 28 alten Clips bitgleich)
     auf den ECHTEN Koerpern (48 Clips). In der CI ohne Assets uebersprungen.
   */

@@ -170,6 +170,11 @@ export default [
   // der Inhalt uebersteht Speichern/Laden. Drei gestartete Server + ein
   // init()-only Reload, ~5s.
   ['server', 'test/f1-truhe.ts'],
+  // F10: Serverstopp kuendigt den Neustart an (Paket ServerNeustart, Grund
+  // "restart", <= 1 s vor dem Trennen), Anna verbindet mit dem Backoff des
+  // Client-Moduls neu und steht <= 1 m an der gesicherten Position; Befund:
+  // anderes Geheimnis = neue Figur. Drei echte Serverprozesse, rund 30 s.
+  ['server/test', 'f10-neustart-ansage.ts'],
   // F12 (Roadmap): Zonenbudget je Spieler statt einer globalen Schlange nach
   // Abstand: Spieler mit wenigen offenen Zonen kommt in <= 2 Ticks dran
   // (simulierte Uhr), keine O(Q×P)-Sortierung, dieselbe Menge Zonen/ZDOs wie

@@ -59,6 +59,7 @@ import {
   AUGENFARBE_VORGABE,
 } from '@wov/shared';
 import type { Vector3, ZoneID } from '@wov/shared';
+import { NEUSTART_RETRY_SEC } from '@wov/shared';
 import {
   BAU_PREFABS,
   ESSEN,
@@ -1767,6 +1768,19 @@ export class WovServer {
         }`
       );
       strukturLog('world_save_failed_on_stop', { fehler: String(err) });
+    }
+
+    // F10: Ansage NACH dem Speichern und nur, wenn der Endstand auf der Platte liegt: Sie
+    // verspricht "du wirst wieder verbunden" und der Client macht weiter, wo der Server ihn
+    // gesichert hat. Ist das Speichern gescheitert, stammt der Stand aus der letzten
+    // periodischen Sicherung; dann bleibt die Ansage aus (der Trenngrund `restart` und das
+    // Wiederverbinden bleiben, der Spieler sieht nur den neutralen Verbindungszaehler).
+    if (gespeichert) {
+      try {
+        this.net.kuendigeNeustartAn(NEUSTART_RETRY_SEC);
+      } catch (err) {
+        console.error(`[WoV] Neustart-Ansage fehlgeschlagen: ${err}`);
+      }
     }
 
     try {

@@ -420,6 +420,46 @@ Playwright based measurements (`tools/pw-*`) are deliberately NOT part of
 Chromium starts in a plain runner container. If your task depends on one of
 them, say so in the pull request and give the measured numbers.
 
+### Move proof tool (restricted)
+
+`tools/i1-verschiebung.mjs` (I1, step 0) compares the old and the new state of a move
+and reports differences. **EINGESCHRÄNKT: Exit 0 ist noch kein Verschiebebeweis.**
+Bekannte Lücken: siehe `Berichte/2026-09-30 I1 Schritt 0 N1 — Nachangriff.md`
+(H1–H4, M1–M4). Umbau folgt als eigene Karte. Until then a cut is checked by hand
+as well (`git diff -w` of the rest shows only forwardings and import lines) and the
+pull request text says so. Every output of the tool carries this sentence; on exit 0
+it says "keine Abweichung gefunden (eingeschränkt)", never "proved".
+
+### File size guard
+
+`scripts/pruefe-groessen.mjs` (in the collective run) counts lines like `wc -l`
+in every source file (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`) under
+`client/src`, `server/src`, `shared/src` and `admin/src`. **A file that is not in
+`scripts/groessen-grenzen.json` may have at most 1,500 lines.** The 18 files above
+that limit are listed: a number is a cap (at most the current line count plus
+10 %, rounded up to 50, so a file that shrinks pulls its cap down in the same
+pull request; the checker prints the number). The six files that are being cut
+up (`WovServer.ts`, `editorMain.ts`, `EntityManager.ts`, `GegenstandsKatalog.ts`,
+`client/src/main.ts`, `admin/src/main.ts`) carry a ceiling
+`{ "frei": true, "hoechstens": N }` (no cap, growth only up to N; shrinking is
+always allowed) until the first cutting step on that file is merged; that step
+sets the real number. If a cutting step is merged before the checker existed, the
+entry stays a ceiling until the next step on that file sets a number. A file that
+falls to 1,500 lines or fewer, or that no longer exists, must leave the list.
+
+The checker has a memory: it compares the list with the pull request's base
+(`git merge-base HEAD origin/main`; `WOV_GROESSEN_BASIS` names another git ref;
+in CI it fetches `GITHUB_BASE_REF`). In a pull request a cap or ceiling may only
+go down (an increase needs a `"grund"` text in the entry: at least 10 letters or digits, at least 4 different ones, no control characters, no fill characters; for example
+`{ "grenze": 3550, "grund": "…" }`; the checker prints it loudly and it belongs in
+the pull request text), and a new entry is only allowed for a file that already had
+more than 1,500 lines on the base, so a rename without a matching entry is red.
+Without git or a base it runs as before and says so, except in CI on `pull_request`, `pull_request_target` and `merge_group`, where "no base" is red. All git calls of the guard run with a cleaned environment (no `GIT_*`), so the guard is safe to run from a git hook (`tools/test/pruefe-groessen-hook.ts` proves it). Never add a large new file to
+the list: split the file. The checker proves itself on a throwaway tree first,
+every rule in both directions. Known limits: source folders next to `src`
+(for example `server/spiel/`), a file without a final newline (counts like
+`wc -l`) and one very long line are not caught.
+
 ## 6. Line endings: do not flatten them
 
 Many files still carry **CRLF** from the original Windows import. Python's

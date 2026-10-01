@@ -110,6 +110,7 @@ import { WetterDienst, fuehreWetterBefehlAus, pruefeGeladeneWeltzeit } from './s
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
+import { bereinigeBeimBoot, vegetationLive } from './world/vegetationBereinigung.js';
 import { bootLoeschRegel, liveAbgleich, wuerdeEntfernen } from './world/layoutLiveAbgleich.js';
 import { bestaetigungsZdos, sperreAbgleichen, sperreBestaetigenPlan, sperreErweitern, sperreFreigeben } from './world/layoutBootSchutz.js';
 import { layoutDateiHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
@@ -1252,8 +1253,10 @@ export class WovServer {
     // nach dem Aufbau der Welt.
     const bootAnwendung = this.spawnLayoutPlacements('boot', this.worldLayoutRaw);
     if (this.config.worldMode === 'layout') {
+      bereinigeBeimBoot(this.zdos, this.worldLayoutRaw);
       this.layoutWache = new LayoutWache({
         boot: bootAnwendung,
+        vegetationLive: (alt, neu, trocken) => vegetationLive({ zdos: this.zdos, zones: this.zones }, alt, neu, trocken),
         pfad: this.config.worldLayoutPath,
         quittungsPfad: quittungsDatei(this.config.worldsDir, this.config.worldName),
         bestaetigenPfad: bestaetigenAnfrageDatei(this.config.worldsDir, this.config.worldName),

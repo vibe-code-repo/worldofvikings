@@ -39,6 +39,7 @@ import {
   freiflaechenHuellen,
   vegetationPruefer,
   streuArt,
+  type VegetationEntferntKreis,
   type VegetationPruefer,
   FEATURES,
   RegionGeo,
@@ -331,7 +332,17 @@ export class ZoneManager {
    * Kreise `WorldLayout.vegetationEntfernt`: Nachfilter im Ablegen der Streuung (nicht als clearArea, damit der
    * Zufallsstrom und alle übrigen Pflanzen bitgleich bleiben). Null ohne Kreise oder ohne Layout.
    */
-  private readonly vegetationEntfernt: VegetationPruefer | null = null;
+  private vegetationEntfernt: VegetationPruefer | null = null;
+
+  /**
+   * Tauscht den Prüfer der Streuung aus (Live-Änderung von `vegetationEntfernt`): Zonen, die nach dem Tausch
+   * erzeugt werden (auch der Zonen-Rücksetzer), streuen mit den neuen Kreisen. Schon erzeugte Zonen ändert das
+   * nicht; die räumt `vegetationBereinigung.ts`.
+   */
+  setzeVegetationEntfernt(kreise: readonly VegetationEntferntKreis[] | undefined): void {
+    const pruefer = vegetationPruefer(kreise);
+    this.vegetationEntfernt = pruefer.leer ? null : pruefer;
+  }
 
   constructor(
     private readonly geo: GeoManager,

@@ -89,6 +89,7 @@ import type { LoeschsperreGrund } from '@wov/shared/src/worldlayout/loeschsperre
 import type { WorldLayout } from '@wov/shared/src/worldlayout/types.js';
 import { AENDERUNGEN_MAX, type Grabsteine } from './layoutLiveAbgleich.js';
 import { sperreErweitern, sperrInfo, type SperrAuswertung } from './layoutBootSchutz.js';
+import { bereinigungsZeile, VEGETATION_LIVE_MAX, type VegetationLive } from './vegetationBereinigung.js';
 
 /** Die Teile eines Dokuments, die die Welt formen und NICHT live geändert werden. */
 export function geoAenderung(alt: WorldLayout, neu: WorldLayout): string[] {
@@ -214,6 +215,12 @@ export interface LayoutWacheAbhaengigkeiten {
     grabsteine: Grabsteine,
     bereitsGesperrt: ReadonlySet<string>
   ) => { ids: readonly string[]; grund: LoeschsperreGrund } | null;
+  /**
+   * Eigener Ast für `vegetationEntfernt` (Karte Bäume entfernen V2): keine Geo-Änderung, zählt nicht gegen
+   * `AENDERUNGEN_MAX`. `trocken`: nur zählen (Obergrenze `VEGETATION_LIVE_MAX`), nichts geschieht; sonst löschen
+   * und den Streu-Prüfer neuer Zonen austauschen. Fehlt er (Tests ohne Spielserver), gibt es den Ast nicht.
+   */
+  readonly vegetationLive?: (alt: WorldLayout, neu: WorldLayout, trocken: boolean) => VegetationLive;
   /** Das Dokument, das der Server gerade in Gebrauch hat (roh). */
   readonly aktuell: () => unknown;
   /** Läuft ein Speichern? Dann nicht anwenden. */
@@ -441,6 +448,20 @@ export class LayoutWache {
       return;
     }
 
+    // Beschädigte oder zu viele Kreise: nichts anwenden (wie `heightProblem`); der Boot startet davon unberührt weiter.
+    if (neuBericht.vegetationProblem) {
+      const p = neuBericht.vegetationProblem;
+      const gezeigt = p.fehlerhaft.slice(0, 5).map((f) => `${f.eintrag}.${f.feld}`).join(', ');
+      const detail =
+        p.reason === 'limit'
+          ? `vegetationEntfernt: ${p.anzahl} Kreise, Grenze ${p.grenze}`
+          : `vegetationEntfernt: ${p.fehlerhaft.length} fehlerhafte Angabe(n) (${gezeigt})`;
+      console.warn(`[WoV] Layout-Wache: ${detail} — nichts angewendet, nach der Korrektur greift der Abgleich`);
+      ablehnen('vegetation-ungueltig');
+      this.quittiere(hash, 'nicht-angewendet', 'verworfen', null, detail, { bestaetigung });
+      return;
+    }
+
     if (neuKanonisch === this.kanonisch) {
       // Wirklich nichts zu tun (etwa neu formatiert): nichts anwenden. Eine offene Sperre lebt allein in
       // der Sperrdatei; die Quittung nennt sie trotzdem (`quittiere` liest sie).
@@ -452,6 +473,17 @@ export class LayoutWache {
       if (teile.length > 0) {
         console.warn(`[WoV] Layout-Wache: Geo-Änderung (${teile.join(', ')}) — geschrieben, aber erst nach dem Neustart wirksam, nichts angewendet`);
         this.quittiere(hash, 'nicht-angewendet', 'geo', null, teile.join(', '), { bestaetigung });
+        return;
+      }
+    }
+    // Vegetation, Vorprobe: Der Vorgang gilt ganz oder gar nicht. Würden die neuen Kreise mehr als die Obergrenze
+    // löschen, wird abgelehnt, bevor irgendetwas angewendet ist (nichts teilweise).
+    if (this.angewendet && this.d.vegetationLive) {
+      const probe = this.d.vegetationLive(this.angewendet, neuBericht.layout, true);
+      if (probe.art === 'zuViele') {
+        const detail = `Vegetation: ${probe.anzahl} Objekte würden gelöscht (Grenze ${VEGETATION_LIVE_MAX})`;
+        console.warn(`[WoV] Layout-Wache: ${detail}, nichts angewendet — die Datei gilt ab dem nächsten Neustart`);
+        this.quittiere(hash, 'nicht-angewendet', 'zu-viele-aenderungen', null, detail, { bestaetigung });
         return;
       }
     }
@@ -483,11 +515,30 @@ export class LayoutWache {
       this.quittiere(hash, 'nicht-angewendet', 'abgelehnt', null, 'unerwartetes Ergebnis', { bestaetigung });
       return;
     }
+    // Vegetation, Ausführung (nach den Objekten, vor dem Übernehmen): löscht die gespeicherten Streu-Objekte in den
+    // hinzugekommenen Kreisen und tauscht den Prüfer neuer Zonen aus. Gleicher Takt: kein Spielzustand dazwischen.
+    let zaehler = ergebnis.zaehler;
+    let detail = ergebnis.detail;
+    if (this.angewendet && this.d.vegetationLive) {
+      const v = this.d.vegetationLive(this.angewendet, neuBericht.layout, false);
+      if (v.art === 'ok') {
+        const e = v.ergebnis;
+        console.log(bereinigungsZeile('live', e));
+        zaehler = { ...zaehler, vegetationGeloescht: e.geloescht, vegetationUngemarkt: e.ungemarkt };
+        if (e.ungemarkt > 0) {
+          const hinweis = `Vegetation: ${e.ungemarkt} Kandidaten in ${e.zonenOhneMarke} Zone(n) ohne Marke nicht gelöscht`;
+          detail = detail ? `${detail}; ${hinweis}` : hinweis;
+        }
+      } else if (v.art === 'zuViele') {
+        // Nach der Vorprobe nicht zu erwarten (gleicher Takt); nichts gelöscht, laut melden.
+        console.error(`[WoV] Layout-Wache: Vegetation: ${v.anzahl} Objekte, Grenze ${VEGETATION_LIVE_MAX} — nach der Vorprobe nicht gelöscht`);
+      }
+    }
     this.d.uebernehmen(roh);
     this.kanonisch = neuKanonisch;
     this.angewendet = neuBericht.layout;
     console.log(`[WoV] Layout-Wache: angewendet in ${(performance.now() - t0).toFixed(1)} ms (ganzer Takt)`);
-    this.quittiere(hash, 'angewendet', null, ergebnis.zaehler, ergebnis.detail, { bestaetigung });
+    this.quittiere(hash, 'angewendet', null, zaehler, detail, { bestaetigung });
   }
 
   private quittiere(

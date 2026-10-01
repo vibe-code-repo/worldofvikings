@@ -23,6 +23,8 @@ import { Inventory, findItem, packContainer, setzeUnbekannteVerwahren, unpackCon
 import { MENGE_REPARIERBAR_MAX, STAPEL_OBERGRENZE } from '@wov/shared/src/items/Inventory.js';
 import { leseGegenstandsDatei, wendeGegenstandsDatenAn, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { gegenstandsBestaetigenDatei, gegenstandsLetzterGuterDatei, gegenstandsQuittungsDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
+import { grantStarterSet } from '../src/konto/StarterSet.js';
+import { unbekannteWerdenVerwahrt } from '@wov/shared/src/items/Inventory.js';
 import { GegenstandsWache, ladeGegenstandsDatei, type GegenstandsQuittung } from '../src/world/gegenstandsLive.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -243,7 +245,7 @@ function main(): void {
       const nochmal = new Inventory();
       nochmal.load(JSON.parse(JSON.stringify(gross.serialize())) as never);
       check('N6b: after a save and the next login the sum is still 25000', summe(nochmal) === 25000, `${summe(nochmal)}`);
-      for (const menge of [MENGE_REPARIERBAR_MAX + 1, 2 ** 53, 1e15, 1e308, Number.MAX_VALUE]) {
+      for (const menge of [MENGE_REPARIERBAR_MAX + 1, 2e9, 5e9, 9.9e9, 2 ** 53, 1e15, 1e308, Number.MAX_VALUE]) {
         const a = new Inventory();
         const { warnungen: w } = ohneWarnung(() => a.load([gespeichert('Wood', { stack: menge })]));
         let kept = a.verwahrte.length === 1 && a.verwahrte[0].stack === menge && a.all.length === 0 && w.length === 1;
@@ -361,6 +363,33 @@ function main(): void {
       for (let x = 0; x < 8; x++) for (let y = 0; y < 4; y++) if (x !== 7 || y !== 3) voll.verwahreStapel({ name: 'X' + x + y, stack: 1, durability: 0, quality: 1, gridX: x, gridY: y, equipped: false });
       const restKopie = voll.kopie().addItem(holz(), 100);
       check('31 kept stacks leave one free cell: the copy answers like the original (rest 50 of 100)', restKopie === voll.addItem(holz(), 100) && restKopie === 50, `${restKopie}`);
+    }
+
+    console.log('\n[I] copies that must not lose kept stacks: starter set, admin grant, size of the copy (N8-1, N8-2)');
+    {
+      const klein = new Inventory(6, 2);
+      const kk = klein.kopie();
+      check('N8-1: the copy has the width and height of the original (6x2, not the default)', kk.width === 6 && kk.height === 2, `${kk.width}x${kk.height}`);
+      check('N8-1: a 6x2 copy holds 12 cells of Wood: 1000 Wood leave 400 (not 0)', kk.addItem(holz(), 1000) === 400);
+      const roh = { name: 'XUnbekannt', stack: 3, durability: 0, quality: 1, gridX: 7, gridY: 3, equipped: false };
+
+      check('the keep switch is off for this section', !unbekannteWerdenVerwahrt());
+      const spieler = new Inventory();
+      spieler.verwahreStapel(roh);
+      const marke = grantStarterSet(spieler, 'berserker', 'wikinger', '');
+      check('N8-2: the starter set is granted and the kept raw stack is still there, untouched', marke !== '' && spieler.verwahrte.length === 1 && spieler.verwahrte[0].stack === 3 && spieler.all.length === 5, `marker ${marke}, ${spieler.verwahrte.length} kept, ${spieler.all.length} in grid`);
+      let seen = 0;
+      spieler.onChanged(() => seen++);
+      const geaendert = new Inventory();
+      geaendert.addItem(holz(), 5);
+      spieler.uebernimm(geaendert);
+      check('uebernimm takes stacks AND kept stacks of the other and tells the listeners', spieler.countOf('Wood') === 5 && spieler.verwahrte.length === 0 && seen === 1);
+
+      const aus = Inventory.ausSpeicherstand([gespeichert('Wood', { stack: 4 }), roh]);
+      check('N8-2: ausSpeicherstand keeps the raw stack although the keep switch is off, and leaves the switch as it was', aus.verwahrte.length === 1 && aus.all.length === 1 && !unbekannteWerdenVerwahrt());
+      aus.addItem(holz(), 1);
+      const zurueck = aus.serialize();
+      check('N8-2: the admin way (copy, change, write back) keeps the raw stack in the saved state', zurueck.some((x) => x.name === 'XUnbekannt' && x.stack === 3));
     }
   } finally {
     setzeUnbekannteVerwahren(false);

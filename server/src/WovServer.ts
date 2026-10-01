@@ -5655,13 +5655,13 @@ export class WovServer {
         if ((target?.figur ?? record?.[1].figur) !== 'wikinger') return { ok: false, active: false, message: `${label} benötigt den männlichen Wikinger-Körper` };
         const snapshot = target?.inventar.serialize() ?? record?.[1].inventar;
         if (!snapshot) return { ok: false, active: false, message: 'Kein gespeichertes Inventar vorhanden' };
-        const staged = new Inventory(); staged.load(snapshot); let added = 0;
+        const staged = target ? target.inventar.kopie() : Inventory.ausSpeicherstand(snapshot); let added = 0;
         for (const part of parts) {
           if (staged.countOf(part.item)) continue;
           if (staged.addItem(findItem(part.item)!, 1)) return { ok: false, active: false, message: 'Nicht genug Platz für das vollständige Set; nichts verändert' };
           added++;
         }
-        if (target) { target.inventar.load(staged.serialize()); this.inventarSync(target); this.sichereSpielerSofort(target, 'admin'); }
+        if (target) { target.inventar.uebernimm(staged); this.inventarSync(target); this.sichereSpielerSofort(target, 'admin'); }
         else {
           // F8 N2 (B4): ein Eingriff an einem ABWESENDEN Spieler bekommt einen neuen
           // Stempel und geht sofort in die Konten-SQLite: sonst gewinnt beim

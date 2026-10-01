@@ -108,6 +108,30 @@ export class Inventory {
     return k;
   }
 
+  /** Takes over the whole content (stacks and kept stacks) of `von`, e.g. a staged copy after a successful change. */
+  uebernimm(von: Inventory): void {
+    const k = von.kopie();
+    this.items = k.items;
+    this.verwahrt = k.verwahrt;
+    this.emit();
+  }
+
+  /**
+   * An inventory from a saved state that keeps raw stacks whatever the keep switch says (so a copy made from a save, to be
+   * changed and written back, never drops a stack without a definition).
+   */
+  static ausSpeicherstand(saved: readonly SavedItemStack[], width = INVENTORY_WIDTH, height = INVENTORY_HEIGHT): Inventory {
+    const inv = new Inventory(width, height);
+    const vorher = unbekannteVerwahren;
+    unbekannteVerwahren = true;
+    try {
+      inv.load(saved);
+    } finally {
+      unbekannteVerwahren = vorher;
+    }
+    return inv;
+  }
+
   /** Keeps a stack raw (a chest list that has no cell left for it, or an unusable one). */
   verwahreStapel(s: SavedItemStack): void {
     this.verwahrt.push({ ...s });

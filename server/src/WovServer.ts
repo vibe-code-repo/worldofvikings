@@ -111,6 +111,10 @@ import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
 import { bootLoeschRegel, liveAbgleich, wuerdeEntfernen } from './world/layoutLiveAbgleich.js';
+import { GegenstandsWache } from './world/gegenstandsLive.js';
+import { entferneGehalten, zaehleGehalten, zaehleUnbekannteGehalten, type BestandsQuellen } from './spiel/Gegenstandsbestand.js';
+import { datenRezepte, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
+import { gegenstandsBestaetigenDatei, gegenstandsQuittungsDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 import { bestaetigungsZdos, sperreAbgleichen, sperreBestaetigenPlan, sperreErweitern, sperreFreigeben } from './world/layoutBootSchutz.js';
 import { layoutDateiHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
@@ -144,6 +148,7 @@ import {
   findItem, ITEM_DEFS,
   REZEPTE,
   packContainer,
+  fordereVerwahrenAn,
   unpackContainer,
   TRUHE_INHALT_MEMBER,
 } from '@wov/shared';
@@ -169,7 +174,7 @@ import {
 } from '@wov/shared/src/bewegung/ausdauer.js';
 import { pickableItem, ZWEIT_DROPS, wuerfleDrop } from './spiel/Beute.js';
 import { BEUTE_BESITZER, BeuteAmBoden, passtNachEntnahme } from './spiel/BeuteAmBoden.js';
-import { waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
+import { kannErnten, waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
 import { liesSchlagMeldung, pruefeSchlag, verbucheSchlag, trefferAbstand, schreibeQuittung, SchlagErgebnis, TOLERANZ_MAX_M, type SchlagErgebnisWert } from './spiel/Treffer.js';
 import { EIKTHYR_HASH, BOSS_ENTRY, NPC_ENTRY } from './spiel/Sondereintraege.js';
 import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
@@ -311,6 +316,16 @@ export interface ServerConfig {
   worldMode: 'radial' | 'layout';
   /** Pfad des WorldLayout-Dokuments (nur worldMode 'layout'). */
   worldLayoutPath: string;
+  /**
+   * Gegenstandsdaten (Karte G2): Arbeitsdatei, die die Live-Wache im 1-Sekunden-Takt beobachtet. Fehlt sie
+   * (Tests ohne Gegenstandsbezug), gibt es keine Wache. `gegenstandsStart` ist der Stand, den der Start
+   * angewendet hat (`ladeGegenstandsDatei` in main.ts).
+   */
+  gegenstandsDatei?: string;
+  gegenstandsStart?: readonly GegenstandsEintrag[];
+  gegenstandsStartQuittung?: { status: 'abgelehnt'; hash: string };
+  /** Der Start hatte keinen brauchbaren letzten guten Stand (`LadeErgebnis.ohneGutenStand`). */
+  gegenstandsOhneGutenStand?: boolean;
   /**
    * F3 (Security-Review): Servergeheimnis fuer die SessionToken-Signatur.
    * NUR fuer Tests (deterministischer Lauf, zwei Server-Instanzen mit
@@ -632,6 +647,8 @@ export class WovServer {
   private zdoSyncAccumulator: number;
   /** Datei-Wache des Weltdokuments (K5.0), im Layout-Modus nach dem Boot angelegt. */
   private layoutWache: LayoutWache | null = null;
+  /** Datei-Wache der Gegenstandsdaten (Karte G2), angelegt wenn `config.gegenstandsDatei` gesetzt ist. */
+  private gegenstandsWache: GegenstandsWache | null = null;
   /** Karte Z3 N1: Pfad der dauerhaften Löschsperre, neben der Quittung. */
   private readonly loeschsperrePfad: string;
   private timeSyncAccumulator: number;
@@ -1282,7 +1299,63 @@ export class WovServer {
       });
     }
 
+    this.gegenstandsWache = this.baueGegenstandsWache();
+
     console.log('[WoV] Initialized');
+  }
+
+  /** Wache fuer die Gegenstandsdatei (Karte G2); `null` ohne konfigurierte Datei. */
+  private baueGegenstandsWache(): GegenstandsWache | null {
+    const pfad = this.config.gegenstandsDatei;
+    if (!pfad) return null;
+    return new GegenstandsWache({
+      pfad,
+      quittungsPfad: gegenstandsQuittungsDatei(pfad),
+      bestaetigenPfad: gegenstandsBestaetigenDatei(pfad),
+      angewendet: this.config.gegenstandsStart,
+      startQuittung: this.config.gegenstandsStartQuittung,
+      ohneGutenStand: this.config.gegenstandsOhneGutenStand,
+      unbekanntGehalten: (istBekannt) => zaehleUnbekannteGehalten(this.bestandsQuellen(), istBekannt),
+      verwahren: (an) => {
+        if (an) this.verwahrenFreigabe ??= fordereVerwahrenAn();
+        else this.verwahrenFreigabe?.(), (this.verwahrenFreigabe = null);
+      },
+      speichertGerade: () => this.speichertGerade,
+      gehalten: (ids) => zaehleGehalten(this.bestandsQuellen(), ids),
+      entfernen: (ids) => this.entferneGegenstaende(ids),
+      neuBinden: () => this.bindeInventareNeu(),
+    });
+  }
+
+  /** This server's request for the keep-unknown switch (`fordereVerwahrenAn`), while its item watch needs it. */
+  private verwahrenFreigabe: (() => void) | null = null;
+
+  private bestandsQuellen(): BestandsQuellen {
+    return {
+      online: () => this.net.getPeers().filter((p) => p.authenticated && !p.nurEditor).map((p) => ({ spielerId: p.spielerId, name: p.name, inventar: p.inventar })),
+      gespeichert: () => this.savedPlayers.values(),
+      zdos: () => [...this.welten.values()].flatMap((w) => w.zdos.getAllZDOs()),
+      beuteEntfernen: (zdo) => this.beuteAmBoden.entferne(zdo),
+    };
+  }
+
+  /** Alle Exemplare entfernter Datengegenstaende endgueltig raus: Inventare, gespeicherte Spieler, Truhen (Karte G2). */
+  private entferneGegenstaende(ids: ReadonlySet<string>): void {
+    const weg = entferneGehalten(this.bestandsQuellen(), ids, () => this.stempelZaehler().naechster());
+    console.log(`[Gegenstaende] entfernt: ${weg.lebend} Stapel in Inventaren, ${weg.gespeichert.length} gespeicherte(r) Spieler, ${weg.truhen.length} Truhe(n), ${weg.beute} Bodenstueck(e)`);
+    // Abwesende Spieler sofort in die Konten-SQLite, Truhen und Anwesende ueber den normalen Sicherungsweg.
+    if (weg.gespeichert.length > 0) this.spielerSicherung?.sichere(weg.gespeichert, 'admin');
+    this.sichereSpieler(this.net.getPeers(), 'gegenstaende', 'alle');
+    void this.saveWorldAsync();
+  }
+
+  /** Nach dem Tausch der Datengegenstaende: Inventare an die neuen Definitionen binden und allen Spielern schicken. */
+  private bindeInventareNeu(): void {
+    for (const peer of this.net.getPeers()) {
+      if (!peer.authenticated || peer.nurEditor) continue;
+      peer.inventar.rebind();
+      this.inventarSync(peer);
+    }
   }
 
   /**
@@ -1801,6 +1874,10 @@ export class WovServer {
       console.error(`[WoV] net.stop fehlgeschlagen: ${err}`);
     }
 
+    // This server's item watch may have asked for the keep-unknown switch (F5): give back ITS request, nobody else's.
+    this.verwahrenFreigabe?.();
+    this.verwahrenFreigabe = null;
+
     console.log(`[WoV] Server stopped${gespeichert ? '' : ' (OHNE Endstand)'}`);
     return gespeichert;
   }
@@ -1931,6 +2008,7 @@ export class WovServer {
       // getaktet und nicht nur beim Befehl: s. gleicheAdminrechteAb().
       this.gleicheAdminrechteAb();
       this.layoutWache?.tick();
+      this.gegenstandsWache?.tick();
       // F9: Wetter je Spieler nachfuehren (Fenster-, Biom-, Admin-Wechsel).
       this.wetterDienst().takt(peers, this.worldTime);
       // Dungeon-Regeneration: leere Instanzen nach Ablauf abreißen.
@@ -3251,7 +3329,8 @@ export class WovServer {
   /** Craften server-autoritativ: Rezept + Zutaten prüfen, abziehen, geben. */
   private handleCraft(peer: Peer, reader: Reader): void {
     const ergebnis = reader.readString();
-    const rezept = REZEPTE.find((r) => r.ergebnis === ergebnis);
+    // Code recipes first (they win), then the recipes of the data items; no station for either.
+    const rezept = REZEPTE.find((r) => r.ergebnis === ergebnis) ?? datenRezepte().find((r) => r.ergebnis === ergebnis);
     const antwort = (ok: boolean, message: string) => {
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(ok);
@@ -3293,7 +3372,7 @@ export class WovServer {
     }
     this.pruefeWaffe(peer);
     peer.sendPacketWith(PacketType.InventorySync, (w) => {
-      w.writeString(JSON.stringify(peer.inventar.serialize()));
+      w.writeString(JSON.stringify(peer.inventar.syncStapel()));
     });
     this.sendeEquipStand(peer, false);
   }
@@ -3906,10 +3985,10 @@ export class WovServer {
     if (!ziel || !art) return;
 
     // Werkzeug-Pflicht wie im Original: Holz braucht die Axt, Stein die Spitzhacke.
-    if (art === 'baum' && waffe !== 'AxeFlint') {
+    if (art === 'baum' && !kannErnten(waffe, 'baum')) {
       return antwort('Zu hart — dafür braucht es eine Axt');
     }
-    if (art === 'fels' && waffe !== 'PickaxeAntler') {
+    if (art === 'fels' && !kannErnten(waffe, 'fels')) {
       return antwort('Zu hart — dafür braucht es eine Spitzhacke');
     }
 
@@ -4241,9 +4320,11 @@ export class WovServer {
     const def = this.prefabs.getByHash(ziel.prefabHash);
     const flags = def?.flags ?? 0n;
     const F = PrefabFlag;
+    // Loot on the ground is recognised by its mark BEFORE the prefab flags: the item of a data item has no prefab definition.
+    const boden = this.beuteAmBoden.aufheben(ziel); // D5: loot of a dead creature has an owner (asked above)
 
-    if ((flags & (F.PICKABLE | F.PICKABLE_ITEM | F.ITEM_DROP)) !== 0n) {
-      const boden = this.beuteAmBoden.aufheben(ziel); // D5: loot of a dead creature has an owner (asked above)
+    if (boden || (flags & (F.PICKABLE | F.PICKABLE_ITEM | F.ITEM_DROP)) !== 0n) {
+      if (boden && !findItem(boden.name)) return senden(false, 'Nichts in Reichweite'); // the item no longer exists: leave the piece (the item watch removes it after its confirmation)
       const item = boden ?? pickableItem(def?.name ?? '');
       const menge = item?.amount ?? 0;
       // Give first, take from the ZDO only what was really given: a full inventory leaves the piece lying there.
@@ -5396,13 +5477,13 @@ export class WovServer {
         if ((target?.figur ?? record?.[1].figur) !== 'wikinger') return { ok: false, active: false, message: `${label} benötigt den männlichen Wikinger-Körper` };
         const snapshot = target?.inventar.serialize() ?? record?.[1].inventar;
         if (!snapshot) return { ok: false, active: false, message: 'Kein gespeichertes Inventar vorhanden' };
-        const staged = new Inventory(); staged.load(snapshot); let added = 0;
+        const staged = target ? target.inventar.kopie() : Inventory.ausSpeicherstand(snapshot); let added = 0;
         for (const part of parts) {
           if (staged.countOf(part.item)) continue;
           if (staged.addItem(findItem(part.item)!, 1)) return { ok: false, active: false, message: 'Nicht genug Platz für das vollständige Set; nichts verändert' };
           added++;
         }
-        if (target) { target.inventar.load(staged.serialize()); this.inventarSync(target); this.sichereSpielerSofort(target, 'admin'); }
+        if (target) { target.inventar.uebernimm(staged); this.inventarSync(target); this.sichereSpielerSofort(target, 'admin'); }
         else {
           // F8 N2 (B4): ein Eingriff an einem ABWESENDEN Spieler bekommt einen neuen
           // Stempel und geht sofort in die Konten-SQLite: sonst gewinnt beim

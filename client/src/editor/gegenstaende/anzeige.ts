@@ -30,11 +30,12 @@ export const fuege = (trenner: Trenner, ...teile: readonly Anzeigetext[]): Anzei
 
 /**
  * Cuts `text` to at most `max` UTF-16 units. A cut never splits a surrogate pair; the end mark "…" is part of the
- * `max` (the result is never longer than `max`).
+ * `max` (the result is never longer than `max`, for every `max >= 0`: at 0 it is empty).
  */
 export function kuerzeHart(text: Anzeigetext, max: number): Anzeigetext {
   if (text.length <= max) return text;
-  let ende = Math.max(0, max - 1);
+  if (max <= 0) return '' as Anzeigetext; // not even the end mark fits
+  let ende = max - 1;
   const letzte = text.charCodeAt(ende - 1);
   if (ende > 0 && letzte >= 0xd800 && letzte <= 0xdbff) ende--; // the cut would leave a lone high surrogate
   return `${text.slice(0, ende)}…` as Anzeigetext;
@@ -67,8 +68,18 @@ export const DEFAULT_IGNORABLE: ReadonlyArray<readonly [number, number]> = [
   [0x1d173, 0x1d17a],
   [0xe0000, 0xe0fff],
 ];
-/** Not default-ignorable, but they draw as blanks in common fonts: MUSICAL SYMBOL NULL NOTEHEAD, EGYPTIAN HIEROGLYPH MIRROR HORIZONTALLY. */
-export const WEITERE_LEERE: readonly number[] = [0x1d159, 0x13440];
+/**
+ * Not default-ignorable, but they draw as blanks (or only modify the sign before them) in common fonts: MUSICAL SYMBOL
+ * NULL NOTEHEAD, TIFINAGH CONSONANT JOINER, KHITAN SMALL SCRIPT FILLER and the Egyptian hieroglyph block after the format
+ * controls (U+13430 .. U+1343F are format, `Cf`, and caught by rule): mirror, the blanks and lost signs, the "damaged"
+ * modifiers, up to the end of the run (U+13440 .. U+1345F). Inclusive ranges, like `DEFAULT_IGNORABLE`.
+ */
+export const WEITERE_LEERE: ReadonlyArray<readonly [number, number]> = [
+  [0x1d159, 0x1d159],
+  [0x2d7f, 0x2d7f],
+  [0x13440, 0x1345f],
+  [0x16fe4, 0x16fe4],
+];
 
 /**
  * Characters that would hide or reorder text, by Unicode rule and not one by one: control, format (bidi, zero-width),
@@ -82,7 +93,7 @@ const ANDERES_LEER = /\p{Zs}/u;
 
 export const istUnsichtbar = (c: string): boolean => {
   const cp = c.codePointAt(0) ?? 0;
-  return UNSICHTBAR.test(c) || (c !== ' ' && ANDERES_LEER.test(c)) || DEFAULT_IGNORABLE.some(([von, bis]) => cp >= von && cp <= bis) || WEITERE_LEERE.includes(cp);
+  return UNSICHTBAR.test(c) || (c !== ' ' && ANDERES_LEER.test(c)) || DEFAULT_IGNORABLE.some(([von, bis]) => cp >= von && cp <= bis) || WEITERE_LEERE.some(([von, bis]) => cp >= von && cp <= bis);
 };
 
 /**

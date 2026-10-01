@@ -14,7 +14,7 @@
 import { ID_MUSTER, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { STAT_IDS } from '@wov/shared/src/items/stats.js';
 import { ladeStand, speichernMitBestaetigung, type ApiOptionen, type LadeErgebnis, type SpeicherAblauf, type Stand } from './api';
-import { abhaengige, eintragZuFormular, ohneEintrag, type Formular } from './modell';
+import { abhaengige, eintragZuFormular, istListe, ohneEintrag, type Formular } from './modell';
 import type { Anzeigetext } from './anzeige';
 import { konfliktInhalt, type BestaetigungInfo, type Uebersetzer } from './texte';
 
@@ -143,9 +143,10 @@ export type KonfliktErgebnis =
    * Both sides changed at least one field (differently), or the entry is gone on the server (`server` null): the author
    * chooses. `unterschiede` lists only the fields in dispute (for a removed entry: the draft's fields, as the new entry
    * it would become). `zusammen` is the draft with the server's changes to the OTHER fields in (null if the entry is
-   * gone), `uebernommen` names those fields: "keep mine" continues with `zusammen`.
+   * gone), `uebernommen` names those fields: "keep mine" continues with `zusammen`. `formBeiAnzeige` is a copy of the
+   * draft as it was when the conflict was found (what "keep mine" compares the live form with).
    */
-  | { art: 'konflikt'; server: GegenstandsEintrag | null; unterschiede: Unterschied[]; zusammen: Formular | null; uebernommen: string[] };
+  | { art: 'konflikt'; server: GegenstandsEintrag | null; unterschiede: Unterschied[]; zusammen: Formular | null; uebernommen: string[]; formBeiAnzeige: Formular };
 
 const vektorText = (v: readonly string[]): string => (v.every((x) => x.trim() === '') ? '' : v.join(', '));
 
@@ -246,8 +247,8 @@ export function pruefeKonflikt(a: {
   }
   const serverForm = server === null ? null : eintragZuFormular(server);
   if (!a.entwurfGeaendert || (serverForm !== null && inhalt(serverForm) === inhalt(a.form))) return { art: 'uebernehmen', server };
-  if (server === null || serverForm === null) return { art: 'konflikt', server: null, unterschiede: entwurfZeilen(a.form), zusammen: null, uebernommen: [] };
-  if (a.basis === null) return { art: 'konflikt', server, unterschiede: unterschiede(a.form, serverForm), zusammen: a.form, uebernommen: [] };
+  if (server === null || serverForm === null) return { art: 'konflikt', server: null, unterschiede: entwurfZeilen(a.form), zusammen: null, uebernommen: [], formBeiAnzeige: structuredClone(a.form) };
+  if (a.basis === null) return { art: 'konflikt', server, unterschiede: unterschiede(a.form, serverForm), zusammen: a.form, uebernommen: [], formBeiAnzeige: structuredClone(a.form) };
   const ausgang = mitSchluesseln(eintragZuFormular(a.basis));
   const eigen = mitSchluesseln(a.form);
   const vomServer = mitSchluesseln(serverForm);
@@ -262,7 +263,7 @@ export function pruefeKonflikt(a: {
     } else streit.push({ feld, eigen: eigen[feld], server: vomServer[feld] });
   }
   if (streit.length === 0) return { art: 'zusammen', server, form: zusammen, uebernommen };
-  return { art: 'konflikt', server, unterschiede: streit, zusammen, uebernommen };
+  return { art: 'konflikt', server, unterschiede: streit, zusammen, uebernommen, formBeiAnzeige: structuredClone(a.form) };
 }
 
 // ── The banner after a failed reload ───────────────────────────────────
@@ -295,15 +296,26 @@ export type EigeneBehalten =
  * conflict was found. If that leaves a field in dispute that was not in the shown conflict, the author has not seen it:
  * `neu`, the mask shows the conflict again. A dispute that only got smaller (the author settled a field by editing it)
  * needs no second look: they pressed "keep mine" for the rest.
+ * "Keep mine" means the author's value for every field in the shown dispute AND for every field the author changed since
+ * it was shown (live form against `konflikt.formBeiAnzeige`), even if the value typed equals the original: a field set
+ * back to the starting value is an edit, not "only the server changed it". Every other field stays a three-way merge.
  */
 export function eigeneBehaltenAbgleich(a: { basis: GegenstandsEintrag | null; form: Formular; ausgewaehlt: string | null; konflikt: OffenerKonflikt }): EigeneBehalten {
   const server = a.konflikt.server;
   if (server === null) return { art: 'weiter', form: a.form, server: null };
-  const r = pruefeKonflikt({ basis: a.basis, form: a.form, ausgewaehlt: a.ausgewaehlt, entwurfGeaendert: true, neuerStand: [server] });
-  if (r.art === 'zusammen') return { art: 'weiter', form: r.form, server };
-  if (r.art !== 'konflikt') return { art: 'weiter', form: a.form, server };
   const gezeigt = new Set(a.konflikt.unterschiede.map((u) => u.feld));
-  if (r.unterschiede.every((u) => gezeigt.has(u.feld))) return { art: 'weiter', form: r.zusammen ?? a.form, server };
+  const jetzt = mitSchluesseln(a.form);
+  const damals = mitSchluesseln(a.konflikt.formBeiAnzeige);
+  const eigeneFelder = Object.keys(jetzt).filter((feld) => gezeigt.has(feld) || jetzt[feld] !== damals[feld]);
+  const mitEigenen = (f: Formular): Formular => {
+    const aus = structuredClone(f);
+    for (const feld of eigeneFelder) kopiereFeld(aus, a.form, feld);
+    return aus;
+  };
+  const r = pruefeKonflikt({ basis: a.basis, form: a.form, ausgewaehlt: a.ausgewaehlt, entwurfGeaendert: true, neuerStand: [server] });
+  if (r.art === 'zusammen') return { art: 'weiter', form: mitEigenen(r.form), server };
+  if (r.art !== 'konflikt') return { art: 'weiter', form: a.form, server };
+  if (r.unterschiede.every((u) => gezeigt.has(u.feld))) return { art: 'weiter', form: mitEigenen(r.zusammen ?? a.form), server };
   return { art: 'neu', konflikt: r };
 }
 
@@ -312,7 +324,7 @@ export function eigeneBehaltenAbgleich(a: { basis: GegenstandsEintrag | null; fo
 /** The form in one canonical string (keys sorted), to tell "unchanged since the save started" from "edited meanwhile". */
 export function kanonisch(f: Formular | null): string {
   const sortiert = (v: unknown): unknown =>
-    Array.isArray(v) ? v.map(sortiert) : v !== null && typeof v === 'object' ? Object.fromEntries(Object.entries(v).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)).map(([k, w]) => [k, sortiert(w)])) : v;
+    istListe(v) ? v.map(sortiert) : v !== null && typeof v === 'object' ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)).map(([k, w]) => [k, sortiert(w)])) : v;
   return JSON.stringify(sortiert(f));
 }
 
@@ -321,17 +333,18 @@ export function kanonisch(f: Formular | null): string {
  *  - `ersetzen`: the form is exactly what was saved (nothing typed meanwhile): it becomes the server's saved entry.
  *  - `behalten`: the author kept typing (or chose another entry) while the save ran: the draft stays. `weiter` says what
  *    the draft is now: still the entry that was just saved (`ausgewaehlt`/`basis` follow it, `neu` false) or, after a
- *    removal, a new entry (`ausgewaehlt` null); `null` = another entry is open, nothing about it changes.
+ *    removal, a new entry (`ausgewaehlt` null); `null` = another entry is open, nothing about it changes. `offen`: unsaved edits are open (false when no form is open).
  */
 export type NachSpeichern =
   | { art: 'ersetzen' }
-  | { art: 'behalten'; weiter: { ausgewaehlt: string | null; basis: GegenstandsEintrag | null; neu: boolean } | null };
+  | { art: 'behalten'; weiter: { ausgewaehlt: string | null; basis: GegenstandsEintrag | null; neu: boolean } | null; offen: boolean };
 
 export function entscheideNachSpeichern(a: {
   /** `kanonisch` of the form when the save started. */
   formVorher: string;
   idVorher: string;
   ausgewaehltVorher: string | null;
+  /** The form now; null when none is open (then nothing is unsaved: `ersetzen`). */
   formJetzt: Formular | null;
   ausgewaehltJetzt: string | null;
   /** Id of the entry just saved (null after a removal). */
@@ -339,9 +352,10 @@ export function entscheideNachSpeichern(a: {
   /** The reloaded entry of `gespeicherteId`, null if it is not in the file. */
   server: GegenstandsEintrag | null;
 }): NachSpeichern {
-  if (a.formJetzt !== null && kanonisch(a.formJetzt) === a.formVorher) return { art: 'ersetzen' };
-  const gleicherEintrag = a.formJetzt !== null && a.ausgewaehltJetzt === a.ausgewaehltVorher && a.formJetzt.id === a.idVorher;
-  if (!gleicherEintrag) return { art: 'behalten', weiter: null };
-  if (a.gespeicherteId !== null && a.server !== null) return { art: 'behalten', weiter: { ausgewaehlt: a.gespeicherteId, basis: a.server, neu: false } };
-  return { art: 'behalten', weiter: { ausgewaehlt: null, basis: null, neu: true } };
+  if (a.formJetzt === null) return { art: 'behalten', weiter: null, offen: false }; // no form is open: there are no unsaved edits to report
+  if (kanonisch(a.formJetzt) === a.formVorher) return { art: 'ersetzen' };
+  const gleicherEintrag = a.ausgewaehltJetzt === a.ausgewaehltVorher && a.formJetzt.id === a.idVorher;
+  if (!gleicherEintrag) return { art: 'behalten', weiter: null, offen: true };
+  if (a.gespeicherteId !== null && a.server !== null) return { art: 'behalten', weiter: { ausgewaehlt: a.gespeicherteId, basis: a.server, neu: false }, offen: true };
+  return { art: 'behalten', weiter: { ausgewaehlt: null, basis: null, neu: true }, offen: true };
 }

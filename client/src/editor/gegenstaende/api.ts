@@ -23,6 +23,7 @@ import {
   type GegenstandsEintrag,
   type VerworfenerEintrag,
 } from '@wov/shared/src/items/gegenstandsDaten.js';
+import { istListe } from './modell';
 import type { BestaetigungInfo } from './texte';
 
 export interface ApiOptionen {
@@ -105,9 +106,9 @@ interface Roh {
   retryAfter: string | null;
 }
 
-const istObjekt = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const istObjekt = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !istListe(v);
 const textOderNull = (v: unknown): string | null => (typeof v === 'string' ? v : null);
-const textListe = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+const textListe = (v: unknown): string[] => (istListe(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
 /** The connection failed (`zeit` false) or the time limit ran out (`zeit` true): no answer at all. */
 interface KeineAntwort {
@@ -202,7 +203,7 @@ export async function speichereText(o: ApiOptionen, text: string, hash: string, 
     }
     return { art: 'bestaetigung', hash: hashJetzt, info: { art: 'entfernen', entfernt: textListe(d.entfernt), entferntOhneId: textListe(d.entferntOhneId) } };
   }
-  if (r.status === 422 && d.fehler === 'eintraege-verworfen' && Array.isArray(d.verworfen)) {
+  if (r.status === 422 && d.fehler === 'eintraege-verworfen' && istListe(d.verworfen)) {
     const liste: Verworfen['verworfen'] = [];
     for (const v of d.verworfen) {
       if (istObjekt(v) && typeof v.grund === 'string') {

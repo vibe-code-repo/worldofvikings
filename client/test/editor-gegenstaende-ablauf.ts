@@ -685,6 +685,78 @@ console.log('\n[10] N4: "Eigene behalten" gegen das lebende Formular, Nachladen 
     const k3 = pruefeKonflikt({ basis, form: bForm, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [bServer] });
     check('dasselbe fuer beschreibungSchluessel', k3.art === 'zusammen' && k3.form.beschreibungSchluessel === 'inhalt.gegenstand.Axt.beschreibung' && k3.uebernommen.includes('beschreibungSchluessel'), JSON.stringify(k3));
   }
+  // N5 (Angriff N4, Befund 1): "keep mine" takes the author's value for every disputed field AND every field they changed
+  // since the conflict was shown, also when the value typed is the starting value (a reset is an edit)
+  {
+    const server = aend(basis, (x) => {
+      x.nameDe = 'Server';
+      x.gewicht = '11';
+      x.stapel = '9';
+    });
+    const form = eintragZuFormular(basis);
+    form.nameDe = 'Mein';
+    form.gewicht = '5';
+    form.stapel = '9'; // the draft already agrees with the server here: no dispute, not shown
+    const k = pruefeKonflikt({ basis, form, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [server] });
+    if (k.art !== 'konflikt') throw new Error('no conflict');
+    check('Vorbedingung: gezeigt werden nameDe und gewicht, Stapel nicht (Entwurf = Server)', gleich(k.unterschiede.map((u) => u.feld), ['nameDe', 'gewicht']));
+    const zurueck = (f: (x: Formular) => void) => {
+      const x = structuredClone(form);
+      f(x);
+      return eigeneBehaltenAbgleich({ basis, form: x, ausgewaehlt: 'Axt', konflikt: k });
+    };
+    const r1 = zurueck((x) => (x.nameDe = 'Axt'));
+    check('nameDe zurueck auf den Ausgangswert "Axt": "Eigene behalten" behaelt "Axt", nicht den Server-Wert', r1.art === 'weiter' && r1.form.nameDe === 'Axt', JSON.stringify(r1.art === 'weiter' ? r1.form.nameDe : r1));
+    const r2 = zurueck((x) => (x.gewicht = '3'));
+    check('gewicht zurueck auf den Ausgangswert 3: behaelt 3, nicht 11', r2.art === 'weiter' && r2.form.gewicht === '3' && r2.form.nameDe === 'Mein', JSON.stringify(r2.art === 'weiter' ? r2.form.gewicht : r2));
+    const r3 = zurueck((x) => (x.stapel = '1'));
+    check('ein Feld, das nicht gezeigt war und das der Autor seit der Anzeige auf den Ausgangswert zurueckgesetzt hat (Stapel 9 -> 1): behaelt 1', r3.art === 'weiter' && r3.form.stapel === '1', JSON.stringify(r3.art === 'weiter' ? r3.form.stapel : r3));
+    const r4 = zurueck(() => undefined);
+    check('nichts angefasst: der Streit wird wie bisher mit dem Entwurf entschieden (Mein, 5), das uebrige bleibt Drei-Wege (Stapel 9)', r4.art === 'weiter' && r4.form.nameDe === 'Mein' && r4.form.gewicht === '5' && r4.form.stapel === '9');
+    check('die Kopie des Formulars von der Anzeige haengt nicht am lebenden Formular (spaetere Eingabe aendert sie nicht)', k.formBeiAnzeige.nameDe === 'Mein' && zurueck((x) => (x.nameDe = 'Axt')).art === 'weiter' && k.formBeiAnzeige.nameDe === 'Mein');
+  }
+
+  // N5 (Angriff N4, Befund 3): after a save with further typing the saved state is the base of the next comparison
+  {
+    const gespeichert = aend(basis, (x) => (x.gewicht = '4')); // what the save wrote
+    const f = eintragZuFormular(basis);
+    f.gewicht = '4';
+    const vor = kanonisch(f);
+    const weiterGetippt = structuredClone(f);
+    weiterGetippt.stapel = '6';
+    const w = entscheideNachSpeichern({ formVorher: vor, idVorher: 'Axt', ausgewaehltVorher: 'Axt', formJetzt: weiterGetippt, ausgewaehltJetzt: 'Axt', gespeicherteId: 'Axt', server: gespeichert });
+    if (w.art !== 'behalten' || w.weiter === null) throw new Error('unexpected');
+    const spaeter = aend(gespeichert, (x) => (x.gewicht = '3')); // another author sets the weight back
+    const mitNeuerBasis = pruefeKonflikt({ basis: w.weiter.basis, form: weiterGetippt, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [spaeter] });
+    const mitAlterBasis = pruefeKonflikt({ basis, form: weiterGetippt, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [spaeter] });
+    check('mit dem gespeicherten Stand als Basis: der Server hat das Gewicht geaendert, der Autor nicht seit dem Speichern: das Gewicht des Servers (3) kommt in den Entwurf', mitNeuerBasis.art === 'zusammen' && mitNeuerBasis.form.gewicht === '3' && mitNeuerBasis.form.stapel === '6', JSON.stringify(mitNeuerBasis));
+    check('... mit dem alten Stand als Basis waere es anders (das Gewicht 4 bliebe, der Server-Wert ginge still verloren): der Test unterscheidet die beiden', mitAlterBasis.art === 'keiner' || (mitAlterBasis.art === 'zusammen' && mitAlterBasis.form.gewicht === '4'), JSON.stringify(mitAlterBasis.art));
+    const ns = methoden.get('nachSpeichern');
+    let setztBasis = 0;
+    if (ns) besuche(ns, (n) => {
+      if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && n.left.getText(sf) === 'this.basis' && n.right.getText(sf) === 'w.weiter.basis') {
+        let p: ts.Node | undefined = n.parent;
+        let imZweig = false;
+        while (p && p !== ns) {
+          if (ts.isIfStatement(p) && /w\.weiter\s*!==\s*null/.test(p.expression.getText(sf))) imZweig = true;
+          p = p.parent;
+        }
+        if (imZweig) setztBasis++;
+      }
+    });
+    check('seite.ts: nachSpeichern() setzt im Zweig "behalten mit weiter" die Basis auf w.weiter.basis (Syntaxbaum)', setztBasis === 1, String(setztBasis));
+  }
+
+  // N5 (Angriff N4, Info): nothing is open when no form is
+  {
+    const f = eintragZuFormular(basis);
+    const r = entscheideNachSpeichern({ formVorher: kanonisch(f), idVorher: 'Axt', ausgewaehltVorher: 'Axt', formJetzt: null, ausgewaehltJetzt: null, gespeicherteId: 'Axt', server: basis });
+    check('ohne Formular (null) meldet entscheideNachSpeichern keine offenen Aenderungen (offen false, kein weiter)', r.art === 'behalten' && r.offen === false && r.weiter === null, JSON.stringify(r));
+    const mit = entscheideNachSpeichern({ formVorher: kanonisch(f), idVorher: 'Axt', ausgewaehltVorher: 'Axt', formJetzt: { ...f, gewicht: '9' }, ausgewaehltJetzt: 'Axt', gespeicherteId: 'Axt', server: basis });
+    check('mit einem geaenderten Formular bleibt offen true', mit.art === 'behalten' && mit.offen === true);
+    const ns = methoden.get('nachSpeichern');
+    check('seite.ts: das Banner "ungespeicherte Aenderungen" haengt an w.offen', ns !== undefined && /w\.offen\s*\?\s*\[tA\('editor\.gegenstand\.seite\.nach_speichern_offen'\)\]/.test(ns.getText(sf)));
+  }
 }
 
 console.log(fehler === 0 ? '\nalles gruen' : `\n${fehler} FEHLER`);

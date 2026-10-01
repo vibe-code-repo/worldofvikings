@@ -848,7 +848,7 @@ class GegenstandsSeite {
         this.form.neu = w.weiter.neu;
         this.formAusgang = w.weiter.basis === null ? '' : JSON.stringify(eintragZuFormular(w.weiter.basis));
       }
-      this.banner([tA('editor.gegenstand.seite.nach_speichern_offen')]);
+      this.banner(w.offen ? [tA('editor.gegenstand.seite.nach_speichern_offen')] : []);
       this.zeichneListe();
       this.aktualisiere();
     }

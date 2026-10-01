@@ -37,6 +37,9 @@ import { STAT_IDS, type ItemStats } from '@wov/shared/src/items/stats.js';
 
 export { ANIMATIONSSAETZE, GEGENSTANDS_TYPEN, SELTENHEITEN, STAT_IDS };
 
+/** `Array.isArray` without its `any[]`: a list of anything, typed `unknown` (the mask allows no expression of type `any`). */
+export const istListe = (v: unknown): v is readonly unknown[] => Array.isArray(v);
+
 /** Longest text (UTF-16 units, as the reader counts): the reader's own constant, not a copy. */
 export const TEXT_MAX = MAX_TEXT_ZEICHEN;
 

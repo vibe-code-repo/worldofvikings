@@ -13,7 +13,7 @@
  */
 import type { DateiFehler, VerwerfGrund } from '@wov/shared/src/items/gegenstandsDaten.js';
 import type { TranslationKey, TranslationVars } from '../../i18n';
-import type { FeldFehler, LokalerGrund } from './modell';
+import { istListe, type FeldFehler, type LokalerGrund } from './modell';
 import { MAX_KENNUNG_ANZEIGE, fuege, kuerzeHart, sichtbarKuerzen, tA, zahlText, zier, type Anzeigetext } from './anzeige';
 
 export { MAX_KENNUNG_ANZEIGE, sichtbarKuerzen };
@@ -237,13 +237,13 @@ function quittungOhneGrenze(q: { status: string; gehalten?: unknown; verworfen?:
     ? uebersetze(QUITTUNG_SCHLUESSEL[q.status])
     : uebersetze('editor.gegenstand.quittung.unbekannt', { status });
   const zeilen: Array<() => Anzeigetext> = [];
-  if (typeof q.gehalten === 'object' && q.gehalten !== null && !Array.isArray(q.gehalten)) {
+  if (typeof q.gehalten === 'object' && q.gehalten !== null && !istListe(q.gehalten)) {
     for (const id of Object.keys(q.gehalten).sort()) {
       const anzahl = (q.gehalten as Record<string, unknown>)[id];
       if (typeof anzahl === 'number' && Number.isFinite(anzahl)) zeilen.push(() => uebersetze('editor.gegenstand.quittung.gehalten', { name: sichtbarKuerzen(name(id), MAX_KENNUNG_ANZEIGE * 2), anzahl }));
     }
   }
-  if (Array.isArray(q.verworfen)) {
+  if (istListe(q.verworfen)) {
     for (const v of q.verworfen) {
       if (typeof v === 'object' && v !== null && typeof (v as { grund?: unknown }).grund === 'string') {
         const id = (v as { id?: unknown }).id;

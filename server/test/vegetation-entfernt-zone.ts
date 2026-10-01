@@ -30,7 +30,9 @@ import { ZoneManager } from '../src/world/ZoneManager.js';
 import { BewuchsVorschau } from '../../client/src/editor/BewuchsVorschau.js';
 
 const SEED = getStableHash('KxSYuZquuw');
-const MITTE = { x: 10, z: 10 };
+// Bewusst ASYMMETRISCH (x != z, beide Vorzeichen): ein im Filteraufruf vertauschtes x/z fiele sonst nicht auf.
+const MITTE = { x: -150, z: 90 };
+const ZONE = { zx: -2, zy: 1 }; // Zone des Kreismittelpunkts (Mitte zx*64, Kante 64)
 const R = 40;
 
 const art = new Map<number, 'baum' | 'sonstiges'>();
@@ -200,8 +202,8 @@ const gleicheListe = (p: string[], s: string[]): boolean => p.length === s.lengt
   let zonen = 0;
   let gleicheZonen = 0;
   let summe = 0;
-  for (let zy = -1; zy <= 1; zy++) {
-    for (let zx = -1; zx <= 1; zx++) {
+  for (let zy = 0; zy <= 2; zy++) {
+    for (let zx = -3; zx <= -1; zx++) {
       p.live.clear();
       p.innen.zoneStreuen(zx, zy);
       const vs = punkte(p.live);
@@ -214,31 +216,45 @@ const gleicheListe = (p: string[], s: string[]): boolean => p.length === s.lengt
 
   // Kreis nur aus der Quelle (Entwurf), Layout ohne Kreis
   const q = vorschau(alt, () => [kreisAlles]);
-  q.innen.zoneStreuen(0, 0);
+  q.innen.zoneStreuen(ZONE.zx, ZONE.zy);
   const inQ = [...q.live.values()].filter((u) => imKreis(u.position, kreisAlles)).length;
   check('Kreis aus der Quelle (Entwurf) gilt, auch wenn das Layout keinen hat', q.live.size > 0 && inQ === 0, `${q.live.size} Funde, ${inQ} im Kreis`);
   const ohneQuelle = vorschau(alt, null);
-  ohneQuelle.innen.zoneStreuen(0, 0);
+  ohneQuelle.innen.zoneStreuen(ZONE.zx, ZONE.zy);
   check('Kontrolle: ohne Quelle und ohne Kreis steht dort Gestreutes', [...ohneQuelle.live.values()].filter((u) => imKreis(u.position, kreisAlles)).length > 0);
-  check('Zone ohne Kreise: Vorschau-Schlüssel und Funde wie vor der Änderung (Zähler läuft durch)', gleicheListe(punkte(ohneQuelle.live), serverZone(alt.zdos, 0, 0)));
+  check('Zone ohne Kreise: Vorschau-Schlüssel und Funde wie vor der Änderung (Zähler läuft durch)', gleicheListe(punkte(ohneQuelle.live), serverZone(alt.zdos, ZONE.zx, ZONE.zy)));
+
+  // Schlüssel: Vorschau mit Kreis vs. ohne Kreis. Was bleibt, trägt denselben Schlüssel `bewuchs-<zone>-<i>` und denselben
+  // Inhalt wie ohne Kreis (der Zähler läuft auch für entfernte Funde weiter); weg sind genau die Funde im Kreis.
+  {
+    const mitKreis = vorschau(alt, () => [kreisAlles]);
+    const ohneKreis = vorschau(alt, null);
+    mitKreis.innen.zoneStreuen(ZONE.zx, ZONE.zy);
+    ohneKreis.innen.zoneStreuen(ZONE.zx, ZONE.zy);
+    const inhalt = (u: { prefabHash: number; position: { x: number; y: number; z: number } }): string => `${u.prefabHash}|${u.position.x},${u.position.y},${u.position.z}`;
+    const gleicheSchluessel = [...mitKreis.live].every(([k, u]) => ohneKreis.live.has(k) && inhalt(ohneKreis.live.get(k)!) === inhalt(u));
+    const weg = [...ohneKreis.live].filter(([k]) => !mitKreis.live.has(k));
+    check('Vorschau-Schlüssel: jeder verbliebene Fund trägt Schlüssel und Inhalt wie ohne Kreis', gleicheSchluessel && mitKreis.live.size > 0, `${mitKreis.live.size} von ${ohneKreis.live.size}`);
+    check('Vorschau-Schlüssel: weg sind genau die Funde im Kreis', weg.length > 0 && weg.every(([, u]) => imKreis(u.position, kreisAlles)) && ohneKreis.live.size - mitKreis.live.size === weg.length, `${weg.length}`);
+  }
 
   // Die Quelle ändert sich: Zone wird neu gestreut
   let kreise: VegetationEntferntKreis[] = [];
   const w = vorschau(alt, () => kreise);
-  w.innen.zoneStreuen(0, 0);
+  w.innen.zoneStreuen(ZONE.zx, ZONE.zy);
   const vorher = [...w.live.values()].filter((u) => imKreis(u.position, kreisAlles)).length;
   kreise = [kreisAlles];
   let t = 1000;
   for (let i = 0; i < 40; i++) {
     t += 300;
-    w.v.schritt(0, 0, t);
+    w.v.schritt(MITTE.x, MITTE.z, t);
   }
   const nachher = [...w.live.values()].filter((u) => imKreis(u.position, kreisAlles)).length;
   check('Änderung der Quelle: die Zone wird neu gestreut, der Kreis ist leer', vorher > 0 && nachher === 0 && w.live.size > 0, `${vorher} → ${nachher}`);
   kreise = [];
   for (let i = 0; i < 40; i++) {
     t += 300;
-    w.v.schritt(0, 0, t);
+    w.v.schritt(MITTE.x, MITTE.z, t);
   }
   const zurueck = [...w.live.values()].filter((u) => imKreis(u.position, kreisAlles)).length;
   check('Kreis wieder weg: der Bewuchs kehrt zurück (Zahl wie im Server-Bezug ohne Kreis)', zurueck === altIm.length, `${zurueck} vs ${altIm.length}`);

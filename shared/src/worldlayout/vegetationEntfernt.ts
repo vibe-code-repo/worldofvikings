@@ -162,7 +162,14 @@ export interface VegetationPruefer {
 
 /** Prüfer über ein Raster: die Kosten je Abfrage hängen an den Kreisen der Zelle, nicht an der Gesamtzahl. */
 export function vegetationPruefer(kreise: readonly VegetationEntferntKreis[] | null | undefined): VegetationPruefer {
-  const liste = kreise ?? [];
+  // Der Prüfer vertraut seiner Eingabe nicht: nur Kreise, die `eintragPruefen` besteht, kommen ins Raster (ein roher
+  // Entwurf kann r = Infinity, NaN oder negativ tragen; r = Infinity ließe die Zellschleife endlos laufen).
+  const liste: VegetationEntferntKreis[] = [];
+  for (const k of kreise ?? []) {
+    if (liste.length >= VEGETATION_KREISE_MAX) break;
+    const { kreis } = eintragPruefen(k, 0);
+    if (kreis) liste.push(kreis);
+  }
   if (liste.length === 0) return { leer: true, istEntfernt: () => false };
   const raster = new Map<number, number[]>();
   const zellenKey = (ix: number, iz: number): number => (ix + ZELL_VERSATZ) * ZELL_BREITE + (iz + ZELL_VERSATZ);

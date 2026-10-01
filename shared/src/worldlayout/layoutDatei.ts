@@ -315,7 +315,7 @@ export function layoutLesen(pfad: string): WorldLayout {
  * könnten dazwischen einen fremden Schreibvorgang erwischen.
  */
 export function layoutLesenMitHash(pfad: string, optionen: { preserveRawHeight?: boolean } = {}): {
-  layout: WorldLayout; hash: string; rawHeight?: unknown;
+  layout: WorldLayout; hash: string; rawHeight?: unknown; rawVegetation?: unknown;
 } {
   let bytes: Buffer;
   let roh: unknown;
@@ -331,9 +331,11 @@ export function layoutLesenMitHash(pfad: string, optionen: { preserveRawHeight?:
     rejectVegetation(object);
   }
   // PATCH never consumes the correction: exclude it before sanitizing unrelated fields.
-  const sauber = sanitizeWorldLayout(optionen.preserveRawHeight && object ? { ...object, heightDeltas: undefined } : roh);
+  // Ebenso die Kreise der entfernten Vegetation: ein PATCH ändert sie nie, der Sanitizer dürfte sie weder kürzen noch verwerfen.
+  const sauber = sanitizeWorldLayout(optionen.preserveRawHeight && object ? { ...object, heightDeltas: undefined, vegetationEntfernt: undefined } : roh);
   if (!sauber) throw new LayoutUngueltig(`${basename(pfad)} ist kein gültiges WorldLayout`);
-  return { layout: sauber, hash: layoutHash(bytes), ...(object && Object.hasOwn(object, 'heightDeltas') ? { rawHeight: object.heightDeltas } : {}) };
+  return { layout: sauber, hash: layoutHash(bytes), ...(object && Object.hasOwn(object, 'heightDeltas') ? { rawHeight: object.heightDeltas } : {}),
+    ...(optionen.preserveRawHeight && object && Object.hasOwn(object, 'vegetationEntfernt') ? { rawVegetation: object.vegetationEntfernt } : {}) };
 }
 
 /** Preserve the established exception types, but carry both diagnostic lists. */
@@ -508,6 +510,12 @@ export interface SchreibOptionen {
    * abgeschickt hat.
    */
   heightDeltasUnberuehrt?: boolean;
+  /**
+   * Wie `heightDeltasUnberuehrt`, für `vegetationEntfernt`: Das Feld gilt als unberührt vom Schreibvorgang. Es wird nicht
+   * geprüft und nicht bereinigt, sondern roh (wie gelesen) zurückgeschrieben. NUR für den PATCH-Weg (`weltOps.ts`), der
+   * die Kreise nie ändert; sonst nirgends (POST, Import, MCP prüfen das Feld selbst, sonst ginge ein Tippfehler durch).
+   */
+  vegetationUnberuehrt?: boolean;
   sperreWartenMs?: number;
   /** Frist für eine Sperre ohne lesbare Besitzangabe (Vorgabe `SPERRE_VERALTET_MS`). */
   sperreVeraltetMs?: number;
@@ -1100,8 +1108,12 @@ function schreibenVorbereiten(eingabe: unknown, leereWelt = false, optionen: Sch
   const raw = typeof eingabe === 'object' && eingabe !== null && !Array.isArray(eingabe) ? eingabe as Record<string, unknown> : null;
   if (!optionen.heightDeltasUnberuehrt && raw) rejectHeight(raw);
   // Auch auf dem PATCH-Weg: Die Kreise sind ein gewöhnliches Feld des bereinigten Dokuments, kein rohes Durchreichen.
-  if (raw) rejectVegetation(raw);
-  const bericht = sanitizeWorldLayoutMitBericht(optionen.heightDeltasUnberuehrt && raw ? { ...raw, heightDeltas: undefined } : eingabe);
+  if (raw && !optionen.vegetationUnberuehrt) rejectVegetation(raw);
+  const bericht = sanitizeWorldLayoutMitBericht(
+    raw && (optionen.heightDeltasUnberuehrt || optionen.vegetationUnberuehrt)
+      ? { ...raw, ...(optionen.heightDeltasUnberuehrt ? { heightDeltas: undefined } : {}), ...(optionen.vegetationUnberuehrt ? { vegetationEntfernt: undefined } : {}) }
+      : eingabe
+  );
   if (!bericht) throw new LayoutUngueltig('Kein gültiges WorldLayout — verworfen');
   const layout = bericht.layout;
   // ── Warum diese zusätzliche Hürde ──────────────────────────────────
@@ -1172,9 +1184,12 @@ function schreibenVorbereiten(eingabe: unknown, leereWelt = false, optionen: Sch
     if (instanzFehler.length > 0) throw new LayoutBausaetzeUngueltig(instanzFehler);
   }
   // Raw height is an opaque JSON value on PATCH, never a sanitized WorldLayout field.
-  const document = optionen.heightDeltasUnberuehrt && raw && Object.hasOwn(raw, 'heightDeltas')
-    ? { ...layout, heightDeltas: raw.heightDeltas } : layout;
-  const text = optionen.heightDeltasUnberuehrt ? JSON.stringify(document, null, 2) : layoutText(layout);
+  const document = {
+    ...layout,
+    ...(optionen.heightDeltasUnberuehrt && raw && Object.hasOwn(raw, 'heightDeltas') ? { heightDeltas: raw.heightDeltas } : {}),
+    ...(optionen.vegetationUnberuehrt && raw && Object.hasOwn(raw, 'vegetationEntfernt') ? { vegetationEntfernt: raw.vegetationEntfernt } : {}),
+  };
+  const text = optionen.heightDeltasUnberuehrt || optionen.vegetationUnberuehrt ? JSON.stringify(document, null, 2) : layoutText(layout);
   return { layout, text, verworfen, verworfenJeFeld, zusammengefasst, zusammengefasstJeFeld };
 }
 

@@ -204,8 +204,35 @@ console.log('== 3 streuArt');
   'vegetation-tree-1a5-2', 'vegetation-tree-1b1-2', 'vegetation-tree-1e1-2', 'vegetation-tree-1e2-2',
   'vegetation-tree-1d1-2', 'vegetation-tree-1d2-2', 'vegetation-tree-1c1-2', 'vegetation-tree-1c2-2',
   ];
+  // P3 (Angriff #194): auch die Restliste ist ausgeschrieben. Kommt ein Streu-Prefab dazu, das in keiner der beiden Listen
+  // steht, wird der Test rot, bis jemand es EINORDNET (sonst fiele ein neuer Baum still unter "sonstiges").
+  const SONSTIGE = [
+    'environment-sm-env-rock-cliff-02-1', 'environment-sm-env-rock-cliff-01', 'environment-sm-env-rock-cliff-03-1',
+    'environment-sm-env-rock-cliff-05', 'environment-sm-env-rock-chunk-03-1', 'environment-sm-env-rock-chunk-02',
+    'environment-sm-env-rock-spike-03', 'environment-sm-env-rock-chunk-01', 'environment-sm-env-rock-spike-01',
+    'environment-sm-env-rock-spike-02', 'environment-sm-env-rock-spike-04', 'environment-sm-env-stone-02',
+    'environment-sm-env-rock-round-01', 'environment-sm-env-rock-round-03', 'environment-sm-env-rock-round-04',
+    'environment-sm-env-rock-spike-05', 'environment-sm-env-rock-04', 'environment-sm-env-rock-03-1',
+    'environment-sm-env-stone-01', 'environment-sm-env-rock-01', 'environment-sm-env-rock-02',
+    'environment-sm-env-rock-pebble-02-1', 'Findling2', 'Findling1', 'Felsplatte1', 'Steinbank1', 'Hasel2', 'Hasel3',
+    'Schlehe1', 'Schlehe2', 'Hartriegel1', 'Holunder2', 'Brombeere2', 'Brombeere1', 'Wacholder2', 'Margerite2',
+    'Margerite1', 'Glockenblume2', 'Trollblume2', 'Schafgarbe1', 'Brennnessel1', 'Distel1', 'Ampfer1', 'Seggen1',
+    'Seggen3', 'Farn2', 'Farn1', 'Felsplatte2', 'Felsblock2', 'Heidelbeere2', 'Heidelbeere3', 'Heidekraut2',
+    'Seggen2', 'Wollgras2', 'Wollgras1', 'Wollgras3', 'Wollgras4', 'Brennnessel2', 'Ampfer2', 'Findling3',
+    'Felsnadel1', 'Felsblock1', 'Wacholder3', 'Wacholder1', 'Heidekraut3', 'Heidekraut1',
+    'vegetation-large-bush-1a5', 'vegetation-large-bush-1a4', 'vegetation-large-bush-1a1',
+    'vegetation-large-bush-1a2', 'vegetation-large-bush-1a3', 'vegetation-bush-1a1-small', 'vegetation-bush-1a1',
+    'vegetation-bush-1a2', 'vegetation-bush-1a3', 'vegetation-branch-1a1', 'vegetation-branch-1a9',
+    'vegetation-bush-1a2-small-1-dark', 'vegetation-branch-1a7', 'vegetation-branch-1a5',
+    'vegetation-sm-plant-mushrooms-02', 'vegetation-bush-1a2-small', 'vegetation-bush-1a2-small-1-snow',
+  ];
   const erwartet = [...BAUM_EIGEN, ...BAUM_STORE].sort();
   const namen = [...new Set(FOLIAGE.map((f) => f.prefabName))];
+  const eingeordnet = new Set([...BAUM_EIGEN, ...BAUM_STORE, ...SONSTIGE]);
+  const unbekannt = namen.filter((n) => !eingeordnet.has(n));
+  check('jedes Streu-Prefab ist ausdrücklich eingeordnet (Baum- oder Sonstige-Liste), keines fehlt', unbekannt.length === 0, unbekannt.join(' '));
+  check('keine tote Zeile: jede eingeordnete Zeile gibt es in FOLIAGE; Listen zusammen = FOLIAGE', eingeordnet.size === namen.length && [...eingeordnet].every((n) => namen.includes(n)) && BAUM_EIGEN.length + BAUM_STORE.length + SONSTIGE.length === eingeordnet.size, `${namen.length} Prefabs`);
+  check('die Sonstige-Liste enthält keinen Baum nach der Regel (und umgekehrt)', SONSTIGE.every((n) => streuArt(n) === 'sonstiges'));
   const baeume = namen.filter((n) => streuArt(n) === 'baum').sort();
   const rest = namen.filter((n) => streuArt(n) !== 'baum');
   console.log(`     Baum (${baeume.length}): ${baeume.join(' ')}`);
@@ -215,6 +242,31 @@ console.log('== 3 streuArt');
   check('Büsche, Kraut, Äste, Pilze und Steine sind keine Bäume', ['Hasel2', 'Schlehe1', 'Brombeere1', 'Wacholder3', 'Heidelbeere2', 'Farn1', 'Seggen2', 'Margerite1', 'Findling1', 'Felsplatte2', 'Steinbank1', 'vegetation-bush-1a1', 'vegetation-large-bush-1a2', 'vegetation-branch-1a1', 'vegetation-sm-plant-mushrooms-02', 'environment-sm-env-rock-01', 'environment-sm-env-stone-02'].every((n) => streuArt(n) === 'sonstiges'));
   check('Weide ist ein Baum, Ast (branch) nicht, branched-tree schon', streuArt('Weide2') === 'baum' && streuArt('vegetation-branch-1a9') === 'sonstiges' && streuArt('vegetation-branched-tree-2a1') === 'baum');
   check('Unbekannter oder leerer Name ist kein Baum', streuArt('') === 'sonstiges' && streuArt('Eiche') === 'sonstiges' && streuArt('EicheX1') === 'sonstiges');
+}
+
+// ── 2b) Prüfer vertraut seiner Eingabe nicht (P2, Angriff #194) ───────────
+console.log('== 2b Prüfer mit rohen Kreisen');
+{
+  const roh = [
+    { x: 0, z: 0, r: Infinity },
+    { x: 0, z: 0, r: -Infinity },
+    { x: 0, z: 0, r: NaN },
+    { x: 0, z: 0, r: -5 },
+    { x: 0, z: 0, r: 1e9 },
+    { x: NaN, z: 0, r: 5 },
+    { x: Infinity, z: 0, r: 5 },
+    { x: 0, z: 0, r: '5' },
+    { x: 0, z: 0, r: 5, nur: 'busch' },
+    null,
+    'x',
+  ] as unknown as VegetationEntferntKreis[];
+  const t0 = performance.now();
+  const p = vegetationPruefer(roh);
+  const ms = performance.now() - t0;
+  check('Infinity, NaN, negativ, 1e9, Text, null: fertig in Millisekunden (kein Hängen)', ms < 200, `${ms.toFixed(1)} ms`);
+  check('… kein Kreis davon wirkt (leer, nichts entfernt)', p.leer && !p.istEntfernt(0, 0, 'baum') && !p.istEntfernt(1e6, 0, 'baum'));
+  const gemischt = vegetationPruefer([...roh, { x: 100, z: 100, r: 5 }]);
+  check('ein gültiger Kreis zwischen den ungültigen wirkt trotzdem', !gemischt.leer && gemischt.istEntfernt(100, 100, 'baum') && !gemischt.istEntfernt(0, 0, 'baum'));
 }
 
 // ── 4) Text, Hash, Schreibweg ───────────────────────────────────────────
@@ -238,6 +290,28 @@ try {
   // PATCH-Weg (Höhenkorrektur unberührt): das Feld läuft als gewöhnliches Feld mit durch
   layoutSchreiben(datei, { ...gelesen.layout, name: 'umbenannt' }, undefined, { heightDeltasUnberuehrt: true, basis: gelesen.hash });
   check('PATCH-Weg (heightDeltasUnberuehrt): die Kreise bleiben erhalten', json(JSON.parse(readFileSync(datei, 'utf-8')).vegetationEntfernt) === json(kreise));
+
+  // P1 (Angriff #194): der PATCH-Weg reicht die Kreise ROH durch — nie kürzen, nie still verwerfen
+  {
+    const viele = Array.from({ length: VEGETATION_KREISE_MAX + 4 }, (_, i) => ({ x: i, z: 1, r: 1 }));
+    const kaputtes = [{ x: 1, z: 1, r: 5 }, { x: 2, z: 2, r: 500 }, { x: 3, z: 3, r: 5, nur: 'busch' }];
+    for (const [name, feld] of [['4100 Kreise', viele], ['beschädigte Kreise', kaputtes]] as const) {
+      const d = resolve(T, `roh-${name.length}.json`);
+      writeFileSync(d, json(basis({ vegetationEntfernt: feld })));
+      const gelesen2 = layoutLesenMitHash(d, { preserveRawHeight: true });
+      check(`PATCH-Lesen (${name}): rawVegetation ist der rohe Wert, unverändert`, json(gelesen2.rawVegetation) === json(feld) && gelesen2.layout.vegetationEntfernt === undefined);
+      const mitRoh = { ...gelesen2.layout, name: 'umbenannt', vegetationEntfernt: gelesen2.rawVegetation as never };
+      layoutSchreiben(d, mitRoh, undefined, { heightDeltasUnberuehrt: true, vegetationUnberuehrt: true, basis: gelesen2.hash });
+      check(`PATCH-Schreiben (${name}): das Feld ist danach bytegleich (nichts gekürzt, nichts verworfen)`, json(JSON.parse(readFileSync(d, 'utf-8')).vegetationEntfernt) === json(feld) && JSON.parse(readFileSync(d, 'utf-8')).name === 'umbenannt');
+      let wirft = false;
+      try {
+        layoutSchreiben(d, mitRoh, undefined, { heightDeltasUnberuehrt: true });
+      } catch (e) {
+        wirft = e instanceof LayoutVegetationUngueltig;
+      }
+      check(`ohne vegetationUnberuehrt (POST-Weg) bleibt ${name} abgelehnt`, wirft);
+    }
+  }
 
   // Kaputt: wird abgelehnt, nichts geschrieben
   const vorher = readFileSync(datei);
@@ -274,7 +348,8 @@ try {
     a4 = e;
   }
   check('Lesen einer beschädigten Datei wirft LayoutVegetationUngueltig', a4 instanceof LayoutVegetationUngueltig && a4.vegetationProblem?.fehlerhaft[0]?.eintrag === '#1');
-  check('Lesen mit preserveRawHeight (Zurücksetzen, PATCH) bleibt möglich', layoutLesenMitHash(handDatei, { preserveRawHeight: true }).layout.vegetationEntfernt?.length === 1);
+  const hand = layoutLesenMitHash(handDatei, { preserveRawHeight: true });
+  check('Lesen mit preserveRawHeight (Zurücksetzen, PATCH) bleibt möglich und liefert die Kreise roh (rawVegetation)', Array.isArray(hand.rawVegetation) && hand.rawVegetation.length === 2 && hand.layout.vegetationEntfernt === undefined);
 
   // ── 5) Arbeitskopie ───────────────────────────────────────────────────
   console.log('== 5 Arbeitskopie');

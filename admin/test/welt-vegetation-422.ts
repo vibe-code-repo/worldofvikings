@@ -147,6 +147,26 @@ try {
   const nach = JSON.parse(platte().toString()) as { vegetationEntfernt?: unknown; placements?: Array<{ x: number }> };
   check('6 PATCH auf placements: 200 und die Kreise bleiben', patch.status === 200 && JSON.stringify(nach.vegetationEntfernt) === JSON.stringify(kreise) && nach.placements?.[0]?.x === 21, `${patch.status} ${JSON.stringify(pj).slice(0, 200)}`);
 
+  // 7 (P1, Angriff #194): PATCH auf eine Datei mit 4100 bzw. beschädigten Kreisen lässt das Feld bytegleich
+  for (const [name, feld] of [
+    ['4100 Kreise', Array.from({ length: 4100 }, (_, i) => ({ x: i, z: 1, r: 1 }))],
+    ['beschädigte Kreise', [{ x: 1, z: 1, r: 5 }, { x: 2, z: 2, r: 500 }, { x: 3, z: 3, r: 5, nur: 'busch' }]],
+  ] as const) {
+    writeFileSync(WELT_DATEI, JSON.stringify(dokument({ vegetationEntfernt: feld }), null, 2));
+    const roh = JSON.parse(readFileSync(WELT_DATEI, 'utf-8')) as { placements: Array<Record<string, unknown>>; vegetationEntfernt: unknown };
+    const p0 = roh.placements.find((p) => p.id === 't0')!;
+    // Hash direkt aus der Datei (GET antwortet bei beschädigtem Feld 422 und trägt keinen Layout-Stand)
+    const { createHash } = await import('node:crypto');
+    const hashRoh = createHash('sha256').update(readFileSync(WELT_DATEI)).digest('hex');
+    const pr = await fetch(`${BASIS}/ops`, {
+      method: 'PATCH',
+      headers: { 'x-wov-token': TOKEN, 'content-type': 'application/json', 'if-match': hashRoh },
+      body: JSON.stringify({ vorgangId: `veg-7-${name.length}`, ops: [{ art: 'aendere', sammlung: 'placements', id: 't0', vorher: p0, nachher: { ...p0, x: 22 } }] }),
+    });
+    const nachher = JSON.parse(readFileSync(WELT_DATEI, 'utf-8')) as { vegetationEntfernt: unknown; placements: Array<{ id: string; x: number }> };
+    check(`7 PATCH auf Datei mit ${name}: 200, Platzierung geändert, Feld bytegleich`, pr.status === 200 && nachher.placements.find((p) => p.id === 't0')?.x === 22 && JSON.stringify(nachher.vegetationEntfernt) === JSON.stringify(feld), `${pr.status} ${JSON.stringify(nachher.vegetationEntfernt).length} Zeichen`);
+  }
+
   // 5 von Hand beschädigt
   const kaputt = dokument({ vegetationEntfernt: [{ x: 1, z: 1, r: 5 }, { x: 2, z: 2, r: -3 }] });
   writeFileSync(WELT_DATEI, JSON.stringify(kaputt, null, 2));

@@ -57,6 +57,8 @@ export interface WeltUmgebung {
    * zweier Welten sind nicht vergleichbar, Instanzen liegen am Ursprung).
    */
   kreaturTrifft(pos: Vector3, schaden: number, radius: number, weltId: string, target?: Vector3): void;
+  /** Eine Kreatur setzt ihre Lebenspunkte zurück oder verlässt das Spiel ohne Tod: ihre Schadensanteile (Beute) verfallen. */
+  vergesseSchadensanteile?(zdo: import('../zdo/ZDO.js').ZDO): void;
 }
 
 export interface WeltBauplan {
@@ -139,6 +141,7 @@ export class Welt {
       : null;
     if (this.spawns) {
       this.spawns.onCreatureAttack = (pos, dmg, r, target) => umgebung.kreaturTrifft(pos, dmg, r, this.id, target);
+      this.spawns.beiAnteileVergessen = (zdo) => umgebung.vergesseSchadensanteile?.(zdo);
     }
 
     // Die Höhe kommt bei BEIDEN aus derselben Quelle wie Spawn-Höhe und

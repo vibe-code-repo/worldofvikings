@@ -144,6 +144,31 @@ const ERWARTUNGEN: Erwartung[] = [
   { weg: '/play/ (Spiel-Client)', muster: /location\s+\/play\/\s*\{/ },
   { weg: '/editor/ (Editor-Einstieg)', muster: /location\s+=?\s*\/editor\/\s*\{/ },
   { weg: '/api/*.json (statische Daten der Webseite)', muster: /location\s+~\s+\^\/api\/[^\n{]*\\\.json[^\n{]*\{/ },
+  /*
+    Dev-Log (30.09.2026): /api/devlog.json kommt zuerst aus dem Zustandsverzeichnis
+    /var/lib/wov/web (der taegliche Lauf schreibt dort, ohne Build), sonst aus der
+    Rueckfall-Datei im Build. `location =` haelt den Weg vor der Regex-location
+    darueber; `no-cache`, damit ein neuer Tag sofort sichtbar ist. Die Probe mit
+    einem eigenen nginx steht im Bericht der Karte.
+  */
+  {
+    weg: '/api/devlog.json (exakt, zuerst /var/lib/wov/web/devlog.json, no-cache, keine Symlinks)',
+    muster:
+      /location\s+=\s+\/api\/devlog\.json\s*\{[^}]*root\s+\/var\/lib\/wov\/web\s*;[^}]*try_files\s+\/devlog\.json\s+@devlog-rueckfall\s*;[^}]*disable_symlinks\s+on\b[^;]*;[^}]*Cache-Control\s+"no-cache"[^}]*\}/,
+  },
+  {
+    weg: '@devlog-rueckfall (Rueckfall-Datei aus dem Build, no-cache, keine Symlinks)',
+    muster:
+      /location\s+@devlog-rueckfall\s*\{[^}]*root\s+\/opt\/worldofvikings\/wov-web\/build\/client\s*;[^}]*try_files\s+\/api\/devlog\.json\s+=404\s*;[^}]*disable_symlinks\s+on\b[^;]*;[^}]*Cache-Control\s+"no-cache"[^}]*\}/,
+  },
+  /*
+    Rüstkammer R1 (Angriffsbefund B1): die Lesewege `/accounts/armory` sind nur für den
+    Webseiten-Dienst gedacht, der den Spielserver über 127.0.0.1 ruft. Außen 404, auf
+    allen Hosts. Fällt der Block weg, ist jede Listenanfrage eine Last auf dem Faden des
+    Spielservers, von überall.
+  */
+  { weg: '/accounts/armory ist von aussen dicht (404)', muster: /location\s+\/accounts\/armory\s*\{\s*return\s+404\s*;\s*\}/ },
+  { weg: '/api/accounts/armory ist von aussen dicht (404)', muster: /location\s+\/api\/accounts\/armory\s*\{\s*return\s+404\s*;\s*\}/ },
   { weg: '/api/accounts/ (Konten-API des Spielservers)', muster: /location\s+\/api\/accounts\/\s*\{/ },
   { weg: '/api/forum/ (Das Thing, Foren-API des Spielservers)', muster: /location\s+\/api\/forum\/\s*\{/ },
   { weg: '/accounts/ (Konten-API, bare, fuer den eingebauten Anmeldedialog)', muster: /location\s+\/accounts\/\s*\{/ },
@@ -257,6 +282,18 @@ function main(): void {
   }
 
   /*
+    Dev-Log N1: Der Kommentar zum Regex-Block /api/*.json ("Fehlt eine Datei, liefert
+    dieser Block ehrlich 404") steht unmittelbar vor seinem Block, nicht ueber dem
+    Dev-Log-Abschnitt. Ein Kommentar ist nur im Rohtext sichtbar, deshalb hier `text`.
+  */
+  {
+    const weg = 'Kommentar „Statische Daten“ steht unmittelbar vor der /api/*.json-Regex-location';
+    const ok = /404 statt stillschweigend an den Betriebsdienst durchzufallen\.\s*\n\s*location\s+~\s+\^\/api\//.test(text);
+    console.log(`${ok ? 'OK  ' : 'FEHL'}  ${weg}`);
+    if (!ok) fehler++;
+  }
+
+  /*
     Karte D1-R (Angriffsbefund NG6 und Punkt 4): die vier Host-Zeilen zählen
     nur, wenn sie IM Block `location = /` stehen — dieser wiederum im
     `server`-Block. Die Muster oben lesen die ganze Datei; eine Zeile, die in
@@ -294,6 +331,43 @@ function main(): void {
   ];
   for (const { weg, ok } of blockErgebnisse) {
     console.log(`${ok ? 'OK  ' : 'FEHL'}  ${weg}`);
+    if (!ok) fehler++;
+  }
+
+  /*
+    Rüstkammer R1: auch die beiden anderen Konfigurationen, die `/accounts/` durchreichen
+    (Live-Container und Proxy-Manager-Vorlage des Testgestades), sperren den Weg.
+  */
+  /*
+    Rüstkammer R1 (N1-3): die Drossel des Spielservers zählt je Besucher. Dafür muss die Besucheradresse bis
+    zur Webseite kommen: `location /` setzt real_ip NUR dort (nicht auf der server-Ebene, sonst ändert sich
+    `$remote_addr` für den Netz-Riegel von `/api/`), und die systemd-Unit liest den Kopf (ADDRESS_HEADER).
+  */
+  {
+    const wurzelBlock = block(ohneKomm, /location\s+\/(?=\s*\{)/);
+    const innen = wurzelBlock?.inhalt ?? '';
+    const real =
+      /set_real_ip_from\s+10\.10\.10\.10\s*;/.test(innen) && /real_ip_header\s+X-Forwarded-For\s*;/.test(innen) &&
+      /real_ip_recursive\s+on\s*;/.test(innen) && /proxy_set_header\s+X-Forwarded-For\s+\$remote_addr\s*;/.test(innen);
+    console.log(`${real ? 'OK  ' : 'FEHL'}  location / setzt real_ip (nur der Proxy Manager) und reicht X-Forwarded-For weiter`);
+    if (!real) fehler++;
+    const serverEbene = server?.inhalt.replace(/location[\s\S]*$/, '') ?? '';
+    const global = /set_real_ip_from/.test(serverEbene) || /real_ip_header/.test(serverEbene);
+    console.log(`${!global ? 'OK  ' : 'FEHL'}  real_ip steht NICHT auf der server-Ebene ($remote_addr bleibt fuer den Netz-Riegel von /api/)`);
+    if (global) fehler++;
+    let einheit = '';
+    try { einheit = ohneKommentare(readFileSync(resolve(WURZEL, 'deploy/systemd/wov-web.service'), 'utf-8')); } catch { /* leer */ }
+    const unit = /^Environment=ADDRESS_HEADER=x-forwarded-for\s*$/m.test(einheit) && /^Environment=XFF_DEPTH=1\s*$/m.test(einheit);
+    console.log(`${unit ? 'OK  ' : 'FEHL'}  wov-web.service liest die Besucheradresse (ADDRESS_HEADER, XFF_DEPTH=1)`);
+    if (!unit) fehler++;
+  }
+
+  for (const datei of ['deploy/nginx-live.conf', 'deploy/npm-play-dev.conf']) {
+    let ok = false;
+    try {
+      ok = /location\s+\/accounts\/armory\s*\{\s*return\s+404\s*;\s*\}/.test(ohneKommentare(readFileSync(resolve(WURZEL, datei), 'utf-8')));
+    } catch { /* ok bleibt false */ }
+    console.log(`${ok ? 'OK  ' : 'FEHL'}  ${datei}: /accounts/armory ist von aussen dicht (404)`);
     if (!ok) fehler++;
   }
 

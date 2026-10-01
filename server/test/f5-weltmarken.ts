@@ -50,6 +50,7 @@ import { Writer } from '../src/io/Writer.js';
 import { ZDOID } from '../src/zdo/ZDOID.js';
 import type { Peer } from '../src/net/Peer.js';
 import { HAUPTWELT_ID } from '../src/world/Welt.js';
+import { neuerSchlagZustand } from '../src/spiel/Treffer.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SEED = 'KxSYuZquuw';
@@ -148,6 +149,7 @@ console.log("\n[2] Admin-Befehl 'marke':");
       // Testspieler fuer jemanden in einer Instanzwelt.
       worldId: HAUPTWELT_ID,
       inventar: new Inventory(),
+      schlag: neuerSchlagZustand(), // D2: Kombo und Abklingzeit leben am Peer
       sendPacketWith: () => {},
       sendPacket: () => {},
     } as unknown as Peer;
@@ -370,6 +372,7 @@ console.log('\n[6] Eikthyr-Kill setzt die Marke:');
   function makePeer(pos: Vector3): Peer {
     return {
       name: 'Jaeger',
+      userId: 1n, // the loot owner key (D5) is the userId of a real peer
       isAdmin: true,
       flying: false,
       position: pos,
@@ -386,6 +389,7 @@ console.log('\n[6] Eikthyr-Kill setzt die Marke:');
       // Testspieler fuer jemanden in einer Instanzwelt.
       worldId: HAUPTWELT_ID,
       inventar: new Inventory(),
+      schlag: neuerSchlagZustand(), // D2: combo and cooldown live on the peer
       sendPacketWith: () => {},
       sendPacket: () => {},
     } as unknown as Peer;

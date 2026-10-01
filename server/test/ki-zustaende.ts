@@ -28,6 +28,7 @@
  *  [21] Der Anker wandert nicht aus der Leine des Ursprungs (N2 N1-4).
  *  [22] Herausschieben: kein Wasser, kein Ausweg ⇒ abgeräumt, Felshaufen (N2 N1-5).
  *  [23] Heimkehr-Fortschrittsschwelle; [24] Grenze Leine + Sicht bei `aufgegeben` (N2 N1-8).
+ *  [25] Heimkehr und Abräumen setzen die D5-Schadensanteile zurück (N4 N1-2).
  *
  * Run: npx tsx server/test/ki-zustaende.ts   (from the repo root or server/)
  */
@@ -65,6 +66,7 @@ import type { ZDO } from '../src/zdo/ZDO.js';
 import { PrefabManager } from '../src/prefab/PrefabManager.js';
 import { SpawnSystem } from '../src/world/SpawnSystem.js';
 import { Kollisionswelt } from '../src/world/Kollisionswelt.js';
+import { BeuteAmBoden } from '../src/spiel/BeuteAmBoden.js';
 import { KI_SPANNEN, alleSteckbriefe, steckbriefFuer } from '../src/spiel/KreaturenSteckbriefe.js';
 import type { FormQuelle } from '@wov/shared/src/kollision/form.js';
 
@@ -1169,6 +1171,60 @@ console.log('\n[24] Ein aufgegebenes Ziel wird vergessen, wenn es weiter als Lei
   check('40 m vom Anker (weiter als Leine + Sicht): wird vergessen', !z.aufgegeben.has('p0'));
   const b = schritt(14);
   check('kommt er danach wieder auf 14 m, ist er ein neuer Anlass: der Wolf bemerkt ihn', b.phase !== 'wandern', `Phase ${b.phase}`);
+}
+
+// ── [25] D5-Schadensanteile (N4 N1-2) ──────────────────────────────
+console.log('\n[25] Heimkehr und Abräumen setzen die Schadensanteile der Beute zurück');
+{
+  // Heimkehr: A schlägt an der Leine (20 Schaden), der Wolf kehrt heim; B tötet ihn später (10 Schaden): die Beute gehört B.
+  const r = felsRahmen([ruhigerWolf()], 121);
+  const beute = new BeuteAmBoden();
+  r.spawns.beiAnteileVergessen = (z): void => beute.vergiss(z);
+  const wolf = setzeWolf(r.zdos, 0, 0, 0);
+  r.spawns.adoptPersisted();
+  r.zdos.updateZDOZone(wolf, { x: 0, y: BODEN_Y, z: -14 }); // jenseits der Leine
+  const info = [{ id: 'A', blick: null }];
+  r.spawns.update(0.05, [FERN], [FERN], info);
+  beute.schaden(wolf, 'A', 20);
+  r.spawns.treffer(wolf, { id: 'A', schaden: 20 });
+  for (let i = 0; i < 20; i++) r.spawns.update(0.05, [FERN], [FERN], info);
+  check('A schlägt an der Leine zu, der Wolf kehrt heim: der Anteil von A ist weg', r.spawns.kiPhase(wolf) === 'heimkehren' && beute.anzahlAnteile === 0 && beute.besitzer(wolf) === '', `Phase ${r.spawns.kiPhase(wolf)}, Anteile ${beute.anzahlAnteile}, Besitzer „${beute.besitzer(wolf)}“`);
+  beute.schaden(wolf, 'B', 10);
+  check('B tötet ihn später (10 Schaden, A hatte 20): die Beute gehört B', beute.besitzer(wolf) === 'B', `Besitzer ${beute.besitzer(wolf)}`);
+}
+{
+  // Abgeräumt (kein Ausweg, Wasser rundum): kein Eintrag bleibt, sofort, ohne Tick.
+  const r = felsRahmen([ruhigerWolf()], 122, undefined, true, (x, z) => (Math.hypot(x, z) <= 1.6 ? BODEN_Y : -5));
+  const beute = new BeuteAmBoden();
+  r.spawns.beiAnteileVergessen = (z): void => beute.vergiss(z);
+  r.fels(0, 0);
+  const wolf = setzeWolf(r.zdos, 0.4, 0, 0);
+  r.spawns.adoptPersisted();
+  const spieler: Vector3 = { x: -8, y: BODEN_Y, z: 0 };
+  beute.schaden(wolf, 'A', 8);
+  r.spawns.treffer(wolf, { id: 'A', schaden: 8 });
+  for (let i = 0; i < 40; i++) r.spawns.update(0.05, [spieler], [spieler], [{ id: 'A', blick: null }]);
+  check('Abgeräumt (kein Ausweg): das ZDO ist weg und die D5-Zählung hat keinen Eintrag mehr', wolf.destroyed && beute.anzahlAnteile === 0, `zerstört ${wolf.destroyed}, Anteile ${beute.anzahlAnteile}`);
+}
+{
+  // Abgeräumt (Anker zu weit vom Ursprung): Wand bei z = −13, der Wolf sitzt bei −15 fest.
+  const r = felsRahmen([wolfEintrag()], 123);
+  const beute = new BeuteAmBoden();
+  r.spawns.beiAnteileVergessen = (z): void => beute.vergiss(z);
+  for (let x = -30; x <= 30; x += 2) r.fels(x, -13);
+  const wolf = setzeWolf(r.zdos, 0, 0, 0);
+  r.spawns.adoptPersisted();
+  r.zdos.updateZDOZone(wolf, { x: 0, y: BODEN_Y, z: -17 });
+  const info = [{ id: 'A', blick: null }];
+  r.spawns.update(0.05, [FERN], [FERN], info);
+  beute.schaden(wolf, 'A', 8);
+  r.spawns.treffer(wolf, { id: 'A', schaden: 8 });
+  for (let i = 0; i < 300 && !wolf.destroyed; i++) {
+    // Die Heimkehr hat den Anteil schon gelöscht; hier kommt er künstlich zurück, damit das Abräumen selbst geprüft wird.
+    if (r.spawns.kiPhase(wolf) === 'heimkehren') beute.schaden(wolf, 'A', 1);
+    r.spawns.update(0.05, [FERN], [FERN], info);
+  }
+  check('Abgeräumt (Anker > Leine vom Ursprung): das ZDO ist weg und die D5-Zählung hat keinen Eintrag mehr', wolf.destroyed && beute.anzahlAnteile === 0, `zerstört ${wolf.destroyed}, Anteile ${beute.anzahlAnteile}`);
 }
 
 console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAILED`);

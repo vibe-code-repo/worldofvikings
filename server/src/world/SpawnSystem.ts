@@ -416,6 +416,17 @@ export class SpawnSystem {
   }
 
   /**
+   * Speed (m/s) this creature moves at right now, from its mode (D2: tolerance of the hit sphere
+   * for a moving target). 0 for a creature that stands, that is not ours, or that lies dying.
+   */
+  tempo(zdo: ZDO): number {
+    const c = this.eigene(zdo);
+    if (!c || c.stirbtBis !== undefined) return 0;
+    if (c.mode === 'chase' || c.mode === 'flee') return c.entry.runSpeed;
+    return c.mode === 'walk' ? c.entry.walkSpeed : 0;
+  }
+
+  /**
    * The creature of THIS system that is this very ZDO. The id alone is no
    * identity: an instance world has its own ZDOManager with the same
    * serverUserId, so its ZDO can carry the id of a main-world creature —
@@ -637,6 +648,9 @@ export class SpawnSystem {
   /** Creature strike: position, damage, radius and selected target — wired by the server. */
   onCreatureAttack: ((pos: Vector3, damage: number, radius: number, target: Vector3) => void) | null = null;
 
+  /** D5: the damage tally of a creature is void (it went home at full health, or left the game without a kill) — wired by the world. */
+  beiAnteileVergessen: ((zdo: ZDO) => void) | null = null;
+
   private simulateTick(deltaSec: number, peerPositions: readonly Vector3[]): void {
     const simSqr = this.simRadius * this.simRadius;
     const kiZiele: KiZiel[] = peerPositions.map((p, i) => ({
@@ -655,8 +669,7 @@ export class SpawnSystem {
       // Kein Ausweg aus dem Fels: wie beim Wegzug des Spielers aus dem Spiel nehmen,
       // die Spawn-Würfe setzen sie normal neu (kein Kampf, kein Tod, keine Beute).
       if (c.entfernen) {
-        this.zdos.destroyZDO(c.zdo.zdoid);
-        this.creatures.delete(key);
+        this.nimmAusDemSpiel(key, c);
         continue;
       }
       // Slain: the body stays while the clip plays, then goes. Before the
@@ -803,15 +816,17 @@ export class SpawnSystem {
       const u = c.ursprung ?? c.home;
       const fern = Math.hypot(p.x - u.x, p.z - u.z) > (c.steck?.leine ?? Infinity);
       if (fern) {
-        this.zdos.destroyZDO(c.zdo.zdoid);
-        this.creatures.delete(key);
+        this.nimmAusDemSpiel(key, c);
         return true;
       }
       c.home = { x: p.x, y: p.y, z: p.z };
     }
     // Beim Aufgeben füllt sie ihre Lebenspunkte (wie ein Zurücksetzen), und bis
     // zur Ankunft trifft sie niemand (`unverwundbar`).
-    if (befehl.phase === 'heimkehren' && vorher !== 'heimkehren') this.fuelleLeben(c);
+    if (befehl.phase === 'heimkehren' && vorher !== 'heimkehren') {
+      this.beiAnteileVergessen?.(c.zdo);
+      this.fuelleLeben(c);
+    }
     // Jenseits der Leine ist `ziel` schon null (sie kehrt heim): dann gibt es nichts zu rufen.
     if (befehl.neuBemerkt && befehl.ziel) this.ruf(c, befehl.ziel);
     if (befehl.phase === 'wandern') {
@@ -856,6 +871,13 @@ export class SpawnSystem {
     c.zdo.setInt(HEALTH_MEMBER, voll);
     c.zdo.revision.reviseData();
     c.zdo.dirty = true;
+  }
+
+  /** Aus dem Spiel nehmen (kein Tod, keine Beute): ZDO zerstören, Schadensanteile der Beute vergessen. */
+  private nimmAusDemSpiel(key: string, c: CreatureState): void {
+    this.beiAnteileVergessen?.(c.zdo);
+    this.zdos.destroyZDO(c.zdo.zdoid);
+    this.creatures.delete(key);
   }
 
   /** Steckt ein Körper dieses Radius an `pos` im Fels? (Nur mit Formen, sonst nie.) */

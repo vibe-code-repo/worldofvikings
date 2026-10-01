@@ -14,7 +14,7 @@
  *      a cow one metre from the player does no damage while the wolf does.
  *  [3] The REAL packet path: a WebSocket client on a running server hits a cow
  *      and a wolf with fist, sword and axe, they die after the counted number
- *      of hits, and the loot lands in the inventory.
+ *      of hits, and the loot lies on the ground (D5).
  *
  * Every claim carries the number that proves it. Ports are ephemeral
  * (`portVon`, scripts/testport.mjs).
@@ -466,7 +466,9 @@ async function main(): Promise<void> {
       return zdo;
     }
     const vorn = (von: Vector3, abstand: number): Vector3 => ({ x: von.x, y: von.y, z: von.z - abstand });
-    const beute = (): number => peer!.inventar.countOf('RawMeat');
+    // D5: loot lies on the ground at the corpse now; `beute()` counts what is in the inventory plus the RawMeat on the ground.
+    const bodenFleisch = (): number => server.zdos.getAllZDOs().filter((z) => server.beuteAmBoden.istBeute(z) && z.getString('beute_item') === 'RawMeat').reduce((a, z) => a + z.getInt('beute_menge'), 0);
+    const beute = (): number => peer!.inventar.countOf('RawMeat') + bodenFleisch();
 
     /** Hit with `waffe` until the animal is gone; returns the hits, the HP after each and the loot. */
     async function erschlage(zdo: ZDO, mitte: Vector3, waffe: string, halteFest = false): Promise<{ schlaege: number; hpReihe: number[]; fleisch: number; meldung: string }> {
@@ -520,7 +522,7 @@ async function main(): Promise<void> {
       const r = await erschlage(kuh, mitte, waffe, true);
       const soll = Math.ceil(30 / schaden);
       check(`cow, ${waffe === '' ? 'fist' : waffe} (${schaden}): dead after ${soll} hits`, r.schlaege === soll && kuh.destroyed, `hits ${r.schlaege}, HP ${r.hpReihe.join(' -> ')}`);
-      check(`cow, ${waffe === '' ? 'fist' : waffe}: loot 2-3 RawMeat in the inventory and in the message`, r.fleisch >= 2 && r.fleisch <= 3 && r.meldung === `Kuh besiegt — ${r.fleisch}× RawMeat`, `${r.fleisch}× / "${r.meldung}"`);
+      check(`cow, ${waffe === '' ? 'fist' : waffe}: loot 2-3 RawMeat on the ground (not in the inventory) and the kill message`, r.fleisch >= 2 && r.fleisch <= 3 && r.meldung === '@beute.besiegt|{"kreatur":"Kuh"}' && peer.inventar.countOf('RawMeat') === 0, `${r.fleisch}× / "${r.meldung}"`);
     }
 
     // [3c] Wolf: strikes back, dies, drops.
@@ -548,7 +550,7 @@ async function main(): Promise<void> {
     check('wolf anim member on the real server: run then attack', animSicht.has('run') && animSicht.has('attack'), [...animSicht].join(','));
     const gegen = await erschlage(wolf, mitte, 'AxeFlint');
     check('wolf, flint axe: dead after 2 hits', gegen.schlaege === 2 && wolf.destroyed, `hits ${gegen.schlaege}, HP ${gegen.hpReihe.join(' -> ')}`);
-    check('wolf: loot 1-2 RawMeat', gegen.fleisch >= 1 && gegen.fleisch <= 2 && gegen.meldung === `Wolf besiegt — ${gegen.fleisch}× RawMeat`, `${gegen.fleisch}× / "${gegen.meldung}"`);
+    check('wolf: loot 1-2 RawMeat on the ground', gegen.fleisch >= 1 && gegen.fleisch <= 2 && gegen.meldung === '@beute.besiegt|{"kreatur":"Wolf"}' && peer.inventar.countOf('RawMeat') === 0, `${gegen.fleisch}× / "${gegen.meldung}"`);
 
     mitte = await neuerPlatz(geoAnker.wald);
     const wolf2 = setze('Wolf', vorn(mitte, 3));
@@ -570,11 +572,13 @@ async function main(): Promise<void> {
     const dort = { ...vorn(mitte, 2), y: wolf4.position.y };
     server.zdos.updateZDOZone(wolf4, dort);
     const hpSicht: number[] = [wolf4.getInt(HEALTH_MEMBER)];
+    // N4 (N1-2): this player already did 20 damage to the wolf before it went home (D5 tally); another one comes later.
+    server.beuteAmBoden.schaden(wolf4, peer.userId.toString(), 20);
     let unverwundbarGesehen = false;
     // N2 (N1-3): a blow on a creature that is going home costs no stamina, harvests nothing and says why.
     let abgewehrtGeprueft = 0;
     let abgewehrtFehler = '';
-    for (let i = 0; i < 3 && !wolf4.destroyed; i++) {
+    for (let i = 0; i < 2 && !wolf4.destroyed; i++) {
       peer.stamina = 100;
       server.zdos.updateZDOZone(wolf4, dort); // keep it in reach; the test counts hits, it does not chase
       await blicke(ws, 0, 100);
@@ -593,7 +597,7 @@ async function main(): Promise<void> {
       hpSicht.push(wolf4.destroyed ? 0 : wolf4.getInt(HEALTH_MEMBER));
     }
     check(
-      'wolf beyond the leash: three flint-axe hits (15 each, 30 HP) do not kill it — it goes home, HP is full again',
+      'wolf beyond the leash: two flint-axe hits (15 each, 30 HP) do not kill it — it goes home, HP is full again',
       !wolf4.destroyed && wolf4.getInt(HEALTH_MEMBER) === maxLeben('Wolf') && unverwundbarGesehen,
       `HP ${hpSicht.join(' -> ')}, unverwundbar gesehen ${unverwundbarGesehen}`
     );
@@ -619,6 +623,20 @@ async function main(): Promise<void> {
       `homing ${heimHinten}, stamina ${peer.stamina}, messages [${meldungen.join('|')}]`
     );
 
+    // N4: a homing wolf in the cone but out of reach (4.5 m) is not "hit" either: ordinary blow (stamina spent, no message).
+    server.zdos.updateZDOZone(wolf4, { ...vorn(mitte, 4.5), y: wolf4.position.y });
+    peer.stamina = 100;
+    await blicke(ws, 0, 100);
+    const heimFern = !wolf4.destroyed && spawns.unverwundbar(wolf4);
+    meldungen.length = 0;
+    sendAttack(ws, mitte, 'AxeFlint', 0);
+    await warte(420);
+    check(
+      'homing wolf in the cone but out of reach: the blow costs stamina and gives no "unhittable" message',
+      heimFern && peer.stamina < 100 && !meldungen.includes('@kampf.unverwundbar'),
+      `homing ${heimFern}, stamina ${peer.stamina}, messages [${meldungen.join('|')}]`
+    );
+
     // N3 (N2-2): a homing wolf in the cone does not stop the harvest of a tree in reach: the tree takes the blow,
     // the stamina is spent and there is no "unhittable" message.
     const baum = server.zdos.createZDO(getStableHash('Beech_small1'), { ...vorn(mitte, 2.5), y: wolf4.position.y });
@@ -636,6 +654,11 @@ async function main(): Promise<void> {
       `homing ${heimVorn}, tree HP ${baumHp}, stamina ${peer.stamina}, messages [${meldungen.join('|')}]`
     );
     server.zdos.destroyZDO(baum.zdoid);
+    check(
+      'D5 tally: the damage dealt before the wolf went home is void; a later killer (10 damage against 20 before) owns the loot',
+      (server.beuteAmBoden.besitzer(wolf4) === '' && (server.beuteAmBoden.schaden(wolf4, 'anderer', 10), server.beuteAmBoden.besitzer(wolf4) === 'anderer')),
+      `owner ${server.beuteAmBoden.besitzer(wolf4)}`
+    );
     ws.close();
   } finally {
     server.stop();

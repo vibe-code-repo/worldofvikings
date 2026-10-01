@@ -114,7 +114,9 @@ let gelesen = 0;
 };
 const abrufe: Array<{ url: string; init: RequestInit }> = [];
 // The server answer the fake returns next (status and body); default: 200 with a new hash.
-let naechsteAntwort: { status: number; rumpf: unknown } = { status: 200, rumpf: { ok: true, message: 'saved', hash: 'h2' } };
+// R4: the service's hash is SHA-256 as hex; only that form confirms a save.
+const H2 = '2'.repeat(64);
+let naechsteAntwort: { status: number; rumpf: unknown } = { status: 200, rumpf: { ok: true, message: 'saved', hash: H2 } };
 (globalThis as unknown as { fetch: unknown }).fetch = async (url: string, init: RequestInit) => {
   abrufe.push({ url, init });
   return new Response(JSON.stringify(naechsteAntwort.rumpf), { status: naechsteAntwort.status });
@@ -153,13 +155,13 @@ try {
   pruefe(abrufe[0]?.init.body === '{"placements":[]}', `wrong body: ${String(abrufe[0]?.init.body)}`);
   pruefe((abrufe[0]?.init.headers as Record<string, string> | undefined)?.['If-Match'] === '"h1"', `If-Match must carry the base from the note: ${JSON.stringify(abrufe[0]?.init.headers)}`);
   const zettelNach = JSON.parse(speicher.get('wov-editor-entwurf-stand') ?? 'null') as Record<string, unknown> | null;
-  pruefe(zettelNach?.basis === 'h2', `after a successful save the note carries the new hash, has ${String(zettelNach?.basis)}`);
+  pruefe(zettelNach?.basis === H2, `after a successful save the note carries the new hash, has ${String(zettelNach?.basis)}`);
   pruefe(zettelNach?.tabId === 'tabA' && zettelNach?.quelle === 'server' && zettelNach?.zeit === '2026-09-19T00:00:00.000Z', 'the flight changes only `basis` in the note (stamp and tab stay)');
   naechsteAntwort = { status: 409, rumpf: { fehler: 'veraltet', aktuell: 'h9' } };
   const veraltet = await p.speichern({ placements: [] });
   pruefe(veraltet.ok === false && /inzwischen geändert/.test(veraltet.message) && /im Editor abgleichen/.test(veraltet.message), `409: message for the flight, got ${JSON.stringify(veraltet)}`);
-  pruefe((JSON.parse(speicher.get('wov-editor-entwurf-stand') ?? 'null') as { basis?: string }).basis === 'h2', '409 must keep the old base in the note (only the editor replaces it after looking at the server)');
-  naechsteAntwort = { status: 200, rumpf: { ok: true, message: 'saved', hash: 'h2' } };
+  pruefe((JSON.parse(speicher.get('wov-editor-entwurf-stand') ?? 'null') as { basis?: string }).basis === H2, '409 must keep the old base in the note (only the editor replaces it after looking at the server)');
+  naechsteAntwort = { status: 200, rumpf: { ok: true, message: 'saved', hash: H2 } };
 
   // start draft
   gelesen = 0;

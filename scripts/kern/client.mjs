@@ -667,6 +667,8 @@ export default [
   // verwendete Uebersetzungsschluessel in de.json UND en.json existiert
   // (faengt einen Tippfehler im Schluessel). DOM-frei, <1 s.
   ['client', 'test/testflug-texte-vollstaendig.ts'],
+  // Textfeld-Fokus sperrt Spiel- und Testflug-Tasten (K, I, V, B, H, WASD): Helfer, echter InputManager mit Attrappen, Verdrahtung. DOM-frei.
+  ['client', 'test/texteingabe-tasten.ts'],
   /*
     Tod und Treffer N1: die Wurzelbewegungs-Zeile in AssetManager.instantiate (Liegeclips fremder Koerper) am ECHTEN Pfad: echter
     AssetManager, echter Koerper (v1), Bodenweg des Falls flach, Hoehenkeys wie im File. In der CI ohne Assets uebersprungen.
@@ -721,6 +723,8 @@ export default [
   // Nachbesserung N2 (F2/F3): zwei gleichzeitige getMasters() ergeben dieselbe Skala
   // (gebündelt), eine vorher gehaltene localMatrix-Referenz sieht eine spätere Änderung.
   ['client', 'test/upload-grundskala-neu-anwenden.ts'],
+  // Baeume entfernen V1: Vergleich, enthaelt, Import und Speicherschutz F1 kennen vegetationEntfernt.
+  ['client', 'test/vegetation-entfernt-dokument.ts'],
   // Die Grafikoption begrenzt die gemeinsamen Bild-/Schattenmatrizen der
   // Vegetation. Der reine Kreisfilter sichert den unveraenderten Standard
   // (0 = voll), den eingeschlossenen Rand und die X/Z-Distanz ab.

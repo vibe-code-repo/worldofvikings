@@ -10,6 +10,8 @@
  *    slot, menu toggle). Edge state is cleared by `endFrame()`, which the main
  *    loop calls after everything has had a chance to read it.
  */
+import { istTexteingabeAktiv, istTexteingabeFokus } from './texteingabe';
+
 export class InputManager {
   private readonly keys = new Set<string>();
   /** Keys that went down since the last endFrame(). */
@@ -88,6 +90,12 @@ export class InputManager {
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     window.addEventListener('keydown', (e) => {
+      // Tippt der Spieler in einem Textfeld (Suchfeld, Zielhöhe, …), sind Tasten
+      // Text: weder Bewegung noch Menütaste. Esc verlässt nur das Feld.
+      if (istTexteingabeAktiv(e)) {
+        if (e.code === 'Escape' && e.target instanceof HTMLElement) e.target.blur();
+        return;
+      }
       if (e.repeat) return;
       // Tab opens the build menu; letting the browser have it moves focus off
       // the canvas and the next keystroke goes somewhere else entirely.
@@ -257,6 +265,9 @@ export class InputManager {
         // stehen auf pointer-events:none und reichen ans Canvas durch, der
         // Rad-Moduswechsel des Baumenüs funktioniert also weiter.
         if (!this.pointerLocked && e.target !== this.canvas) return;
+        // Hat ein Textfeld den Fokus, wirkt das Rad nicht aufs Spiel (kein Zoom, keine
+        // Hotbar) und das native Scrollen bleibt (kein preventDefault).
+        if (istTexteingabeFokus()) return;
         e.preventDefault();
         // Umleitung zuerst: Ist sie gesetzt, sieht die Kamera das Rad nie.
         // Ohne sie haette das Rad ZWEI Abnehmer — die Fackel drehte sich

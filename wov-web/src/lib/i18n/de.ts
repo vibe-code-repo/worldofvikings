@@ -314,6 +314,7 @@ export const de = {
   'armory.feld.stufe': 'Stufe',
   'armory.feld.erfahrung': 'Erfahrung',
   'armory.feld.tode': 'Tode',
+  'armory.fertigkeit.unbekannt': 'unbekannte Fertigkeit',
   'armory.feld.spielzeit': 'Spielzeit',
 
   'armory.search.too_general':

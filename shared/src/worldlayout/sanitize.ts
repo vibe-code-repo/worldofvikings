@@ -36,6 +36,7 @@ import {
 } from './types.js';
 import { sanitizeBausatzInstanzen } from '../bausatz/sanitize.js';
 import { klemm, koordinate } from './zahlen.js';
+import { sanitizeVegetationEntfernt, vegetationProblem, type VegetationProblem } from './vegetationEntfernt.js';
 import { gleicherInhalt, ID_RE, merkeZusammengefasst, platzierungenNormalisieren } from './platzierungsId.js';
 
 // Über diese Datei nach außen (index.ts lässt sie ohnehin durch): die Werkzeuge, die eine Platzierung anlegen.
@@ -200,6 +201,11 @@ function sanitizeRegion(input: unknown, bekannteIds: Set<string>): RegionDef | n
 export interface SanitizeBericht {
   /** A correction was rejected; callers must not persist the sanitized remainder. */
   heightProblem?: HeightProblem;
+  /**
+   * `vegetationEntfernt` hat fehlerhafte oder zu viele Einträge. Das Layout enthält nur die gültigen Kreise; der
+   * Schreibweg lehnt das Dokument ab (422), der Testflug hält das Speichern an. Nie still verworfen.
+   */
+  vegetationProblem?: VegetationProblem;
   layout: WorldLayout;
   /**
    * Eine Zeile je exaktem Duplikat, das er zu einem Eintrag zusammengefasst hat
@@ -874,6 +880,9 @@ export function sanitizeWorldLayoutMitBericht(input: unknown, _optionen: Sanitiz
   const heightIssue = heightProblem(d.heightDeltas);
   const heightDeltas = heightIssue ? [] : sanitizeHeightDeltas(d.heightDeltas, false);
 
+  const vegetationIssue = vegetationProblem(d.vegetationEntfernt);
+  const vegetationEntfernt = sanitizeVegetationEntfernt(d.vegetationEntfernt);
+
   const layout: WorldLayout = {
     version: WORLD_LAYOUT_VERSION,
     name: d.name,
@@ -887,7 +896,13 @@ export function sanitizeWorldLayoutMitBericht(input: unknown, _optionen: Sanitiz
     ...(routes.length > 0 ? { routes } : {}),
     ...(bausaetze.length > 0 ? { bausaetze } : {}),
     ...(heightDeltas.length > 0 ? { heightDeltas } : {}),
+    ...(vegetationEntfernt.length > 0 ? { vegetationEntfernt } : {}),
   };
   merkeZusammengefasst(layout, zusammengefasst);
-  return { layout, zusammengefasst, ...(heightIssue ? { heightProblem: heightIssue } : {}) };
+  return {
+    layout,
+    zusammengefasst,
+    ...(heightIssue ? { heightProblem: heightIssue } : {}),
+    ...(vegetationIssue ? { vegetationProblem: vegetationIssue } : {}),
+  };
 }

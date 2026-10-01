@@ -59,3 +59,20 @@ export function wirksameWaffe(
   if (!equipGesehen && uebergang) return gepruefteWaffe(inventar, paketName);
   return waffeTragbar(inventar, getragen) ? getragen : '';
 }
+
+/**
+ * Harvest levels a tree / a rock has at the moment: all trees are level 1 (a later card may add harder
+ * ones), likewise all rocks. The field `ernte` of the item is a level too, so it says up to which level the
+ * item can fell / break.
+ */
+export const BAUM_STUFE_STANDARD = 1;
+export const FELS_STUFE_STANDARD = 1;
+
+/**
+ * Can this weapon fell a tree / break a rock? Decided by the field `ernte` of the item (code and data items
+ * alike), not by its name. The fist (`''`) and unknown names never can.
+ */
+export function kannErnten(waffe: string, art: 'baum' | 'fels'): boolean {
+  const stufe = findItem(waffe)?.ernte?.[art] ?? 0;
+  return stufe >= (art === 'baum' ? BAUM_STUFE_STANDARD : FELS_STUFE_STANDARD);
+}

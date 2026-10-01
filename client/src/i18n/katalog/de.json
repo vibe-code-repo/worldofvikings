@@ -346,6 +346,7 @@
   "testflug.gelaende.verworfen.art.regions": "Regionen",
   "testflug.gelaende.verworfen.art.rivers": "Flüsse",
   "testflug.gelaende.verworfen.art.routes": "Routen",
+  "testflug.gelaende.verworfen.art.vegetationEntfernt": "Vegetationskreise (Entfernen)",
   "testflug.gelaende.verworfen.beschaedigt": "Nicht gespeichert, kein Neustart: Der Entwurf enthält Beschädigtes, das beim Bereinigen wegfiele ({liste}). Es wurde nichts gesendet.",
   "testflug.gelaende.verworfen.keine_liste": "keine Liste",
   "testflug.gelaende.werkzeug.absenken": "Absenken",

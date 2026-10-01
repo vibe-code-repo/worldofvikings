@@ -489,6 +489,8 @@ export default [
   // like a hand-built prefab, and pruefeLayout/istEigenesModell accept an
   // uploaded name (plus the counter-proof: it is flagged again once removed).
   ['shared', 'test/uploaded-model-registry.ts'],
+  // Baeume entfernen V1: vegetationEntfernt (Sanitizer, 422-Weg, Raster-Pruefer, Baum-Liste, Text/Hash, Arbeitskopie).
+  ['shared', 'test/vegetation-entfernt.ts'],
   // Waldambiente (2026-09-29): Walddichte gegen die echte Streuung der dev.json
   // (Korrelation, Drift-Waechter, ~40 s) und Lautstaerke-Regeln der Schleifen
   // (Dichte, Glaettung, Tag/Nacht, Aus-Faelle, Regler). Rein, keine Assets noetig.

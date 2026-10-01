@@ -45,6 +45,7 @@ import { herkunftErmitteln } from '../net/Herkunft.js';
 import { tokenAusstellen, type SpielerId } from '../net/Identitaet.js';
 import { EDITOR_NAME, nameHatSteuerzeichen, namenSchluessel } from '../net/Namen.js';
 import { WEBSITE_URSPRUENGE } from '../net/WebsiteUrspruenge.js';
+import { Armory } from './Armory.js';
 import { Kontendatenbank, PROFILTEXT_MAX, type Charakter, type GeloeschtesKonto } from './Kontendatenbank.js';
 import { passwortEinlagern, passwortPruefen, veraltet } from './Passwort.js';
 import {
@@ -233,6 +234,8 @@ export class KontoApi {
   private readonly loginVersuche = new Map<string, { anzahl: number; bis: number }>();
   /** Nur fuer Tests, s. `KontoTestHaken`. */
   testHaken: KontoTestHaken = {};
+  /** Oeffentliches Abbild fuer die Ruestkammer; `uhr` ist fuer Tests offen. */
+  readonly armory: Armory;
 
   constructor(
     private readonly db: Kontendatenbank,
@@ -270,6 +273,7 @@ export class KontoApi {
     // Domain separation: a different key for account tokens, derived from
     // the same secret. See the header comment.
     this.kontoSchluessel = createHmac('sha256', sessionSecret).update('wov-konto-v1').digest();
+    this.armory = new Armory(db, [...geschuetzteNamen, ...standardKontoNamen]);
   }
 
   /**
@@ -312,6 +316,10 @@ export class KontoApi {
     if (pfad === '/accounts/email' && m === 'POST') return this.emailAendern(req, res);
     if (pfad === '/accounts/password' && m === 'POST') return this.passwortAendern(req, res);
     if (pfad === '/accounts/delete' && m === 'POST') return this.kontoLoeschen(req, res);
+
+    if (pfad === '/accounts/armory' && m === 'GET') return this.armoryListe(req, res);
+    const armoryProfil = /^\/accounts\/armory\/(\d{1,9})$/.exec(pfad);
+    if (armoryProfil && m === 'GET') return this.armoryEinzeln(res, Number(armoryProfil[1]));
 
     const melden = /^\/accounts\/characters\/(\d+)\/report$/.exec(pfad);
     if (melden && m === 'POST') return this.profilMelden(req, res, Number(melden[1]));
@@ -653,6 +661,22 @@ export class KontoApi {
     // Text, welche Charaktere derselben Person gehoeren.
     const profil = this.db.avatarVon(c.kontoId) === c.id ? this.db.profilTextVon(c.kontoId) : '';
     this.json(res, 200, { character: { ...nachAussen(c), profile: profil } });
+  }
+
+  /**
+   * Ruestkammer, Liste: `GET /accounts/armory?seite=&q=`, ohne Anmeldung.
+   * Was in der Antwort steht und was nie, regelt `Armory.ts` (Positivliste).
+   */
+  private armoryListe(req: IncomingMessage, res: ServerResponse): void {
+    const abfrage = new URL(req.url ?? '/', 'http://x').searchParams;
+    this.json(res, 200, this.armory.liste(abfrage.get('seite'), abfrage.get('q')));
+  }
+
+  /** Ruestkammer, Profil: 404 fuer unbekannte, geloeschte, gebannte und Standardkonto-Charaktere. */
+  private armoryEinzeln(res: ServerResponse, id: number): void {
+    const profil = this.armory.profil(id);
+    if (!profil) return this.json(res, 404, { error: 'unknown' });
+    this.json(res, 200, profil);
   }
 
   /**

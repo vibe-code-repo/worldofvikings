@@ -170,6 +170,45 @@ export interface GeloeschtesKonto {
   charaktere: Charakter[];
 }
 
+/** Eine Zeile fuer die Ruestkammer: der Charakter samt der Kennungen, die NIE nach aussen gehen (Armory.ts waehlt aus). */
+export interface ArmoryZeile {
+  id: number;
+  kontoId: number;
+  spielerId: string;
+  name: string;
+  klasse: string;
+  figur: string;
+  frisur: string;
+  haarfarbe: string;
+  augenfarbe: string;
+  erstellt: number;
+  zuletztGespielt: number | null;
+}
+
+const ARMORY_AUSWAHL = `SELECT c.id, c.konto_id, c.spieler_id, c.name, c.klasse, c.figur, c.frisur, c.haarfarbe,
+  c.augenfarbe, c.erstellt, c.zuletzt_gespielt FROM charaktere c JOIN konten k ON k.id = c.konto_id`;
+
+/** Kein wirksamer Bann auf Konto oder Spieler; der Parameter ist "jetzt" in ms. */
+const ARMORY_NICHT_GEBANNT = `NOT EXISTS (SELECT 1 FROM banns b
+  WHERE ((b.art = 'konto' AND b.wert = CAST(c.konto_id AS TEXT)) OR (b.art = 'spieler' AND b.wert = c.spieler_id))
+    AND (b.bis IS NULL OR b.bis > ?))`;
+
+function zuArmoryZeile(z: Record<string, unknown>): ArmoryZeile {
+  return {
+    id: Number(z.id),
+    kontoId: Number(z.konto_id),
+    spielerId: String(z.spieler_id),
+    name: String(z.name),
+    klasse: String(z.klasse ?? ''),
+    figur: String(z.figur ?? ''),
+    frisur: String(z.frisur ?? ''),
+    haarfarbe: String(z.haarfarbe ?? ''),
+    augenfarbe: String(z.augenfarbe ?? 'fjordblau'),
+    erstellt: Number(z.erstellt),
+    zuletztGespielt: z.zuletzt_gespielt === null || z.zuletzt_gespielt === undefined ? null : Number(z.zuletzt_gespielt),
+  };
+}
+
 export class Kontendatenbank {
   private readonly db: DatabaseSync;
 
@@ -806,6 +845,98 @@ export class Kontendatenbank {
       | Record<string, unknown>
       | undefined;
     return z ? this.zuCharakter(z) : null;
+  }
+
+  // ── Ruestkammer: Lesewege (nur lesen) ───────────────────────────────
+
+  /**
+   * Charaktere, die die oeffentliche Ruestkammer zeigen darf, seitenweise.
+   *
+   * Sichtbar heisst: kein Konto der Liste `ausgeschlossen` (Standardkonten),
+   * kein wirksamer Bann auf Konto oder Spieler. Geloeschte Konten sind schon
+   * deshalb weg, weil ihre Charaktere mit ihnen geloescht werden. `suche` ist
+   * eine bereits gefaltete (kleingeschriebene) Teilzeichenkette; sie geht als
+   * Parameter in die Abfrage, nie in den SQL-Text. Die Faltung macht eine
+   * Funktion der Verbindung, weil SQLites `lower()` nur ASCII kennt und
+   * "aerger" sonst "Aerger", aber nicht "Ärger" fuer "är" fande.
+   *
+   * Sortierung: zuletzt gespielt absteigend (Charaktere ohne Spielzeit ans
+   * Ende), dann neuere zuerst, dann Id: stabil, damit Seiten sich nicht
+   * ueberlappen. Gelesen wird KEIN `spielerzustand`.
+   */
+  armoryZeilen(
+    angaben: { suche: string; ausgeschlossen: readonly string[]; limit: number; offset: number; jetzt: number },
+  ): { gesamt: number; zeilen: ArmoryZeile[] } {
+    this.armoryFaltung();
+    const wo: string[] = [ARMORY_NICHT_GEBANNT];
+    const params: (string | number)[] = [angaben.jetzt];
+    if (angaben.ausgeschlossen.length > 0) {
+      wo.push(`wov_falte(k.benutzername) NOT IN (${angaben.ausgeschlossen.map(() => '?').join(',')})`);
+      params.push(...angaben.ausgeschlossen.map((n) => n.toLowerCase()));
+    }
+    if (angaben.suche !== '') {
+      wo.push('instr(wov_falte(c.name), ?) > 0');
+      params.push(angaben.suche);
+    }
+    const bedingung = wo.join(' AND ');
+    const n = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM charaktere c JOIN konten k ON k.id = c.konto_id WHERE ${bedingung}`)
+      .get(...params) as { n: number };
+    const zeilen = (
+      this.db
+        .prepare(`${ARMORY_AUSWAHL} WHERE ${bedingung}
+          ORDER BY COALESCE(c.zuletzt_gespielt, 0) DESC, c.erstellt DESC, c.id DESC LIMIT ? OFFSET ?`)
+        .all(...params, angaben.limit, angaben.offset) as Record<string, unknown>[]
+    ).map(zuArmoryZeile);
+    return { gesamt: Number(n.n), zeilen };
+  }
+
+  /** Ein sichtbarer Charakter (gleiche Regeln wie `armoryZeilen`), sonst null. */
+  armoryZeile(id: number, ausgeschlossen: readonly string[], jetzt: number): ArmoryZeile | null {
+    this.armoryFaltung();
+    const wo: string[] = [ARMORY_NICHT_GEBANNT, 'c.id = ?'];
+    const params: (string | number)[] = [jetzt, id];
+    if (ausgeschlossen.length > 0) {
+      wo.push(`wov_falte(k.benutzername) NOT IN (${ausgeschlossen.map(() => '?').join(',')})`);
+      params.push(...ausgeschlossen.map((x) => x.toLowerCase()));
+    }
+    const z = this.db.prepare(`${ARMORY_AUSWAHL} WHERE ${wo.join(' AND ')}`).get(...params) as
+      | Record<string, unknown>
+      | undefined;
+    return z ? zuArmoryZeile(z) : null;
+  }
+
+  /**
+   * Der JSON-Text des neuesten Spielerzustands dieses Spielers, ueber alle
+   * Welten (die Kontenseite kennt die Welt-Kennung nicht; der hoechste
+   * `stand` ist der juengste Schreibvorgang). Null, wenn keine Zeile besteht.
+   */
+  armorySpielerdaten(spielerId: string): string | null {
+    const z = this.db
+      .prepare('SELECT daten FROM spielerzustand WHERE spieler_id = ? ORDER BY stand DESC LIMIT 1')
+      .get(spielerId) as { daten: unknown } | undefined;
+    return z ? String(z.daten) : null;
+  }
+
+  /**
+   * Fingerabdruck dessen, was die Sichtbarkeit aendert: Anzahl und hoechste Id
+   * der Charaktere (Loeschen, Anlegen), Zahl und juengster Eintrag der Banns.
+   * Der Puffer der Ruestkammer wirft sich weg, sobald er sich aendert, damit
+   * ein geloeschtes oder gebanntes Konto nicht noch eine halbe Minute steht.
+   */
+  armoryStempel(): string {
+    const c = this.db.prepare('SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS m FROM charaktere').get() as
+      { n: number; m: number };
+    const b = this.db.prepare('SELECT COUNT(*) AS n, COALESCE(MAX(gesetzt), 0) AS m FROM banns').get() as
+      { n: number; m: number };
+    return `${c.n}:${c.m}:${b.n}:${b.m}`;
+  }
+
+  private armoryFaltungBereit = false;
+  private armoryFaltung(): void {
+    if (this.armoryFaltungBereit) return;
+    this.db.function('wov_falte', { deterministic: true }, (text) => String(text ?? '').toLowerCase());
+    this.armoryFaltungBereit = true;
   }
 
   // ── Avatar ──────────────────────────────────────────────────────────

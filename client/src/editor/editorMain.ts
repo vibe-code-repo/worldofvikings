@@ -168,6 +168,7 @@ import { ladeHochgeladeneRegistrierung } from '../net/UploadedModelRegistryLoad'
 // T0a (29.09.): die Instanz liegt jetzt in i18n.ts, weil Testflug, SpawnPanel
 // und der Upload-Dialog dieselbe brauchen -- s. Kopfkommentar dort.
 import { editorI18nInstance } from './i18n';
+import { istTexteingabeAktiv } from '../engine/texteingabe';
 import {
   karteLiveTestenAktion,
   neustartOptionen,
@@ -599,7 +600,8 @@ function wiederherstellen(): void {
   if (grund === 'ok') shell.meldung('Wiederhergestellt' + ringHinweis(ringVor));
 }
 window.addEventListener('keydown', (e) => {
-  if (!e.ctrlKey) return;
+  // Im Textfeld gehört Strg+Z/Y dem Feld, nicht dem Karten-Rückgängig.
+  if (!e.ctrlKey || istTexteingabeAktiv(e)) return;
   if (e.code === 'KeyZ' && !e.shiftKey) {
     rueckgaengig();
   } else if (e.code === 'KeyY' || (e.code === 'KeyZ' && e.shiftKey)) {

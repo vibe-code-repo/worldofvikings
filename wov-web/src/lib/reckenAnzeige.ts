@@ -156,6 +156,20 @@ export function optionaleFelder(recke: Recke, sprache: string = 'de'): Optionale
   return felder;
 }
 
+/**
+ * Der übersetzte Fertigkeitsname: der Server liefert den Schlüssel `fertigkeit.<id>`. Fehlt er im Katalog (oder ist es
+ * gar kein solcher Schlüssel), steht der Rückfalltext da, nie der rohe Schlüssel.
+ */
+export function fertigkeitName(
+  name: string,
+  katalog: Record<string, string>,
+  rueckfall: string,
+): string {
+  const text =
+    name.startsWith('fertigkeit.') && Object.hasOwn(katalog, name) ? katalog[name] : undefined;
+  return text !== undefined && text.trim() !== '' ? text : rueckfall;
+}
+
 /** Fertigkeiten, höchste zuerst; ohne Fertigkeiten (fehlt oder leer) gibt es keine Tafel. */
 export function fertigkeitenListe(recke: Recke): Array<{ name: string; stufe: number }> {
   return [...(recke.fertigkeiten ?? [])].sort((a, b) => b.stufe - a.stufe);

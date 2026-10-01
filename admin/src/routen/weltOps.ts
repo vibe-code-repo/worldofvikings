@@ -98,6 +98,7 @@ async function anwendenSofort(pfad: string, eingabe: unknown, optionen: OpsOptio
     // A file that cannot be read throws LayoutUngueltig; that is not the Vorgang's fault and stays a throw.
     const stand = layoutLesenMitHash(pfad, { preserveRawHeight: true });
     const roheHoehe = stand.rawHeight;
+    const roheVegetation = stand.rawVegetation;
     const r = wende(stand.layout, eingabe);
     if (!r.ok) {
       if (r.art === 'konflikt') {
@@ -121,9 +122,15 @@ async function anwendenSofort(pfad: string, eingabe: unknown, optionen: OpsOptio
     // weder kürzen noch an ihr scheitern, egal ob sie zu groß oder fehlerhaft ist: Sie war
     // schon vorher so). `heightDeltasUnberuehrt` lässt den Schreibweg Größe UND Fehlerliste
     // durchwinken; the raw JSON value is restored only at serialization.
-    const layoutMitRoherHoehe: WorldLayout = roheHoehe !== undefined ? { ...r.layout, heightDeltas: roheHoehe as WorldLayout['heightDeltas'] } : r.layout;
+    // Dasselbe für `vegetationEntfernt` (N1 des Angriffs auf #194): Kein Vorgang zielt auf die Kreise, der PATCH reicht sie roh
+    // durch und kürzt weder 4100 auf 4096 noch wirft er beschädigte Kreise still weg.
+    const layoutMitRoherHoehe: WorldLayout = {
+      ...r.layout,
+      ...(roheHoehe !== undefined ? { heightDeltas: roheHoehe as WorldLayout['heightDeltas'] } : {}),
+      ...(roheVegetation !== undefined ? { vegetationEntfernt: roheVegetation as WorldLayout['vegetationEntfernt'] } : {}),
+    };
     try {
-      const geschrieben = await layoutSchreibenAsync(pfad, layoutMitRoherHoehe, undefined, { basis: stand.hash, heightDeltasUnberuehrt: true });
+      const geschrieben = await layoutSchreibenAsync(pfad, layoutMitRoherHoehe, undefined, { basis: stand.hash, heightDeltasUnberuehrt: true, vegetationUnberuehrt: true });
       return {
         art: 'ok',
         hash: geschrieben.hash,

@@ -29,7 +29,7 @@ import { t } from '../i18n';
 export type HoehenProblem = { reason: 'invalid' | 'limit' | 'inspection-limit'; zonen: number; punkte: number };
 
 /** The collections whose entries the sanitiser can drop (besides `heightDeltas`, which has its own check). */
-export const GEPRUEFTE_SAMMLUNGEN = ['continents', 'regions', 'placements', 'rivers', 'lakes', 'routes', 'bausaetze', 'defaultSpawn'] as const;
+export const GEPRUEFTE_SAMMLUNGEN = ['continents', 'regions', 'placements', 'rivers', 'lakes', 'routes', 'bausaetze', 'vegetationEntfernt', 'defaultSpawn'] as const;
 export type Sammlung = (typeof GEPRUEFTE_SAMMLUNGEN)[number];
 /** `keineListe`: the collection is there but not a list (R2); `anzahl` is then 1. */
 export type VerworfenTeil = { feld: Sammlung; anzahl: number; keineListe?: true };
@@ -136,6 +136,8 @@ function sammlungName(feld: Sammlung): string {
       return t('testflug.gelaende.verworfen.art.routes');
     case 'bausaetze':
       return t('testflug.gelaende.verworfen.art.bausaetze');
+    case 'vegetationEntfernt':
+      return t('testflug.gelaende.verworfen.art.vegetationEntfernt');
     case 'defaultSpawn':
       return t('testflug.gelaende.verworfen.art.defaultSpawn');
   }

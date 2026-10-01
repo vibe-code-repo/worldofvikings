@@ -7,6 +7,7 @@
     SELTENHEIT_SCHLUESSEL,
     SLOT_SCHLUESSEL,
     ausruestungsZeilen,
+    fertigkeitName,
     fertigkeitenListe,
     isoVon,
     klassenName,
@@ -214,7 +215,7 @@
         <h3 class="panel-eyebrow">{t['character_profile.skills.title']}</h3>
         {#each fertigkeiten as f, i (i)}
           <div class="balken-zeile">
-            <div class="balken-kopf"><span>{f.name}</span><b>{f.stufe}</b></div>
+            <div class="balken-kopf"><span>{fertigkeitName(f.name, t, t['armory.fertigkeit.unbekannt'])}</span><b>{f.stufe}</b></div>
             <div class="balken"><i style="--anteil:{f.stufe}"></i></div>
           </div>
         {/each}

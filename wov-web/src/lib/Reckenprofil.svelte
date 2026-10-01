@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { repoText } from '@wov/shared';
-  import { datumKurz, vorWieLange } from './formate';
+  import { datumKurz } from './formate';
   import ReckenVorschau from './ReckenVorschau.svelte';
   import {
     SELTENHEIT_SCHLUESSEL,
@@ -16,6 +16,7 @@
     stueckWerte,
     symbolAnzeige,
     zahlText,
+    zuletztText,
   } from './reckenAnzeige';
   import type { Recke } from './recken';
   import { type AusruestungsStueck, type FigurAussehen, planFuerRecke } from './reckenVorschauKern';
@@ -123,7 +124,7 @@
     <p class="profile-sub">
       {#if recke.zuletztGespielt !== null}
         {t['character_profile.last_seen']}
-        {vorWieLange(isoVon(recke.zuletztGespielt), lang)}
+        {zuletztText(recke.zuletztGespielt, Date.now(), t, lang)}
       {:else}
         {t['armory.card.never']}
       {/if}

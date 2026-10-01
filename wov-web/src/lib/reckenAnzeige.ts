@@ -237,3 +237,29 @@ export const HALLE_FEHLER: Record<FehlerArt, MessageKey> = {
   limit: 'hall_of_fame.state.limit',
   aus: 'hall_of_fame.state.error',
 };
+
+/**
+ * „Zuletzt gespielt“ für Zeitstempel, die der Server auf volle Stunden rundet:
+ * nie Minuten, sondern „in der letzten Stunde“, „vor N Stunden“, „vor N Tagen“.
+ * Zeitstempel in der Zukunft (Uhrenabweichung) zählen als „in der letzten Stunde“.
+ */
+export function zuletztText(
+  ms: number,
+  jetzt: number,
+  katalog: Record<string, string>,
+  sprache: string = 'de',
+): string {
+  const stunden = Math.floor((jetzt - ms) / 3_600_000);
+  if (stunden < 1) return katalog['armory.zuletzt.now'] ?? '';
+  const tage = Math.floor(stunden / 24);
+  const einheit = tage >= 1 ? tage : stunden;
+  const schluessel =
+    tage >= 1
+      ? einheit === 1
+        ? 'armory.zuletzt.day_one'
+        : 'armory.zuletzt.day_other'
+      : einheit === 1
+        ? 'armory.zuletzt.hour_one'
+        : 'armory.zuletzt.hour_other';
+  return (katalog[schluessel] ?? '{n}').replace('{n}', zahlText(einheit, sprache));
+}

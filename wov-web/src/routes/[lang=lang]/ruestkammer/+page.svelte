@@ -2,7 +2,6 @@
   import { page } from '$app/state';
   import Kopfdaten from '$lib/Kopfdaten.svelte';
   import { fuelle } from '$lib/reckenVorschauKern';
-  import { vorWieLange } from '$lib/formate';
   import {
     KAMMER_FEHLER,
     figurStuecke,
@@ -12,6 +11,7 @@
     profilAdresse,
     zaehlerText,
     zahlText,
+    zuletztText,
   } from '$lib/reckenAnzeige';
   import Reckenprofil from '$lib/Reckenprofil.svelte';
   import { localeFrom, localizedPath, messages } from '$lib/i18n';
@@ -116,7 +116,7 @@
             <div class="result-line">
               {#if r.zuletztGespielt !== null}
                 {t['character_profile.last_seen']}
-                {vorWieLange(isoVon(r.zuletztGespielt), lang)}
+                {zuletztText(r.zuletztGespielt, Date.now(), t, lang)}
               {:else}
                 {t['armory.card.never']}
               {/if}

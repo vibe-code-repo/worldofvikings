@@ -18,6 +18,7 @@ import {
   symbolAnzeige,
   zaehlerText,
   zahlText,
+  zuletztText,
 } from './reckenAnzeige';
 
 const STUECK: Stueck = {
@@ -220,5 +221,38 @@ describe('Fehlerart', () => {
     expect(fehlerArt(503)).toBe('start');
     expect(fehlerArt(429)).toBe('limit');
     for (const s of [0, 500, 502, 504, 404, 403]) expect(fehlerArt(s)).toBe('aus');
+  });
+});
+
+describe('N9: „zuletzt gespielt“ in Stunden und Tagen', () => {
+  const H = 3_600_000;
+  const JETZT = 1_800_000_000_000;
+  const DE = {
+    'armory.zuletzt.now': 'in der letzten Stunde',
+    'armory.zuletzt.hour_one': 'vor {n} Stunde',
+    'armory.zuletzt.hour_other': 'vor {n} Stunden',
+    'armory.zuletzt.day_one': 'vor {n} Tag',
+    'armory.zuletzt.day_other': 'vor {n} Tagen',
+  };
+  const text = (vorMs: number) => zuletztText(JETZT - vorMs, JETZT, DE, 'de');
+
+  it('an den Grenzen: 0 min, 59 min, 1 h, 23 h, 1 Tag', () => {
+    expect(text(0)).toBe('in der letzten Stunde');
+    expect(text(59 * 60_000)).toBe('in der letzten Stunde');
+    expect(text(H)).toBe('vor 1 Stunde');
+    expect(text(2 * H)).toBe('vor 2 Stunden');
+    expect(text(23 * H)).toBe('vor 23 Stunden');
+    expect(text(24 * H)).toBe('vor 1 Tag');
+    expect(text(47 * H)).toBe('vor 1 Tag');
+    expect(text(48 * H)).toBe('vor 2 Tagen');
+    expect(text(400 * 24 * H)).toBe('vor 400 Tagen');
+  });
+  it('nie Minuten; Zukunft zählt als letzte Stunde', () => {
+    for (const m of [0, 1, 30, 59, 61, 119, 1439]) expect(text(m * 60_000)).not.toMatch(/Minute/);
+    expect(text(-5 * H)).toBe('in der letzten Stunde');
+  });
+  it('englisch mit Tausendertrennern', () => {
+    const EN = { ...DE, 'armory.zuletzt.day_other': '{n} days ago' };
+    expect(zuletztText(JETZT - 1500 * 24 * H, JETZT, EN, 'en')).toBe('1,500 days ago');
   });
 });

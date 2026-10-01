@@ -348,9 +348,8 @@ export function tafelZeilen(
     const wert = tafel.wert(eintrag);
     if (wert !== null) zeilen.push({ eintrag, wert });
   }
-  // Bei gleichem Wert bleibt die Reihenfolge des Servers (`Array.sort` ist stabil): Er sortiert
-  // nach zuletzt gespielt, dann nach erstellt (neuere zuerst), dann nach id. Ein eigenes
-  // Kriterium hier (id, Name) widerspräche seiner Reihenfolge und ließe die Tafel von der
-  // Liste abweichen.
+  // Bei gleichem Wert bleibt die Reihenfolge des Servers (`Array.sort` ist stabil): Er rundet
+  // `zuletztGespielt` auf volle Stunden und sortiert bei Gleichstand nach Name, dann nach id. Ein
+  // eigenes Kriterium hier widerspräche dem und ließe die Tafel von der Liste abweichen.
   return zeilen.sort((a, b) => b.wert - a.wert).slice(0, max);
 }

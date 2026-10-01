@@ -245,6 +245,11 @@ export const en: Messages = {
   'armory.search.too_short':
     'Please enter at least 2 characters to search. The full list is shown below.',
   'armory.state.no_match': 'No hero by that name in the armory.',
+  'armory.zuletzt.now': 'within the last hour',
+  'armory.zuletzt.hour_one': '{n} hour ago',
+  'armory.zuletzt.hour_other': '{n} hours ago',
+  'armory.zuletzt.day_one': '{n} day ago',
+  'armory.zuletzt.day_other': '{n} days ago',
   'armory.card.never': 'never played',
   'armory.pages.label': 'Pages',
   'armory.pages.prev': '‹ Previous',

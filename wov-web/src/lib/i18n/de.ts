@@ -273,6 +273,11 @@ export const de = {
   'armory.search.too_short':
     'Bitte gib mindestens 2 Zeichen ein, um zu suchen. Hier steht die ganze Liste.',
   'armory.state.no_match': 'Kein Recke dieses Namens in der Kammer.',
+  'armory.zuletzt.now': 'in der letzten Stunde',
+  'armory.zuletzt.hour_one': 'vor {n} Stunde',
+  'armory.zuletzt.hour_other': 'vor {n} Stunden',
+  'armory.zuletzt.day_one': 'vor {n} Tag',
+  'armory.zuletzt.day_other': 'vor {n} Tagen',
   'armory.card.never': 'noch nie gespielt',
   'armory.pages.label': 'Seiten',
   'armory.pages.prev': '‹ Zurück',

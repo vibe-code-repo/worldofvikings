@@ -43,6 +43,12 @@
      * Heimat von `DEFAULT_LOCALE` (`de` → .de), auf die `lang` sonst fiele.
      */
     ursprungUeberschreiben,
+    /**
+     * Suchteil, der zur Identität der Seite gehört (z. B. `?reck=7` beim
+     * Profil der Rüstkammer). Er steht in canonical, hreflang und og:url, damit
+     * ein Profil sich nicht zur Dublette der Liste erklärt. Leer = nur der Pfad.
+     */
+    abfrage = '',
   }: {
     titel: string;
     beschreibung: string;
@@ -50,6 +56,7 @@
     bild?: string;
     noindex?: boolean;
     ursprungUeberschreiben?: string;
+    abfrage?: string;
   } = $props();
 
   const lang = $derived(localeFrom(page.params.lang));
@@ -74,7 +81,9 @@
    * ausgeliefert wurde — world-of-mmorpg.com und world-of-mmorpg.de sind
    * gleichwertige Hauptdomains, aber jede Sprache hat genau eine Heimat.
    */
-  const kanonisch = $derived(ursprung + (page.url.pathname.replace(/\.html$/, '') || '/'));
+  const kanonisch = $derived(
+    ursprung + (page.url.pathname.replace(/\.html$/, '') || '/') + abfrage,
+  );
 
   /**
    * Dieselbe Seite in jeder Sprache, plus x-default.
@@ -94,7 +103,7 @@
   <meta name="description" content={beschreibung} />
   <link rel="canonical" href={kanonisch} />
   {#each LOCALES as l (l)}
-    <link rel="alternate" hreflang={l} href={hreflangAdresse(l, nackt)} />
+    <link rel="alternate" hreflang={l} href={hreflangAdresse(l, nackt) + abfrage} />
   {/each}
   <link rel="alternate" hreflang="x-default" href={X_DEFAULT_ADRESSE} />
   {#if noindex}

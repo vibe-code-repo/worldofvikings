@@ -153,14 +153,6 @@ export const en: Messages = {
   'hall.worlds.weather_label': 'Weather:',
   'hall.worlds.seed_label': 'Seed:',
   'hall.worlds.map_link': 'See both worlds on the map ›',
-  'hall.hall_of_fame.title': 'From the Hall of Fame',
-  'hall.hall_of_fame.column.hash': '#',
-  'hall.hall_of_fame.column.character': 'Hero',
-  'hall.hall_of_fame.column.clan': 'Clan',
-  'hall.hall_of_fame.column.rune_rank': 'Rune Rank',
-  'hall.hall_of_fame.error': 'The scoreboard is veiled for now.',
-  'hall.hall_of_fame.loading': 'loading …',
-  'hall.hall_of_fame.link': 'See the whole board ›',
   'hall.thing.title': 'The Thing Is Being Called',
   'hall.thing.text':
     'At the Thing, free men gathered to deliberate and to judge. Ours will be the forum: a place for structures, finds, arguments over gear, and the question of who marches on Moder next.',
@@ -234,69 +226,110 @@ export const en: Messages = {
 
   /* ----------------------------------------------------------- armory */
   'armory.title': 'Armory',
-  'armory.description':
-    'Look up heroes from Midgard: gear, skills, guardians defeated, and trophies.',
+  'armory.description': 'Look up heroes from Midgard: gear, stats, and looks.',
   'armory.heading': 'Armory',
   'armory.intro':
-    'Who moves through Midgard, and how: gear, skills, guardians defeated, and trophies. Search for a hero, a clan, or a byname.',
-  'armory.hint.bold': 'Sample data for now.',
-  'armory.hint.text':
-    "The game doesn't have accounts yet, so there are no real heroes to show. But the armory itself is finished and will fill up on its own once the server starts saving characters.",
+    'Who moves through Midgard and what they carry: gear with icons, stats, and a rotatable figure. The armory shows the state from the game, with character names only — never account names.',
   'armory.back': '‹ Back to search',
   'armory.search.label': 'Search for a hero',
-  'armory.search.placeholder': 'Name, byname, or clan …',
-  'armory.search.button': 'Search',
-  'armory.state.error': "The armory is locked right now — the list of heroes couldn't be loaded.",
-  'armory.state.loading': 'Unlocking the armory …',
-  'armory.state.empty': 'No hero by that name in the armory.',
-  'armory.card.rune_rank': 'Rune rank',
-  'armory.card.last_seen': 'last seen',
+  'armory.search.placeholder': 'Character name …',
+  'armory.state.error':
+    'The armory is locked right now — the game server is not answering. Please try again in a moment.',
+  'armory.state.warming':
+    'The armory is being prepared right now. Please reload the page in a moment.',
+  'armory.state.limit': 'Too many requests in a short time. Please wait a moment and try again.',
+  'armory.state.empty':
+    'Nobody is in the armory yet. As soon as someone creates a hero, they will show up here.',
+
+  'armory.search.submit': 'Search',
+  'armory.search.too_short':
+    'Please enter at least 2 characters to search. The full list is shown below.',
+  'armory.state.no_match': 'No hero by that name in the armory.',
+  'armory.zuletzt.now': 'within the last hour',
+  'armory.zuletzt.hour_one': '{n} hour ago',
+  'armory.zuletzt.hour_other': '{n} hours ago',
+  'armory.zuletzt.day_one': '{n} day ago',
+  'armory.zuletzt.day_other': '{n} days ago',
+  'armory.card.never': 'never played',
+  'armory.pages.label': 'Pages',
+  'armory.pages.prev': '‹ Previous',
+  'armory.pages.next': 'Next ›',
+  'armory.pages.of': 'Page {seite} of {seiten}',
+  'armory.stats.title': 'Stats',
+  'armory.profil.title': 'About the hero',
+  'armory.stueck.stufe': 'Level',
+  'armory.stueck.qualitaet': 'Quality',
+  'armory.rarity.common': 'Common',
+  'armory.rarity.uncommon': 'Uncommon',
+  'armory.rarity.rare': 'Rare',
+  'armory.rarity.epic': 'Epic',
+  'armory.rarity.legendary': 'Legendary',
+  'armory.slot.waffe': 'Weapon',
+  'armory.slot.kopf': 'Head',
+  'armory.slot.halskette': 'Necklace',
+  'armory.slot.schultern': 'Shoulders',
+  'armory.slot.hemd': 'Chest',
+  'armory.slot.unterarme': 'Forearms',
+  'armory.slot.haende': 'Hands',
+  'armory.slot.armreif': 'Bracelet',
+  'armory.slot.ring1': 'Ring (left)',
+  'armory.slot.ring2': 'Ring (right)',
+  'armory.slot.hose': 'Legs',
+  'armory.slot.schuhe': 'Feet',
+  'armory.wert.leben': 'Health',
+  'armory.wert.nahkampf': 'Melee damage',
+  'armory.wert.damage': 'Damage',
+  'armory.wert.armor': 'Armor',
+  'armory.wert.strength': 'Strength',
+  'armory.wert.vitality': 'Vitality',
+  'armory.wert.agility': 'Agility',
+  'armory.feld.stufe': 'Level',
+  'armory.feld.erfahrung': 'Experience',
+  'armory.feld.tode': 'Deaths',
+  'armory.feld.spielzeit': 'Play time',
+
+  'armory.search.too_general':
+    'The search is too general. Only the first hits are shown; please be more specific.',
+  'armory.list.count_min': 'at least {n} hits',
+  'armory.list.count_one': '{n} hero',
+  'armory.list.count_other': '{n} heroes',
+  'armory.error.title': 'This hero is not in the armory.',
+  'armory.error.text':
+    'The address does not lead to a hero. They may have been deleted, or the link is wrong.',
+  'armory.error.back': '‹ Back to the armory',
+  'armory.klasse.krieger': 'Warrior',
+  'armory.klasse.schildmaid': 'Shieldmaiden',
+  'armory.klasse.jaeger': 'Hunter',
+  'armory.klasse.skalde': 'Skald',
+  'armory.klasse.seherin': 'Seer',
+  'armory.klasse.berserker': 'Berserker',
+  'armory.klasse.runenmagier': 'Runemage',
+  'armory.klasse.hexer': 'Warlock',
+  'armory.klasse.druide': 'Druid',
 
   /* ---------------------------------------------------- hall_of_fame */
   'hall_of_fame.title': 'Hall of Fame',
-  'hall_of_fame.description':
-    'The leaderboards of Midgard: rune rank, guardians defeated, time spent voyaging.',
+  'hall_of_fame.description': 'The boards of Midgard: who was out and about most recently.',
   'hall_of_fame.heading': 'Hall of Fame',
   'hall_of_fame.intro':
-    'Who has made a name for themselves in Midgard. The boards are recalculated every time the world is saved.',
-  'hall_of_fame.hint.bold': 'Sample data for now.',
-  'hall_of_fame.hint.text':
-    'As long as there are no accounts, the heroes shown here are made up — but the boards themselves are finished.',
+    'Who has shown their face in Midgard lately. The board reads the state from the game and is at most a minute old.',
   'hall_of_fame.table.hash': '#',
   'hall_of_fame.table.character': 'Hero',
-  'hall_of_fame.table.clan': 'Clan',
   'hall_of_fame.state.error': 'The boards are covered up right now.',
-  'hall_of_fame.state.loading': 'fetching …',
-
-  /* ------------------------------------------ characters (recken.ts) */
-  'characters.board.rank.title': 'Rune Rank',
-  'characters.board.rank.column': 'Rank',
-  'characters.board.guardian.title': 'Guardians Defeated',
-  'characters.board.guardian.column': 'Guardians',
-  'characters.board.voyage.title': 'Time Voyaging',
-  'characters.board.voyage.column': 'Hours',
-  'characters.board.hel.title': 'Rarely Fallen',
-  'characters.board.hel.column': 'Trips to Hel',
+  'hall_of_fame.board.active.title': 'Most recently active',
+  'hall_of_fame.board.active.column': 'last played',
+  'hall_of_fame.state.warming':
+    'The boards are being prepared right now. Please reload the page in a moment.',
+  'hall_of_fame.state.limit':
+    'Too many requests in a short time. Please wait a moment and try again.',
+  'hall_of_fame.state.empty': 'Nobody listed yet.',
+  'hall_of_fame.soon.bold': 'More boards to come.',
+  'hall_of_fame.soon.text':
+    'Rune rank, guardians defeated, time voyaging, and trips to Hel will appear here once the game records them. Until then only boards with real numbers are shown.',
 
   /* ------------------------ character_profile (Reckenprofil.svelte) */
-  'character_profile.slot.head': 'Head',
-  'character_profile.slot.chest': 'Chest',
-  'character_profile.slot.legs': 'Legs',
-  'character_profile.slot.cape': 'Cape',
-  'character_profile.slot.weapon': 'Weapon',
-  'character_profile.slot.off_hand': 'Off-hand',
-  'character_profile.slot.tool': 'Tool',
-  'character_profile.slot.belt': 'Belt',
-  'character_profile.slot.quality': 'Quality',
   'character_profile.slot.empty': '— empty —',
-  'character_profile.rune_rank': 'Rune rank',
   'character_profile.last_seen': 'last seen',
-  'character_profile.value.health': 'Health',
-  'character_profile.value.stamina': 'Stamina',
-  'character_profile.value.eitr': 'Eitr',
-  'character_profile.value.carry_weight': 'Carry weight',
-  'character_profile.value.underway': 'underway',
-  'character_profile.value.hel': 'Trips to Hel',
   'character_profile.gear.title': 'Gear',
   'character_profile.figure.aria': 'Outline of a hero',
   'armory.figur.loading': 'Summoning your Viking …',
@@ -306,15 +339,10 @@ export const en: Messages = {
   'armory.figur.rotate_left': 'Rotate figure left',
   'armory.figur.rotate_right': 'Rotate figure right',
   'character_profile.skills.title': 'Skills',
-  'character_profile.guardian.title': 'Guardians defeated',
-  'character_profile.guardian.of': 'of',
-  'character_profile.lands.title': 'Lands travelled',
-  'character_profile.trophies.title': 'Trophies',
   'character_profile.created': 'Created on',
 
   /* Sits under the character preview and says what can be done with it.
      The preview itself stays the existing Babylon bundle. */
-  'character_profile.preview.hint': 'Character preview · drag to rotate',
   /* ------------------------------------------------------------ thing */
   'thing.title': 'The Thing',
   'thing.description':
@@ -434,24 +462,6 @@ export const en: Messages = {
   'thing.mod.resolve': 'Resolve',
   'thing.mod.delete_post': 'Remove post',
   'thing.mod.not_moderator': 'Moderators only.',
-  'thing.connection.heading': 'How it will be connected',
-  'thing.connection.location.title': 'Its own location, same shell',
-  'thing.connection.location.text_1': 'The forum will get its own service under',
-  'thing.connection.location.text_2':
-    '. The Nginx in the container already has the location set up — all that is missing is the',
-  'thing.connection.location.text_3':
-    'to the software. Header, footer, and colour palette come from',
-  'thing.connection.location.text_4': ", so the forum doesn't feel like a foreign body.",
-  'thing.connection.account.title': 'One account for everything',
-  'thing.connection.account.text':
-    "Once the game has accounts, you'll sign in once — for the game, the armory, and the Thing. Until then, there's deliberately no login, because a forum account that later doesn't match the game account would cause more trouble than it's worth.",
-  'thing.connection.character.title': 'Hero on every post',
-  'thing.connection.character.text_1':
-    'Every post should show the hero of its writer — name, clan, rune rank — linked to the armory. The data for this already exists in the right format at',
-  'thing.connection.character.text_2': '.',
-  'thing.connection.reading.title': 'Read first, then write',
-  'thing.connection.reading.text':
-    'The Thing will be readable without logging in. Anyone who wants to post needs an account — that keeps search engines in and spam out.',
   'thing.cta': 'Better go voyaging in the meantime',
 
   /* ------------------------------------------------------------- wiki */

@@ -520,6 +520,9 @@ export default [
   */
   ['server', 'test/kollision-formstufen.ts'],
   ['server', 'test/kollision-schritt.ts'],
+  // Ruestkammer-Lesewege (`/accounts/armory`): ohne Standardkonten, Positivliste der
+  // Schluessel, Suche/Seiten, Puffer mit Uhr. Echter node:http-Server, Sekunden.
+  ['server', 'test/konto-armory.ts'],
   // Herkunft.ts hinter einem Reverse-Proxy: Loopback-Peer + X-Forwarded-For/
   // X-Real-IP wird geglaubt, jede andere Peer-Adresse nicht; und zwei
   // Herkuenfte sperren sich in der Anmelde-Drossel nicht gegenseitig.

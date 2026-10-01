@@ -284,6 +284,9 @@ export class SpawnPanel implements NeustartOberflaeche {
   aufGelaende: (() => void) | null = null;
   /** Brush settings of the terrain tab. */
   readonly gelaendeEinstellung: GelaendeEinstellung = { werkzeug: 'anheben', radius: RADIUS_START, staerke: STAERKE_START, ziel: null };
+  /** The vegetation brush (a seventh tool of the terrain tab): `aktiv` replaces the ground tool, `nurBaeume` limits it to trees. */
+  readonly vegetationEinstellung = { aktiv: false, nurBaeume: false };
+  private vegetationKnopf: HTMLButtonElement | null = null;
   private tab: 'objekte' | 'gelaende' = 'objekte';
   private objekteBlock!: HTMLDivElement;
   private gelaendeBlock!: HTMLDivElement;
@@ -623,13 +626,32 @@ export class SpawnPanel implements NeustartOberflaeche {
     for (const [werkzeug, schluessel] of werkzeuge) {
       const k = this.knopf(t(schluessel), () => {
         this.gelaendeEinstellung.werkzeug = werkzeug;
+        this.vegetationEinstellung.aktiv = false;
         this.werkzeugMarkieren();
         this.aufGelaende?.();
       });
       this.werkzeugKnoepfe.set(werkzeug, k);
       zeile.appendChild(k);
     }
+    this.vegetationKnopf = this.knopf(t('testflug.gelaende.werkzeug.vegetation'), () => {
+      this.vegetationEinstellung.aktiv = true;
+      this.werkzeugMarkieren();
+      this.aufGelaende?.();
+    });
+    zeile.appendChild(this.vegetationKnopf);
     block.appendChild(zeile);
+    // „nur Bäume“ belongs to the vegetation brush: without it the brush removes everything scattered.
+    const baeumeZeile = document.createElement('label');
+    baeumeZeile.style.cssText = 'display:flex;gap:6px;align-items:center;font-size:11px;color:#9a8f6a;margin-bottom:4px;';
+    const baeumeBox = document.createElement('input');
+    baeumeBox.type = 'checkbox';
+    baeumeBox.checked = this.vegetationEinstellung.nurBaeume;
+    baeumeBox.onchange = () => {
+      this.vegetationEinstellung.nurBaeume = baeumeBox.checked;
+      if (this.vegetationEinstellung.aktiv) this.aufGelaende?.();
+    };
+    baeumeZeile.append(baeumeBox, document.createTextNode(t('testflug.gelaende.vegetation.nur_baeume')));
+    block.appendChild(baeumeZeile);
     this.werkzeugMarkieren();
 
     // Radius: also set from the keys (`setzeRadius`), so the slider is built by hand.
@@ -696,6 +718,10 @@ export class SpawnPanel implements NeustartOberflaeche {
     tip3.style.cssText = 'font-size:10px;color:#9a8f6a;margin-top:4px;';
     tip3.textContent = t('testflug.gelaende.tip3');
     block.appendChild(tip3);
+    const tipVeg = document.createElement('div');
+    tipVeg.style.cssText = 'font-size:10px;color:#9a8f6a;margin-top:4px;';
+    tipVeg.textContent = t('testflug.gelaende.vegetation.tip');
+    block.appendChild(tipVeg);
     return block;
   }
 
@@ -761,9 +787,14 @@ export class SpawnPanel implements NeustartOberflaeche {
 
   private werkzeugMarkieren(): void {
     for (const [w, k] of this.werkzeugKnoepfe) {
-      const aktiv = w === this.gelaendeEinstellung.werkzeug;
+      const aktiv = w === this.gelaendeEinstellung.werkzeug && !this.vegetationEinstellung.aktiv;
       k.style.background = aktiv ? '#243044' : '#1d2431';
       k.style.color = aktiv ? '#e8d48a' : '#d8cfa8';
+    }
+    if (this.vegetationKnopf) {
+      const aktiv = this.vegetationEinstellung.aktiv;
+      this.vegetationKnopf.style.background = aktiv ? '#243044' : '#1d2431';
+      this.vegetationKnopf.style.color = aktiv ? '#e8d48a' : '#d8cfa8';
     }
   }
 

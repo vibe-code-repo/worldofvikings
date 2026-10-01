@@ -244,19 +244,21 @@ async function teil3(): Promise<void> {
     check('der Zaehler steht vor der Wiederbelebung auf 1 (nicht doppelt durch Mehrfachtreffer)', anna.spielwerte.stand().tode === 1, String(anna.spielwerte.stand().tode));
     const t0 = Date.now();
     while (anna.totBis > 0 && Date.now() - t0 < 6000) await warte(25);
-    check('Wiederbelebung: genau eine Sicherung "tod", sie traegt tode 1 und ein Spielzeitfeld', beiTod.length === 1 && beiTod[0]!.tode === 1 && typeof beiTod[0]!.spielzeitSek === 'number', JSON.stringify(beiTod));
+    check('Wiederbelebung: genau eine Sicherung "tod", sie traegt tode 1 und die exakte Spielzeit (>= 2 s)', beiTod.length === 1 && beiTod[0]!.tode === 1 && (beiTod[0]!.spielzeitSek ?? 0) >= 2, JSON.stringify(beiTod));
     check('die Zeile in der Kontendatenbank traegt tode 1', zeileAnna(a.zugriff)?.tode === 1, JSON.stringify(zeileAnna(a.zugriff)));
     a.server.liegezeitMs = 0;
     await toete(a.server, a.zugriff, anna);
     check('Sofort-Wiederbelebung (Liegezeit 0): zweiter Tod -> 2, in der "tod"-Sicherung', beiTod.length === 2 && beiTod[1]!.tode === 2, JSON.stringify(beiTod));
 
+    await warte(1300); // mindestens eine Sekunde Spielzeit NACH der letzten Tod-Sicherung
+    const nachTod = beiTod[beiTod.length - 1]!.spielzeitSek ?? 0;
     ws.close();
     const t1 = Date.now();
     while (peerVon(a.server, 'Anna') && Date.now() - t1 < 4000) await warte(25);
     check('Anna ist abgemeldet', peerVon(a.server, 'Anna') === undefined);
     const stand = zeileAnna(a.zugriff);
     const wandSek = Math.ceil((Date.now() - verbundenSeit) / 1000);
-    check('Abmelden sichert tode 2 und die EXAKTE Spielzeit (>= 2 s gespielt, hoechstens die Wandzeit)', stand?.tode === 2 && stand.spielzeitSek! >= 2 && stand.spielzeitSek! <= wandSek, `${stand?.spielzeitSek} s bei ${wandSek} s Wandzeit`);
+    check('Abmelden sichert tode 2 und die EXAKTE Spielzeit (>= 2 s gespielt, hoechstens die Wandzeit)', stand?.tode === 2 && stand.spielzeitSek! >= nachTod + 1 && stand.spielzeitSek! <= wandSek, `${stand?.spielzeitSek} s bei ${wandSek} s Wandzeit`);
     spielzeitVorher = stand?.spielzeitSek ?? -1;
     const frozen = anna.spielwerte.stand(true).spielzeitSek;
     await warte(1300);

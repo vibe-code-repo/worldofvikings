@@ -144,6 +144,11 @@ export default [
   // kein Port, kein Socket. Haelt getGroundHeight(0,0) gegen den
   // D1-verifizierten Wert UND die Fallphysik-Konvergenz fest, damit ein
   // Rueckfall auf den alten Radial-Spawnpunkt sofort auffiele.
+  // D5 (Roadmap): Beute liegt bei der Leiche am Boden statt im Inventar des
+  // Toetenden — Besitzer = hoechster Schadensanteil, 2 min nur er, dann jeder,
+  // 5 min Lebensdauer, nach einem Neustart nicht doppelt; 1.000 Wuerfe +-3 %.
+  // Echter WebSocket, zwei Spieler, Zeit per Testhaken vorgespult. ~25 s.
+  ['server', 'test/d5-beute.ts'],
   ['server', 'test/d6-smoke.ts'],
   ['server', 'test/d6-zdo-delta.ts'],
   ['server', 'test/d8-save-async.ts'],

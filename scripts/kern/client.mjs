@@ -92,6 +92,11 @@ export default [
   // damit ein geänderter Wortlaut in pruefung.ts hier auffällt statt erst
   // als falsch gefärbte Zeile im Editor.
   ['client', 'test/befund-schwere.ts'],
+  /*
+    D5: die Beute- und Inventarmeldungen des Servers (`@key` oder `@key|{json}`): jeder Schluessel in beiden Katalogen,
+    Parameter fuellen die Platzhalter, Kreatur- und Itemnamen uebersetzt, kaputte Parameter verstecken die Meldung nicht.
+  */
+  ['client', 'test/beute-meldung.ts'],
   ['client', 'test/bewuchs-freiraum-vorschau.ts'],
   ['client', 'test/bewuchs-quellen.ts'],
   // Vegetation preview of the offline flight (K2.1): clears what the camera left, three levels, key L, client zone cache 1024. ~20 s.

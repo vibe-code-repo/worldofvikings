@@ -55,6 +55,7 @@ import { verdrahteGrundskalaLive } from './grundskalaLive';
 import { GelaendeAktionen } from './GelaendeAktionen';
 import { GelaendeSteuerung, type Kasten } from './GelaendeSteuerung';
 import { pipetteEntscheid, radiusSchritt, verlaufEntscheid } from './gelaendePinsel';
+import { istTexteingabeAktiv } from '../../engine/texteingabe';
 import { verdrahteEntwurfHoerer } from './gelaendeHoerer';
 import type { SperrKatalog } from './gelaendeSperre';
 
@@ -354,13 +355,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
      * Suchwort (Ursache von „B setzt nochmal"). Regler und Häkchen
      * schlucken keine Buchstaben, dort gelten die Kürzel weiter.
      */
-    const tipptImFeld = (e: KeyboardEvent): boolean =>
-      (e.target instanceof HTMLInputElement &&
-        // `number` seit den NPC-Feldern dabei: Im Stufenfeld ist die
-        // Tastatur Eingabe, nicht Steuerung — sonst schlösse ein
-        // Tastendruck darin das Panel oder platzierte.
-        (e.target.type === 'text' || e.target.type === 'number')) ||
-      e.target instanceof HTMLSelectElement;
+    const tipptImFeld = (e: KeyboardEvent): boolean => istTexteingabeAktiv(e);
     window.addEventListener('keydown', (e) => {
       if (tipptImFeld(e)) return;
       if (e.code === 'KeyB') {
@@ -391,7 +386,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       const player = kontext.player();
       if (e.code !== 'KeyV' || !player) return;
       // Tippt man gerade im Suchfeld des Panels, ist "v" ein Buchstabe.
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      if (tipptImFeld(e)) return;
       const an = !player.bauModus;
       player.setBauModus(an);
       hud.meldung(an ? t('testflug.baumodus_an') : t('testflug.baumodus_aus'));

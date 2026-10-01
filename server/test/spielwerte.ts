@@ -235,6 +235,16 @@ async function teil3(): Promise<void> {
     check('untaetiger Spieler, 10 Takte: hoechstens eine Zeile (die erste), danach keine (wie auf main)', a.zugriff.spielerSicherung.stats().zeilen - z0 <= 1 && je.slice(1).every((n) => n === 0), JSON.stringify(je));
     check('die erste Zeile traegt beide Felder (Altstand bekommt sie beim ersten Sichern): tode 0, spielzeitSek 0 (noch unter der ersten Stufe)',
       zeileAnna(a.zugriff)?.tode === 0 && zeileAnna(a.zugriff)?.spielzeitSek === 0, JSON.stringify(zeileAnna(a.zugriff)).slice(0, 120));
+    // Weltspeichern ist exakt (nicht in 5-Minuten-Stufen): nach ~2,5 s Spielzeit steht sie sekundengenau im Weltstand.
+    const weltmanager = (a.server as unknown as { worldManager: { save(d: { players: Array<{ name: string; spielzeitSek?: number }> }): void } }).worldManager;
+    const echtSpeichern = weltmanager.save.bind(weltmanager);
+    let weltSpieler: Array<{ name: string; spielzeitSek?: number }> = [];
+    weltmanager.save = (d): void => { weltSpieler = d.players; echtSpeichern(d as never); };
+    a.server.saveWorld();
+    const imWelt = weltSpieler.find((x) => x.name === 'Anna')?.spielzeitSek;
+    const seitAnmeldung = Math.ceil((Date.now() - verbundenSeit) / 1000);
+    check('Weltspeichern: Spielzeit sekundengenau im Weltstand (>= 2 s, nicht die Stufe 0)', imWelt !== undefined && imWelt >= 2 && imWelt <= seitAnmeldung, `${imWelt} s bei ${seitAnmeldung} s`);
+    weltmanager.save = echtSpeichern;
     a.server.liegezeitMs = 400;
     await toete(a.server, a.zugriff, anna);
     check('Anna liegt tot (ein PlayerTod)', ws.tod === 1 && anna.totBis > 0);

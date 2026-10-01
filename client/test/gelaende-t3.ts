@@ -667,6 +667,24 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   pruefe(innenS === 0, `11: ein nachträglich gesetzter Sockel (r 4) schützt seinen Kreis vor Rückgängig (${innenS} geändert)`);
   pruefe(b.steuerung.wiederholen() === true || true, '11: Wiederholen danach läuft ohne Ausnahme');
 
+  // two strokes, a house set afterwards: undo of the second leaves the locked points, undo of the first still works
+  // (the points the second step left are skipped by the first, not a conflict)
+  const e2 = aufbau(LAYOUT as unknown as Record<string, unknown>);
+  const basisE = basisWelt();
+  e2.ein.werkzeug = 'anheben';
+  e2.ein.radius = 12;
+  strich(e2, [0, 0], [0, 0], 6);
+  strich(e2, [0, 0], [0, 0], 6);
+  const dE = e2.entwurf.doc();
+  dE.placements = [{ id: 'haus', prefab: 'U_Wohnhaus', x: 0, z: 0 }];
+  e2.entwurf.setze(dE);
+  pruefe(e2.steuerung.rueckgaengig() === true, '11: zwei Striche, danach ein Haus: Rückgängig 1 läuft');
+  pruefe(e2.steuerung.rueckgaengig() === true, '11: … und Rückgängig 2 bleibt nicht an den Punkten unter dem Haus hängen (kein Konflikt)');
+  let ausserE = 0;
+  for (const [x, z] of raster(13)) if (Math.hypot(x, z) >= 7 && Math.hypot(x, z) < 11 && e2.welt.getGroundHeight(x, z) !== basisE.getGroundHeight(x, z)) ausserE++;
+  pruefe(ausserE === 0, `11: … außerhalb des Hauskreises ist der Boden wieder die Basis (${ausserE} Abweichungen)`);
+  pruefe(abweichungen(e2.welt, frischAus(e2), raster(14)) === 0, '11: … und das Gelände bleibt bitgleich zum Entwurf');
+
   // everything locked: nothing changes, the step is used up, the message says why
   const c = aufbau(LAYOUT as unknown as Record<string, unknown>);
   c.ein.werkzeug = 'anheben';
@@ -700,6 +718,7 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   const tf = readFileSync(resolve(HIER, '../src/editor/testflug/Testflug.ts'), 'utf-8');
   const pc = readFileSync(resolve(HIER, '../src/player/PlayerController.ts'), 'utf-8');
   pruefe(!/e\.ctrlKey \|\| e\.metaKey\) && !gelaendeUnten/.test(tf) && /istPipetteTaste\(e\)/.test(tf), '12: kein Strg/Cmd-Klick mehr als Pipette (kein Kontextmenü-Weg auf dem Mac), dafür die Taste H');
+  pruefe(/if \(istPipetteTaste\(e\)\) \{\s*e\.preventDefault\(\);[^}]*bodenPunkt\(gelaendeZeiger\.x, gelaendeZeiger\.y\)[^}]*gelaende\.pipetteAn\(gp\);/.test(tf), '12: die Taste H liest die Höhe unter dem Zeiger über pipetteAn (nicht bei gehaltener Taste)');
   pruefe(/panel\.pipetteBereit\) \{\s*panel\.setzePipetteBereit\(false\);\s*gelaende\.pipetteAn\(gp\);\s*return;/.test(tf), '12: der Knopf „Pipette“ macht den nächsten Klick zur Pipette und beginnt keinen Strich');
   pruefe((tf.match(/'contextmenu'/g) ?? []).length === 1 && /addEventListener\('contextmenu', \(e\) => \{[^}]*verwerfen\(\)/.test(tf.replace(/\n/g, ' ')) === true || (tf.match(/'contextmenu'/g) ?? []).length >= 1, '12: das Kontextmenü wird nur noch vom Rechtsklick ausgelöst (Strg+Klick ist kein Werkzeug-Klick)');
   // A3: Ctrl does not sink while the terrain tab is open; X always does

@@ -34,7 +34,7 @@ import { herkunftErmitteln } from '../src/net/Herkunft.js';
 import { Kontendatenbank } from '../src/konto/Kontendatenbank.js';
 import {
   ARMORY_CACHE_MAX, ARMORY_CACHE_MS, ARMORY_NEUBAU_MIN_MS, ARMORY_DROSSEL_FENSTER_MS, ARMORY_DROSSEL_MAX, ARMORY_SEITENGROESSE, ARMORY_SUCHE_MAX,
-  Armory, bereinigeSuche,
+  ARMORY_EIMER, Armory, bereinigeSuche,
 } from '../src/konto/Armory.js';
 import { geheimnisErzeugen } from '../src/net/Identitaet.js';
 import { passwortEinlagernSync } from '../src/konto/Passwort.js';
@@ -106,7 +106,7 @@ const STUECK: Form = { kennung: 'w', name: 'w', textKey: 'w', seltenheit: 'w', i
 const ASPEKT: Form = { figur: 'w', frisur: 'w', haarfarbe: 'w', augenfarbe: 'w' };
 const EINTRAG: Form = { id: 'w', name: 'w', klasse: 'w', aussehen: ASPEKT, erstellt: 'w', zuletztGespielt: 'w' };
 const SLOTS = ['kopf', 'halskette', 'hemd', 'hose', 'schuhe', 'armreif', 'ring1', 'ring2', 'schultern', 'unterarme', 'haende'];
-const FORM_LISTE: Form = { eintraege: [EINTRAG], seite: 'w', seitenGroesse: 'w', gesamt: 'w', seiten: 'w' };
+const FORM_LISTE: Form = { eintraege: [EINTRAG], seite: 'w', seitenGroesse: 'w', gesamt: 'w', seiten: 'w', suche: 'w' };
 const FORM_PROFIL: Form = {
   ...(EINTRAG as Record<string, Form>),
   ausruestung: Object.fromEntries(SLOTS.map((k) => [k, STUECK])),
@@ -209,8 +209,10 @@ try {
     const r = await listeFrisch(`?q=${encodeURIComponent(q)}`);
     assert.equal(r.status, 200, `q=${JSON.stringify(q).slice(0, 30)} -> 200`);
     schluesselPruefen(r.daten, FORM_LISTE);
-    if (q === '%' || q === '_' || q === "'" || q === "' OR '1'='1" || q === '\\') {
-      assert.equal(r.daten.gesamt, 0, `q=${q} ist Text, kein Muster: keine Treffer`);
+    if (q === "' OR '1'='1") assert.equal(r.daten.gesamt, 0, `q=${q} ist Text, kein Muster: keine Treffer`);
+    if (q === '%' || q === '_' || q === "'" || q === '\\') {
+      assert.equal(r.daten.suche, '', `q=${q}: ein Zeichen ist keine Suche`);
+      assert.ok(r.daten.gesamt > 0, `q=${q}: dieselbe Antwort wie ohne Suche`);
     }
   }
   assert.equal(anzahlCharaktere(), vorher, 'keine SQL-Einwirkung');
@@ -685,8 +687,11 @@ try {
         // N2-4: die Suche ueber den Paar-Index liefert dasselbe wie ein Durchlauf ueber alle Namen.
         const gesucht = ['g', 'gr', 'gro', 'gros', 'gross 1', 'ross 19', 's 199', '1', '19', '99', 'zzz', 'ö', letzterName.toLowerCase(), '  GROSS  ', 'ss 1', ' 1', '9 ', 'gross 12'];
         for (const q of gesucht) {
-          const soll = alle.filter((e) => e.name.normalize('NFC').toLowerCase().includes(q.trim().normalize('NFC').toLowerCase()));
+          const eff = q.trim().normalize('NFC').toLowerCase();
+          const kurz = Array.from(eff).length < 2;
+          const soll = kurz ? alle : alle.filter((e) => e.name.normalize('NFC').toLowerCase().includes(eff));
           const ist = gross.liste('1', q)!;
+          assert.equal(ist.suche, kurz ? '' : eff, `Suche ${JSON.stringify(q)}: angewandte Suche`);
           assert.equal(ist.gesamt, soll.length, `Suche ${JSON.stringify(q)}: Trefferzahl`);
           assert.deepEqual(ist.eintraege.map((e) => e.id), soll.slice(0, ARMORY_SEITENGROESSE).map((e) => e.id), `Suche ${JSON.stringify(q)}: erste Seite in Anzeigereihenfolge`);
           if (ist.seiten > 1) {
@@ -762,6 +767,70 @@ try {
         } finally { console.error = echt; }
       }
     } finally { rmSync(ordner3, { recursive: true, force: true }); }
+  }
+
+  // ── 19. Suchindex fester Groesse, auch bei vielfaeltigen Namen (N3-1); Suche erst ab 2 Zeichen (N3-2) ─
+  {
+    const ordner4 = mkdtempSync(join(tmpdir(), 'wov-konto-armory-d-'));
+    try {
+      const db4 = new Kontendatenbank(join(ordner4, 'konten.db'));
+      const k = db4.kontoAnlegen('Cjkkonto', 'c@example.org', passwortEinlagernSync('geheimespasswort1'));
+      assert.ok(k.ok);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw4 = (db4 as any).db as { exec(s: string): void };
+      const N = 20_000;
+      let zufall = 12345;
+      const zeichen = (): string => { zufall = (Math.imul(zufall, 1103515245) + 12345) & 0x7fffffff; return String.fromCharCode(0x4e00 + (zufall % 20_000)); };
+      const namen4: string[] = [];
+      raw4.exec('BEGIN');
+      for (let i = 0; i < N; i++) {
+        const name = Array.from({ length: 24 }, zeichen).join(''); // 24 Zeichen, fast jedes Paar einmalig: der schlimmste Fall fuer einen Index je Paar
+        const r = db4.charakterAnlegen(k.konto.id, name, { ...aussehen, klasse: 'krieger' });
+        if (r.ok) namen4.push(name);
+      }
+      raw4.exec('COMMIT');
+      let t4 = 9_000_000;
+      const cjk = new Armory(db4, []);
+      cjk.uhr = () => t4;
+      cjk.liste('1', '');
+      await cjk.bereit();
+      assert.equal(cjk.liste('1', '')!.gesamt, namen4.length);
+      // Der Index hat feste Eimerzahl: sein Speicher haengt nur von den Namen ab (hoechstens 23 Paare je Name), nicht von der Vielfalt.
+      assert.ok(cjk.statistik.indexBytes <= (ARMORY_EIMER + 1) * 4 + namen4.length * 23 * 4, `Index klein (${cjk.statistik.indexBytes} Byte fuer ${namen4.length} Namen)`);
+      assert.ok(cjk.statistik.laengsterSchrittMs < 25, `kein Haeppchen blockiert den Faden lange (${cjk.statistik.laengsterSchrittMs.toFixed(1)} ms)`);
+      const alle: string[] = [];
+      for (let p = 1; p <= cjk.liste('1', '')!.seiten; p++) alle.push(...cjk.liste(String(p), '')!.eintraege.map((e) => e.name));
+      for (const q of [namen4[7].slice(5, 8), namen4[9000].slice(10, 12), namen4[19999].slice(0, 5), '未知未知', namen4[3].slice(23, 24) + namen4[4].slice(0, 1)]) {
+        const soll = alle.filter((n) => n.toLowerCase().includes(q.toLowerCase()));
+        const ist = cjk.liste('1', q)!;
+        assert.equal(ist.gesamt, soll.length, `CJK-Suche ${q}: Trefferzahl`);
+        assert.deepEqual(ist.eintraege.map((e) => e.name), soll.slice(0, ARMORY_SEITENGROESSE), `CJK-Suche ${q}: erste Seite`);
+      }
+      // Ein Zeichen ist keine Suche: dieselbe Antwort wie ohne Suche, `suche` sagt es.
+      const ohne = cjk.liste('1', '')!;
+      const eins = cjk.liste('1', namen4[1].slice(0, 1))!;
+      assert.equal(eins.suche, '');
+      assert.deepEqual({ ...eins }, { ...ohne }, 'ein Zeichen: dieselbe Antwort wie ohne Suche');
+      assert.equal(cjk.liste('1', namen4[1].slice(0, 2))!.suche, namen4[1].slice(0, 2).toLowerCase(), 'zwei Zeichen sind eine Suche');
+      assert.equal(cjk.liste('1', ' ' + namen4[1].slice(0, 1) + ' ')!.suche, '', 'auch mit Leerraum drumherum zaehlt nur das Zeichen');
+      assert.equal(cjk.liste('1', '\u{1F600}')!.suche, '', 'ein Zeichen jenseits der BMP (zwei UTF-16-Einheiten) ist ebenfalls nur ein Zeichen');
+      // R9: scheitert schon der ERSTE Aufbau, folgt ein Versuch erst nach ARMORY_NEUBAU_MIN_MS.
+      const frisch = new Armory(db4, []);
+      frisch.uhr = () => t4;
+      const echt = console.error;
+      console.error = () => undefined;
+      try {
+        (db4 as unknown as { armorySeite: () => never }).armorySeite = () => { throw new Error('Testfehler'); };
+        for (let i = 0; i < 50; i++) { assert.equal(frisch.liste('1', ''), null); await new Promise<void>((ok) => setImmediate(ok)); }
+        assert.equal(frisch.statistik.neubauten, 1, 'erster Aufbau scheitert: 50 Aufrufe starten nur einen Versuch');
+        delete (db4 as unknown as { armorySeite?: unknown }).armorySeite;
+        t4 += ARMORY_NEUBAU_MIN_MS + 1;
+        assert.equal(frisch.liste('1', ''), null);
+        await frisch.bereit();
+        assert.equal(frisch.statistik.neubauten, 2, 'nach dem Abstand ein zweiter Versuch');
+        assert.ok(frisch.liste('1', '') !== null, 'und er gelingt');
+      } finally { console.error = echt; }
+    } finally { rmSync(ordner4, { recursive: true, force: true }); }
   }
 
   // ── 8. Puffer ─────────────────────────────────────────────────────

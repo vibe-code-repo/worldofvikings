@@ -56,6 +56,10 @@ export const ARMORY_DROSSEL_FENSTER_MS = 10_000;
 const DROSSEL_KARTE_MAX = 4096;
 /** Hoechstdauer eines Arbeitsstuecks des Neubaus, danach gibt der Faden frei (Ziel: Takt des Spiels unter 20 ms). */
 export const ARMORY_SCHRITT_MS = 2;
+/** Eine Suche braucht mindestens so viele Zeichen (Codepunkte, nach Faltung); kuerzere sind keine Suche. */
+export const ARMORY_SUCHE_MIN = 2;
+/** Zahl der Eimer des Suchindex (fest). */
+export const ARMORY_EIMER = 65_536;
 const ARMORY_SEITE_ZEILEN = 500;
 const ARMORY_LAUF = 2048;
 const ARMORY_MISCH_MASKE = 2047;
@@ -63,7 +67,10 @@ const ARMORY_INDEX_MASKE = 1023;
 /** Ergebnis-Puffer der Suche je Speicherstand: Eintraege und Gesamtzahl der Positionen. */
 const ARMORY_SUCH_CACHE_MAX = 256;
 const ARMORY_SUCH_CACHE_INTS = 2_000_000;
-const LEER = new Int32Array(0);
+/** Eimer eines Buchstabenpaars (UTF-16-Einheiten): Hash ueber beide Einheiten, 16 Bit. */
+function eimerVon(a: number, b: number): number {
+  return Math.imul((a << 16) | b, 0x9e3779b1) >>> 16;
+}
 /** Immer ausgeschlossen, auch wenn die Konfiguration keinen `standard-konto`-Block hat. */
 const FESTE_STANDARDKONTEN = ['gast', 'guest', 'admin'];
 /** Laengste `ruestung`-Zeichenkette, die wir dekodieren (echte Werte sind unter 500 Zeichen). */
@@ -106,6 +113,8 @@ export interface ArmoryListe {
   gesamt: number;
   /** Zahl der Seiten, mindestens 1. */
   seiten: number;
+  /** Die tatsaechlich angewandte Suche (gefaltet); '' wenn keine Suche gilt, auch bei einem zu kurzen `q`. */
+  suche: string;
 }
 
 /** Ein angelegtes Stueck. */
@@ -158,8 +167,12 @@ interface Aufnahme {
   /** Gefaltete Namen, gleiche Reihenfolge wie `zeilen`. */
   gefaltet: string[];
   nachId: Map<number, ArmoryZeile>;
-  /** Suchindex: je Buchstabenpaar (UTF-16) die aufsteigenden Positionen in `zeilen`, mit in Haeppchen gebaut. */
-  index: Map<string, Int32Array>;
+  /**
+   * Suchindex fester Groesse: die Buchstabenpaare (UTF-16) jedes Namens fallen in ARMORY_EIMER Eimer (Hash). `offsets`/`ids`
+   * sind das CSR-Feld dazu: Eimer b liegt in `ids[offsets[b]..offsets[b+1]]`, aufsteigend, je Name hoechstens einmal.
+   * Der Speicher haengt nur von der Zahl der Namen und ihrer Laenge ab, nie von der Vielfalt der Zeichen.
+   */
+  index: { offsets: Int32Array; ids: Int32Array };
   /** Ergebnisse je normalisiertem `q` (Positionen in `zeilen`); lebt und stirbt mit dem Stand. */
   suchCache: Map<string, Int32Array>;
   suchCacheZahl: number;
@@ -179,7 +192,7 @@ export class Armory {
   /** Groesse der Drosselkarte; Tests verkleinern sie. */
   drosselKarteMax = DROSSEL_KARTE_MAX;
   /** Messwerte des Neubaus in Haeppchen (fuer Tests und Betriebsanzeige). */
-  readonly statistik = { schritte: 0, laengsterSchrittMs: 0, neubauten: 0, suchKandidaten: 0, suchTreffer: 0 };
+  readonly statistik = { schritte: 0, laengsterSchrittMs: 0, neubauten: 0, suchKandidaten: 0, suchTreffer: 0, indexBytes: 0 };
   /** Nach einem Fehler des Neubaus fruehestens ab diesem Zeitpunkt (ms, `uhr`) ein neuer Versuch. */
   private sperreBis = 0;
   /** Der laufende Neubau des Speicherstands (in Haeppchen), sonst null. */
@@ -230,7 +243,9 @@ export class Armory {
     const lage = this.aktuelleAufnahme();
     if (!lage) return null; // der erste Aufbau laeuft noch, oder ein Fehler sperrt kurz
     const a = lage.stand;
-    const suche = bereinigeSuche(qRoh);
+    // Weniger als ARMORY_SUCHE_MIN Zeichen (nach Faltung, in Codepunkten) sind keine Suche: die Antwort ist die der Liste ohne Suche.
+    let suche = bereinigeSuche(qRoh);
+    if (Array.from(suche).length < ARMORY_SUCHE_MIN) suche = '';
     const treffer = suche === '' ? null : this.sucheIn(a, suche);
     const gesamt = treffer ? treffer.length : a.zeilen.length;
     const seiten = Math.max(1, Math.ceil(gesamt / ARMORY_SEITENGROESSE));
@@ -247,7 +262,7 @@ export class Armory {
       const jetzt = this.uhr();
       zeilen = zeilen.filter((z) => this.db.armoryEinzeln(z.id, jetzt) !== null);
     }
-    return { eintraege: zeilen.map(baueEintrag), seite, seitenGroesse: ARMORY_SEITENGROESSE, gesamt, seiten };
+    return { eintraege: zeilen.map(baueEintrag), seite, seitenGroesse: ARMORY_SEITENGROESSE, gesamt, seiten, suche };
   }
 
   /**
@@ -261,28 +276,20 @@ export class Armory {
       this.statistik.suchTreffer += 1;
       return alt;
     }
-    let ergebnis: Int32Array;
-    if (q.length < 2) {
-      const l: number[] = [];
-      this.statistik.suchKandidaten += a.gefaltet.length;
-      for (let i = 0; i < a.gefaltet.length; i++) if (a.gefaltet[i].includes(q)) l.push(i);
-      ergebnis = Int32Array.from(l);
-    } else {
-      let kleinste: Int32Array | undefined;
-      for (let i = 0; i + 2 <= q.length; i++) {
-        const p = a.index.get(q.slice(i, i + 2));
-        if (!p) { kleinste = LEER; break; }
-        if (!kleinste || p.length < kleinste.length) kleinste = p;
-      }
-      const kandidaten = kleinste ?? LEER;
-      if (q.length === 2) ergebnis = kandidaten; // das Paar IST die Suche
-      else {
-        this.statistik.suchKandidaten += kandidaten.length;
-        const l: number[] = [];
-        for (const pos of kandidaten) if (a.gefaltet[pos].includes(q)) l.push(pos);
-        ergebnis = Int32Array.from(l);
-      }
+    // Kandidaten: der kleinste Eimer unter den Buchstabenpaaren von `q`; Kollisionen schaden nicht, jeder Kandidat wird geprueft.
+    const { offsets, ids } = a.index;
+    let von = 0;
+    let bis = 0;
+    let kleinste = Infinity;
+    for (let i = 0; i + 2 <= q.length; i++) {
+      const b = eimerVon(q.charCodeAt(i), q.charCodeAt(i + 1));
+      const n = offsets[b + 1] - offsets[b];
+      if (n < kleinste) { kleinste = n; von = offsets[b]; bis = offsets[b + 1]; }
     }
+    this.statistik.suchKandidaten += bis - von;
+    const l: number[] = [];
+    for (let k = von; k < bis; k++) if (a.gefaltet[ids[k]].includes(q)) l.push(ids[k]);
+    const ergebnis = Int32Array.from(l);
     if (ergebnis.length <= ARMORY_SUCH_CACHE_INTS) {
       if (a.suchCache.size >= ARMORY_SUCH_CACHE_MAX || a.suchCacheZahl + ergebnis.length > ARMORY_SUCH_CACHE_INTS) {
         a.suchCache.clear();
@@ -441,24 +448,32 @@ export class Armory {
       nachId.set(zeilen[i].id, zeilen[i]);
       if ((i & ARMORY_MISCH_MASKE) === ARMORY_MISCH_MASKE) yield;
     }
-    // Suchindex: je Buchstabenpaar die Positionen (aufsteigend, je Name hoechstens einmal).
-    const bau = new Map<string, number[]>();
+    // Suchindex fester Groesse (CSR ueber ARMORY_EIMER Eimer), in zwei Durchgaengen in Haeppchen: zaehlen, dann fuellen.
+    const offsets = new Int32Array(ARMORY_EIMER + 1);
+    const zuletzt = new Int32Array(ARMORY_EIMER).fill(-1);
     for (let i = 0; i < gefaltet.length; i++) {
       const g = gefaltet[i];
       for (let c = 0; c + 2 <= g.length; c++) {
-        const paar = g.slice(c, c + 2);
-        const l = bau.get(paar);
-        if (!l) bau.set(paar, [i]);
-        else if (l[l.length - 1] !== i) l.push(i);
+        const b = eimerVon(g.charCodeAt(c), g.charCodeAt(c + 1));
+        if (zuletzt[b] !== i) { zuletzt[b] = i; offsets[b + 1]++; }
       }
       if ((i & ARMORY_INDEX_MASKE) === ARMORY_INDEX_MASKE) yield;
     }
-    const index = new Map<string, Int32Array>();
-    let n = 0;
-    for (const [paar, l] of bau) {
-      index.set(paar, Int32Array.from(l));
-      if ((++n & ARMORY_INDEX_MASKE) === ARMORY_INDEX_MASKE) yield;
+    for (let b = 0; b < ARMORY_EIMER; b++) offsets[b + 1] += offsets[b];
+    yield;
+    const ids = new Int32Array(offsets[ARMORY_EIMER]);
+    const fuell = offsets.slice(0, ARMORY_EIMER);
+    zuletzt.fill(-1);
+    for (let i = 0; i < gefaltet.length; i++) {
+      const g = gefaltet[i];
+      for (let c = 0; c + 2 <= g.length; c++) {
+        const b = eimerVon(g.charCodeAt(c), g.charCodeAt(c + 1));
+        if (zuletzt[b] !== i) { zuletzt[b] = i; ids[fuell[b]++] = i; }
+      }
+      if ((i & ARMORY_INDEX_MASKE) === ARMORY_INDEX_MASKE) yield;
     }
+    this.statistik.indexBytes = offsets.byteLength + ids.byteLength;
+    const index = { offsets, ids };
     return {
       zeilen, gefaltet, nachId, index, suchCache: new Map(), suchCacheZahl: 0, stempel, gebaut: jetzt, bis: jetzt + ARMORY_CACHE_MS,
     };

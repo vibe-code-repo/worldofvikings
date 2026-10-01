@@ -83,6 +83,13 @@ export const HAUPTNAV: Seite[] = [
     ikone: 'buch',
     indexieren: true,
   },
+  // Ohne Symbol und nicht in der Mobilleiste: Der Fuß zeigt, was dort fehlt.
+  {
+    pfad: '/devlog',
+    titel: 'pages.main_nav.devlog.title',
+    kurz: 'pages.main_nav.devlog.short',
+    indexieren: true,
+  },
   // Ohne Symbol: Die Rüstkammer steht nicht in der Mobilleiste, und nur dort
   // werden Symbole gebraucht. Eines einzutragen, das es im Vorrat nicht gibt,
   // wäre ein leerer Kasten, der erst auffällt, wenn jemand sie dort einhängt.

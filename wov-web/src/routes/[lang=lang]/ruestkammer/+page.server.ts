@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { reckenIdAus } from '$lib/reckenAnzeige';
+import { fehlerArt, reckenIdAus } from '$lib/reckenAnzeige';
 import { adresseVon, ladeRecke, ladeRuestkammer, seiteAus, sucheAus } from '$lib/server/armoryApi';
 import type { PageServerLoad } from './$types';
 
@@ -27,9 +27,23 @@ export const load: PageServerLoad = async ({ fetch, url, getClientAddress }) => 
     const r = await ladeRecke(fetch, id, { besucher });
     if (!r.ok) {
       if (r.status === 404) error(404, 'unknown-character');
-      return { ansicht: 'profil' as const, erreichbar: false, recke: null, liste: null, q: '' };
+      return {
+        ansicht: 'profil' as const,
+        erreichbar: false,
+        fehler: fehlerArt(r.status),
+        recke: null,
+        liste: null,
+        q: '',
+      };
     }
-    return { ansicht: 'profil' as const, erreichbar: true, recke: r.data, liste: null, q: '' };
+    return {
+      ansicht: 'profil' as const,
+      erreichbar: true,
+      fehler: null,
+      recke: r.data,
+      liste: null,
+      q: '',
+    };
   }
 
   const q = sucheAus(url.searchParams.get('q'));
@@ -38,6 +52,7 @@ export const load: PageServerLoad = async ({ fetch, url, getClientAddress }) => 
   return {
     ansicht: 'liste' as const,
     erreichbar: r.ok,
+    fehler: r.ok ? null : fehlerArt(r.status),
     recke: null,
     liste: r.ok ? r.data : null,
     q,

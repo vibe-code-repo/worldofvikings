@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Recke, Stueck } from './recken';
 import {
   ausruestungsZeilen,
+  fehlerArt,
   fertigkeitenListe,
   figurStuecke,
   glyphe,
@@ -192,5 +193,32 @@ describe('leerer Zustand', () => {
     // Die Seite zeigt bei `eintraege.length === 0` den ehrlichen Leertext; hier nur,
     // dass Adressen für Seite 1 ohne Suche die Kammer selbst sind (Zurück-Ziel).
     expect(listenAdresse('/de/ruestkammer', '', 1)).toBe('/de/ruestkammer');
+  });
+});
+
+describe('F3: Id-Bereich', () => {
+  it('positive Ganzzahl bis 2^53 - 1, sonst ungültig', () => {
+    expect(reckenIdAus('1')).toBe(1);
+    expect(reckenIdAus('9007199254740991')).toBe(9007199254740991);
+    for (const schlecht of [
+      '9007199254740992',
+      '99999999999999999',
+      '007',
+      '0',
+      '+5',
+      ' 5',
+      '5 ',
+      '٣',
+    ]) {
+      expect(reckenIdAus(schlecht), schlecht).toBeNull();
+    }
+  });
+});
+
+describe('Fehlerart', () => {
+  it('503 = Start, 429 = Drossel, alles andere = Ausfall', () => {
+    expect(fehlerArt(503)).toBe('start');
+    expect(fehlerArt(429)).toBe('limit');
+    for (const s of [0, 500, 502, 504, 404, 403]) expect(fehlerArt(s)).toBe('aus');
   });
 });

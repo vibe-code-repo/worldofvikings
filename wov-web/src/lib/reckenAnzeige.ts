@@ -174,7 +174,8 @@ export function profilAdresse(basis: string, id: number): string {
 
 /** `?reck=` als gültige Charakter-Id oder null. */
 export function reckenIdAus(roh: string | null): number | null {
-  if (roh === null || !/^[0-9]{1,12}$/.test(roh)) return null;
+  // Positive Ganzzahl im sicheren Bereich (höchstens 2^53 - 1, 16 Stellen), ohne führende Null.
+  if (roh === null || !/^[1-9][0-9]{0,15}$/.test(roh)) return null;
   const n = Number(roh);
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
@@ -207,3 +208,29 @@ export function figurStuecke(
     z.stueck ? [{ kennung: z.stueck.kennung }] : [],
   );
 }
+
+/** Warum der Spielserver nichts lieferte: Start, Drossel oder sonst ein Ausfall. */
+export type FehlerArt = 'start' | 'limit' | 'aus';
+
+/**
+ * 503 (der Spielserver bereitet die Kammer noch vor) und 429 (Drossel) sind
+ * vorübergehend und bekommen einen eigenen, ehrlichen Hinweis; alles andere
+ * (Netzfehler, Zeitlimit, 5xx, kaputte Antwort) ist ein Ausfall.
+ */
+export function fehlerArt(status: number): FehlerArt {
+  if (status === 503) return 'start';
+  if (status === 429) return 'limit';
+  return 'aus';
+}
+
+export const KAMMER_FEHLER: Record<FehlerArt, MessageKey> = {
+  start: 'armory.state.warming',
+  limit: 'armory.state.limit',
+  aus: 'armory.state.error',
+};
+
+export const HALLE_FEHLER: Record<FehlerArt, MessageKey> = {
+  start: 'hall_of_fame.state.warming',
+  limit: 'hall_of_fame.state.limit',
+  aus: 'hall_of_fame.state.error',
+};

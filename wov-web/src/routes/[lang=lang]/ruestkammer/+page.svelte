@@ -4,6 +4,7 @@
   import { fuelle } from '$lib/reckenVorschauKern';
   import { vorWieLange } from '$lib/formate';
   import {
+    KAMMER_FEHLER,
     figurStuecke,
     isoVon,
     klassenName,
@@ -60,7 +61,7 @@
         ausruestung={figurStuecke(gewaehlt)}
       />
     {:else}
-      <p class="leer-zustand">{t['armory.state.error']}</p>
+      <p class="leer-zustand">{t[KAMMER_FEHLER[data.fehler ?? 'aus']]}</p>
     {/if}
   {:else}
     <!--
@@ -85,7 +86,7 @@
     </form>
 
     {#if !liste}
-      <p class="leer-zustand">{t['armory.state.error']}</p>
+      <p class="leer-zustand">{t[KAMMER_FEHLER[data.fehler ?? 'aus']]}</p>
     {:else if liste.eintraege.length === 0}
       <p class="leer-zustand">
         {suchLeer ? t['armory.state.empty'] : t['armory.state.no_match']}

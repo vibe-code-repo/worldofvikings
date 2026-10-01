@@ -2,7 +2,7 @@
   import { page } from '$app/state';
   import Kopfdaten from '$lib/Kopfdaten.svelte';
   import { datumKurz } from '$lib/formate';
-  import { isoVon, profilAdresse } from '$lib/reckenAnzeige';
+  import { HALLE_FEHLER, isoVon, profilAdresse } from '$lib/reckenAnzeige';
   import { TAFELN, tafelZeilen } from '$lib/recken';
   import { localeFrom, localizedPath, messages } from '$lib/i18n';
   import type { PageData } from './$types';
@@ -45,7 +45,7 @@
         </thead>
         <tbody>
           {#if !data.erreichbar}
-            <tr><td colspan="3">{t['hall_of_fame.state.error']}</td></tr>
+            <tr><td colspan="3">{t[HALLE_FEHLER[data.fehler ?? 'aus']]}</td></tr>
           {:else if zeilen.length === 0}
             <tr><td colspan="3">{t['hall_of_fame.state.empty']}</td></tr>
           {:else}

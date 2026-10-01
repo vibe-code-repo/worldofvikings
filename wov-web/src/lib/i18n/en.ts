@@ -235,6 +235,9 @@ export const en: Messages = {
   'armory.search.placeholder': 'Character name …',
   'armory.state.error':
     'The armory is locked right now — the game server is not answering. Please try again in a moment.',
+  'armory.state.warming':
+    'The armory is being prepared right now. Please reload the page in a moment.',
+  'armory.state.limit': 'Too many requests in a short time. Please wait a moment and try again.',
   'armory.state.empty':
     'Nobody is in the armory yet. As soon as someone creates a hero, they will show up here.',
 
@@ -305,6 +308,10 @@ export const en: Messages = {
   'hall_of_fame.state.error': 'The boards are covered up right now.',
   'hall_of_fame.board.active.title': 'Most recently active',
   'hall_of_fame.board.active.column': 'last played',
+  'hall_of_fame.state.warming':
+    'The boards are being prepared right now. Please reload the page in a moment.',
+  'hall_of_fame.state.limit':
+    'Too many requests in a short time. Please wait a moment and try again.',
   'hall_of_fame.state.empty': 'Nobody listed yet.',
   'hall_of_fame.soon.bold': 'More boards to come.',
   'hall_of_fame.soon.text':

@@ -297,6 +297,16 @@ describe('B2: leere und unvollständige Werte werden toleriert', () => {
 });
 
 describe('B7/B8: Grenzen und ganze Zahlen', () => {
+  it('F2: gleicher Zeitpunkt behält die Reihenfolge des Servers (nicht id, nicht Name)', () => {
+    const e = (id: number, name: string) => ({ ...BASIS, id, name, zuletztGespielt: 500 });
+    const z = tafelZeilen(TAFELN[0], [
+      e(9, 'Zeta'),
+      e(3, 'Alfa'),
+      e(7, 'Mitte'),
+      { ...BASIS, id: 1, name: 'Neu', zuletztGespielt: 900 },
+    ]);
+    expect(z.map((x) => x.eintrag.name)).toEqual(['Neu', 'Zeta', 'Alfa', 'Mitte']);
+  });
   it('Tafel: höchstens TAFEL_ZEILEN Zeilen', () => {
     const viele = Array.from({ length: 100 }, (_, i) => ({
       ...BASIS,

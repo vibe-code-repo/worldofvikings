@@ -262,6 +262,10 @@ export const de = {
   'armory.search.placeholder': 'Charaktername …',
   'armory.state.error':
     'Die Kammer ist gerade verschlossen — der Spielserver antwortet nicht. Bitte versuche es gleich noch einmal.',
+  'armory.state.warming':
+    'Die Kammer wird gerade vorbereitet. Bitte lade die Seite in einem Moment neu.',
+  'armory.state.limit':
+    'Zu viele Anfragen in kurzer Zeit. Bitte warte einen Augenblick und versuche es dann noch einmal.',
   'armory.state.empty':
     'In der Kammer steht noch niemand. Sobald jemand einen Recken anlegt, erscheint er hier.',
 
@@ -332,6 +336,10 @@ export const de = {
   'hall_of_fame.state.error': 'Die Tafeln sind gerade verhängt.',
   'hall_of_fame.board.active.title': 'Zuletzt aktiv',
   'hall_of_fame.board.active.column': 'zuletzt gespielt',
+  'hall_of_fame.state.warming':
+    'Die Tafeln werden gerade vorbereitet. Bitte lade die Seite in einem Moment neu.',
+  'hall_of_fame.state.limit':
+    'Zu viele Anfragen in kurzer Zeit. Bitte warte einen Augenblick und versuche es dann noch einmal.',
   'hall_of_fame.state.empty': 'Noch niemand eingetragen.',
   'hall_of_fame.soon.bold': 'Weitere Tafeln folgen.',
   'hall_of_fame.soon.text':

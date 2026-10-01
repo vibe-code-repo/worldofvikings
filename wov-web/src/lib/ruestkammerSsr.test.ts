@@ -359,6 +359,25 @@ beschreibe('Rüstkammer ohne JavaScript (gebauter Stand)', () => {
     }
   });
 
+  it('503 (Kammer wird vorbereitet) und 429 (Drossel): ehrlicher Hinweis, kein 500, kein „noch niemand“', async () => {
+    const faelle: Array<[number, RegExp]> = [
+      [503, /vorbereitet/],
+      [429, /Zu viele Anfragen/],
+    ];
+    for (const [status, text] of faelle) {
+      modus = () => json(status, { error: status === 503 ? 'warming-up' : 'rate-limited' });
+      for (const pfad of ['/de/ruestkammer', '/de/ruestkammer?reck=1', '/de/ruhmeshalle']) {
+        const r = await frage(pfad);
+        expect(r.status, `${status} ${pfad}`).toBe(200);
+        expect(r.text, `${status} ${pfad}`).toMatch(text);
+        expect(r.text).not.toMatch(/noch niemand|Noch niemand|verschlossen|verhängt/);
+      }
+      expect((await frage('/en/armory')).text).toMatch(
+        status === 503 ? /prepared/ : /Too many requests/,
+      );
+    }
+  });
+
   it('hängender Spielserver: nach dem Zeitlimit ruhiger Text', async () => {
     modus = () => 'haengt';
     const t0 = Date.now();

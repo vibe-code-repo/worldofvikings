@@ -13,10 +13,13 @@
  */
 import type { DateiFehler, VerwerfGrund } from '@wov/shared/src/items/gegenstandsDaten.js';
 import type { TranslationKey, TranslationVars } from '../../i18n';
-import { t } from '../i18n';
 import type { FeldFehler, LokalerGrund } from './modell';
+import { MAX_KENNUNG_ANZEIGE, fuege, kuerzeHart, sichtbarKuerzen, tA, zahlText, zier, type Anzeigetext } from './anzeige';
 
-export type Uebersetzer = (key: TranslationKey, vars?: TranslationVars) => string;
+export { MAX_KENNUNG_ANZEIGE, sichtbarKuerzen };
+
+/** Every text the mask shows is an `Anzeigetext` (see anzeige.ts): `t` of the catalogue, or a test's translator. */
+export type Uebersetzer = (key: TranslationKey, vars?: TranslationVars) => Anzeigetext;
 
 /** Reader reasons (`VERWERF_GRUENDE`). */
 export const GRUND_SCHLUESSEL = {
@@ -127,6 +130,8 @@ export const FELD_SCHLUESSEL: Readonly<Record<string, TranslationKey>> = {
   itemLevel: 'editor.gegenstand.feld.item_level',
   rarity: 'editor.gegenstand.feld.rarity',
   rezept: 'editor.gegenstand.abschnitt.rezept',
+  nameSchluessel: 'editor.gegenstand.feld.name_schluessel',
+  beschreibungSchluessel: 'editor.gegenstand.feld.beschreibung_schluessel',
 };
 
 /** Conflict lines shown at most; the rest is one line "and N more differences". */
@@ -138,11 +143,11 @@ export const MAX_KONFLIKT_ZEILEN = 12;
  */
 export function konfliktInhalt(
   k: { server: unknown; unterschiede: ReadonlyArray<{ feld: string; eigen: string; server: string }> },
-  uebersetze: Uebersetzer = t
-): { titel: string; zeilen: string[]; weitere: string | null } {
+  uebersetze: Uebersetzer = tA
+): { titel: Anzeigetext; zeilen: Anzeigetext[]; weitere: Anzeigetext | null } {
   const zeigen = k.unterschiede.slice(0, MAX_KONFLIKT_ZEILEN);
-  const feldName = (feld: string): string => (hatSchluessel(FELD_SCHLUESSEL, feld) ? uebersetze(FELD_SCHLUESSEL[feld]) : sichtbarKuerzen(feld));
-  const wertAnzeige = (v: string): string => (v === '' ? uebersetze('editor.gegenstand.konflikt.leer') : sichtbarKuerzen(v, 120));
+  const feldName = (feld: string): Anzeigetext => (hatSchluessel(FELD_SCHLUESSEL, feld) ? uebersetze(FELD_SCHLUESSEL[feld]) : sichtbarKuerzen(feld));
+  const wertAnzeige = (v: string): Anzeigetext => (v === '' ? uebersetze('editor.gegenstand.konflikt.leer') : sichtbarKuerzen(v, 120));
   return {
     titel: uebersetze(k.server === null ? 'editor.gegenstand.konflikt.titel_entfernt' : 'editor.gegenstand.konflikt.titel'),
     // The entry is gone on the server: there is no server version to compare, each row is a field of the draft that
@@ -162,28 +167,28 @@ const hatSchluessel = (tabelle: object, code: string): boolean => Object.hasOwn(
  * One line "<id or #position>: <reason>" for an entry the reader or the route refused. The id is a raw file value,
  * so it is shortened and made visible; `grundText` does the same for a reason it does not know.
  */
-export function verworfenZeile(v: { index: number; id: string | null; grund: string }, uebersetze: Uebersetzer = t): string {
-  return `${v.id === null ? `#${v.index}` : sichtbarKuerzen(v.id)}: ${grundText(v.grund, uebersetze)}`;
+export function verworfenZeile(v: { index: number; id: string | null; grund: string }, uebersetze: Uebersetzer = tA): Anzeigetext {
+  return fuege(': ', v.id === null ? fuege('', zier('#'), zahlText(v.index)) : sichtbarKuerzen(v.id), grundText(v.grund, uebersetze));
 }
 
 /** The fields the server changed alone and that went into the draft (at most `MAX_KONFLIKT_ZEILEN` named), or null if none. */
-export function zusammengefuehrtText(felder: readonly string[], uebersetze: Uebersetzer = t): string | null {
+export function zusammengefuehrtText(felder: readonly string[], uebersetze: Uebersetzer = tA): Anzeigetext | null {
   if (felder.length === 0) return null;
-  const name = (feld: string): string => (hatSchluessel(FELD_SCHLUESSEL, feld) ? uebersetze(FELD_SCHLUESSEL[feld]) : sichtbarKuerzen(feld));
+  const name = (feld: string): Anzeigetext => (hatSchluessel(FELD_SCHLUESSEL, feld) ? uebersetze(FELD_SCHLUESSEL[feld]) : sichtbarKuerzen(feld));
   const genannt = felder.slice(0, MAX_KONFLIKT_ZEILEN).map(name);
   if (felder.length > genannt.length) genannt.push(uebersetze('editor.gegenstand.konflikt.zusammengefuehrt_weitere', { anzahl: felder.length - genannt.length }));
-  return uebersetze('editor.gegenstand.konflikt.zusammengefuehrt', { felder: genannt.join(', ') });
+  return uebersetze('editor.gegenstand.konflikt.zusammengefuehrt', { felder: fuege(', ', ...genannt) });
 }
 
 /** The text of a reader reason (`grund`), or the bare code in a sentence when it is one the mask does not know yet. */
-export function grundText(code: string, uebersetze: Uebersetzer = t): string {
+export function grundText(code: string, uebersetze: Uebersetzer = tA): Anzeigetext {
   return hatSchluessel(GRUND_SCHLUESSEL, code)
     ? uebersetze(GRUND_SCHLUESSEL[code as VerwerfGrund])
     : uebersetze('editor.gegenstand.grund.unbekannt', { code: sichtbarKuerzen(code) });
 }
 
 /** The message of one field problem, with the range filled in. */
-export function feldFehlerText(f: FeldFehler, uebersetze: Uebersetzer = t): string {
+export function feldFehlerText(f: FeldFehler, uebersetze: Uebersetzer = tA): Anzeigetext {
   if (hatSchluessel(LOKAL_SCHLUESSEL, f.code)) {
     return uebersetze(LOKAL_SCHLUESSEL[f.code as LokalerGrund], { min: f.min ?? 0, max: f.max ?? 0 });
   }
@@ -191,7 +196,7 @@ export function feldFehlerText(f: FeldFehler, uebersetze: Uebersetzer = t): stri
 }
 
 /** The text of a `fehler` code of the route. */
-export function routeFehlerText(code: string | null, uebersetze: Uebersetzer = t): string {
+export function routeFehlerText(code: string | null, uebersetze: Uebersetzer = tA): Anzeigetext {
   if (code !== null && hatSchluessel(ROUTE_FEHLER_SCHLUESSEL, code)) return uebersetze(ROUTE_FEHLER_SCHLUESSEL[code]);
   return uebersetze('editor.gegenstand.route.unbekannt', { code: sichtbarKuerzen(code ?? '?') });
 }
@@ -200,34 +205,38 @@ export function routeFehlerText(code: string | null, uebersetze: Uebersetzer = t
  * The text of a result of the API client that is none of the expected ones. 401/403 come from the gates in front
  * of the route (their `fehler` is free text), so the status decides first; then the route's own code.
  */
-export function fehlerErgebnisText(e: { status: number; fehler: string | null }, uebersetze: Uebersetzer = t): string {
+export function fehlerErgebnisText(e: { status: number; fehler: string | null }, uebersetze: Uebersetzer = tA): Anzeigetext {
   if (e.status === 401 || e.status === 403) return zugangText(e.status, uebersetze);
   if (e.fehler !== null) return routeFehlerText(e.fehler, uebersetze);
   return zugangText(e.status, uebersetze);
 }
 
 /** The text for an HTTP status the route never answers itself (the gates in front of it), for the network and for "no answer in time". */
-export function zugangText(status: number | 'netz' | 'zeit', uebersetze: Uebersetzer = t): string {
+export function zugangText(status: number | 'netz' | 'zeit', uebersetze: Uebersetzer = tA): Anzeigetext {
   if (status === 'netz') return uebersetze('editor.gegenstand.http.netz');
   if (status === 'zeit') return uebersetze('editor.gegenstand.http.zeit');
   if (status === 401) return uebersetze('editor.gegenstand.http.401');
   if (status === 403) return uebersetze('editor.gegenstand.http.403');
-  return uebersetze('editor.gegenstand.http.andere', { status });
+  return uebersetze('editor.gegenstand.http.andere', { status: zahlText(status) });
 }
 
 /**
  * The text of a receipt (`GET /api/gegenstaende/quittung`): status, and for a held-back one the counts. The receipt can be
  * hand-written, so it is shortened like a dialog list: at most `MAX_DIALOG_ZEILEN` lines then "and N more", every
- * id / name / status shortened and made visible (`sichtbarKuerzen`). The longest text is `QUITTUNG_MAX_ZEICHEN`
- * characters whatever the file holds (worst case: ten lines of a name and a reason of 200 reversing marks each, every
- * one shown as `<U+202E>`, see the test).
+ * id / name / status shortened and made visible (`sichtbarKuerzen`). The upper bound is HARD: the finished text is cut
+ * to `QUITTUNG_MAX_ZEICHEN` UTF-16 units (`kuerzeHart`, no surrogate pair split, end mark "…"), whatever the file holds.
+ * Without the cut the worst case is about 13 400 units: a character outside the BMP is up to 10 units as `<U+10FFFF>`.
  */
-export function quittungText(q: { status: string; gehalten?: unknown; verworfen?: unknown }, name: (id: string) => string, uebersetze: Uebersetzer = t): string {
+export function quittungText(q: { status: string; gehalten?: unknown; verworfen?: unknown }, name: (id: string) => string, uebersetze: Uebersetzer = tA): Anzeigetext {
+  return kuerzeHart(quittungOhneGrenze(q, name, uebersetze), QUITTUNG_MAX_ZEICHEN);
+}
+
+function quittungOhneGrenze(q: { status: string; gehalten?: unknown; verworfen?: unknown }, name: (id: string) => string, uebersetze: Uebersetzer): Anzeigetext {
   const status = sichtbarKuerzen(String(q.status));
   const basis = hatSchluessel(QUITTUNG_SCHLUESSEL, q.status)
     ? uebersetze(QUITTUNG_SCHLUESSEL[q.status])
     : uebersetze('editor.gegenstand.quittung.unbekannt', { status });
-  const zeilen: Array<() => string> = [];
+  const zeilen: Array<() => Anzeigetext> = [];
   if (typeof q.gehalten === 'object' && q.gehalten !== null && !Array.isArray(q.gehalten)) {
     for (const id of Object.keys(q.gehalten).sort()) {
       const anzahl = (q.gehalten as Record<string, unknown>)[id];
@@ -240,7 +249,7 @@ export function quittungText(q: { status: string; gehalten?: unknown; verworfen?
         const id = (v as { id?: unknown }).id;
         const grundCode = (v as { grund: string }).grund;
         zeilen.push(() =>
-          uebersetze('editor.gegenstand.quittung.verworfen_eintrag', { name: typeof id === 'string' ? sichtbarKuerzen(name(id), MAX_KENNUNG_ANZEIGE * 2) : '?', grund: grundText(grundCode, uebersetze) })
+          uebersetze('editor.gegenstand.quittung.verworfen_eintrag', { name: typeof id === 'string' ? sichtbarKuerzen(name(id), MAX_KENNUNG_ANZEIGE * 2) : zier('?'), grund: grundText(grundCode, uebersetze) })
         );
       }
     }
@@ -248,55 +257,27 @@ export function quittungText(q: { status: string; gehalten?: unknown; verworfen?
   if (zeilen.length === 0) return basis;
   const sichtbar = zeilen.slice(0, MAX_DIALOG_ZEILEN).map((z) => z());
   if (zeilen.length > MAX_DIALOG_ZEILEN) sichtbar.push(uebersetze('editor.gegenstand.bestaetigung.weitere', { anzahl: zeilen.length - MAX_DIALOG_ZEILEN }));
-  return `${basis} ${sichtbar.join('; ')}`;
+  return fuege(' ', basis, fuege('; ', ...sichtbar));
 }
 
 /**
- * The longest `quittungText` can be, in UTF-16 units. Ten lines at most, each a name (80 characters, every one `<U+XXXX>`
- * = 8 units, plus "…") and a reason (40 characters, the same), plus the status in the headline and "and N more".
- * The measured worst case is about 10 800; this is the bound with room.
+ * The longest `quittungText` can be, in UTF-16 units. The cap is enforced on the finished text (`kuerzeHart`); the
+ * measured worst case of ten lines of 80 + 40 characters, every one a `<U+10FFFF>`, is about 13 400 before the cut.
  */
 export const QUITTUNG_MAX_ZEICHEN = 12000;
 
-/** Longest run of one id / name shown in a dialog; a hand-written id can be any length. */
-export const MAX_KENNUNG_ANZEIGE = 40;
 /** Lines a dialog lists; the rest is one line "and N more". */
 export const MAX_DIALOG_ZEILEN = 10;
 
-/**
- * Characters that would hide or reorder text, by Unicode rule and not one by one: control, format (bidi, zero-width),
- * line / paragraph separators, surrogates, private use, noncharacters, every `Default_Ignorable_Code_Point` (the
- * invisible fillers U+FFA0, U+3164, U+115F, U+1160, U+17B4, U+17B5, U+034F, variation selectors, tags ...), and the
- * look-alike blanks the rules do not cover (braille blank, object replacement).
- */
-const UNSICHTBAR = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}\p{Co}\p{Noncharacter_Code_Point}\p{Default_Ignorable_Code_Point}\u2800\ufffc]/u;
-/** Spaces other than the plain one (no-break, ideographic, en / em ...): they look like nothing in a name. */
-const ANDERES_LEER = /\p{Zs}/u;
-
-const istUnsichtbar = (c: string): boolean => UNSICHTBAR.test(c) || (c !== ' ' && ANDERES_LEER.test(c));
-
-/**
- * Text of a raw id or name for a dialog: at most `max` characters (then "…"), and every control / bidi /
- * invisible character shown as `<U+XXXX>` instead of acting. Only for showing (`textContent`), never for matching.
- */
-export function sichtbarKuerzen(roh: string, max = MAX_KENNUNG_ANZEIGE): string {
-  const zeichen = Array.from(roh);
-  const kurz = zeichen
-    .slice(0, max)
-    .map((c) => (istUnsichtbar(c) ? `<U+${(c.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}>` : c))
-    .join('');
-  return zeichen.length > max ? `${kurz}…` : kurz;
-}
-
 /** The lines of a dialog list: the first `MAX_DIALOG_ZEILEN`, and how many are left out. */
-export function ersteZeilen(alle: readonly string[]): { punkte: string[]; weitere: number } {
+export function ersteZeilen(alle: readonly Anzeigetext[]): { punkte: Anzeigetext[]; weitere: number } {
   return { punkte: alle.slice(0, MAX_DIALOG_ZEILEN), weitere: Math.max(0, alle.length - MAX_DIALOG_ZEILEN) };
 }
 
 /** "<name> (<id>)", or just the id when the name is missing or the same; both made safe to show. */
-const zeileVon = (id: string, n: string | null): string => {
+const zeileVon = (id: string, n: string | null): Anzeigetext => {
   const k = sichtbarKuerzen(id);
-  return n !== null && n !== id ? `${sichtbarKuerzen(n, MAX_KENNUNG_ANZEIGE * 2)} (${k})` : k;
+  return n !== null && n !== id ? fuege(' ', sichtbarKuerzen(n, MAX_KENNUNG_ANZEIGE * 2), fuege('', zier('('), k, zier(')'))) : k;
 };
 
 /** What the confirmation dialog says about a removal or an overwrite (409 of the route). */
@@ -308,15 +289,15 @@ export interface BestaetigungInfo {
 }
 
 export interface BestaetigungsInhalt {
-  titel: string;
+  titel: Anzeigetext;
   /** The sentence: how many, and that it is final. It names NO item: the names stand once, in `punkte`. */
-  satz: string;
+  satz: Anzeigetext;
   /** One line per item, "<name> (<id>)": the first ten only. */
-  punkte: string[];
+  punkte: Anzeigetext[];
   /** "and N more" when there are more than ten items, else null. */
-  weitere: string | null;
-  bestaetigen: string;
-  abbrechen: string;
+  weitere: Anzeigetext | null;
+  bestaetigen: Anzeigetext;
+  abbrechen: Anzeigetext;
 }
 
 /**
@@ -325,7 +306,7 @@ export interface BestaetigungsInhalt {
  * entries together) and says "permanently", also for the copies in inventories and chests. Each item stands ONCE,
  * in the list (ten lines at most, then "and N more"); raw ids are shortened and made visible (`sichtbarKuerzen`).
  */
-export function bestaetigungsInhalt(info: BestaetigungInfo, name: (id: string) => string | null, uebersetze: Uebersetzer = t): BestaetigungsInhalt {
+export function bestaetigungsInhalt(info: BestaetigungInfo, name: (id: string) => string | null, uebersetze: Uebersetzer = tA): BestaetigungsInhalt {
   if (info.art === 'alter-stand-kaputt') {
     const grund = info.dateiFehler && hatSchluessel(DATEI_FEHLER_SCHLUESSEL, info.dateiFehler)
       ? uebersetze(DATEI_FEHLER_SCHLUESSEL[info.dateiFehler as DateiFehler])
@@ -363,7 +344,7 @@ export function abhaengigkeitsInhalt(
   id: string,
   abhaengige: readonly string[],
   name: (id: string) => string | null,
-  uebersetze: Uebersetzer = t
+  uebersetze: Uebersetzer = tA
 ): BestaetigungsInhalt {
   const anzahl = abhaengige.length;
   const { punkte, weitere } = ersteZeilen(abhaengige.map((x) => zeileVon(x, name(x))));

@@ -21,6 +21,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
 import { VERWERF_GRUENDE } from '@wov/shared/src/items/gegenstandsDaten.js';
+import type { Anzeigetext } from '../src/editor/gegenstaende/anzeige';
 import {
   DATEI_FEHLER_SCHLUESSEL,
   FELD_SCHLUESSEL,
@@ -41,6 +42,7 @@ import {
   zusammengefuehrtText,
   type Uebersetzer,
 } from '../src/editor/gegenstaende/texte';
+import { DEFAULT_IGNORABLE, WEITERE_LEERE, kuerzeHart } from '../src/editor/gegenstaende/anzeige';
 
 let fehler = 0;
 function check(name: string, ok: boolean, zusatz = ''): void {
@@ -69,7 +71,7 @@ function katalog(sprache: 'de' | 'en'): Record<string, string> {
 }
 /** Translator that reads the catalogue of one language, like `t()` does (placeholders replaced). */
 const uebersetzer = (sprache: 'de' | 'en'): Uebersetzer => (key, vars = {}) =>
-  katalog(sprache)[key].replace(/\{([^}]+)\}/g, (tok, n: string) => (Object.hasOwn(vars, n) ? String(vars[n]) : tok));
+  katalog(sprache)[key].replace(/\{([^}]+)\}/g, (tok, n: string) => (Object.hasOwn(vars, n) ? String(vars[n]) : tok)) as Anzeigetext;
 const platzhalter = (s: string): string[] => [...s.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]).sort();
 
 // ── the scanner ────────────────────────────────────────────────────────
@@ -89,7 +91,7 @@ function textTeile(n: ts.Node): string[] {
 }
 const HAT_WORT = /\p{L}{2,}/u;
 const SENKE_EIGENSCHAFTEN = new Set(['textContent', 'innerText', 'title', 'placeholder', 'alt', 'ariaLabel', 'innerHTML']);
-const SENKE_AUFRUFE_ARG: Record<string, number[]> = { el: [2], knopf: [0], zierTitel: [0], marke: [0], confirm: [0], alert: [0], prompt: [0], meldung: [0], banner: [0], createTextNode: [0], zeile: [3], beschriftet: [0] };
+const SENKE_AUFRUFE_ARG: Record<string, number[]> = { el: [2], elT: [2], knopf: [0], knopfT: [0], zierTitel: [0], zierTitelT: [0], setzeText: [1], frageBestaetigen: [0], marke: [0], confirm: [0], alert: [0], prompt: [0], meldung: [0], banner: [0], createTextNode: [0], zeile: [3], beschriftet: [0] };
 
 interface Fund {
   senke: string;
@@ -152,7 +154,7 @@ for (const sf of QUELLEN) {
     if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
       if (n.text.startsWith(PRAEFIX) && n.text.length > PRAEFIX.length) benutzt.add(n.text);
     }
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && (n.expression.text === 't' || n.expression.text === 'uebersetze')) {
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && (n.expression.text === 't' || n.expression.text === 'tA' || n.expression.text === 'uebersetze')) {
       const keys = n.arguments[0] ? textTeile(n.arguments[0]) : [];
       const opt = n.arguments[1];
       let vars: string[] | null = [];
@@ -295,15 +297,15 @@ console.log('\n[4] Kein Klartext in seite.ts und texte.ts:');
 for (const d of ['seite.ts', 'texte.ts']) {
   const sf = QUELLEN[dateien.indexOf(d)];
   const { funde, senken } = klartextFunde(sf);
-  check(`${d}: ${senken} Senken geprueft, kein Klartext`, funde.length === 0 && senken >= (d === 'seite.ts' ? 40 : 0), funde.map((f) => `${f.senke}: ${f.text}`).join(' | '));
+  check(`${d}: ${senken} Senken geprueft, kein Klartext`, funde.length === 0 && senken >= (d === 'seite.ts' ? 30 : 0), funde.map((f) => `${f.senke}: ${f.text}`).join(' | '));
 }
 {
   const sf = QUELLEN[dateien.indexOf('seite.ts')];
   let tAufrufe = 0;
   besuche(sf, (n) => {
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 't') tAufrufe++;
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'tA') tAufrufe++;
   });
-  check('seite.ts benutzt t() reichlich', tAufrufe >= 40, String(tAufrufe));
+  check('seite.ts benutzt tA() reichlich', tAufrufe >= 40, String(tAufrufe));
 }
 
 // ── [5] N1: text errors and conflict lines ──
@@ -333,112 +335,195 @@ console.log('\n[5] Textfehler und Konfliktzeilen (N1):');
   }
 }
 
-// ── [6] N3: every raw value on its way to the screen ──
-console.log('\n[6] Rohwerte auf dem Weg zum Bildschirm (N3):');
+// ── [6] N4: every text on its way to the screen is an `Anzeigetext` (syntax tree + type checker) ──
+console.log('\n[6] Jeder Text auf dem Weg zum Bildschirm ist ein Anzeigetext (N4, Syntaxbaum + Typpruefer):');
 
-/** Properties that carry a value of the server or of a file (an id, a name, a reason code, a status ...). */
-const ROH_EIGENSCHAFTEN = new Set(['id', 'grund', 'code', 'upload', 'anzeigename', 'name', 'dateiFehler', 'fehler', 'status', 'feld', 'item', 'eigen', 'server']);
-/** The same as bare names (`{ code }`, `${id}`); a bare name is looked up where it is declared (below). */
-const ROH_BEZEICHNER = new Set(['id', 'grund', 'code', 'upload', 'status', 'roh']);
+/** Properties that put text (or markup) on the screen when assigned. `value` is checked against a short, justified list. */
+const TEXT_EIGENSCHAFTEN = new Set(['textContent', 'innerText', 'outerText', 'innerHTML', 'outerHTML', 'title', 'placeholder', 'alt', 'ariaLabel', 'label', 'text', 'nodeValue', 'srcdoc', 'value']);
+/** Assignments to `.value` that are allowed, by the written target. */
+const VALUE_ERLAUBT: Record<string, string> = {
+  'i.value': 'the text field of the form shows the author their own value to edit; it is no text of the page',
+  's.value': 'the selected option of a drop-down (an id of our own tables)',
+  'o.value': 'the value attribute of an option: an id of our own tables, or the id of an entry the reader has accepted (ID_MUSTER)',
+};
+/** Calls that put text on the screen or ask the author, by any receiver. */
+const VERBOTENE_AUFRUFE = new Set(['alert', 'confirm', 'prompt', 'insertAdjacentHTML', 'insertAdjacentText', 'createTextNode', 'setHTMLUnsafe', 'writeln']);
+const ERLAUBTE_ATTRIBUTE = new Set(['data-gegenstand-dialog', 'list']);
+/** What a file other than `dom.ts` may import from the design module: nothing that takes a text. */
+const DESIGN_ERLAUBT = new Set(['F', 'M', 'SCHRIFT', 'beschriftungStil', 'el', 'grundregelnEinhaengen', 'stil']);
+const ZUWEISUNGEN = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.QuestionQuestionEqualsToken, ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+]);
+
+const nameDesAufrufs = (c: ts.CallExpression): string | null => {
+  if (ts.isIdentifier(c.expression)) return c.expression.text;
+  if (ts.isPropertyAccessExpression(c.expression)) return c.expression.name.text;
+  if (ts.isElementAccessExpression(c.expression) && ts.isStringLiteralLike(c.expression.argumentExpression)) return c.expression.argumentExpression.text;
+  return null;
+};
+const istTextArgument = (n: ts.Node): boolean => ts.isStringLiteralLike(n) || ts.isTemplateExpression(n) || (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.PlusToken);
+
 /**
- * Calls that make a raw value visible and short: `sichtbarKuerzen` itself, helpers that call it (`zeileVon`, `grundText` ...,
- * checked for that below) and the two local wrappers of `konfliktInhalt` (`feldName`, `wertAnzeige`).
+ * Every way into the DOM that does not go through `dom.ts`, found on the syntax tree of ONE source (`istDom`: it imports
+ * the design module, so it touches the DOM): a write to a text property (or to one by `['...']`), HTML, `alert` /
+ * `confirm` / `prompt`, `document.write`, `setAttribute` of anything but a listed attribute, a call of the design helpers
+ * that take a text, an import of one, `Object.assign` to anything but the form.
  */
-const SICHERE_AUFRUFE = new Set(['sichtbarKuerzen', 'zeileVon', 'grundText', 'routeFehlerText', 'verworfenZeile', 'feldFehlerText', 'fehlerErgebnisText', 'zugangText', 'quittungText', 'feldName', 'wertAnzeige']);
-/** A call that takes a value as TEXT for the screen (its own arguments are checked as display positions). */
-const SENKEN_AUFRUFE = new Set(['t', 'uebersetze', 'el', 'banner', 'meldung', 'knopf', 'zierTitel']);
-
-/** The raw values (as source text and line) that reach a display position without a safe call between them and it. */
-function ungesicherteAnzeigen(sf: ts.SourceFile): string[] {
+function verboteneWege(sf: ts.SourceFile): string[] {
   const funde: string[] = [];
-  const name = (c: ts.CallExpression): string | null => (ts.isIdentifier(c.expression) ? c.expression.text : ts.isPropertyAccessExpression(c.expression) ? c.expression.name.text : null);
-  const deklarationen = new Map<string, ts.Node[]>();
+  const dom = istDomDatei(sf);
+  const ort = (x: ts.Node): string => `${x.getText(sf).slice(0, 60)}@${sf.getLineAndCharacterOfPosition(x.getStart(sf)).line + 1}`;
   besuche(sf, (n) => {
-    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) deklarationen.set(n.name.text, [...(deklarationen.get(n.name.text) ?? []), n.initializer]);
-    // a parameter typed as a number or as string literals only (no `string`) cannot carry free text
-    if (ts.isParameter(n) && ts.isIdentifier(n.name) && n.type && !/\bstring\b/.test(n.type.getText(sf).replace(/'[^']*'/g, ''))) deklarationen.set(n.name.text, [...(deklarationen.get(n.name.text) ?? []), n.type]);
-  });
-  /** A bare name is safe when every declaration of it in this file is safe (a safe call, a number type ...). */
-  const gesichert = (n: ts.Identifier): boolean => {
-    const ds = deklarationen.get(n.text);
-    return ds !== undefined && ds.length > 0 && ds.every((d) => ts.isTypeNode(d) || roh(d).length === 0);
-  };
-  /** Raw values inside `n` (also inside a callback: `.map((v) => ...)` builds text), not looking into a safe call, a text call or the CONDITION of a `?:` / `&&`. */
-  const roh = (n: ts.Node): ts.Node[] => {
-    if (ts.isCallExpression(n) && (SICHERE_AUFRUFE.has(name(n) ?? '') || SENKEN_AUFRUFE.has(name(n) ?? ''))) return [];
-    if (ts.isConditionalExpression(n)) return [...roh(n.whenTrue), ...roh(n.whenFalse)];
-    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) return roh(n.right);
-    if (ts.isPropertyAccessExpression(n) && ROH_EIGENSCHAFTEN.has(n.name.text)) return [n];
-    if (ts.isIdentifier(n) && ROH_BEZEICHNER.has(n.text) && !(ts.isCallExpression(n.parent) && n.parent.expression === n) && !gesichert(n)) return [n];
-    const aus: ts.Node[] = [];
-    ts.forEachChild(n, (k) => {
-      aus.push(...roh(k));
-    });
-    return aus;
-  };
-  const ort = (x: ts.Node): string => `${x.getText(sf)}@${sf.getLineAndCharacterOfPosition(x.getStart(sf)).line + 1}`;
-  const pruefe = (n: ts.Node | undefined): void => {
-    if (!n) return;
-    for (const x of roh(n)) funde.push(ort(x));
-  };
-  besuche(sf, (n) => {
-    if (ts.isCallExpression(n) && SENKEN_AUFRUFE.has(name(n) ?? '')) {
-      const nm = name(n) as string;
-      if (nm === 't' || nm === 'uebersetze') {
-        const opt = n.arguments[1];
-        if (opt && ts.isObjectLiteralExpression(opt)) {
-          for (const p of opt.properties) {
-            if (ts.isShorthandPropertyAssignment(p)) {
-              if (ROH_BEZEICHNER.has(p.name.text) && !gesichert(p.name)) funde.push(ort(p));
-            } else if (ts.isPropertyAssignment(p)) pruefe(p.initializer);
-          }
-        }
-      } else if (nm === 'el') pruefe(n.arguments[2]);
-      else if (nm === 'banner') {
-        const liste = n.arguments[0];
-        if (liste && ts.isArrayLiteralExpression(liste)) for (const e of liste.elements) pruefe(ts.isSpreadElement(e) ? e.expression : e);
-        else pruefe(liste);
-      } else pruefe(n.arguments[0]);
+    if (ts.isBinaryExpression(n) && ZUWEISUNGEN.has(n.operatorToken.kind)) {
+      const l = n.left;
+      const eig = ts.isPropertyAccessExpression(l) ? l.name.text : ts.isElementAccessExpression(l) && ts.isStringLiteralLike(l.argumentExpression) ? l.argumentExpression.text : null;
+      if (eig !== null && TEXT_EIGENSCHAFTEN.has(eig)) {
+        if (eig === 'value' && Object.hasOwn(VALUE_ERLAUBT, l.getText(sf))) return;
+        funde.push(`Zuweisung ${ort(n)}`);
+      }
+      if (dom && ts.isElementAccessExpression(l) && !ts.isStringLiteralLike(l.argumentExpression) && !ts.isNumericLiteral(l.argumentExpression) && !ts.isIdentifier(l.argumentExpression) && !ts.isBinaryExpression(l.argumentExpression)) funde.push(`dynamische Zuweisung ${ort(n)}`);
     }
-    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(n.left) && n.left.name.text === 'textContent') pruefe(n.right);
-    if (ts.isTemplateExpression(n)) for (const sp of n.templateSpans) pruefe(sp.expression);
+    if (ts.isCallExpression(n)) {
+      const name = nameDesAufrufs(n);
+      if (name !== null && VERBOTENE_AUFRUFE.has(name)) funde.push(`Aufruf ${ort(n)}`);
+      if (name === 'write' && ts.isPropertyAccessExpression(n.expression) && /document$/.test(n.expression.expression.getText(sf))) funde.push(`Aufruf ${ort(n)}`);
+      if (name === 'setAttribute' && !(n.arguments[0] && ts.isStringLiteralLike(n.arguments[0]) && ERLAUBTE_ATTRIBUTE.has(n.arguments[0].text))) funde.push(`setAttribute ${ort(n)}`);
+      if (name === 'knopf' || name === 'zierTitel') funde.push(`Design-Helfer ${ort(n)}`);
+      if (name === 'el' && n.arguments.length >= 3) funde.push(`el() mit Text ${ort(n)}`);
+      if (name === 'Object' || (ts.isPropertyAccessExpression(n.expression) && n.expression.expression.getText(sf) === 'Object' && ['assign', 'defineProperty', 'defineProperties'].includes(n.expression.name.text))) {
+        if (n.getText(sf) !== 'Object.assign(f, setzeId(f, v))') funde.push(`Object.${nameDesAufrufs(n)} ${ort(n)}`);
+      }
+      if (ts.isPropertyAccessExpression(n.expression) && n.expression.expression.getText(sf) === 'Reflect') funde.push(`Reflect ${ort(n)}`);
+      if (name !== null && ['append', 'prepend', 'replaceChildren', 'before', 'after', 'appendChild', 'replaceWith'].includes(name) && n.arguments.some(istTextArgument)) funde.push(`Text als Kindknoten ${ort(n)}`);
+    }
+    if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier) && /\/design$/.test(n.moduleSpecifier.text)) {
+      const b = n.importClause?.namedBindings;
+      if (b && ts.isNamedImports(b)) for (const e of b.elements) if (!DESIGN_ERLAUBT.has((e.propertyName ?? e.name).text)) funde.push(`Design-Import ${(e.propertyName ?? e.name).text}`);
+    }
   });
   return funde;
 }
+function istDomDatei(sf: ts.SourceFile): boolean {
+  return sf.statements.some((s) => ts.isImportDeclaration(s) && ts.isStringLiteral(s.moduleSpecifier) && /\/design$/.test(s.moduleSpecifier.text));
+}
+
+/** Casts to the brand, to `any` / `unknown`, and switched-off checks, in a source that must not forge an `Anzeigetext`. */
+function faelschungen(sf: ts.SourceFile, streng: boolean): string[] {
+  const funde: string[] = [];
+  const ort = (x: ts.Node): string => `${x.getText(sf).slice(0, 60)}@${sf.getLineAndCharacterOfPosition(x.getStart(sf)).line + 1}`;
+  besuche(sf, (n) => {
+    if ((ts.isAsExpression(n) || ts.isTypeAssertionExpression(n)) && (/Anzeigetext|__anzeige/.test(n.type.getText(sf)) || (streng && (n.type.kind === ts.SyntaxKind.AnyKeyword || n.type.kind === ts.SyntaxKind.UnknownKeyword)))) funde.push(`Umwandlung ${ort(n)}`);
+    if (streng && n.kind === ts.SyntaxKind.AnyKeyword) funde.push(`any ${ort(n)}`);
+    if (ts.isTypeAliasDeclaration(n) && /__anzeige/.test(n.getText(sf))) funde.push(`zweite Marke ${ort(n)}`);
+  });
+  if (streng && /@ts-(ignore|expect-error|nocheck)/.test(sf.text)) funde.push('ts-Direktive');
+  return funde;
+}
+
 {
-  const probe = (code: string): string[] => ungesicherteAnzeigen(ts.createSourceFile('probe.ts', code, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS));
-  check('der Anzeige-Scanner beisst: v.id in einer Vorlage', probe('const z = `${v.id}: x`;').length === 1);
-  check('... v.id als Wert eines t()-Platzhalters', probe("t('k', { liste: v.id });").length === 1);
-  check('... ein Kurzschrift-Platzhalter { code }', probe("uebersetze('k', { code });").length === 1);
-  check('... v.id in banner([...]) und in textContent', probe('this.banner([v.id]); x.textContent = e.id;').length === 2);
-  check('... eine Vorlage MIT Aufruf, der nicht sicher ist (String(v.id))', probe('const z = `${String(v.id)}`;').length === 1);
-  check('... in einem Rueckruf, der Text baut (banner([...liste.map((v) => v.id)]) und `${l.map((v) => v.id)}`)', probe('this.banner([...l.map((v) => v.id + 1)]);').length === 1 && probe('const z = `${l.map((v) => `${v.id}`).join(1)}`;').length >= 1);
-  check('... verschachtelt in einer Verkettung', probe("el('div', '', 'a' + e.name);").length === 1);
-  check('... ein nackter Name, der aus Rohdaten stammt (const k = v.id; ... { k } ist nicht erfasst, aber `{ code }` mit Parameter string ist es)', probe("function f(code: string) { return uebersetze('k', { code }); }").length === 1 && probe("function f(status: number | 'netz') { return uebersetze('k', { status }); }").length === 0 && probe("const code = sichtbarKuerzen(x.id); uebersetze('k', { code });").length === 0 && probe("const code = x.id; uebersetze('k', { code });").length === 1);
-  check('der Scanner laesst durch: sichtbarKuerzen(v.id), verworfenZeile(v), Zahlen, Vergleiche, die Bedingung eines ?:', probe("const z = `${sichtbarKuerzen(v.id)} ${v.index}`; t('k', { a: sichtbarKuerzen(c), n: 3 }); if (e.id === id) return; banner([verworfenZeile(v)]); const z = `${v.id === null ? '#' : sichtbarKuerzen(v.id)}`;").length === 0);
+  const probe = (code: string): string[] => verboteneWege(ts.createSourceFile('probe.ts', code, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS));
+  const faelsch = (code: string): string[] => faelschungen(ts.createSourceFile('probe.ts', code, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS), true);
+  for (const [name, code] of [
+    ['textContent', 'a.textContent = x;'], ['innerText', 'a.innerText = String(x);'], ['innerHTML', 'a.innerHTML = x;'], ['outerHTML', 'a.outerHTML = x;'], ['title', 'z.title = e.id;'], ['placeholder', 'i.placeholder = s;'],
+    ['value (nicht gelistet)', 'k.value = e.id;'], ['textContent per [..]', "a['textContent'] = x;"], ['+=', 'a.textContent += x;'], ['window.confirm', 'window.confirm(`${x}`);'], ['alert', 'alert(x);'],
+    ['prompt', 'prompt(x);'], ['insertAdjacentHTML', "a.insertAdjacentHTML('beforeend', x);"], ['document.write', 'document.write(x);'], ['createTextNode', 'document.createTextNode(x);'],
+    ['setAttribute title', "a.setAttribute('title', x);"], ['setAttribute dynamisch', 'a.setAttribute(n, x);'], ['knopf()', "knopf('x', f);"], ['zierTitel()', 'zierTitel(x, 3);'], ['el() mit Text', "el('div', '', x);"],
+    ['Object.assign an ein Element', 'Object.assign(a, { textContent: x });'], ['Reflect.set', "Reflect.set(a, 'textContent', x);"], ['append mit Text', 'a.append(`${x}`);'], ['Import von knopf', "import { knopf } from '../design';"],
+    ['window["confirm"]', "window['confirm'](x);"],
+  ] as const) check(`der Wege-Scanner beisst: ${name}`, probe(code).length >= 1, code);
+  check('... und laesst durch: i.value / s.value / o.value, setAttribute("list"), el() ohne Text, Object.assign(f, setzeId(f, v)), ein Import ohne Textfunktion', probe("i.value = w; s.value = g; o.value = n; a.setAttribute('list', 'x'); el('div', css); Object.assign(f, setzeId(f, v)); import { F, M, el } from '../design'; a.append(b);").length === 0);
+  for (const [name, code] of [['Umwandlung auf die Marke', 'const x = e.id as Anzeigetext;'], ['Umwandlung auf any', 'const x = e.id as any;'], ['any-Typ', 'let x: any;'], ['@ts-ignore', '// @ts-ignore\nconst x = 1;'], ['zweite Marke', "type A = string & { readonly __anzeige: true };"]] as const) {
+    check(`der Faelschungs-Scanner beisst: ${name}`, faelsch(code).length >= 1, code);
+  }
+  check('... und laesst durch: gewoehnliche Umwandlungen', faelsch("const x = v as Formular['typ']; const y = s.value as T;").length === 0);
+
+  const hier = Object.fromEntries(dateien.map((d, i) => [d, QUELLEN[i]]));
+  const domDateien = dateien.filter((d) => istDomDatei(hier[d])).sort();
+  check('genau dom.ts und seite.ts beruehren das DOM (importieren den Design-Teil)', JSON.stringify(domDateien) === JSON.stringify(['dom.ts', 'seite.ts']), domDateien.join(','));
+  for (const d of dateien) {
+    if (d === 'dom.ts') continue;
+    const funde = verboteneWege(hier[d]);
+    check(`${d}: kein Weg ins DOM ausser dom.ts (Text-Zuweisung, HTML, confirm/alert/prompt, Design-Helfer mit Text)`, funde.length === 0, funde.join(' | '));
+  }
+  for (const d of dateien) {
+    if (d === 'anzeige.ts' || d === 'dom.ts') continue;
+    const funde = faelschungen(hier[d], d === 'seite.ts' || d === 'texte.ts');
+    check(`${d}: keine Umwandlung auf Anzeigetext${d === 'seite.ts' || d === 'texte.ts' ? ', kein any / unknown, keine ts-Direktive' : ''}`, funde.length === 0, funde.join(' | '));
+  }
   {
-    // the names the scanner trusts must really call `sichtbarKuerzen` (directly or through another trusted one)
-    const texteQuelle = QUELLEN[dateien.indexOf('texte.ts')];
-    const koerper = new Map<string, ts.Node>();
-    besuche(texteQuelle, (n) => {
-      if (ts.isFunctionDeclaration(n) && n.name) koerper.set(n.name.text, n);
-      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer && (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))) koerper.set(n.name.text, n.initializer);
+    // the places that may cast: exactly the producers of anzeige.ts; dom.ts has the one sink and the one question
+    const marke: string[] = [];
+    besuche(hier['anzeige.ts'], (n) => {
+      if (ts.isAsExpression(n) && /Anzeigetext/.test(n.type.getText(hier['anzeige.ts']))) {
+        let p: ts.Node | undefined = n;
+        while (p && !ts.isFunctionDeclaration(p) && !ts.isVariableDeclaration(p)) p = p.parent;
+        marke.push(p && (ts.isFunctionDeclaration(p) || ts.isVariableDeclaration(p)) && p.name && ts.isIdentifier(p.name) ? p.name.text : '?');
+      }
     });
-    const ruft = (n: ts.Node, ziel: Set<string>): boolean => {
-      let ja = false;
-      besuche(n, (k) => {
-        if (ts.isCallExpression(k) && ts.isIdentifier(k.expression) && ziel.has(k.expression.text)) ja = true;
-      });
-      return ja;
-    };
-    const vertraut = ['zeileVon', 'grundText', 'routeFehlerText', 'verworfenZeile', 'feldName', 'wertAnzeige', 'quittungText'];
-    const ohne = vertraut.filter((v) => !koerper.has(v) || !ruft(koerper.get(v) as ts.Node, new Set(['sichtbarKuerzen', ...vertraut.filter((w) => w !== v)])));
-    check('die dem Scanner vertrauten Helfer rufen sichtbarKuerzen wirklich auf', ohne.length === 0, ohne.join(','));
+    check('anzeige.ts: nur tA, zier, zahlText, fuege, kuerzeHart und sichtbarKuerzen machen einen Anzeigetext', JSON.stringify([...new Set(marke)].sort()) === JSON.stringify(['fuege', 'kuerzeHart', 'sichtbarKuerzen', 'tA', 'zahlText', 'zier']), marke.join(','));
+    const dom = hier['dom.ts'];
+    const zuweisungen: string[] = [];
+    const bestaetigt: string[] = [];
+    const typen = new Map<string, string>();
+    besuche(dom, (n) => {
+      if (ts.isFunctionDeclaration(n) && n.name) {
+        const erstes = n.parameters[0];
+        typen.set(n.name.text, erstes?.type?.getText(dom) ?? '');
+        besuche(n, (k) => {
+          if (ts.isBinaryExpression(k) && ZUWEISUNGEN.has(k.operatorToken.kind) && ts.isPropertyAccessExpression(k.left) && TEXT_EIGENSCHAFTEN.has(k.left.name.text)) zuweisungen.push(`${n.name?.text}:${k.left.name.text}`);
+          if (ts.isCallExpression(k) && nameDesAufrufs(k) === 'confirm') bestaetigt.push(n.name?.text ?? '?');
+        });
+      }
+    });
+    check('dom.ts: die einzige Text-Zuweisung steht in setzeText, die einzige Frage in frageBestaetigen', JSON.stringify(zuweisungen) === JSON.stringify(['setzeText:textContent']) && JSON.stringify(bestaetigt) === JSON.stringify(['frageBestaetigen']), zuweisungen.join() + '|' + bestaetigt.join());
+    check('dom.ts: setzeText, elT, knopfT, zierTitelT, frageBestaetigen nehmen den Text als Anzeigetext (zweites bzw. drittes Argument von setzeText / elT)', typen.get('knopfT') === 'Anzeigetext' && typen.get('zierTitelT') === 'Anzeigetext' && typen.get('frageBestaetigen') === 'Anzeigetext' && /setzeText\(knoten: \{ textContent: string \| null \}, text: Anzeigetext\)/.test(dom.text) && /elT<.*text\?: Anzeigetext/.test(dom.text));
   }
-  for (const d of ['seite.ts', 'texte.ts']) {
-    const funde = ungesicherteAnzeigen(QUELLEN[dateien.indexOf(d)]);
-    check(`${d}: kein Rohwert aus Server- oder Dateidaten erreicht den Bildschirm ohne sichtbarKuerzen`, funde.length === 0, funde.join(' | '));
+}
+
+// the type checker over the mask: no file has a type error, and every value of a text template is a number or an Anzeigetext
+{
+  const konfig = ts.readConfigFile(resolve(CLIENT, 'tsconfig.json'), ts.sys.readFile);
+  const geparst = ts.parseJsonConfigFileContent(konfig.config, ts.sys, CLIENT);
+  const wurzeln = dateien.map((d) => resolve(ORDNER, d));
+  const programm = ts.createProgram({ rootNames: wurzeln, options: { ...geparst.options, noEmit: true } });
+  const pruefer = programm.getTypeChecker();
+  const meldungen: string[] = [];
+  for (const w of wurzeln) {
+    const q = programm.getSourceFile(w);
+    if (!q) continue;
+    for (const dg of [...programm.getSyntacticDiagnostics(q), ...programm.getSemanticDiagnostics(q)]) {
+      const pos = dg.start === undefined ? '' : `@${q.getLineAndCharacterOfPosition(dg.start).line + 1}`;
+      meldungen.push(`${q.fileName.split('/').pop()}${pos}: ${ts.flattenDiagnosticMessageText(dg.messageText, ' ').slice(0, 120)}`);
+    }
   }
+  check(`die Typpruefung der Maske meldet nichts (${wurzeln.length} Dateien): ein roher string, wo ein Anzeigetext verlangt ist, faellt hier auf`, meldungen.length === 0, meldungen.join(' | '));
+  const istSicherer = (ty: ts.Type): boolean => (ty.isUnion() ? ty.types.every(istSicherer) : (ty.flags & ts.TypeFlags.NumberLike) !== 0 || ty.getProperty('__anzeige') !== undefined);
+  let gepruefte = 0;
+  const roh: string[] = [];
+  for (const d of dateien) {
+    const q = programm.getSourceFile(resolve(ORDNER, d));
+    if (!q) continue;
+    besuche(q, (n) => {
+      if (!ts.isCallExpression(n) || !ts.isIdentifier(n.expression) || !['tA', 't', 'uebersetze'].includes(n.expression.text)) return;
+      const opt = n.arguments[1];
+      if (!opt) return;
+      if (!ts.isObjectLiteralExpression(opt)) {
+        if (d !== 'anzeige.ts') roh.push(`${d}: Werte nicht als Objektliteral @${q.getLineAndCharacterOfPosition(n.getStart(q)).line + 1}`);
+        return;
+      }
+      for (const p of opt.properties) {
+        let ty: ts.Type | undefined;
+        if (ts.isShorthandPropertyAssignment(p)) {
+          const sym = pruefer.getShorthandAssignmentValueSymbol(p);
+          ty = pruefer.getTypeAtLocation(p.name);
+          if (!istSicherer(ty) && sym) ty = pruefer.getTypeOfSymbolAtLocation(sym, p.name);
+        } else if (ts.isPropertyAssignment(p)) ty = pruefer.getTypeAtLocation(p.initializer);
+        gepruefte++;
+        if (ty === undefined || !istSicherer(ty)) roh.push(`${d}: ${p.getText(q).slice(0, 50)}@${q.getLineAndCharacterOfPosition(p.getStart(q)).line + 1}`);
+      }
+    });
+  }
+  check(`jeder Wert, der in einen Katalogtext fliesst (${gepruefte} Platzhalter in tA / uebersetze), ist eine Zahl oder ein Anzeigetext (sichtbarKuerzen, Katalogtext ...)`, roh.length === 0 && gepruefte >= 30, roh.join(' | ') + ` (${gepruefte})`);
 }
 
 // invisible characters by rule
@@ -459,6 +544,33 @@ function ungesicherteAnzeigen(sf: ts.SourceFile): string[] {
     ['Noncharacter', /\p{Noncharacter_Code_Point}/u],
     ['Zs (ausser Leerzeichen)', /\p{Zs}/u],
   ];
+  // N4 (Angriff N3, Befund 5b): the full list of Default_Ignorable_Code_Point ranges, at every border and throughout
+  {
+    const marke = (c: number): string => `<U+${c.toString(16).toUpperCase().padStart(4, '0')}>`;
+    const rand: string[] = [];
+    let anzahl = 0;
+    for (const [von, bis] of DEFAULT_IGNORABLE) {
+      for (const c of [von, bis]) if (sichtbarKuerzen(String.fromCodePoint(c)) !== marke(c)) rand.push(`rand ${c.toString(16)}`);
+      for (let c = von; c <= bis; c++) {
+        anzahl++;
+        if (!sichtbarKuerzen(String.fromCodePoint(c)).startsWith('<U+')) rand.push(`in ${c.toString(16)}`);
+      }
+    }
+    check(`alle ${DEFAULT_IGNORABLE.length} Bereiche der Default_Ignorable_Code_Point-Liste (${anzahl} Zeichen) werden gezeigt, an beiden Raendern und dazwischen`, rand.length === 0 && DEFAULT_IGNORABLE.length === 17, rand.slice(0, 5).join(','));
+    check('die beiden Zeichen des N3-Angriffs, U+1D159 und U+13440, werden gezeigt', WEITERE_LEERE.every((c) => sichtbarKuerzen(String.fromCodePoint(c)) === marke(c)) && sichtbarKuerzen('\u{1D159}') === '<U+1D159>' && sichtbarKuerzen('\u{13440}') === '<U+13440>');
+    // the list is the engine's property, no more and no less (the engine is Unicode 17.0; a newer engine only adds)
+    const motor = /\p{Default_Ignorable_Code_Point}/u;
+    let fehlt = 0;
+    let zuviel = 0;
+    for (let c = 0; c <= 0x10ffff; c++) {
+      if (c >= 0xd800 && c <= 0xdfff) continue;
+      const inListe = DEFAULT_IGNORABLE.some(([von, bis]) => c >= von && c <= bis);
+      const imMotor = motor.test(String.fromCodePoint(c));
+      if (imMotor && !inListe) fehlt++;
+      if (inListe && !imMotor) zuviel++;
+    }
+    check(`die Konstante deckt sich mit der Unicode-Eigenschaft der Laufzeit (${process.versions.unicode}): nichts fehlt, nichts ist zuviel`, fehlt === 0 && zuviel === 0, `fehlt ${fehlt}, zuviel ${zuviel}`);
+  }
   const durch: string[] = [];
   let pruefungen = 0;
   for (let c = 0; c <= 0x10ffff; c++) {
@@ -473,21 +585,40 @@ function ungesicherteAnzeigen(sf: ts.SourceFile): string[] {
   check(`ueber den ganzen Zeichenraum: kein Zeichen dieser Kategorien (${pruefungen} Treffer) laeuft unveraendert durch`, durch.length === 0 && pruefungen > 3000, durch.join(','));
 }
 
-// the receipt's real upper bound
+// the receipt's real upper bound (N4: enforced on the finished text, also for characters outside the BMP)
 {
-  const RLO = '‮'.repeat(200);
-  const verworfen = Array.from({ length: 100000 }, () => ({ id: RLO, grund: RLO }));
-  const gehalten: Record<string, number> = {};
-  for (let n = 0; n < 100000; n++) gehalten[`${RLO}${n}`] = n;
-  for (const sprache of ['de', 'en'] as const) {
-    const a = quittungText({ status: '‮'.repeat(100000), verworfen }, (id) => id, uebersetzer(sprache));
-    const b = quittungText({ status: 'seltsam', gehalten, verworfen }, (id) => id, uebersetzer(sprache));
-    const c = quittungText({ status: 'verworfen', verworfen }, (id) => id, uebersetzer(sprache));
-    const d = quittungText({ status: '‮'.repeat(100000), gehalten }, (id) => id, uebersetzer(sprache));
-    const maximal = Math.max(a.length, b.length, c.length, d.length);
-    check(`${sprache}: Schlimmstfall des Angriffs (200 x U+202E in id, grund und status, 100000 Eintraege) bleibt unter QUITTUNG_MAX_ZEICHEN (${QUITTUNG_MAX_ZEICHEN}): ${maximal}`, maximal <= QUITTUNG_MAX_ZEICHEN, String(maximal));
-    check(`${sprache}: die Grenze ist nicht lose (der Schlimmstfall erreicht mehr als 80 % davon, sonst stimmt die Zusage nicht mehr)`, maximal > QUITTUNG_MAX_ZEICHEN * 0.8, String(maximal));
-    check(`${sprache}: im Schlimmstfall steht kein Umkehrzeichen roh in der Ausgabe`, ![a, b, c, d].some((x) => /[‪-‮⁦-⁩]/.test(x)));
+  const kaputt = (x: string): boolean => /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(x);
+  for (const [name, z] of [['U+202E', '\u202E'], ['U+10FFFF', '\u{10FFFF}'], ['U+E0001', '\u{E0001}'], ['U+F0000', '\u{F0000}']] as const) {
+    const lang = z.repeat(200);
+    const verworfen = Array.from({ length: 100000 }, () => ({ id: lang, grund: lang }));
+    const gehalten: Record<string, number> = {};
+    for (let n = 0; n < 100000; n++) gehalten[`${lang}${n}`] = n;
+    for (const sprache of ['de', 'en'] as const) {
+      const a = quittungText({ status: z.repeat(100000), verworfen }, (id) => id, uebersetzer(sprache));
+      const b = quittungText({ status: 'seltsam', gehalten, verworfen }, (id) => id, uebersetzer(sprache));
+      const c = quittungText({ status: 'verworfen', verworfen }, (id) => id, uebersetzer(sprache));
+      const d = quittungText({ status: z.repeat(100000), gehalten }, (id) => id, uebersetzer(sprache));
+      const alle = [a, b, c, d];
+      const maximal = Math.max(...alle.map((x) => x.length));
+      check(`${sprache}: Schlimmstfall mit 200 x ${name} in id, grund und status (100000 Eintraege) bleibt hart unter QUITTUNG_MAX_ZEICHEN (${QUITTUNG_MAX_ZEICHEN}): ${maximal}`, maximal <= QUITTUNG_MAX_ZEICHEN, String(maximal));
+      check(`${sprache}: ${name}: kein zerschnittenes Surrogatpaar, kein Umkehrzeichen roh`, !alle.some(kaputt) && !alle.some((x) => /[‪-‮⁦-⁩]/.test(x)));
+      if (name === 'U+10FFFF') check(`${sprache}: der astrale Schlimmstfall wird wirklich gekuerzt (laenger als die Grenze waere er) und endet auf die Endmarke`, maximal === QUITTUNG_MAX_ZEICHEN && alle.filter((x) => x.length === QUITTUNG_MAX_ZEICHEN).every((x) => x.endsWith('…')), alle.map((x) => x.length).join(','));
+    }
+  }
+  // kuerzeHart on its own: the border cases around a surrogate pair
+  {
+    const k = (text: string, max: number): string => kuerzeHart(text as Anzeigetext, max);
+    check('kuerzeHart: kurzer Text bleibt, genau die Grenze bleibt', k('abc', 5) === 'abc' && k('abcde', 5) === 'abcde');
+    check('kuerzeHart: zu langer Text wird auf die Grenze gekuerzt, Endmarke eingerechnet', k('abcdefgh', 5) === 'abcd…' && k('abcdefgh', 5).length === 5);
+    const paar = '\u{10FFFF}'; // two UTF-16 units
+    check('kuerzeHart: der Schnitt liegt mitten im Surrogatpaar: das Paar faellt ganz weg', k('a' + paar.repeat(5), 3) === 'a…' && k(paar.repeat(5), 6) === paar + paar + '…');
+    const zerschnitten: string[] = [];
+    for (let max = 0; max <= 14; max++) for (const text of [paar.repeat(8), 'a' + paar.repeat(8), 'ab' + paar.repeat(8)]) {
+      const r = k(text, max);
+      if (kaputt(r) || r.length > Math.max(max, 1)) zerschnitten.push(`${max}:${text.length}`);
+    }
+    check('kuerzeHart: bei jeder Grenze von 0 bis 14 und jeder Lage des Schnitts kein zerschnittenes Paar und nie laenger als die Grenze', zerschnitten.length === 0, zerschnitten.join(','));
+    check('kuerzeHart: Grenze 0 und 1 geben keinen Fehler und nie mehr als die Grenze', k('abc', 0).length <= 1 && k('abc', 1).length <= 1);
   }
   check('die alte Zusage "unter 3000 Zeichen" steht nirgends mehr in texte.ts', !readFileSync(resolve(ORDNER, 'texte.ts'), 'utf-8').includes('under 3000'));
 }

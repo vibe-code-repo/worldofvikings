@@ -5,7 +5,7 @@
  *
  * This is the only DOM file of the mask. What decides anything is DOM-free and tested on its own: the form
  * and its check in `modell.ts`, the route calls in `api.ts`, every text of a code in `texte.ts`. Every text the
- * author reads goes through `t()` (keys `editor.gegenstand.*`); a scanner test keeps German or English literals out.
+ * author reads goes through `tA()` (keys `editor.gegenstand.*`); a scanner test keeps German or English literals out.
  *
  * Loading this module runs nothing: no registry read, no `await`, nothing written to an import. The upload list
  * is read when the view opens (`uploadedModelRegistry.uploadedModelEntries()`), the items when it loads.
@@ -15,10 +15,24 @@
 import { ITEM_DEFS, uploadedModelRegistry } from '@wov/shared';
 import type { GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import type { TranslationKey } from '../../i18n';
-import { F, M, SCHRIFT, beschriftungStil, el, grundregelnEinhaengen, knopf, stil, zierTitel } from '../design';
-import { aktuelleSprache, t } from '../i18n';
+import { F, M, SCHRIFT, beschriftungStil, el, grundregelnEinhaengen, stil } from '../design';
+import { aktuelleSprache } from '../i18n';
+import { fuege, sichtbarKuerzen, tA, zier, type Anzeigetext } from './anzeige';
+import { elT, frageBestaetigen, knopfT, setzeText, zierTitelT } from './dom';
 import { ladeQuittung, type ApiOptionen, type Stand } from './api';
-import { entferneGegenstand, ladeGefangen, ladefehlerBanner, pruefeKonflikt, schnappschuss, speichereSchnappschuss, speicherSperre, type KonfliktErgebnis } from './ablauf';
+import {
+  eigeneBehaltenAbgleich,
+  entferneGegenstand,
+  entscheideNachSpeichern,
+  kanonisch,
+  ladeGefangen,
+  ladefehlerBanner,
+  pruefeKonflikt,
+  schnappschuss,
+  speichereSchnappschuss,
+  speicherSperre,
+  type KonfliktErgebnis,
+} from './ablauf';
 import {
   ANIMATIONSSAETZE,
   GEGENSTANDS_TYPEN,
@@ -48,7 +62,6 @@ import {
   grundText,
   quittungText,
   routeFehlerText,
-  sichtbarKuerzen,
   verworfenZeile,
   zugangText,
   zusammengefuehrtText,
@@ -95,7 +108,7 @@ const modellFehlt = (upload: string | null): boolean =>
   upload !== null && upload !== '' && uploadedModelRegistry.uploadedModelEntry(upload.slice(uploadedModelRegistry.UPLOAD_MODEL_PREFIX.length)) === undefined;
 
 /** Modal question dialog with two answers; resolves `true` on the confirm button, `false` on cancel. No Esc, no click outside. */
-function fragenDialog(inhalt: { titel: string; satz: string; punkte: string[]; weitere: string | null; bestaetigen: string; abbrechen: string }): Promise<boolean> {
+function fragenDialog(inhalt: { titel: Anzeigetext; satz: Anzeigetext; punkte: Anzeigetext[]; weitere: Anzeigetext | null; bestaetigen: Anzeigetext; abbrechen: Anzeigetext }): Promise<boolean> {
   return new Promise((aufloesen) => {
     grundregelnEinhaengen();
     const huelle = el(
@@ -108,13 +121,13 @@ function fragenDialog(inhalt: { titel: string; satz: string; punkte: string[]; w
       stil({ 'max-width': '560px', width: 'calc(100% - 48px)', 'max-height': 'calc(100vh - 48px)', display: 'flex', 'flex-direction': 'column', background: F.flaeche, border: `1px solid ${F.warnRand}`, 'border-radius': '12px', 'box-shadow': '0 30px 80px rgba(0,0,0,.6)', overflow: 'hidden' })
     );
     const kopf = el('div', stil({ padding: '16px 18px', 'border-bottom': `1px solid ${F.randLeise}`, flex: 'none' }));
-    kopf.appendChild(zierTitel(inhalt.titel, 15));
+    kopf.appendChild(zierTitelT(inhalt.titel, 15));
     const mitte = el('div', stil({ padding: '18px', display: 'flex', 'flex-direction': 'column', gap: '10px', 'overflow-y': 'auto' }));
-    mitte.appendChild(el('div', stil({ 'line-height': '1.55', color: F.textRuhig }), inhalt.satz));
+    mitte.appendChild(elT('div', stil({ 'line-height': '1.55', color: F.textRuhig }), inhalt.satz));
     if (inhalt.punkte.length > 0) {
       const ul = el('ul', stil({ margin: '0', 'padding-left': '20px', color: F.warnText, 'line-height': '1.6' }));
-      for (const p of inhalt.punkte) ul.appendChild(el('li', '', p));
-      if (inhalt.weitere !== null) ul.appendChild(el('li', stil({ 'list-style': 'none', color: F.gedimmt }), inhalt.weitere));
+      for (const p of inhalt.punkte) ul.appendChild(elT('li', '', p));
+      if (inhalt.weitere !== null) ul.appendChild(elT('li', stil({ 'list-style': 'none', color: F.gedimmt }), inhalt.weitere));
       mitte.appendChild(ul);
     }
     const fuss = el('div', stil({ padding: '12px 18px', display: 'flex', 'justify-content': 'flex-end', gap: '10px', 'border-top': `1px solid ${F.randLeise}` }));
@@ -123,7 +136,7 @@ function fragenDialog(inhalt: { titel: string; satz: string; punkte: string[]; w
       aufloesen(ja);
     };
     // The highlighted answer is "cancel": the way out is never the destructive one.
-    fuss.append(knopf(inhalt.bestaetigen, () => antwort(true), { art: 'leise' }), knopf(inhalt.abbrechen, () => antwort(false), { art: 'bronze' }));
+    fuss.append(knopfT(inhalt.bestaetigen, () => antwort(true), { art: 'leise' }), knopfT(inhalt.abbrechen, () => antwort(false), { art: 'bronze' }));
     tafel.append(kopf, mitte, fuss);
     huelle.appendChild(tafel);
     document.body.appendChild(huelle);
@@ -139,7 +152,7 @@ class GegenstandsSeite {
   private readonly quittungEl: HTMLDivElement;
   private speichernKnopf: HTMLButtonElement | null = null;
   private entfernenKnopf: HTMLButtonElement | null = null;
-  private zaehlerEls: Array<{ el: HTMLElement; text: () => string }> = [];
+  private zaehlerEls: Array<{ el: HTMLElement; text: () => Anzeigetext }> = [];
   private fehlerEls = new Map<string, HTMLElement>();
   private allgemeinFehlerEl: HTMLElement | null = null;
 
@@ -174,20 +187,20 @@ class GegenstandsSeite {
       stil({ position: 'absolute', inset: '0', 'z-index': '40', display: 'none', 'flex-direction': 'column', background: F.grund, color: F.text, 'font-family': SCHRIFT.text, 'font-size': '13px' })
     );
     const kopf = el('div', stil({ display: 'flex', 'align-items': 'center', gap: '12px', padding: '10px 16px', 'border-bottom': `1px solid ${F.rand}`, flex: 'none' }));
-    kopf.appendChild(zierTitel(t('editor.gegenstand.seite.titel'), 15));
+    kopf.appendChild(zierTitelT(tA('editor.gegenstand.seite.titel'), 15));
     this.quittungEl = el('div', stil({ 'font-size': '11.5px', color: F.gedimmt, flex: '1', 'min-width': '0' }));
     kopf.append(
       this.quittungEl,
-      knopf(t('editor.gegenstand.seite.neu_laden'), () => this.sicher(this.laden()), { art: 'leise', hoehe: M.knopfHoeheKlein }),
-      knopf(t('editor.gegenstand.seite.schliessen'), () => this.schliessen(), { hoehe: M.knopfHoeheKlein })
+      knopfT(tA('editor.gegenstand.seite.neu_laden'), () => this.sicher(this.laden()), { art: 'leise', hoehe: M.knopfHoeheKlein }),
+      knopfT(tA('editor.gegenstand.seite.schliessen'), () => this.schliessen(), { hoehe: M.knopfHoeheKlein })
     );
     this.bannerEl = el('div', stil({ display: 'none', 'flex-direction': 'column', gap: '6px', padding: '10px 16px', background: F.warnFlaeche, 'border-bottom': `1px solid ${F.warnRand}`, color: F.warnText, 'font-size': '12.5px' }));
     const koerper = el('div', stil({ display: 'flex', flex: '1', 'min-height': '0' }));
     const links = el('div', stil({ width: '280px', flex: 'none', display: 'flex', 'flex-direction': 'column', 'border-right': `1px solid ${F.rand}`, background: F.flaeche }));
     const linksKopf = el('div', stil({ display: 'flex', gap: '8px', padding: '10px' }));
     linksKopf.append(
-      knopf(t('editor.gegenstand.seite.neu'), () => this.neuerEintrag(), { art: 'bronze', hoehe: M.knopfHoeheKlein }),
-      knopf(t('editor.gegenstand.seite.kopieren'), () => this.kopieren(), { hoehe: M.knopfHoeheKlein })
+      knopfT(tA('editor.gegenstand.seite.neu'), () => this.neuerEintrag(), { art: 'bronze', hoehe: M.knopfHoeheKlein }),
+      knopfT(tA('editor.gegenstand.seite.kopieren'), () => this.kopieren(), { hoehe: M.knopfHoeheKlein })
     );
     this.listeEl = el('div', stil({ flex: '1', 'overflow-y': 'auto', padding: '0 6px 10px' }));
     links.append(linksKopf, this.listeEl);
@@ -215,7 +228,7 @@ class GegenstandsSeite {
   }
 
   private schliessen(): void {
-    if (this.form && this.veraendert() && !window.confirm(t('editor.gegenstand.seite.verwerfen_frage'))) return;
+    if (this.form && this.veraendert() && !frageBestaetigen(tA('editor.gegenstand.seite.verwerfen_frage'))) return;
     this.offen = false;
     this.wurzel.style.display = 'none';
     document.removeEventListener('keydown', this.taste, true);
@@ -223,13 +236,13 @@ class GegenstandsSeite {
 
   // ── Loading ────────────────────────────────────────────────────────
 
-  private meldung(text: string, fehler = false): void {
-    this.hinweisEl.textContent = text;
+  private meldung(text: Anzeigetext, fehler = false): void {
+    setzeText(this.hinweisEl, text);
     this.hinweisEl.style.color = fehler ? F.fehler : F.gedimmt;
   }
 
-  private banner(zeilen: string[], knoepfe: HTMLElement[] = []): void {
-    this.bannerEl.replaceChildren(...zeilen.map((z) => el('div', '', z)), ...knoepfe);
+  private banner(zeilen: Anzeigetext[], knoepfe: HTMLElement[] = []): void {
+    this.bannerEl.replaceChildren(...zeilen.map((z) => elT('div', '', z)), ...knoepfe);
     this.bannerEl.style.display = zeilen.length > 0 || knoepfe.length > 0 ? 'flex' : 'none';
   }
 
@@ -238,7 +251,7 @@ class GegenstandsSeite {
     p.catch(() => {
       this.laedt = false;
       this.speichert = false;
-      this.meldung(t('editor.gegenstand.seite.unerwartet'), true);
+      this.meldung(tA('editor.gegenstand.seite.unerwartet'), true);
       this.aktualisiere();
     });
   }
@@ -252,28 +265,28 @@ class GegenstandsSeite {
     if (this.laedt || this.speichert) return;
     this.laedt = true;
     this.aktualisiere();
-    this.meldung(t('editor.gegenstand.seite.laedt'));
+    this.meldung(tA('editor.gegenstand.seite.laedt'));
     try {
       const erg = await ladeGefangen(this.api);
       if (erg.art !== 'ok') {
-        const fehlerText = erg.art === 'ausnahme' ? t('editor.gegenstand.seite.unerwartet') : erg.art === 'netz' ? zugangText(erg.zeit === true ? 'zeit' : 'netz') : fehlerErgebnisText(erg);
+        const fehlerText = erg.art === 'ausnahme' ? tA('editor.gegenstand.seite.unerwartet') : erg.art === 'netz' ? zugangText(erg.zeit === true ? 'zeit' : 'netz') : fehlerErgebnisText(erg);
         // An open conflict stays decidable: its lines and the two choices are drawn again under the error.
         const b = ladefehlerBanner({ fehlerText, konflikt: this.konflikt });
         this.banner(b.zeilen, b.wahlknoepfe ? [this.wahlKnoepfe()] : []);
-        this.meldung('', true);
+        this.meldung(zier(''), true);
         return;
       }
       this.stand = erg.stand;
-      const zeilen: string[] = [];
-      if (nach412) zeilen.push(t('editor.gegenstand.seite.veraltet'));
+      const zeilen: Anzeigetext[] = [];
+      if (nach412) zeilen.push(tA('editor.gegenstand.seite.veraltet'));
       if (erg.stand.dateiFehler !== null) {
-        zeilen.push(t('editor.gegenstand.seite.datei_kaputt', { grund: routeFehlerText(erg.stand.dateiFehler) }));
+        zeilen.push(tA('editor.gegenstand.seite.datei_kaputt', { grund: routeFehlerText(erg.stand.dateiFehler) }));
       }
       if (erg.stand.verworfen.length > 0) {
         zeilen.push(
-          t('editor.gegenstand.seite.verworfen_hinweis', {
+          tA('editor.gegenstand.seite.verworfen_hinweis', {
             anzahl: erg.stand.verworfen.length,
-            liste: erg.stand.verworfen.map((v) => verworfenZeile(v)).join('; '),
+            liste: fuege('; ', ...erg.stand.verworfen.map((v) => verworfenZeile(v))),
           })
         );
       }
@@ -281,12 +294,12 @@ class GegenstandsSeite {
         ? pruefeKonflikt({ basis: this.basis, form: this.form, ausgewaehlt: this.ausgewaehlt, entwurfGeaendert: this.veraendert(), neuerStand: erg.stand.eintraege })
         : { art: 'keiner' };
       this.konflikt = k.art === 'konflikt' ? k : null;
-      if (k.art === 'uebernehmen' && k.server === null) zeilen.push(t('editor.gegenstand.seite.entfernt_woanders'));
+      if (k.art === 'uebernehmen' && k.server === null) zeilen.push(tA('editor.gegenstand.seite.entfernt_woanders'));
       const zusammengefuehrt = k.art === 'zusammen' || k.art === 'konflikt' ? zusammengefuehrtText(k.uebernommen) : null;
       if (zusammengefuehrt !== null) zeilen.push(zusammengefuehrt);
       if (this.konflikt) this.zeigeKonflikt(zeilen);
       else this.banner(zeilen);
-      this.meldung('');
+      this.meldung(zier(''));
       if (k.art === 'uebernehmen') this.setzeForm(k.server ? eintragZuFormular(k.server) : null, k.server ? k.server.id : null);
       else if (k.art === 'zusammen') this.uebernimmZusammen(k.form, k.server);
       else {
@@ -301,7 +314,7 @@ class GegenstandsSeite {
   }
 
   /** Both versions of the entry the server changed, and the two ways out. Nothing is decided for the author. */
-  private zeigeKonflikt(vorher: string[]): void {
+  private zeigeKonflikt(vorher: Anzeigetext[]): void {
     const k = this.konflikt;
     if (!k) return;
     const inhalt = konfliktInhalt(k);
@@ -312,8 +325,8 @@ class GegenstandsSeite {
   private wahlKnoepfe(): HTMLElement {
     const wahl = el('div', stil({ display: 'flex', gap: '8px', 'flex-wrap': 'wrap' }));
     wahl.append(
-      knopf(t('editor.gegenstand.konflikt.eigene_behalten'), () => this.eigeneBehalten(), { hoehe: M.knopfHoeheKlein }),
-      knopf(t('editor.gegenstand.konflikt.server_uebernehmen'), () => this.serverUebernehmen(), { hoehe: M.knopfHoeheKlein })
+      knopfT(tA('editor.gegenstand.konflikt.eigene_behalten'), () => this.eigeneBehalten(), { hoehe: M.knopfHoeheKlein }),
+      knopfT(tA('editor.gegenstand.konflikt.server_uebernehmen'), () => this.serverUebernehmen(), { hoehe: M.knopfHoeheKlein })
     );
     return wahl;
   }
@@ -330,16 +343,29 @@ class GegenstandsSeite {
     this.zeichneForm();
   }
 
-  /** Keep the draft: the state loaded just now is its new base, saving overwrites the server's version of this entry. */
+  /**
+   * Keep the draft: the state loaded just now is its new base, saving overwrites the server's version of this entry.
+   * The form stayed editable while the conflict was open, so the comparison is run again against the form AS IT IS NOW
+   * (`eigeneBehaltenAbgleich`), not against the copy made when the conflict was found; if the author's edits since then
+   * opened a dispute they have not seen, the conflict is shown again instead of deciding.
+   */
   private eigeneBehalten(): void {
     const k = this.konflikt;
     if (!k || !this.form) return;
+    const r = eigeneBehaltenAbgleich({ basis: this.basis, form: this.form, ausgewaehlt: this.ausgewaehlt, konflikt: k });
+    if (r.art === 'neu') {
+      this.konflikt = r.konflikt;
+      const zusammen = zusammengefuehrtText(r.konflikt.uebernommen);
+      this.zeigeKonflikt(zusammen === null ? [] : [zusammen]);
+      this.aktualisiere();
+      return;
+    }
     this.konflikt = null;
     if (k.server === null) {
       this.ausgewaehlt = null;
       this.form.neu = true;
-    } else if (k.zusammen !== null) {
-      this.form = k.zusammen; // the draft with the server's changes to the fields the author did not touch
+    } else {
+      this.form = r.form; // the draft as it is now, with the server's changes to the fields the author did not touch
     }
     this.basis = this.ausgewaehlt === null ? null : k.server;
     this.banner([]);
@@ -359,7 +385,7 @@ class GegenstandsSeite {
   private async ladeQuittungAnzeige(): Promise<void> {
     const erg = await ladeQuittung(this.api);
     if (erg.art !== 'ok') {
-      this.quittungEl.textContent = '';
+      setzeText(this.quittungEl, zier(''));
       return;
     }
     const liste = this.stand?.eintraege ?? [];
@@ -367,7 +393,7 @@ class GegenstandsSeite {
       const e = liste.find((x) => x.id === id);
       return e ? anzeigeName(e) : id;
     };
-    this.quittungEl.textContent = `${t('editor.gegenstand.quittung.titel')} ${quittungText(erg.quittung, name)}`;
+    setzeText(this.quittungEl, fuege(' ', tA('editor.gegenstand.quittung.titel'), quittungText(erg.quittung, name)));
   }
 
   // ── List ───────────────────────────────────────────────────────────
@@ -376,7 +402,7 @@ class GegenstandsSeite {
     const liste = this.stand?.eintraege ?? [];
     this.listeEl.replaceChildren();
     if (liste.length === 0) {
-      this.listeEl.appendChild(el('div', stil({ padding: '12px 8px', color: F.gedimmt, 'font-size': '12px' }), t('editor.gegenstand.seite.leer')));
+      this.listeEl.appendChild(elT('div', stil({ padding: '12px 8px', color: F.gedimmt, 'font-size': '12px' }), tA('editor.gegenstand.seite.leer')));
       return;
     }
     for (const e of liste) {
@@ -385,10 +411,10 @@ class GegenstandsSeite {
         'div',
         stil({ padding: '8px 10px', 'border-radius': `${M.radiusKlein}px`, cursor: 'pointer', border: `1px solid ${aktiv ? F.wahlRand : 'transparent'}`, background: aktiv ? F.wahlFlaeche : 'transparent' })
       );
-      zeile.appendChild(el('div', stil({ 'font-weight': '500' }), sichtbarKuerzen(anzeigeName(e), 80)));
+      zeile.appendChild(elT('div', stil({ 'font-weight': '500' }), sichtbarKuerzen(anzeigeName(e), 80)));
       const unten = el('div', stil({ display: 'flex', gap: '8px', 'font-size': '11px', color: F.gedimmt, 'font-family': SCHRIFT.mono }));
-      unten.appendChild(el('span', '', sichtbarKuerzen(e.id)));
-      if (modellFehlt(e.modell.upload)) unten.appendChild(el('span', stil({ color: F.warnText, 'font-family': SCHRIFT.text }), t('editor.gegenstand.seite.modell_fehlt')));
+      unten.appendChild(elT('span', '', sichtbarKuerzen(e.id)));
+      if (modellFehlt(e.modell.upload)) unten.appendChild(elT('span', stil({ color: F.warnText, 'font-family': SCHRIFT.text }), tA('editor.gegenstand.seite.modell_fehlt')));
       zeile.appendChild(unten);
       zeile.onclick = () => this.waehle(e.id);
       this.listeEl.appendChild(zeile);
@@ -400,7 +426,7 @@ class GegenstandsSeite {
   }
 
   private darfWechseln(): boolean {
-    return !this.veraendert() || window.confirm(t('editor.gegenstand.seite.verwerfen_frage'));
+    return !this.veraendert() || frageBestaetigen(tA('editor.gegenstand.seite.verwerfen_frage'));
   }
 
   private setzeForm(f: Formular | null, ausgewaehlt: string | null): void {
@@ -447,16 +473,16 @@ class GegenstandsSeite {
   /** Field errors under their fields, the counters, the rest in the general line, and the state of the save button. */
   private aktualisiere(): void {
     const fehler = this.fehlerListe();
-    const je = new Map<string, string[]>();
-    const uebrig: string[] = [];
+    const je = new Map<string, Anzeigetext[]>();
+    const uebrig: Anzeigetext[] = [];
     for (const f of fehler) {
       const text = feldFehlerText(f);
       if (this.fehlerEls.has(f.feld)) je.set(f.feld, [...(je.get(f.feld) ?? []), text]);
       else uebrig.push(text);
     }
-    for (const [feld, elem] of this.fehlerEls) elem.textContent = (je.get(feld) ?? []).join(' ');
-    for (const z of this.zaehlerEls) z.el.textContent = z.text();
-    if (this.allgemeinFehlerEl) this.allgemeinFehlerEl.textContent = uebrig.join(' ');
+    for (const [feld, elem] of this.fehlerEls) setzeText(elem, fuege(' ', ...(je.get(feld) ?? [])));
+    for (const z of this.zaehlerEls) setzeText(z.el, z.text());
+    if (this.allgemeinFehlerEl) setzeText(this.allgemeinFehlerEl, fuege(' ', ...uebrig));
     // "Remove" is locked by the same function as "Save" (form errors do not matter to it: the saved entry goes, not the draft).
     const entfernenEl = this.entfernenKnopf;
     if (entfernenEl) {
@@ -470,18 +496,18 @@ class GegenstandsSeite {
     const sperre = speicherSperre({ laedt: this.laedt, speichert: this.speichert, konflikt: this.konflikt !== null, fehlerAnzahl: fehler.length });
     knopfEl.disabled = sperre !== null;
     const beschriftung = knopfEl.lastElementChild;
-    if (beschriftung) beschriftung.textContent = t(sperre === 'laedt' ? 'editor.gegenstand.seite.speichern_laedt' : 'editor.gegenstand.seite.speichern');
+    if (beschriftung) setzeText(beschriftung, tA(sperre === 'laedt' ? 'editor.gegenstand.seite.speichern_laedt' : 'editor.gegenstand.seite.speichern'));
     knopfEl.style.opacity = knopfEl.disabled ? '0.45' : '1';
     knopfEl.style.cursor = knopfEl.disabled ? 'not-allowed' : 'pointer';
   }
 
-  private zeile(feld: string | null, beschriftung: TranslationKey, inhalt: HTMLElement, hinweis?: string, zaehler?: () => string): HTMLElement {
+  private zeile(feld: string | null, beschriftung: TranslationKey, inhalt: HTMLElement, hinweis?: Anzeigetext, zaehler?: () => Anzeigetext): HTMLElement {
     const z = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '4px', 'min-width': '0' }));
-    z.appendChild(el('span', beschriftungStil(), t(beschriftung)));
+    z.appendChild(elT('span', beschriftungStil(), tA(beschriftung)));
     z.appendChild(inhalt);
     if (hinweis || zaehler) {
       const r = el('div', stil({ display: 'flex', 'justify-content': 'space-between', gap: '8px', 'font-size': '11px', color: F.gedimmt }));
-      if (hinweis) r.appendChild(el('span', '', hinweis));
+      if (hinweis) r.appendChild(elT('span', '', hinweis));
       if (zaehler) {
         const zs = el('span', stil({ 'white-space': 'nowrap', 'font-family': SCHRIFT.mono }));
         this.zaehlerEls.push({ el: zs, text: zaehler });
@@ -513,13 +539,13 @@ class GegenstandsSeite {
     return i;
   }
 
-  private auswahl<T extends string>(werte: ReadonlyArray<{ id: T; text: string }>, gewaehlt: T, bei: (id: T) => void): HTMLSelectElement {
+  private auswahl<T extends string>(werte: ReadonlyArray<{ id: T; text: Anzeigetext }>, gewaehlt: T, bei: (id: T) => void): HTMLSelectElement {
     const s = el(
       'select',
       stil({ width: '100%', height: '32px', padding: '0 8px', background: F.feld, border: `1px solid ${F.randFeld}`, 'border-radius': `${M.radiusKlein}px`, color: F.text, 'font-family': SCHRIFT.text, 'font-size': '13px' })
     );
     for (const w of werte) {
-      const o = el('option', '', w.text);
+      const o = elT('option', '', w.text);
       o.value = w.id;
       s.appendChild(o);
     }
@@ -539,7 +565,7 @@ class GegenstandsSeite {
 
   private abschnitt(titel: TranslationKey, ...zeilen: HTMLElement[]): HTMLElement {
     const a = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '10px', padding: '14px 0', 'border-bottom': `1px solid ${F.randLeise}` }));
-    a.appendChild(zierTitel(t(titel), 12));
+    a.appendChild(zierTitelT(tA(titel), 12));
     const raster = el('div', stil({ display: 'grid', 'grid-template-columns': 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px 14px' }));
     raster.append(...zeilen);
     a.appendChild(raster);
@@ -553,7 +579,7 @@ class GegenstandsSeite {
     this.formEl.replaceChildren();
     const f = this.form;
     if (!f || !this.stand) {
-      this.formEl.appendChild(el('div', stil({ color: F.gedimmt, padding: '20px 0' }), t('editor.gegenstand.seite.waehle')));
+      this.formEl.appendChild(elT('div', stil({ color: F.gedimmt, padding: '20px 0' }), tA('editor.gegenstand.seite.waehle')));
       this.speichernKnopf = null;
       return;
     }
@@ -565,18 +591,18 @@ class GegenstandsSeite {
     const idFeld = this.eingabe(f.id, (v) => Object.assign(f, setzeId(f, v)), { gesperrt: !idAenderbar(f), mono: true });
     const allgemein = this.abschnitt(
       'editor.gegenstand.abschnitt.allgemein',
-      this.zeile('id', 'editor.gegenstand.feld.id', idFeld, idAenderbar(f) ? t('editor.gegenstand.feld.id_hinweis_neu') : t('editor.gegenstand.feld.id_hinweis_fest')),
-      this.zeile('typ', 'editor.gegenstand.feld.typ', this.auswahl(GEGENSTANDS_TYPEN.map((id) => ({ id, text: t(TYP_SCHLUESSEL[id]) })), f.typ, (v) => (f.typ = v))),
+      this.zeile('id', 'editor.gegenstand.feld.id', idFeld, idAenderbar(f) ? tA('editor.gegenstand.feld.id_hinweis_neu') : tA('editor.gegenstand.feld.id_hinweis_fest')),
+      this.zeile('typ', 'editor.gegenstand.feld.typ', this.auswahl(GEGENSTANDS_TYPEN.map((id) => ({ id, text: tA(TYP_SCHLUESSEL[id]) })), f.typ, (v) => (f.typ = v))),
       this.zeile('stapel', 'editor.gegenstand.feld.stapel', this.eingabe(f.stapel, (v) => (f.stapel = v), { mono: true })),
       this.zeile('gewicht', 'editor.gegenstand.feld.gewicht', this.eingabe(f.gewicht, (v) => (f.gewicht = v), { mono: true })),
       this.zeile('itemLevel', 'editor.gegenstand.feld.item_level', this.eingabe(f.itemLevel, (v) => (f.itemLevel = v), { mono: true })),
-      this.zeile('rarity', 'editor.gegenstand.feld.rarity', this.auswahl(SELTENHEITEN.map((id) => ({ id, text: t(RARITY_SCHLUESSEL[id]) })), f.rarity, (v) => (f.rarity = v))),
+      this.zeile('rarity', 'editor.gegenstand.feld.rarity', this.auswahl(SELTENHEITEN.map((id) => ({ id, text: tA(RARITY_SCHLUESSEL[id]) })), f.rarity, (v) => (f.rarity = v))),
       this.zeile('symbol', 'editor.gegenstand.feld.symbol', this.eingabe(f.symbol, (v) => (f.symbol = v), { mono: true }))
     );
 
     // Texts (name in both languages is required). One line each: a line break is refused, and the field says so while typing.
-    const textHinweis = t('editor.gegenstand.feld.text_hinweis', { max: TEXT_MAX });
-    const zaehlerVon = (wert: () => string) => (): string => t('editor.gegenstand.feld.zaehler', { n: wert().length, max: TEXT_MAX });
+    const textHinweis = tA('editor.gegenstand.feld.text_hinweis', { max: TEXT_MAX });
+    const zaehlerVon = (wert: () => string) => (): Anzeigetext => tA('editor.gegenstand.feld.zaehler', { n: wert().length, max: TEXT_MAX });
     const texte = this.abschnitt(
       'editor.gegenstand.abschnitt.texte',
       this.zeile('nameDe', 'editor.gegenstand.feld.name_de', this.eingabe(f.nameDe, (v) => (f.nameDe = v)), textHinweis, zaehlerVon(() => f.nameDe)),
@@ -587,12 +613,12 @@ class GegenstandsSeite {
 
     // Model
     const uploads = uploadedModelRegistry.uploadedModelEntries();
-    const optionen: Array<{ id: string; text: string }> = [{ id: '', text: t('editor.gegenstand.modell.keins') }];
-    for (const u of uploads) optionen.push({ id: uploadedModelRegistry.UPLOAD_MODEL_PREFIX + u.name, text: `${sichtbarKuerzen(u.anzeigename, 80)} (${sichtbarKuerzen(u.name)})` });
-    if (f.upload !== '' && !optionen.some((o) => o.id === f.upload)) optionen.push({ id: f.upload, text: t('editor.gegenstand.modell.fehlt_option', { upload: sichtbarKuerzen(f.upload, 80) }) });
+    const optionen: Array<{ id: string; text: Anzeigetext }> = [{ id: '', text: tA('editor.gegenstand.modell.keins') }];
+    for (const u of uploads) optionen.push({ id: uploadedModelRegistry.UPLOAD_MODEL_PREFIX + u.name, text: fuege(' ', sichtbarKuerzen(u.anzeigename, 80), fuege('', zier('('), sichtbarKuerzen(u.name), zier(')'))) });
+    if (f.upload !== '' && !optionen.some((o) => o.id === f.upload)) optionen.push({ id: f.upload, text: tA('editor.gegenstand.modell.fehlt_option', { upload: sichtbarKuerzen(f.upload, 80) }) });
     const modell = this.abschnitt(
       'editor.gegenstand.abschnitt.modell',
-      this.zeile('upload', 'editor.gegenstand.feld.upload', this.auswahl(optionen, f.upload, (v) => (f.upload = v)), modellFehlt(f.upload) ? t('editor.gegenstand.seite.modell_fehlt') : undefined),
+      this.zeile('upload', 'editor.gegenstand.feld.upload', this.auswahl(optionen, f.upload, (v) => (f.upload = v)), modellFehlt(f.upload) ? tA('editor.gegenstand.seite.modell_fehlt') : undefined),
       this.zeile('skala', 'editor.gegenstand.feld.skala', this.eingabe(f.skala, (v) => (f.skala = v), { mono: true })),
       this.zeile('haltePosition', 'editor.gegenstand.feld.halte_position', this.vektor(f.haltePosition)),
       this.zeile('halteRotation', 'editor.gegenstand.feld.halte_rotation', this.vektor(f.halteRotation)),
@@ -601,7 +627,7 @@ class GegenstandsSeite {
         'animationsSatz',
         'editor.gegenstand.feld.animations_satz',
         this.auswahl<string>(
-          [{ id: '', text: t('editor.gegenstand.satz.keiner') }, ...ANIMATIONSSAETZE.map((id) => ({ id: id as string, text: t(SATZ_SCHLUESSEL[id]) }))],
+          [{ id: '', text: tA('editor.gegenstand.satz.keiner') }, ...ANIMATIONSSAETZE.map((id) => ({ id: id as string, text: tA(SATZ_SCHLUESSEL[id]) }))],
           f.animationsSatz,
           (v) => (f.animationsSatz = v as Formular['animationsSatz'])
         )
@@ -626,11 +652,11 @@ class GegenstandsSeite {
 
     // Buttons
     const leiste = el('div', stil({ display: 'flex', gap: '10px', padding: '16px 0', 'align-items': 'center' }));
-    this.speichernKnopf = knopf(t('editor.gegenstand.seite.speichern'), () => this.sicher(this.speichern()), { art: 'bronze' });
+    this.speichernKnopf = knopfT(tA('editor.gegenstand.seite.speichern'), () => this.sicher(this.speichern()), { art: 'bronze' });
     leiste.appendChild(this.speichernKnopf);
     this.entfernenKnopf = null;
     if (this.ausgewaehlt !== null) {
-      this.entfernenKnopf = knopf(t('editor.gegenstand.seite.entfernen'), () => this.sicher(this.entfernen()), { art: 'leise' });
+      this.entfernenKnopf = knopfT(tA('editor.gegenstand.seite.entfernen'), () => this.sicher(this.entfernen()), { art: 'leise' });
       leiste.appendChild(this.entfernenKnopf);
     }
     this.formEl.appendChild(leiste);
@@ -667,7 +693,7 @@ class GegenstandsSeite {
         const item = this.zeile(`zutat.${i}.item`, 'editor.gegenstand.feld.zutat', this.eingabe(z.item, (v) => (z.item = v), { mono: true, liste: listeId }));
         const menge = this.zeile(`zutat.${i}.menge`, 'editor.gegenstand.feld.zutat_menge', this.eingabe(z.menge, (v) => (z.menge = v), { mono: true, breite: '90px' }));
         item.style.flex = '1';
-        const weg = knopf(t('editor.gegenstand.feld.zutat_weg'), () => {
+        const weg = knopfT(tA('editor.gegenstand.feld.zutat_weg'), () => {
           f.zutaten.splice(i, 1);
           this.zeichneForm();
         }, { art: 'leise', hoehe: M.knopfHoeheKlein });
@@ -676,7 +702,7 @@ class GegenstandsSeite {
         zeilen.push(reihe);
       });
       zeilen.push(
-        knopf(t('editor.gegenstand.feld.zutat_hinzu'), () => {
+        knopfT(tA('editor.gegenstand.feld.zutat_hinzu'), () => {
           f.zutaten.push({ item: '', menge: '1' });
           this.zeichneForm();
         }, { hoehe: M.knopfHoeheKlein })
@@ -707,9 +733,9 @@ class GegenstandsSeite {
   private async senden(lauf: () => ReturnType<typeof entferneGegenstand>): Promise<boolean> {
     if (!this.stand) return false;
     const sperre = speicherSperre({ laedt: this.laedt, speichert: this.speichert, konflikt: this.konflikt !== null, fehlerAnzahl: 0 });
-    if (sperre === 'laedt') this.meldung(t('editor.gegenstand.seite.gesperrt_laedt'), true);
-    else if (sperre === 'speichert') this.meldung(t('editor.gegenstand.seite.gesperrt_speichert'), true);
-    else if (sperre === 'konflikt') this.meldung(t('editor.gegenstand.seite.gesperrt_konflikt'), true);
+    if (sperre === 'laedt') this.meldung(tA('editor.gegenstand.seite.gesperrt_laedt'), true);
+    else if (sperre === 'speichert') this.meldung(tA('editor.gegenstand.seite.gesperrt_speichert'), true);
+    else if (sperre === 'konflikt') this.meldung(tA('editor.gegenstand.seite.gesperrt_konflikt'), true);
     if (sperre !== null) return false;
     this.speichert = true;
     this.aktualisiere();
@@ -722,44 +748,44 @@ class GegenstandsSeite {
     switch (erg.art) {
       case 'ok':
         this.banner([]);
-        this.meldung(t('editor.gegenstand.seite.gespeichert', { anzahl: erg.eintraege }));
+        this.meldung(tA('editor.gegenstand.seite.gespeichert', { anzahl: erg.eintraege }));
         this.aktualisiere();
         return true;
       case 'veraltet':
-        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'), true);
         this.aktualisiere();
         await this.laden(true);
         return false;
       case 'ausnahme':
-        this.banner([t('editor.gegenstand.seite.unerwartet')]);
-        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.banner([tA('editor.gegenstand.seite.unerwartet')]);
+        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'), true);
         break;
       case 'gesperrt':
-        this.banner([t('editor.gegenstand.seite.gesperrt', { sekunden: erg.retryAfter })]);
-        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.banner([tA('editor.gegenstand.seite.gesperrt', { sekunden: erg.retryAfter })]);
+        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'), true);
         break;
       case 'verworfen':
         this.banner([
-          t('editor.gegenstand.seite.verworfen_liste', { anzahl: erg.verworfen.length }),
+          tA('editor.gegenstand.seite.verworfen_liste', { anzahl: erg.verworfen.length }),
           ...erg.verworfen.map((v) => verworfenZeile(v)),
         ]);
-        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'), true);
         break;
       case 'dialog-nein':
       case 'abgebrochen':
-        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'));
+        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'));
         break;
       case 'bestaetigung':
         // `speichernMitBestaetigung` never returns this one; kept so a future change fails loudly.
-        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'), true);
         break;
       case 'netz':
         this.banner([zugangText(erg.zeit === true ? 'zeit' : 'netz')]);
-        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'), true);
         break;
       case 'fehler':
         this.banner([fehlerErgebnisText(erg)]);
-        this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'), true);
         break;
     }
     this.aktualisiere();
@@ -770,9 +796,10 @@ class GegenstandsSeite {
     if (!this.form || !this.stand || this.fehlerListe().length > 0) return;
     const eintrag = formularZuEintrag(this.form);
     const s = schnappschuss(this.stand);
+    const vorher = { form: kanonisch(this.form), id: this.form.id, ausgewaehlt: this.ausgewaehlt };
     const geschrieben = await this.senden(() => speichereSchnappschuss(this.api, s, mitEintrag(s.eintraege, this.ausgewaehlt, eintrag), (info) => this.frage(info)));
     if (!geschrieben) return;
-    await this.nachSpeichern(eintrag.id);
+    await this.nachSpeichern(eintrag.id, vorher);
   }
 
   /**
@@ -782,6 +809,7 @@ class GegenstandsSeite {
   private async entfernen(): Promise<void> {
     if (this.ausgewaehlt === null || !this.stand) return;
     const id = this.ausgewaehlt;
+    const vorher = { form: kanonisch(this.form), id: this.form?.id ?? '', ausgewaehlt: this.ausgewaehlt };
     const name = (x: string): string | null => {
       const e = this.stand?.eintraege.find((y) => y.id === x);
       return e ? anzeigeName(e) : null;
@@ -790,16 +818,40 @@ class GegenstandsSeite {
       entferneGegenstand(this.api, () => this.stand, id, (abh) => fragenDialog(abhaengigkeitsInhalt(id, abh, name)), (info) => this.frage(info))
     );
     if (!geschrieben) return;
-    await this.nachSpeichern(null);
+    await this.nachSpeichern(null, vorher);
   }
 
-  /** Reloads the saved state (the writer may have changed the bytes) and selects the entry that was saved. */
-  private async nachSpeichern(id: string | null): Promise<void> {
+  /**
+   * Reloads the saved state (the writer may have changed the bytes) and selects the entry that was saved, but only if the
+   * form is still what was saved: `vorher` is the form when the save started. If the author kept typing meanwhile the
+   * draft stays (`entscheideNachSpeichern`) and the banner says that edits are still unsaved.
+   */
+  private async nachSpeichern(id: string | null, vorher: { form: string; id: string; ausgewaehlt: string | null }): Promise<void> {
     const erg = await ladeGefangen(this.api);
     if (erg.art !== 'ok') return;
     this.stand = erg.stand;
     const e = id === null ? undefined : erg.stand.eintraege.find((x) => x.id === id);
-    this.setzeForm(e ? eintragZuFormular(e) : null, e ? e.id : null);
+    const w = entscheideNachSpeichern({
+      formVorher: vorher.form,
+      idVorher: vorher.id,
+      ausgewaehltVorher: vorher.ausgewaehlt,
+      formJetzt: this.form,
+      ausgewaehltJetzt: this.ausgewaehlt,
+      gespeicherteId: id,
+      server: e ?? null,
+    });
+    if (w.art === 'ersetzen') this.setzeForm(e ? eintragZuFormular(e) : null, e ? e.id : null);
+    else {
+      if (w.weiter !== null && this.form !== null) {
+        this.ausgewaehlt = w.weiter.ausgewaehlt;
+        this.basis = w.weiter.basis;
+        this.form.neu = w.weiter.neu;
+        this.formAusgang = w.weiter.basis === null ? '' : JSON.stringify(eintragZuFormular(w.weiter.basis));
+      }
+      this.banner([tA('editor.gegenstand.seite.nach_speichern_offen')]);
+      this.zeichneListe();
+      this.aktualisiere();
+    }
     this.sicher(this.ladeQuittungAnzeige());
   }
 }
@@ -807,12 +859,12 @@ class GegenstandsSeite {
 /** The one toolbar button that opens the mask; the editor calls this once (see `editorMain.ts`). */
 export function gegenstandsKnopf(viewport: HTMLElement, api: ApiOptionen = {}): HTMLButtonElement {
   let seite: GegenstandsSeite | null = null;
-  return knopf(
-    t('editor.gegenstand.knopf.titel'),
+  return knopfT(
+    tA('editor.gegenstand.knopf.titel'),
     () => {
       seite ??= new GegenstandsSeite(viewport, api);
       seite.umschalten();
     },
-    { art: 'flaeche', titel: t('editor.gegenstand.knopf.hinweis') }
+    { art: 'flaeche', titel: tA('editor.gegenstand.knopf.hinweis') }
   );
 }

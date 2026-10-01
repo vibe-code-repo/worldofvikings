@@ -134,7 +134,7 @@ console.log('\n[1] Einhaengen in editorMain.ts:');
 
 console.log('\n[2] Nichts beim Laden:');
 const DATEIEN = readdirSync(ORDNER).filter((d) => d.endsWith('.ts')).sort();
-check('die fuenf Module sind da', DATEIEN.join() === 'ablauf.ts,api.ts,modell.ts,seite.ts,texte.ts', DATEIEN.join());
+check('die sieben Module sind da (EG2 N4: dazu anzeige.ts und dom.ts)', DATEIEN.join() === 'ablauf.ts,anzeige.ts,api.ts,dom.ts,modell.ts,seite.ts,texte.ts', DATEIEN.join());
 for (const d of DATEIEN) {
   const p = ladezeit(parse(d, readFileSync(resolve(ORDNER, d), 'utf-8')));
   check(`${d}: kein Aufruf, kein new, kein await, keine Registry, kein Schreiben in Importe`, p.length === 0, p.join('; '));

@@ -21,6 +21,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { speichere } from '../src/editor/gegenstaende/api';
+import type { Anzeigetext } from '../src/editor/gegenstaende/anzeige';
 import { abhaengigkeitsInhalt, bestaetigungsInhalt, sichtbarKuerzen, type BestaetigungInfo, type Uebersetzer } from '../src/editor/gegenstaende/texte';
 
 let fehler = 0;
@@ -35,7 +36,7 @@ const KATALOG = {
   en: JSON.parse(readFileSync(resolve(CLIENT, 'src/i18n/katalog/en.json'), 'utf-8')) as Record<string, string>,
 };
 const uebersetzer = (sprache: 'de' | 'en'): Uebersetzer => (key, vars = {}) =>
-  KATALOG[sprache][key].replace(/\{([^}]+)\}/g, (tok, n: string) => (Object.hasOwn(vars, n) ? String(vars[n]) : tok));
+  KATALOG[sprache][key].replace(/\{([^}]+)\}/g, (tok, n: string) => (Object.hasOwn(vars, n) ? String(vars[n]) : tok)) as Anzeigetext;
 const ENDGUELTIG = { de: 'endgültig', en: 'permanently' } as const;
 const NAMEN: Record<string, string> = { Holzaxt: 'Holzaxt', Feder: 'Feather', Zweig: 'Zweig' };
 const name = (id: string): string | null => (Object.hasOwn(NAMEN, id) ? NAMEN[id] : null);

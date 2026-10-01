@@ -25,7 +25,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
 import { leseGegenstandsDatei, schreibeGegenstandsDatei, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
-import { entferneGegenstand, kopiereFeld, ladeGefangen, ladefehlerBanner, pruefeKonflikt, schnappschuss, speichereGefangen, speicherSperre, unterschiede } from '../src/editor/gegenstaende/ablauf';
+import type { Anzeigetext } from '../src/editor/gegenstaende/anzeige';
+import { eigeneBehaltenAbgleich, entferneGegenstand, entscheideNachSpeichern, kanonisch, kopiereFeld, ladeGefangen, ladefehlerBanner, pruefeKonflikt, schnappschuss, speichereGefangen, speicherSperre, unterschiede } from '../src/editor/gegenstaende/ablauf';
 import { ZEITGRENZE_MS, ladeQuittung, ladeStand, speichernMitBestaetigung, speichere } from '../src/editor/gegenstaende/api';
 import { eintragZuFormular, formularZuEintrag, mitEintrag, type Formular } from '../src/editor/gegenstaende/modell';
 
@@ -357,14 +358,14 @@ console.log('\n[5] Verdrahtung in seite.ts (Syntaxbaum):');
   check('laden(): prueft den Entwurf gegen den neuen Stand (pruefeKonflikt) und benutzt den gefangenen Aufruf', /pruefeKonflikt\(/.test(rumpf('laden')) && /ladeGefangen\(/.test(rumpf('laden')));
   check('N3: laden() baut bei einem Ladefehler das Banner mit ladefehlerBanner (der offene Konflikt bleibt entscheidbar) und gibt Wahlknoepfe aus', /ladefehlerBanner\(/.test(rumpf('laden')) && /wahlKnoepfe\(/.test(rumpf('laden')) && /konflikt:\s*this\.konflikt/.test(rumpf('laden')));
   check('N3: Netzergebnis mit Zeitgrenze zeigt den Text "zeit" (laden und senden)', /zugangText\(erg\.zeit === true \? 'zeit' : 'netz'\)/.test(rumpf('laden')) && /zugangText\(erg\.zeit === true \? 'zeit' : 'netz'\)/.test(rumpf('senden')));
-  check('N3: laden() uebernimmt eine Zusammenfuehrung ohne Wahl (art "zusammen") und nennt die Felder', /k\.art === 'zusammen'/.test(rumpf('laden')) && /zusammengefuehrtText\(/.test(rumpf('laden')) && /k\.zusammen/.test(rumpf('eigeneBehalten')));
+  check('N3: laden() uebernimmt eine Zusammenfuehrung ohne Wahl (art "zusammen") und nennt die Felder', /k\.art === 'zusammen'/.test(rumpf('laden')) && /zusammengefuehrtText\(/.test(rumpf('laden')) && /eigeneBehaltenAbgleich\(/.test(rumpf('eigeneBehalten')));
   check('aktualisiere(): Sperre kommt aus speicherSperre, Beschriftung "laedt" wird gesetzt', /speicherSperre\(/.test(rumpf('aktualisiere')) && /speichern_laedt/.test(rumpf('aktualisiere')));
   check('laden(): sperrt den Knopf sofort (aktualisiere() vor dem ersten await)', rumpf('laden').indexOf('this.aktualisiere()') !== -1 && rumpf('laden').indexOf('this.aktualisiere()') < rumpf('laden').indexOf('await'));
   const ent = rumpf('entfernen');
   check('entfernen(): Liste und Hash kommen aus entferneGegenstand (ein Schnappschuss), die Seite baut keine eigene Liste und liest keinen Hash', /entferneGegenstand\(/.test(ent) && hashFrei('entfernen') && !/ohneEintrag\(|abhaengige\(/.test(ent) && /this\.senden\(/.test(ent));
   check('speichern(): Liste und Hash aus EINEM Schnappschuss (schnappschuss + speichereSchnappschuss), kein this.stand.hash', /schnappschuss\(this\.stand\)/.test(rumpf('speichern')) && /speichereSchnappschuss\(/.test(rumpf('speichern')) && hashFrei('speichern'));
   check('seite.ts liest nirgends einen Hash (am Syntaxbaum: kein .hash, kein ["hash"], kein { hash }; nur der Schnappschuss traegt ihn)', !liestHash(sf));
-  check('Entfernen-Knopf: wird in aktualisiere() mit speicherSperre gesperrt wie Speichern', (rumpf('aktualisiere').match(/speicherSperre\(/g) ?? []).length === 2 && /entfernenKnopf/.test(rumpf('aktualisiere')) && /entfernenKnopf\s*=\s*knopf\(/.test(sf.getText()));
+  check('Entfernen-Knopf: wird in aktualisiere() mit speicherSperre gesperrt wie Speichern', (rumpf('aktualisiere').match(/speicherSperre\(/g) ?? []).length === 2 && /entfernenKnopf/.test(rumpf('aktualisiere')) && /entfernenKnopf\s*=\s*knopfT\(/.test(sf.getText()));
   const vielleicht: string[] = [];
   besuche(sf, (n) => {
     if (ts.isVoidExpression(n) && ts.isCallExpression(n.expression) && ts.isPropertyAccessExpression(n.expression.expression) && n.expression.expression.expression.kind === ts.SyntaxKind.ThisKeyword) vielleicht.push(n.expression.expression.name.text);
@@ -428,9 +429,9 @@ console.log('\n[8] Ladefehler bei offenem Konflikt (EG2 N3, N2-Angriff 2):');
   meinForm.nameDe = 'Meine Axt';
   const k = pruefeKonflikt({ basis: AXT, form: meinForm, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [axtServer] });
   if (k.art !== 'konflikt') throw new Error('no conflict');
-  const mit = ladefehlerBanner({ fehlerText: 'FEHLERTEXT', konflikt: k });
+  const mit = ladefehlerBanner({ fehlerText: 'FEHLERTEXT' as Anzeigetext, konflikt: k });
   check('offener Konflikt: das Banner zeigt den Fehler UND den Konflikt mit seinen Zeilen, und die Wahlknoepfe bleiben', mit.wahlknoepfe && mit.zeilen[0] === 'FEHLERTEXT' && mit.zeilen.length >= 3 && mit.zeilen.some((z) => z.includes('Meine Axt') && z.includes('Axt vom Server')), JSON.stringify(mit));
-  const ohne = ladefehlerBanner({ fehlerText: 'FEHLERTEXT', konflikt: null });
+  const ohne = ladefehlerBanner({ fehlerText: 'FEHLERTEXT' as Anzeigetext, konflikt: null });
   check('ohne Konflikt: nur der Fehler, keine Wahlknoepfe', ohne.wahlknoepfe === false && gleich(ohne.zeilen, ['FEHLERTEXT']));
   // the end to end sequence of the page: conflict open -> reload fails -> the conflict value is still the same and "keep mine" still works
   const behalten = k.zusammen;
@@ -533,6 +534,156 @@ console.log('\n[9] Drei-Wege-Abgleich je Feld (EG2 N3, N1-Angriff 4 und 5):');
     if (k.art === 'konflikt') {
       check('... mit dem Wert des Entwurfs je Zeile (Meine Axt, 9), leere Felder ausgelassen', k.unterschiede.find((u) => u.feld === 'nameDe')?.eigen === 'Meine Axt' && k.unterschiede.find((u) => u.feld === 'gewicht')?.eigen === '9' && !k.unterschiede.some((u) => u.eigen === ''));
     }
+  }
+}
+
+// ── [10] N4: keep mine against the live form, after-save, text keys ───────
+console.log('\n[10] N4: "Eigene behalten" gegen das lebende Formular, Nachladen nach dem Speichern, Textschluessel (Angriff N3, Befunde 1, 4, 5a):');
+{
+  const basis = eintrag('Axt', 'Axt', { gewicht: 3 });
+  const aend = (e: GegenstandsEintrag, f: (x: Formular) => void): GegenstandsEintrag => {
+    const x = eintragZuFormular(e);
+    f(x);
+    return formularZuEintrag(x);
+  };
+  const HIER = dirname(fileURLToPath(import.meta.url));
+  const pfad = resolve(HIER, '../src/editor/gegenstaende/seite.ts');
+  const sf = ts.createSourceFile(pfad, readFileSync(pfad, 'utf-8'), ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+  const methoden = new Map<string, ts.MethodDeclaration>();
+  const besuche = (n: ts.Node, f: (x: ts.Node) => void): void => {
+    f(n);
+    ts.forEachChild(n, (k) => besuche(k, f));
+  };
+  besuche(sf, (n) => {
+    if (ts.isMethodDeclaration(n) && ts.isIdentifier(n.name)) methoden.set(n.name.text, n);
+  });
+
+  // Befund 1: the conflict is on screen, the author edits the form, then presses "keep mine"
+  {
+    const server = aend(basis, (x) => (x.nameDe = 'Server-Axt'));
+    const form = eintragZuFormular(basis);
+    form.nameDe = 'Meine Axt';
+    const k = pruefeKonflikt({ basis, form, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [server] });
+    if (k.art !== 'konflikt') throw new Error('no conflict');
+    form.gewicht = '42'; // typed AFTER the conflict was shown; the form stays editable
+    check('Vorbedingung: der alte Schnappschuss des Konflikts kennt die Eingabe nach der Anzeige nicht (zusammen.gewicht bleibt 3)', k.zusammen?.gewicht === '3');
+    const r = eigeneBehaltenAbgleich({ basis, form, ausgewaehlt: 'Axt', konflikt: k });
+    check('"Eigene behalten": die Eingabe nach der Konfliktanzeige (Gewicht 42) steht im Ergebnis, der eigene Name auch', r.art === 'weiter' && r.form.gewicht === '42' && r.form.nameDe === 'Meine Axt', JSON.stringify(r));
+    check('... und es ist nicht der Schnappschuss von der Anzeige', r.art === 'weiter' && r.form !== k.zusammen);
+    // the author settled the disputed field by typing the server's value: nothing left to ask
+    const gleichgezogen = eintragZuFormular(basis);
+    gleichgezogen.nameDe = 'Server-Axt';
+    const r2 = eigeneBehaltenAbgleich({ basis, form: gleichgezogen, ausgewaehlt: 'Axt', konflikt: k });
+    check('der Autor hat den Streit beigelegt (Server-Wert getippt): weiter, ohne neue Anzeige', r2.art === 'weiter' && r2.form.nameDe === 'Server-Axt', JSON.stringify(r2));
+    // the author typed into a field the SERVER changed too: a new dispute they have not seen
+    const server2 = aend(basis, (x) => {
+      x.nameDe = 'Server-Axt';
+      x.gewicht = '7';
+    });
+    const form2 = eintragZuFormular(basis);
+    form2.nameDe = 'Meine Axt';
+    const k2 = pruefeKonflikt({ basis, form: form2, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [server2] });
+    if (k2.art !== 'zusammen' && k2.art !== 'konflikt') throw new Error('unexpected');
+    check('Vorbedingung: gezeigt wird nur der Streit um den Namen, das Gewicht kam vom Server', k2.art === 'konflikt' && gleich(k2.unterschiede.map((u) => u.feld), ['nameDe']) && gleich(k2.uebernommen, ['gewicht']));
+    if (k2.art === 'konflikt') {
+      form2.gewicht = '99'; // now both changed the weight, differently
+      const r3 = eigeneBehaltenAbgleich({ basis, form: form2, ausgewaehlt: 'Axt', konflikt: k2 });
+      check('Eingabe in einem Feld, das auch der Server aenderte: die Maske zeigt den Konflikt NEU (Gewicht jetzt streitig), entscheidet nicht still', r3.art === 'neu' && r3.konflikt.unterschiede.some((u) => u.feld === 'gewicht' && u.eigen === '99' && u.server === '7') && r3.konflikt.unterschiede.some((u) => u.feld === 'nameDe'), JSON.stringify(r3));
+    }
+    // the entry is gone on the server: keep the live form as a new entry
+    const gone = pruefeKonflikt({ basis, form, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [FEDER] });
+    if (gone.art !== 'konflikt') throw new Error('no conflict');
+    form.stapel = '5';
+    const r4 = eigeneBehaltenAbgleich({ basis, form, ausgewaehlt: 'Axt', konflikt: gone });
+    check('Eintrag auf dem Server entfernt: "eigene behalten" bleibt beim lebenden Formular (Stapel 5), server null', r4.art === 'weiter' && r4.server === null && r4.form === form && r4.form.stapel === '5');
+    // a new entry (no base) whose id someone else made meanwhile
+    const neuForm = eintragZuFormular(basis);
+    neuForm.nameDe = 'Mein Neues';
+    const k5 = pruefeKonflikt({ basis: null, form: neuForm, ausgewaehlt: null, entwurfGeaendert: true, neuerStand: [server] });
+    if (k5.art !== 'konflikt') throw new Error('no conflict');
+    neuForm.nameDe = 'Mein Neues 2'; // a field that was in dispute already
+    const r5 = eigeneBehaltenAbgleich({ basis: null, form: neuForm, ausgewaehlt: null, konflikt: k5 });
+    check('neuer Eintrag mit Id-Kollision: der Entwurf (geaenderter Name, schon im Streit) bleibt', r5.art === 'weiter' && r5.form.nameDe === 'Mein Neues 2', JSON.stringify(r5.art));
+    neuForm.stapel = '9'; // a field nobody argued about before
+    check('... ein Feld, das vorher nicht streitig war (Stapel 9), oeffnet den Konflikt neu', eigeneBehaltenAbgleich({ basis: null, form: neuForm, ausgewaehlt: null, konflikt: k5 }).art === 'neu');
+    // wiring: the page runs the comparison again and does not take the copy made when the conflict was found
+    const eb = methoden.get('eigeneBehalten');
+    let liestKopie = false;
+    let ruftAbgleich = false;
+    if (eb) besuche(eb, (n) => {
+      if (ts.isPropertyAccessExpression(n) && n.name.text === 'zusammen') liestKopie = true;
+      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'eigeneBehaltenAbgleich') ruftAbgleich = true;
+    });
+    check('seite.ts: eigeneBehalten() ruft eigeneBehaltenAbgleich mit dem lebenden this.form und liest nirgends k.zusammen (die Kopie von der Anzeige)', eb !== undefined && ruftAbgleich && !liestKopie && /form:\s*this\.form/.test(eb.getText(sf)));
+    check('seite.ts: bei "neu" wird der Konflikt erneut angezeigt (zeigeKonflikt) und nichts entschieden', eb !== undefined && /r\.art === 'neu'/.test(eb.getText(sf)) && /zeigeKonflikt\(/.test(eb.getText(sf)));
+  }
+
+  // Befund 4: after a save the form is replaced only if it is still what was saved
+  {
+    const f = eintragZuFormular(basis);
+    const vor = kanonisch(f);
+    const aus = (o: Partial<Parameters<typeof entscheideNachSpeichern>[0]>) => entscheideNachSpeichern({ formVorher: vor, idVorher: 'Axt', ausgewaehltVorher: 'Axt', formJetzt: f, ausgewaehltJetzt: 'Axt', gespeicherteId: 'Axt', server: basis, ...o });
+    check('Formular unveraendert seit dem Start des Speicherns: ersetzen (alter Weg)', aus({}).art === 'ersetzen');
+    const geaendert = eintragZuFormular(basis);
+    geaendert.gewicht = '77';
+    const r = aus({ formJetzt: geaendert });
+    check('waehrend des Speicherns weitergetippt: der Entwurf bleibt, folgt dem gespeicherten Eintrag (Basis = Server-Eintrag), kein "neu"', r.art === 'behalten' && r.weiter !== null && r.weiter.ausgewaehlt === 'Axt' && r.weiter.basis === basis && r.weiter.neu === false, JSON.stringify(r));
+    const andere = eintragZuFormular(FEDER);
+    const r2 = aus({ formJetzt: andere, ausgewaehltJetzt: 'Feder' });
+    check('waehrend des Speicherns einen anderen Eintrag geoeffnet: der bleibt offen, nichts an ihm wird geaendert', r2.art === 'behalten' && r2.weiter === null);
+    const neu = eintragZuFormular(basis);
+    neu.neu = true;
+    const vorNeu = kanonisch(neu);
+    const nachTippen = { ...neu, gewicht: '5' };
+    const r3 = entscheideNachSpeichern({ formVorher: vorNeu, idVorher: 'Axt', ausgewaehltVorher: null, formJetzt: nachTippen, ausgewaehltJetzt: null, gespeicherteId: 'Axt', server: basis });
+    check('neuer Eintrag gespeichert und weitergetippt: der Entwurf gehoert jetzt zum gespeicherten Eintrag (ausgewaehlt Axt, nicht mehr neu)', r3.art === 'behalten' && r3.weiter?.ausgewaehlt === 'Axt' && r3.weiter.neu === false && r3.weiter.basis === basis);
+    const r4 = entscheideNachSpeichern({ formVorher: vor, idVorher: 'Axt', ausgewaehltVorher: 'Axt', formJetzt: geaendert, ausgewaehltJetzt: 'Axt', gespeicherteId: null, server: null });
+    check('Entfernen und weitergetippt: der Entwurf bleibt als neuer Eintrag (ausgewaehlt null, neu, ohne Basis)', r4.art === 'behalten' && r4.weiter?.ausgewaehlt === null && r4.weiter.neu === true && r4.weiter.basis === null);
+    check('Formular ist weg (null): nicht ersetzen', entscheideNachSpeichern({ formVorher: vor, idVorher: 'Axt', ausgewaehltVorher: 'Axt', formJetzt: null, ausgewaehltJetzt: null, gespeicherteId: 'Axt', server: basis }).art === 'behalten');
+    // the canonical form does not depend on the order in which the fields were set
+    const umgekehrt = Object.fromEntries(Object.entries(f).reverse()) as unknown as Formular;
+    check('kanonisch: gleiche Felder in anderer Reihenfolge = gleiche Form; eine geaenderte Zahl = andere Form', kanonisch(umgekehrt) === vor && kanonisch(geaendert) !== vor);
+    // wiring
+    const ns = methoden.get('nachSpeichern');
+    const sp = methoden.get('speichern');
+    const en = methoden.get('entfernen');
+    const setzeForms: Array<{ bedingung: string }> = [];
+    if (ns) besuche(ns, (n) => {
+      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'setzeForm') {
+        let p: ts.Node | undefined = n.parent;
+        let bed = '';
+        while (p && p !== ns) {
+          if (ts.isIfStatement(p)) bed = p.expression.getText(sf);
+          p = p.parent;
+        }
+        setzeForms.push({ bedingung: bed });
+      }
+    });
+    check('seite.ts: nachSpeichern() ersetzt das Formular (setzeForm) nur im Zweig "ersetzen" von entscheideNachSpeichern', ns !== undefined && /entscheideNachSpeichern\(/.test(ns.getText(sf)) && setzeForms.length >= 1 && setzeForms.every((x) => /ersetzen/.test(x.bedingung)), JSON.stringify(setzeForms));
+    check('seite.ts: speichern() und entfernen() merken die kanonische Form VOR dem Senden und geben sie an nachSpeichern', sp !== undefined && en !== undefined && /kanonisch\(this\.form\)/.test(sp.getText(sf)) && /kanonisch\(this\.form\)/.test(en.getText(sf)) && sp.getText(sf).indexOf('kanonisch(') < sp.getText(sf).indexOf('this.senden(') && en.getText(sf).indexOf('kanonisch(') < en.getText(sf).indexOf('this.senden(') && /nachSpeichern\([^)]*vorher\)/.test(sp.getText(sf)) && /nachSpeichern\([^)]*vorher\)/.test(en.getText(sf)));
+    check('seite.ts: das Banner nach "behalten" sagt, dass ungespeicherte Aenderungen offen sind', ns !== undefined && /nach_speichern_offen/.test(ns.getText(sf)));
+  }
+
+  // Befund 5a: the text keys are fields of the three-way comparison
+  {
+    const mitKey = (name2: string) => ({ nameSchluessel: 'inhalt.gegenstand.Axt.name2', texte: { 'inhalt.gegenstand.Axt.name2': { de: name2, en: name2 } } });
+    const server = eintrag('Axt', 'Axt', { gewicht: 3, ...mitKey('Axt') });
+    check('Vorbedingung: der Server-Eintrag hat einen anderen nameSchluessel als die Basis', server.nameSchluessel !== basis.nameSchluessel);
+    const form = eintragZuFormular(basis);
+    form.nameEn = 'Meine Axt';
+    const k = pruefeKonflikt({ basis, form, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [server] });
+    check('Server aendert nur den nameSchluessel, der Entwurf einen Namen: "zusammen", der Schluessel des Servers steht im Ergebnis und wird genannt', k.art === 'zusammen' && k.form.nameSchluessel === 'inhalt.gegenstand.Axt.name2' && k.uebernommen.includes('nameSchluessel') && k.form.nameEn === 'Meine Axt', JSON.stringify(k));
+    if (k.art === 'zusammen') check('... und der Eintrag daraus traegt den neuen Schluessel (beim Speichern geht die Aenderung des Servers nicht verloren)', formularZuEintrag(k.form).nameSchluessel === 'inhalt.gegenstand.Axt.name2');
+    const beide = eintragZuFormular(basis);
+    beide.nameSchluessel = 'inhalt.gegenstand.Axt.name3';
+    beide.nameEn = 'Meine Axt';
+    const k2 = pruefeKonflikt({ basis, form: beide, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [server] });
+    check('Server und Entwurf aendern den Schluessel verschieden: Konflikt, genau die Zeile "nameSchluessel"', k2.art === 'konflikt' && gleich(k2.unterschiede.map((u) => u.feld), ['nameSchluessel']), JSON.stringify(k2));
+    const bServer = eintrag('Axt', 'Axt', { gewicht: 3, beschreibungSchluessel: 'inhalt.gegenstand.Axt.beschreibung', texte: { 'inhalt.gegenstand.Axt.name': { de: 'Axt', en: 'Axt' }, 'inhalt.gegenstand.Axt.beschreibung': { de: 'b', en: 'b' } } });
+    const bForm = eintragZuFormular(basis);
+    bForm.nameEn = 'Meine Axt';
+    const k3 = pruefeKonflikt({ basis, form: bForm, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [bServer] });
+    check('dasselbe fuer beschreibungSchluessel', k3.art === 'zusammen' && k3.form.beschreibungSchluessel === 'inhalt.gegenstand.Axt.beschreibung' && k3.uebernommen.includes('beschreibungSchluessel'), JSON.stringify(k3));
   }
 }
 

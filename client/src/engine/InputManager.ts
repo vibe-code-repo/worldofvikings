@@ -10,6 +10,8 @@
  *    slot, menu toggle). Edge state is cleared by `endFrame()`, which the main
  *    loop calls after everything has had a chance to read it.
  */
+import { istTexteingabeAktiv } from './texteingabe';
+
 export class InputManager {
   private readonly keys = new Set<string>();
   /** Keys that went down since the last endFrame(). */
@@ -88,6 +90,12 @@ export class InputManager {
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     window.addEventListener('keydown', (e) => {
+      // Tippt der Spieler in einem Textfeld (Suchfeld, Zielhöhe, …), sind Tasten
+      // Text: weder Bewegung noch Menütaste. Esc verlässt nur das Feld.
+      if (istTexteingabeAktiv(e)) {
+        if (e.code === 'Escape' && e.target instanceof HTMLElement) e.target.blur();
+        return;
+      }
       if (e.repeat) return;
       // Tab opens the build menu; letting the browser have it moves focus off
       // the canvas and the next keystroke goes somewhere else entirely.

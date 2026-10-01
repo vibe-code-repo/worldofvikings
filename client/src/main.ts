@@ -153,6 +153,7 @@ import { ChatPanel } from './ui/ChatPanel';
 import { AudioEngine, startAudioEngine } from './engine/Audio';
 import { WeltToene } from './engine/Audio/WeltToene';
 import { KampfToene } from './engine/Audio/KampfToene';
+import { istTexteingabeAktiv } from './engine/texteingabe';
 import {
   aktiviereWebGpuGlslKompatibilitaet,
   istWebGpuGlslKompatibilitaetAktiv,
@@ -1099,7 +1100,7 @@ async function main() {
     }
   });
   window.addEventListener('keydown', (e) => {
-    if (!dekoPlatzierung.aktiv) return;
+    if (!dekoPlatzierung.aktiv || istTexteingabeAktiv(e)) return;
     dekoPlatzierung.setzeModifikatoren(e.shiftKey, e.ctrlKey);
     if (e.code === 'Escape') {
       dekoPlatzierung.beende();

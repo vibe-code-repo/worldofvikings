@@ -91,7 +91,7 @@
       <p class="leer-zustand">{t[KAMMER_FEHLER[data.fehler ?? 'aus']]}</p>
     {:else if liste.eintraege.length === 0}
       <p class="leer-zustand">
-        {suchLeer ? t['armory.state.empty'] : t['armory.state.no_match']}
+        {suchLeer || liste.suche === '' ? t['armory.state.empty'] : t['armory.state.no_match']}
       </p>
     {:else}
       {#if data.q !== '' && liste.suche === ''}

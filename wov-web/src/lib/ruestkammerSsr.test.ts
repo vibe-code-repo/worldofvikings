@@ -242,6 +242,11 @@ beschreibe('Rüstkammer ohne JavaScript (gebauter Stand)', () => {
     expect(ok.text).toContain('Sigrid');
     expect(ok.text).not.toContain('Ragnar');
     expect((await frage('/de/ruestkammer')).text).not.toContain('mindestens 2 Zeichen');
+    // Leere Kammer und zu kurzes q: „noch niemand“, nicht „kein Recke dieses Namens“.
+    modus = () => listeAntwort([], { suche: '' });
+    const leer = await frage('/de/ruestkammer?q=a');
+    expect(leer.text).toContain('noch niemand');
+    expect(leer.text).not.toContain('Kein Recke dieses Namens');
   });
 
   it('Suche und Seite kommen unverändert beim Spielserver an; Müll wird zu Seite 1', async () => {

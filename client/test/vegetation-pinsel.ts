@@ -20,7 +20,7 @@ import { VEGETATION_KREISE_MAX, vegetationPruefer, type VegetationEntferntKreis 
 import { abgedeckt, stempelEntlang, vegStempelAbstand, VegetationStrich } from '../src/editor/testflug/vegetationPinsel';
 import { VegetationVerlauf, VEG_VERLAUF_MAX } from '../src/editor/testflug/vegetationVerlauf';
 import { VegetationAktionen, vegetationKreiseAusEntwurf, vegetationQuelleFuerVorschau } from '../src/editor/testflug/vegetationAktionen';
-import { VerlaufReihenfolge, type VerlaufQuelle } from '../src/editor/testflug/verlaufReihenfolge';
+import { VerlaufReihenfolge, REIHENFOLGE_MAX, type VerlaufQuelle } from '../src/editor/testflug/verlaufReihenfolge';
 import { VegetationSteuerung } from '../src/editor/testflug/vegetationSteuerung';
 import type { EntwurfDokument } from '../src/editor/testflug/TestflugPersistenz';
 import { verlaufEntscheid } from '../src/editor/testflug/gelaendePinsel';
@@ -124,8 +124,9 @@ function ziehe(a: ReturnType<typeof aufbau>, von: [number, number], bis: [number
 // ── 2. Abdeckung ─────────────────────────────────────────────────────────────
 {
   pruefe(abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 3, z: 0, r: 7 }), '2: Kreis liegt ganz im vorhandenen (Rand berührt): abgedeckt');
-  pruefe(!abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 3, z: 0, r: 8 }), '2: ragt 1 m heraus (3 von 25 Probepunkten draußen): nicht abgedeckt');
-  pruefe(abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 3, z: 0, r: 7.5 }), '2: ragt nur 0,5 m heraus (1 von 25 Probepunkten, 96 % gedeckt): abgedeckt');
+  pruefe(abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 3, z: 0, r: 7.2 }), '2: 0,2 m über den Rand (2,9 % des Radius): noch abgedeckt (Toleranz 6 %)');
+  pruefe(!abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 3, z: 0, r: 8 }), '2: ragt 1 m heraus: nicht abgedeckt');
+  pruefe(!abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 3, z: 0, r: 7.5 }), '2: ragt 0,5 m heraus (6,7 % des Radius): nicht abgedeckt');
   pruefe(!abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 0, z: 0, r: 12 }), '2: größerer Kreis: nicht abgedeckt');
   pruefe(abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 0, z: 0, r: 10 }), '2: derselbe Kreis: abgedeckt');
   pruefe(!abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 0, z: 0, r: 5, nur: 'baeume' }), '2: ein Kreis für alles deckt einen Nur-Bäume-Kreis NICHT (andere Wirkung)');
@@ -477,6 +478,92 @@ function viele4097(): Kreis[] {
   pruefe(/strichGemacht: \(\) => reihenfolge\.neu\('gelaende'\)/.test(tf2) && /strichGemacht: \(\) => reihenfolge\.neu\('vegetation'\)/.test(tf2) && /reihenfolge\.verbinde\(\{ gelaende, vegetation: vegPinsel \}, /.test(tf2), '9: Testflug.ts meldet beide Werkzeuge an die gemeinsame Reihenfolge');
   pruefe(/this\.verlauf\.neu\(v\);\s*this\.abh\.strichGemacht\?\.\(\);/.test(gs), '9: GelaendeSteuerung meldet jeden gespeicherten Strich');
   pruefe(/vegetationQuelleFuerVorschau\(persistenz\.laden\(\), vegetationPinsel\?\.strichKreise\(\) \?\? \[\]\)/.test(tf2) && /reihenfolge\.verbinde\(\{ gelaende, vegetation: vegPinsel \}, \(art\) =>/.test(tf2), '9: Testflug.ts: die Vorschau-Quelle ist `vegetationQuelleFuerVorschau` mit den Kreisen des offenen Strichs');
+}
+
+// ── 10. N2: dichte Probepunkte, gescheiterter Schritt, Kappe der Reihenfolge ──
+{
+  // R1: wo `abgedeckt` ja sagt, bleibt praktisch keine Fläche ungeräumt (Zufallsproben, 20 000 Punkte je Fall, feste Saat)
+  let z0 = 987654321;
+  const u = (): number => ((z0 = (z0 * 1103515245 + 12345) % 2147483648) / 2147483648);
+  let ja = 0;
+  let schlimmster = 0;
+  for (let fall = 0; fall < 4000; fall++) {
+    const r = 3 + u() * 10;
+    const basis: Kreis[] = Array.from({ length: 1 + Math.floor(u() * 4) }, () => ({ x: (u() - 0.5) * 0.6 * r, z: (u() - 0.5) * 0.6 * r, r: r * (0.9 + u() * 0.3) }));
+    const neu: Kreis = { x: (u() - 0.5) * 0.5 * r, z: (u() - 0.5) * 0.5 * r, r };
+    if (!abgedeckt(basis, neu)) continue;
+    ja++;
+    let draussen = 0;
+    const N = 4000;
+    for (let i = 0; i < N; i++) {
+      const w = u() * 2 * Math.PI;
+      const d = Math.sqrt(u()) * neu.r;
+      const x = neu.x + Math.cos(w) * d;
+      const zz = neu.z + Math.sin(w) * d;
+      if (!basis.some((k) => Math.hypot(x - k.x, zz - k.z) <= k.r)) draussen++;
+    }
+    schlimmster = Math.max(schlimmster, draussen / N);
+  }
+  console.log(`  (R1: ${ja} übersprungen, schlimmster ungeräumter Anteil ${(schlimmster * 100).toFixed(2)} %)`);
+  pruefe(ja > 100 && schlimmster <= 0.04, `10: R1: ${ja} übersprungene Stempel, ungeräumt höchstens ${(schlimmster * 100).toFixed(2)} % der Stempelfläche (Grenze 4 %)`);
+  // Randpflanze eines versetzten Stempels zwischen mehreren Basiskreisen
+  const basis3: Kreis[] = [{ x: 0, z: 0, r: 10 }, { x: 2, z: 1, r: 10 }, { x: -2, z: 1.5, r: 10 }];
+  pruefe(!abgedeckt(basis3, { x: 0.3, z: -1.2, r: 10 }), '10: R1: ein Stempel, dessen Rand unten über die Basiskreise ragt, wird gelegt');
+  // Zittern: Kreiszahl erneut (Zahl für den Bericht)
+  let zufall = 4242;
+  const rnd = (): number => ((zufall = (zufall * 1103515245 + 12345) % 2147483648) / 2147483648 - 0.5);
+  const ein = aufbau();
+  ziehe(ein, [0, 0], [100, 0]);
+  const zz = aufbau();
+  for (let s = 0; s < 20; s++) {
+    zz.steuerung.druecken({ x: rnd(), z: rnd() });
+    for (let i = 1; i <= 40; i++) zz.steuerung.bewegen({ x: (100 * i) / 40 + rnd(), z: rnd() });
+    zz.steuerung.loslassen();
+  }
+  console.log(`  (Zittern 0,5 m: ${zz.e.kreise().length} Kreise nach 20 Strichen, Einzelstrich ${ein.e.kreise().length})`);
+  pruefe(zz.e.kreise().length <= 2 * ein.e.kreise().length, `10: R1: 20 Striche mit 0,5 m Zittern: ${zz.e.kreise().length} Kreise ≤ 2 × ${ein.e.kreise().length}`);
+
+  // R2: ein Schritt, der seinen Verlauf selbst leert, wird nicht an das andere Werkzeug weitergereicht
+  const mk = (name: string) => {
+    const q = {
+      stapel: [name + '1', name + '2'] as string[],
+      geleert: false,
+      kannRueckgaengig: true,
+      kannWiederholen: false,
+      rueckgaengig(): boolean {
+        if (q.geleert) {
+          q.stapel.length = 0;
+          q.kannRueckgaengig = false;
+          return false;
+        }
+        q.stapel.pop();
+        q.kannRueckgaengig = q.stapel.length > 0;
+        return true;
+      },
+      wiederholen: (): boolean => false,
+    };
+    return q;
+  };
+  const gg = mk('G');
+  const vv = mk('V');
+  const rr = new VerlaufReihenfolge();
+  const gemeldet: string[] = [];
+  rr.verbinde({ gelaende: gg, vegetation: vv }, (a) => gemeldet.push(a));
+  rr.neu('vegetation'); rr.neu('vegetation'); rr.neu('gelaende'); rr.neu('gelaende');
+  gg.geleert = true; // der Geländeverlauf leert sich beim nächsten Versuch selbst (Fremdänderung)
+  const erg = rr.rueckgaengig();
+  pruefe(!erg && vv.stapel.length === 2 && rr.tiefe.rueckgaengig === 3 && gemeldet.length === 0, '10: R2: der Schritt, der seinen Verlauf leert, gibt false zurück; der Bewuchs wird NICHT zurückgenommen (derselbe Druck)');
+  pruefe(rr.rueckgaengig() === true && vv.stapel.length === 1 && rr.tiefe.rueckgaengig === 1, '10: R2: erst der NÄCHSTE Druck überspringt das tote Gelände-Tag und nimmt den Bewuchs-Strich zurück');
+
+  // R3: die Kappe der Reihenfolge ist 200 Schritte
+  const a1 = { n: 0, kannRueckgaengig: true, kannWiederholen: false, rueckgaengig(): boolean { a1.n++; return true; }, wiederholen: (): boolean => false };
+  const r4 = new VerlaufReihenfolge();
+  r4.verbinde({ gelaende: a1, vegetation: a1 });
+  for (let i = 0; i < REIHENFOLGE_MAX + 50; i++) r4.neu(i % 2 ? 'gelaende' : 'vegetation');
+  pruefe(REIHENFOLGE_MAX === 200 && r4.tiefe.rueckgaengig === 200, `10: R3: die Reihenfolge behält genau 200 Einträge (${r4.tiefe.rueckgaengig})`);
+  let n = 0;
+  while (r4.rueckgaengig() && n < 1000) n++;
+  pruefe(n === 200 && a1.n === 200, `10: R3: 200 Schritte lassen sich zurücknehmen (${n})`);
 }
 
 // ── 8. Kern des Strichs, Tasten, Verdrahtung, Texte ─────────────────────────

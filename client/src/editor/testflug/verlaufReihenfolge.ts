@@ -65,8 +65,10 @@ export class VerlaufReihenfolge {
           gegen.push(w);
           return true;
         }
-        // Refused (lock, conflict): the step stays and says why; nothing left in that history: the tag is stale.
-        if (kann(w)) return false;
+        // The attempt failed (lock, conflict) and said why. This key press ends here: it is NOT passed on to an older
+        // stroke of the other tool. A history that emptied itself on the way leaves a stale tag, which goes.
+        if (!kann(w)) quelle.pop();
+        return false;
       }
       quelle.pop();
     }

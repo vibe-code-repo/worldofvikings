@@ -10,7 +10,7 @@
  *    slot, menu toggle). Edge state is cleared by `endFrame()`, which the main
  *    loop calls after everything has had a chance to read it.
  */
-import { istTexteingabeAktiv } from './texteingabe';
+import { istTexteingabeAktiv, istTexteingabeFokus } from './texteingabe';
 
 export class InputManager {
   private readonly keys = new Set<string>();
@@ -265,6 +265,9 @@ export class InputManager {
         // stehen auf pointer-events:none und reichen ans Canvas durch, der
         // Rad-Moduswechsel des Baumenüs funktioniert also weiter.
         if (!this.pointerLocked && e.target !== this.canvas) return;
+        // Hat ein Textfeld den Fokus, wirkt das Rad nicht aufs Spiel (kein Zoom, keine
+        // Hotbar) und das native Scrollen bleibt (kein preventDefault).
+        if (istTexteingabeFokus()) return;
         e.preventDefault();
         // Umleitung zuerst: Ist sie gesetzt, sieht die Kamera das Rad nie.
         // Ohne sie haette das Rad ZWEI Abnehmer — die Fackel drehte sich

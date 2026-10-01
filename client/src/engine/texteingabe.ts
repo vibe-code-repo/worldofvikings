@@ -24,8 +24,10 @@ const KEINE_TEXTEINGABE: ReadonlySet<string> = new Set([
 /** Ist `ziel` ein Element, in dem Tasten Eingabe sind? */
 export function istTexteingabeElement(ziel: unknown): boolean {
   if (typeof ziel !== 'object' || ziel === null) return false;
-  const el = ziel as { tagName?: unknown; type?: unknown; isContentEditable?: unknown };
+  const el = ziel as { tagName?: unknown; type?: unknown; isContentEditable?: unknown; closest?: unknown };
   if (el.isContentEditable === true) return true;
+  // Kind eines contenteditable-Elements (z. B. ein <b> im Eingabefeld).
+  if (typeof el.closest === 'function' && (el as { closest: (s: string) => unknown }).closest('[contenteditable]:not([contenteditable="false"])')) return true;
   const tag = typeof el.tagName === 'string' ? el.tagName.toUpperCase() : '';
   if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
   if (tag !== 'INPUT') return false;
@@ -33,7 +35,25 @@ export function istTexteingabeElement(ziel: unknown): boolean {
   return !KEINE_TEXTEINGABE.has(art);
 }
 
-/** Tastendruck (oder Ereignis) mit Ziel: tippt der Spieler gerade in ein Feld? */
+/** Das Element mit dem Fokus der Seite (Attrappe im Test: `document.activeElement`). */
+function fokusElement(): unknown {
+  return typeof document === 'undefined' ? null : (document as { activeElement?: unknown }).activeElement;
+}
+
+/**
+ * Tastendruck (oder Ereignis) mit Ziel: tippt der Spieler gerade in ein Feld? Gilt das Ziel des
+ * Ereignisses ODER das Element mit dem Fokus der Seite (ein Ereignis kann auf Fenster/Canvas
+ * landen, obwohl der Fokus im Feld liegt).
+ *
+ * `keyup` filtern wir bewusst NICHT: Wurde eine Taste im Spiel gedrückt und wandert der Fokus
+ * danach ins Feld, muss das `keyup` im Feld die Taste noch loslassen, sonst bliebe sie gedrückt
+ * (Figur läuft weiter). Gesperrt wird nur das Drücken.
+ */
 export function istTexteingabeAktiv(e: { readonly target: unknown }): boolean {
-  return istTexteingabeElement(e.target);
+  return istTexteingabeElement(e.target) || istTexteingabeElement(fokusElement());
+}
+
+/** Hat gerade ein Textfeld den Fokus? (für das Mausrad, das kein Ziel-Feld hat) */
+export function istTexteingabeFokus(): boolean {
+  return istTexteingabeElement(fokusElement());
 }

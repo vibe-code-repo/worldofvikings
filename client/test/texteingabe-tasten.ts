@@ -46,7 +46,8 @@ type Hoerer = (e: Record<string, unknown>) => void;
 const fensterHoerer = new Map<string, Hoerer[]>();
 const g = globalThis as unknown as Record<string, unknown>;
 g.window = { setTimeout: () => 0, clearTimeout: () => undefined, addEventListener: (t: string, f: Hoerer) => fensterHoerer.set(t, [...(fensterHoerer.get(t) ?? []), f]) };
-g.document = { addEventListener: () => undefined, exitPointerLock: () => undefined, pointerLockElement: null };
+const docHoerer = new Map<string, Hoerer[]>();
+g.document = { addEventListener: (t: string, f: Hoerer) => docHoerer.set(t, [...(docHoerer.get(t) ?? []), f]), exitPointerLock: () => undefined, pointerLockElement: null };
 g.HTMLElement = class {};
 const { InputManager } = await import('../src/engine/InputManager');
 const canvas = { addEventListener: () => undefined, requestPointerLock: () => undefined };
@@ -130,6 +131,46 @@ pruefe(/!istTexteingabeAktiv\(e\) && worldMap\?\.taste\(e\.code\)/.test(mm), '4:
 pruefe(!/!istTexteingabeAktiv\(e\) && worldMap/.test(mutiere(mm, '!istTexteingabeAktiv(e) && worldMap?.taste', 'worldMap?.taste')), '4: Mutant „WorldMap.taste ohne Feldprüfung“ wird rot');
 pruefe(/if \(!e\.ctrlKey \|\| istTexteingabeAktiv\(e\)\) return;\s*if \(e\.code === 'KeyZ' && !e\.shiftKey\) \{\s*rueckgaengig\(\)/.test(em), '4: Strg+Z/Y im Karteneditor sperrt im Feld');
 pruefe(!/if \(!e\.ctrlKey \|\| istTexteingabeAktiv\(e\)\) return;/.test(mutiere(em, 'if (!e.ctrlKey || istTexteingabeAktiv(e)) return;', 'if (!e.ctrlKey) return;')), '4: Mutant „Strg+Z ohne Feldprüfung“ wird rot');
+
+// ── 5. Fokus-Element, contenteditable-Kinder, keyup, Mausrad ──
+{
+  const doc = g.document as Record<string, unknown>;
+  const feld = { tagName: 'INPUT', type: 'text', isContentEditable: false };
+  const kind = { tagName: 'B', isContentEditable: true };
+  const kindOhneFlag = { tagName: 'B', closest: (s: string) => (s.startsWith('[contenteditable]') ? {} : null) };
+  const fremd = { tagName: 'B', closest: () => null };
+  pruefe(istTexteingabeElement(kind) && istTexteingabeElement(kindOhneFlag) && !istTexteingabeElement(fremd), '5: Kind eines contenteditable zählt (closest), fremdes Element nicht');
+  doc.activeElement = feld;
+  pruefe(istTexteingabeAktiv({ target: { tagName: 'CANVAS' } }) && istTexteingabeAktiv({ target: null }), '5: Ziel Canvas/Fenster, Fokus im Feld → aktiv (document.activeElement)');
+  doc.activeElement = { tagName: 'BODY' };
+  pruefe(!istTexteingabeAktiv({ target: { tagName: 'CANVAS' } }), '5: Fokus auf body → nicht aktiv');
+  doc.activeElement = feld;
+  // keyup: im Spiel gedrückt, dann Fokus ins Feld, keyup im Feld lässt los
+  doc.activeElement = null;
+  taste('keydown', 'KeyW', { tagName: 'CANVAS' });
+  pruefe(im.isDown('KeyW'), '5: W im Spiel gedrückt');
+  doc.activeElement = feld;
+  taste('keyup', 'KeyW', feld);
+  pruefe(!im.isDown('KeyW'), '5: Fokus im Feld, keyup dort → W ist nicht mehr gedrückt');
+  // Mausrad
+  const rad = (ziel: unknown): { verhindert: boolean } => {
+    const r = { verhindert: false };
+    const hoerer = docHoerer.get('wheel') ?? [];
+    for (const f of hoerer) f({ target: ziel, deltaY: 100, preventDefault: () => (r.verhindert = true) });
+    return r;
+  };
+  const vorher = im.consumeWheel();
+  void vorher;
+  doc.activeElement = feld;
+  const imFeld = rad(canvas);
+  pruefe(!imFeld.verhindert && im.consumeWheel() === 0, '5: Rad bei Textfeld-Fokus: weder preventDefault noch Zoom (Scrollen bleibt)');
+  doc.activeElement = { tagName: 'BODY' };
+  const frei = rad(canvas);
+  pruefe(frei.verhindert && im.consumeWheel() === 100, '5: ohne Feld-Fokus wirkt das Rad wie vorher');
+  doc.activeElement = null;
+  pruefe(/if \(istTexteingabeFokus\(\)\) return;\s*e\.preventDefault\(\);/.test(imq), '5: Rad-Sperre steht vor preventDefault im InputManager');
+  pruefe(!/if \(istTexteingabeFokus\(\)\) return;/.test(mutiere(imq, 'if (istTexteingabeFokus()) return;', '')), '5: Mutant „Rad ohne Sperre“ wird rot');
+}
 
 if (fehler) {
   console.error(`${fehler} Prüfung(en) rot`);

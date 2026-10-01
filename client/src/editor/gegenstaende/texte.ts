@@ -142,21 +142,44 @@ export function konfliktInhalt(
 ): { titel: string; zeilen: string[]; weitere: string | null } {
   const zeigen = k.unterschiede.slice(0, MAX_KONFLIKT_ZEILEN);
   const feldName = (feld: string): string => (hatSchluessel(FELD_SCHLUESSEL, feld) ? uebersetze(FELD_SCHLUESSEL[feld]) : sichtbarKuerzen(feld));
-  const leer = (v: string): string => (v === '' ? uebersetze('editor.gegenstand.konflikt.leer') : sichtbarKuerzen(v, 120));
+  const wertAnzeige = (v: string): string => (v === '' ? uebersetze('editor.gegenstand.konflikt.leer') : sichtbarKuerzen(v, 120));
   return {
     titel: uebersetze(k.server === null ? 'editor.gegenstand.konflikt.titel_entfernt' : 'editor.gegenstand.konflikt.titel'),
-    zeilen: zeigen.map((u) => uebersetze('editor.gegenstand.konflikt.zeile', { feld: feldName(u.feld), eigen: leer(u.eigen), server: leer(u.server) })),
+    // The entry is gone on the server: there is no server version to compare, each row is a field of the draft that
+    // would stay as a new entry.
+    zeilen: zeigen.map((u) =>
+      k.server === null
+        ? uebersetze('editor.gegenstand.konflikt.zeile_entfernt', { feld: feldName(u.feld), eigen: wertAnzeige(u.eigen) })
+        : uebersetze('editor.gegenstand.konflikt.zeile', { feld: feldName(u.feld), eigen: wertAnzeige(u.eigen), server: wertAnzeige(u.server) })
+    ),
     weitere: k.unterschiede.length > zeigen.length ? uebersetze('editor.gegenstand.konflikt.weitere', { anzahl: k.unterschiede.length - zeigen.length }) : null,
   };
 }
 
 const hatSchluessel = (tabelle: object, code: string): boolean => Object.hasOwn(tabelle, code);
 
+/**
+ * One line "<id or #position>: <reason>" for an entry the reader or the route refused. The id is a raw file value,
+ * so it is shortened and made visible; `grundText` does the same for a reason it does not know.
+ */
+export function verworfenZeile(v: { index: number; id: string | null; grund: string }, uebersetze: Uebersetzer = t): string {
+  return `${v.id === null ? `#${v.index}` : sichtbarKuerzen(v.id)}: ${grundText(v.grund, uebersetze)}`;
+}
+
+/** The fields the server changed alone and that went into the draft (at most `MAX_KONFLIKT_ZEILEN` named), or null if none. */
+export function zusammengefuehrtText(felder: readonly string[], uebersetze: Uebersetzer = t): string | null {
+  if (felder.length === 0) return null;
+  const name = (feld: string): string => (hatSchluessel(FELD_SCHLUESSEL, feld) ? uebersetze(FELD_SCHLUESSEL[feld]) : sichtbarKuerzen(feld));
+  const genannt = felder.slice(0, MAX_KONFLIKT_ZEILEN).map(name);
+  if (felder.length > genannt.length) genannt.push(uebersetze('editor.gegenstand.konflikt.zusammengefuehrt_weitere', { anzahl: felder.length - genannt.length }));
+  return uebersetze('editor.gegenstand.konflikt.zusammengefuehrt', { felder: genannt.join(', ') });
+}
+
 /** The text of a reader reason (`grund`), or the bare code in a sentence when it is one the mask does not know yet. */
 export function grundText(code: string, uebersetze: Uebersetzer = t): string {
   return hatSchluessel(GRUND_SCHLUESSEL, code)
     ? uebersetze(GRUND_SCHLUESSEL[code as VerwerfGrund])
-    : uebersetze('editor.gegenstand.grund.unbekannt', { code });
+    : uebersetze('editor.gegenstand.grund.unbekannt', { code: sichtbarKuerzen(code) });
 }
 
 /** The message of one field problem, with the range filled in. */
@@ -183,9 +206,10 @@ export function fehlerErgebnisText(e: { status: number; fehler: string | null },
   return zugangText(e.status, uebersetze);
 }
 
-/** The text for an HTTP status the route never answers itself (the gates in front of it) and for the network. */
-export function zugangText(status: number | 'netz', uebersetze: Uebersetzer = t): string {
+/** The text for an HTTP status the route never answers itself (the gates in front of it), for the network and for "no answer in time". */
+export function zugangText(status: number | 'netz' | 'zeit', uebersetze: Uebersetzer = t): string {
   if (status === 'netz') return uebersetze('editor.gegenstand.http.netz');
+  if (status === 'zeit') return uebersetze('editor.gegenstand.http.zeit');
   if (status === 401) return uebersetze('editor.gegenstand.http.401');
   if (status === 403) return uebersetze('editor.gegenstand.http.403');
   return uebersetze('editor.gegenstand.http.andere', { status });
@@ -194,8 +218,9 @@ export function zugangText(status: number | 'netz', uebersetze: Uebersetzer = t)
 /**
  * The text of a receipt (`GET /api/gegenstaende/quittung`): status, and for a held-back one the counts. The receipt can be
  * hand-written, so it is shortened like a dialog list: at most `MAX_DIALOG_ZEILEN` lines then "and N more", every
- * id / name / status shortened and made visible (`sichtbarKuerzen`). The longest text is under 3000 characters
- * whatever the file holds.
+ * id / name / status shortened and made visible (`sichtbarKuerzen`). The longest text is `QUITTUNG_MAX_ZEICHEN`
+ * characters whatever the file holds (worst case: ten lines of a name and a reason of 200 reversing marks each, every
+ * one shown as `<U+202E>`, see the test).
  */
 export function quittungText(q: { status: string; gehalten?: unknown; verworfen?: unknown }, name: (id: string) => string, uebersetze: Uebersetzer = t): string {
   const status = sichtbarKuerzen(String(q.status));
@@ -213,9 +238,9 @@ export function quittungText(q: { status: string; gehalten?: unknown; verworfen?
     for (const v of q.verworfen) {
       if (typeof v === 'object' && v !== null && typeof (v as { grund?: unknown }).grund === 'string') {
         const id = (v as { id?: unknown }).id;
-        const grund = sichtbarKuerzen((v as { grund: string }).grund);
+        const grundCode = (v as { grund: string }).grund;
         zeilen.push(() =>
-          uebersetze('editor.gegenstand.quittung.verworfen_eintrag', { name: typeof id === 'string' ? sichtbarKuerzen(name(id), MAX_KENNUNG_ANZEIGE * 2) : '?', grund: grundText(grund, uebersetze) })
+          uebersetze('editor.gegenstand.quittung.verworfen_eintrag', { name: typeof id === 'string' ? sichtbarKuerzen(name(id), MAX_KENNUNG_ANZEIGE * 2) : '?', grund: grundText(grundCode, uebersetze) })
         );
       }
     }
@@ -226,13 +251,29 @@ export function quittungText(q: { status: string; gehalten?: unknown; verworfen?
   return `${basis} ${sichtbar.join('; ')}`;
 }
 
+/**
+ * The longest `quittungText` can be, in UTF-16 units. Ten lines at most, each a name (80 characters, every one `<U+XXXX>`
+ * = 8 units, plus "…") and a reason (40 characters, the same), plus the status in the headline and "and N more".
+ * The measured worst case is about 10 800; this is the bound with room.
+ */
+export const QUITTUNG_MAX_ZEICHEN = 12000;
+
 /** Longest run of one id / name shown in a dialog; a hand-written id can be any length. */
 export const MAX_KENNUNG_ANZEIGE = 40;
 /** Lines a dialog lists; the rest is one line "and N more". */
 export const MAX_DIALOG_ZEILEN = 10;
 
-/** Characters that would hide or reorder text: control, format (bidi, zero-width), separators, surrogates, private use, invisible fillers. */
-const UNSICHTBAR = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}\p{Co}\u2800\u3164\u115f\u1160\u180e\ufffc\ufe00-\ufe0f]/u;
+/**
+ * Characters that would hide or reorder text, by Unicode rule and not one by one: control, format (bidi, zero-width),
+ * line / paragraph separators, surrogates, private use, noncharacters, every `Default_Ignorable_Code_Point` (the
+ * invisible fillers U+FFA0, U+3164, U+115F, U+1160, U+17B4, U+17B5, U+034F, variation selectors, tags ...), and the
+ * look-alike blanks the rules do not cover (braille blank, object replacement).
+ */
+const UNSICHTBAR = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}\p{Co}\p{Noncharacter_Code_Point}\p{Default_Ignorable_Code_Point}\u2800\ufffc]/u;
+/** Spaces other than the plain one (no-break, ideographic, en / em ...): they look like nothing in a name. */
+const ANDERES_LEER = /\p{Zs}/u;
+
+const istUnsichtbar = (c: string): boolean => UNSICHTBAR.test(c) || (c !== ' ' && ANDERES_LEER.test(c));
 
 /**
  * Text of a raw id or name for a dialog: at most `max` characters (then "…"), and every control / bidi /
@@ -242,7 +283,7 @@ export function sichtbarKuerzen(roh: string, max = MAX_KENNUNG_ANZEIGE): string 
   const zeichen = Array.from(roh);
   const kurz = zeichen
     .slice(0, max)
-    .map((c) => (UNSICHTBAR.test(c) ? `<U+${(c.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}>` : c))
+    .map((c) => (istUnsichtbar(c) ? `<U+${(c.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}>` : c))
     .join('');
   return zeichen.length > max ? `${kurz}…` : kurz;
 }

@@ -31,7 +31,12 @@ export interface ApiOptionen {
   /** Extra request headers (the proxy adds the token in the browser; a test sets `x-wov-token`). */
   kopf?: Record<string, string>;
   fetcher?: typeof fetch;
+  /** Milliseconds after which a request is given up (`ZEITGRENZE_MS` if unset); a test sets a short one. */
+  zeitgrenzeMs?: number;
 }
+
+/** A request that gets no answer is given up after this long: the buttons are free again and the author is told. */
+export const ZEITGRENZE_MS = 15000;
 
 const PFAD = '/api/gegenstaende';
 
@@ -55,6 +60,8 @@ export interface FehlerErgebnis {
 }
 export interface NetzErgebnis {
   art: 'netz';
+  /** True when the time limit ran out (no answer), false when the connection failed. */
+  zeit?: boolean;
 }
 
 export type LadeErgebnis = { art: 'ok'; stand: Stand } | FehlerErgebnis | NetzErgebnis;
@@ -102,39 +109,65 @@ const istObjekt = (v: unknown): v is Record<string, unknown> => typeof v === 'ob
 const textOderNull = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const textListe = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
-async function senden(o: ApiOptionen, methode: 'GET' | 'PUT', pfad: string, extra: { body?: string; hash?: string } = {}): Promise<Roh | null> {
+/** The connection failed (`zeit` false) or the time limit ran out (`zeit` true): no answer at all. */
+interface KeineAntwort {
+  netz: true;
+  zeit: boolean;
+}
+
+async function senden(o: ApiOptionen, methode: 'GET' | 'PUT', pfad: string, extra: { body?: string; hash?: string } = {}): Promise<Roh | KeineAntwort> {
   const kopf: Record<string, string> = { ...(o.kopf ?? {}) };
   if (extra.body !== undefined) kopf['Content-Type'] = 'application/json';
   if (extra.hash !== undefined) kopf['If-Match'] = `"${extra.hash}"`;
-  let antwort: Response;
-  let roh: string;
+  // One time limit for the whole exchange (request and body). The abort stops a real fetch; the race frees us
+  // even from a fetcher that ignores the signal and never answers.
+  const abbruch = new AbortController();
+  let zeit = false;
+  const uhr = setTimeout(() => {
+    zeit = true;
+    abbruch.abort();
+  }, o.zeitgrenzeMs ?? ZEITGRENZE_MS);
+  const austausch = (async (): Promise<{ status: number; roh: string; retryAfter: string | null } | null> => {
+    try {
+      const antwort = await (o.fetcher ?? fetch)(`${o.basis ?? ''}${pfad}`, {
+        method: methode,
+        headers: kopf,
+        cache: 'no-store',
+        signal: abbruch.signal,
+        ...(extra.body === undefined ? {} : { body: extra.body }),
+      });
+      return { status: antwort.status, roh: await antwort.text(), retryAfter: antwort.headers.get('retry-after') };
+    } catch {
+      return null;
+    }
+  })();
+  const stopp = new Promise<'zeit'>((aufloesen) => abbruch.signal.addEventListener('abort', () => aufloesen('zeit')));
+  let erg: Awaited<typeof austausch> | 'zeit';
   try {
-    antwort = await (o.fetcher ?? fetch)(`${o.basis ?? ''}${pfad}`, {
-      method: methode,
-      headers: kopf,
-      cache: 'no-store',
-      ...(extra.body === undefined ? {} : { body: extra.body }),
-    });
-    roh = await antwort.text();
-  } catch {
-    return null;
+    erg = await Promise.race([austausch, stopp]);
+  } finally {
+    clearTimeout(uhr);
   }
+  if (erg === 'zeit' || zeit) return { netz: true, zeit: true };
+  if (erg === null) return { netz: true, zeit: false };
   let daten: Record<string, unknown> = {};
   try {
-    const j: unknown = JSON.parse(roh);
+    const j: unknown = JSON.parse(erg.roh);
     if (istObjekt(j)) daten = j;
   } catch {
     /* not JSON (a proxy page): the status alone decides */
   }
-  return { status: antwort.status, daten, retryAfter: antwort.headers.get('retry-after') };
+  return { status: erg.status, daten, retryAfter: erg.retryAfter };
 }
+
+const netzVon = (r: KeineAntwort): NetzErgebnis => ({ art: 'netz', zeit: r.zeit });
 
 const fehlerVon = (r: Roh): FehlerErgebnis => ({ art: 'fehler', status: r.status, fehler: textOderNull(r.daten.fehler) });
 
 /** GET /api/gegenstaende: the document and its hash (the `If-Match` of the next PUT). */
 export async function ladeStand(o: ApiOptionen = {}): Promise<LadeErgebnis> {
   const r = await senden(o, 'GET', PFAD);
-  if (r === null) return { art: 'netz' };
+  if ('netz' in r) return netzVon(r);
   if (r.status !== 200 || typeof r.daten.text !== 'string' || typeof r.daten.hash !== 'string' || r.daten.hash === '') return fehlerVon(r);
   const lesung = leseGegenstandsDatei(r.daten.text);
   return {
@@ -156,7 +189,7 @@ export async function ladeStand(o: ApiOptionen = {}): Promise<LadeErgebnis> {
  */
 export async function speichereText(o: ApiOptionen, text: string, hash: string, bestaetigt = false): Promise<SpeicherErgebnis> {
   const r = await senden(o, 'PUT', `${PFAD}${bestaetigt ? '?bestaetigt=1' : ''}`, { body: text, hash });
-  if (r === null) return { art: 'netz' };
+  if ('netz' in r) return netzVon(r);
   const d = r.daten;
   if (r.status === 200 && d.ok === true && typeof d.hash === 'string') {
     return { art: 'ok', hash: d.hash, eintraege: typeof d.eintraege === 'number' ? d.eintraege : 0, entfernt: textListe(d.entfernt), entferntOhneId: textListe(d.entferntOhneId) };
@@ -224,7 +257,7 @@ export async function speichernMitBestaetigung(
 /** GET /api/gegenstaende/quittung: the receipt of the game server's watch, today mostly `keine`. */
 export async function ladeQuittung(o: ApiOptionen = {}): Promise<QuittungErgebnis> {
   const r = await senden(o, 'GET', `${PFAD}/quittung`);
-  if (r === null) return { art: 'netz' };
+  if ('netz' in r) return netzVon(r);
   if (r.status !== 200 || typeof r.daten.status !== 'string') return fehlerVon(r);
   const { ok: _ok, ...rest } = r.daten;
   void _ok;

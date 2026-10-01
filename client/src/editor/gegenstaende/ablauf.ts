@@ -6,14 +6,16 @@
  *  - that nothing from the dialog or the network escapes as an unhandled rejection (`speichereGefangen`,
  *    `ladeGefangen`);
  *  - what a reload means for the entry being edited (`pruefeKonflikt`): the server changed THIS entry while the
- *    author edited it, so neither version may win silently (`unterschiede` lists both).
+ *    author edited it. A three-way merge per field decides: a field only the server changed is taken, a field only
+ *    the draft changed is kept, a field both changed (differently) is the author's choice, so neither version
+ *    wins silently (`unterschiede` lists both).
  * Gegenstands-Maske (EG2 N1): DOM-freier Ablauf ums Speichern: Sperre des Knopfs, gefangene Fehler, Konflikt.
  */
 import { ID_MUSTER, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { STAT_IDS } from '@wov/shared/src/items/stats.js';
 import { ladeStand, speichernMitBestaetigung, type ApiOptionen, type LadeErgebnis, type SpeicherAblauf, type Stand } from './api';
 import { abhaengige, eintragZuFormular, ohneEintrag, type Formular } from './modell';
-import type { BestaetigungInfo } from './texte';
+import { konfliktInhalt, type BestaetigungInfo, type Uebersetzer } from './texte';
 
 // ── Save button ────────────────────────────────────────────────────────
 
@@ -131,8 +133,18 @@ export type KonfliktErgebnis =
   | { art: 'keiner' }
   /** The author has nothing of their own in the form (or it equals the server's): take the server's version, nothing is lost. */
   | { art: 'uebernehmen'; server: GegenstandsEintrag | null }
-  /** Both sides changed this entry: the author chooses. `server` null = the entry is gone on the server. */
-  | { art: 'konflikt'; server: GegenstandsEintrag | null; unterschiede: Unterschied[] };
+  /**
+   * Both sides changed the entry, but never the same field: `form` is the draft with the server's changes in; no choice
+   * is needed. `uebernommen` lists the fields taken from the server.
+   */
+  | { art: 'zusammen'; server: GegenstandsEintrag; form: Formular; uebernommen: string[] }
+  /**
+   * Both sides changed at least one field (differently), or the entry is gone on the server (`server` null): the author
+   * chooses. `unterschiede` lists only the fields in dispute (for a removed entry: the draft's fields, as the new entry
+   * it would become). `zusammen` is the draft with the server's changes to the OTHER fields in (null if the entry is
+   * gone), `uebernommen` names those fields: "keep mine" continues with `zusammen`.
+   */
+  | { art: 'konflikt'; server: GegenstandsEintrag | null; unterschiede: Unterschied[]; zusammen: Formular | null; uebernommen: string[] };
 
 const vektorText = (v: readonly string[]): string => (v.every((x) => x.trim() === '') ? '' : v.join(', '));
 
@@ -179,12 +191,38 @@ export function unterschiede(eigen: Formular, server: Formular): Unterschied[] {
 /** What a form says, without what only says where it came from (new / saved, text keys). */
 const inhalt = (f: Formular): string => JSON.stringify({ ...f, neu: false, nameSchluessel: null, beschreibungSchluessel: null });
 
+/** Copies ONE field (a key of `flach`) from `quelle` into `ziel`; a field that is several properties of the form copies all of them. */
+export function kopiereFeld(ziel: Formular, quelle: Formular, feld: string): void {
+  if (feld === 'id') return;
+  if (feld === 'haltePosition' || feld === 'halteRotation') ziel[feld] = [...quelle[feld]];
+  else if (feld.startsWith('wert.')) {
+    const stat = feld.slice('wert.'.length) as keyof Formular['werte'];
+    ziel.werte[stat] = quelle.werte[stat];
+  } else if (feld === 'rezept') {
+    ziel.hatRezept = quelle.hatRezept;
+    ziel.rezeptMenge = quelle.rezeptMenge;
+    ziel.zutaten = quelle.zutaten.map((z) => ({ ...z }));
+  } else (ziel as unknown as Record<string, unknown>)[feld] = (quelle as unknown as Record<string, unknown>)[feld];
+}
+
+/** The draft's fields that say anything (empty ones left out), as the rows of an entry the server has removed. */
+function entwurfZeilen(eigen: Formular): Unterschied[] {
+  return Object.entries(flach(eigen))
+    .filter(([feld, wert]) => feld === 'id' || wert !== '')
+    .map(([feld, wert]) => ({ feld, eigen: wert, server: '' }));
+}
+
 /**
  * The reload brought a new state of the file. Did it change the entry the author is editing?
  *  - `basis`: the saved version of the entry when the form was opened (null for a new entry);
  *  - `ausgewaehlt`: id of the saved entry being edited, null for a new one (then `form.id` is its id);
  *  - `entwurfGeaendert`: the form differs from what was opened.
  * Other entries changing is not a conflict: a save writes the whole file with the new state, so they stay.
+ * For THIS entry the check is a three-way comparison per field against `basis` (what the draft was made from):
+ *  - only the server changed the field: the server's value goes into the draft;
+ *  - only the draft changed it (or both changed it to the same value): the draft's value stays;
+ *  - both changed it, to different values: a conflict line, the author chooses.
+ * A new entry has no basis: every field that differs is in dispute.
  */
 export function pruefeKonflikt(a: {
   basis: GegenstandsEintrag | null;
@@ -204,5 +242,33 @@ export function pruefeKonflikt(a: {
   }
   const serverForm = server === null ? null : eintragZuFormular(server);
   if (!a.entwurfGeaendert || (serverForm !== null && inhalt(serverForm) === inhalt(a.form))) return { art: 'uebernehmen', server };
-  return { art: 'konflikt', server, unterschiede: serverForm === null ? [] : unterschiede(a.form, serverForm) };
+  if (server === null || serverForm === null) return { art: 'konflikt', server: null, unterschiede: entwurfZeilen(a.form), zusammen: null, uebernommen: [] };
+  if (a.basis === null) return { art: 'konflikt', server, unterschiede: unterschiede(a.form, serverForm), zusammen: a.form, uebernommen: [] };
+  const ausgang = flach(eintragZuFormular(a.basis));
+  const eigen = flach(a.form);
+  const vomServer = flach(serverForm);
+  const streit: Unterschied[] = [];
+  const uebernommen: string[] = [];
+  const zusammen: Formular = structuredClone(a.form);
+  for (const feld of Object.keys(eigen)) {
+    if (eigen[feld] === vomServer[feld] || vomServer[feld] === ausgang[feld]) continue; // the same, or only the draft changed it
+    if (eigen[feld] === ausgang[feld]) {
+      kopiereFeld(zusammen, serverForm, feld); // only the server changed it
+      uebernommen.push(feld);
+    } else streit.push({ feld, eigen: eigen[feld], server: vomServer[feld] });
+  }
+  if (streit.length === 0) return { art: 'zusammen', server, form: zusammen, uebernommen };
+  return { art: 'konflikt', server, unterschiede: streit, zusammen, uebernommen };
+}
+
+// ── The banner after a failed reload ───────────────────────────────────
+
+/**
+ * What the banner shows when a reload FAILED. If a conflict is open it stays: its lines and the two choices are shown
+ * again under the error line, so the buttons never vanish while saving is still locked by the conflict (`wahlknoepfe`).
+ */
+export function ladefehlerBanner(a: { fehlerText: string; konflikt: Extract<KonfliktErgebnis, { art: 'konflikt' }> | null }, uebersetze?: Uebersetzer): { zeilen: string[]; wahlknoepfe: boolean } {
+  if (a.konflikt === null) return { zeilen: [a.fehlerText], wahlknoepfe: false };
+  const inhaltK = konfliktInhalt(a.konflikt, uebersetze);
+  return { zeilen: [a.fehlerText, inhaltK.titel, ...inhaltK.zeilen, ...(inhaltK.weitere === null ? [] : [inhaltK.weitere])], wahlknoepfe: true };
 }

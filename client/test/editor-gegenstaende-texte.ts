@@ -11,6 +11,8 @@
  *      every file error, every mask reason, every receipt status and the access texts have a text
  *  [4] `seite.ts` and `texte.ts` carry no German or English plain text into the DOM (only `t()` results)
  *  [5] N1: the four text errors and the conflict lines (field labels, both versions, "and N more") in both languages
+ *  [6] N3: no raw id / name / code from server or file data reaches the screen without `sichtbarKuerzen` (syntax tree,
+ *      with the scanner biting); invisible fillers by Unicode rule; the receipt's real upper bound; removed-entry rows
  *
  * Run: npx tsx test/editor-gegenstaende-texte.ts   (from client/, cwd as in scripts/kern/client.mjs)
  */
@@ -29,10 +31,14 @@ import {
   fehlerErgebnisText,
   feldFehlerText,
   grundText,
+  QUITTUNG_MAX_ZEICHEN,
   konfliktInhalt,
   quittungText,
   routeFehlerText,
+  sichtbarKuerzen,
+  verworfenZeile,
   zugangText,
+  zusammengefuehrtText,
   type Uebersetzer,
 } from '../src/editor/gegenstaende/texte';
 
@@ -190,6 +196,10 @@ console.log('\n[2] Grund-Codes des Lesers (VERWERF_GRUENDE):');
   }
   check('Tabelle hat keine Ueberzaehligen', Object.keys(GRUND_SCHLUESSEL).length === VERWERF_GRUENDE.length);
   check('unbekannter Code: Ersatzmeldung nennt ihn', grundText('neuer-code', uebersetzer('de')).includes('neuer-code') && grundText('__proto__', uebersetzer('de')).includes('__proto__') && grundText('constructor', uebersetzer('en')).includes('constructor'));
+  {
+    const wild = grundText('x\u202E\uFFA0' + 'y'.repeat(500), uebersetzer('de'));
+    check('N3: ein unbekannter Code mit Umkehr- und Fuellzeichen und 500 Zeichen wird sichtbar und gekuerzt gezeigt', !/[\u202E\uFFA0]/.test(wild) && wild.includes('<U+202E><U+FFA0>') && wild.length < 200, String(wild.length));
+  }
 }
 
 // ── [3] route codes ──
@@ -257,7 +267,7 @@ console.log('\n[3] fehler-Codes der Route (am Syntaxbaum gelesen):');
   check('Quittung mit unbekanntem Zustand nennt ihn', quittungText({ status: 'seltsam' }, (id) => id, uebersetzer('de')).includes('seltsam'));
   {
     // EG2 N2, finding 3: a hand-written receipt must not flood the header; same helpers as the dialog
-    const GRENZE = 3000; // worst case: every character invisible, each shown as `<U+XXXX>` (8 characters): about 2100
+    const GRENZE = 3000; // ordinary ids and names; the real upper bound for hostile ones is QUITTUNG_MAX_ZEICHEN, checked in [6]
     const gross: Record<string, number> = {};
     for (let n = 0; n < 100000; n++) gross[`Eintrag${String(n).padStart(6, '0')}`] = n;
     const t1 = quittungText({ status: 'bestaetigung-noetig', gehalten: gross }, (id) => id, uebersetzer('de'));
@@ -268,13 +278,13 @@ console.log('\n[3] fehler-Codes der Route (am Syntaxbaum gelesen):');
     check('... hoechstens 10 Zeilen, dann "und 99990 weitere"', t1.split('; ').length === 11 && t1.endsWith('… und 99990 weitere') && t2.split('; ').length === 11 && t2.endsWith('… und 99990 weitere'), t1.slice(-60));
     const rlo = '‮'.repeat(500);
     const t3 = quittungText({ status: rlo, gehalten: { [rlo]: 1 }, verworfen: [{ id: rlo, grund: rlo }] }, (id) => id, uebersetzer('de'));
-    check('Umkehrzeichen sichtbar ersetzt, nichts davon roh, Laenge fest', !/[‪-‮⁦-⁩]/.test(t3) && t3.includes('<U+202E>') && t3.length < GRENZE, String(t3.length));
+    check('Umkehrzeichen sichtbar ersetzt, nichts davon roh, Laenge fest', !/[‪-‮⁦-⁩]/.test(t3) && t3.includes('<U+202E>') && t3.length < QUITTUNG_MAX_ZEICHEN, String(t3.length));
     const lang = 'x'.repeat(5000);
     const t4 = quittungText({ status: lang, gehalten: { [lang]: 2 } }, (id) => id, uebersetzer('en'));
     check('lange Kennungen und Namen werden gekuerzt', t4.length < GRENZE && !t4.includes('x'.repeat(200)), String(t4.length));
     check('kleine Quittung bleibt wie vorher (keine Kuerzung, kein "weitere")', quittungText({ status: 'bestaetigung-noetig', gehalten: { Holzaxt: 3 } }, () => 'Holzaxt', uebersetzer('de')) === `${de['editor.gegenstand.quittung.bestaetigung_noetig']} Holzaxt: 3 vorhanden.`);
   }
-  for (const s of [401, 403, 502, 'netz'] as const) {
+  for (const s of [401, 403, 502, 'netz', 'zeit'] as const) {
     check(`Zugangstext ${s}: nicht leer, ohne offenen Platzhalter, beide Sprachen`, [zugangText(s, uebersetzer('de')), zugangText(s, uebersetzer('en'))].every((x) => x.length > 10 && !x.includes('{')));
   }
   check('401/403 gehen vor dem freien Text der Vorschalter', fehlerErgebnisText({ status: 401, fehler: 'Token fehlt oder falsch' }, uebersetzer('de')) === zugangText(401, uebersetzer('de')) && fehlerErgebnisText({ status: 422, fehler: 'veraltet' }, uebersetzer('de')) === routeFehlerText('veraltet', uebersetzer('de')) && fehlerErgebnisText({ status: 502, fehler: null }, uebersetzer('en')).includes('502'));
@@ -320,6 +330,182 @@ console.log('\n[5] Textfehler und Konfliktzeilen (N1):');
     check(`${sprache}: Titel "geaendert" und Titel "entfernt" sind verschieden`, konfliktInhalt({ server: {}, unterschiede: [] }, uebersetzer(sprache)).titel !== konfliktInhalt({ server: null, unterschiede: [] }, uebersetzer(sprache)).titel);
     const wild = konfliktInhalt({ server: {}, unterschiede: [{ feld: 'nameDe', eigen: 'K'.repeat(5000) + '\u202E', server: 'a\u0000b' }] }, uebersetzer(sprache));
     check(`${sprache}: lange Werte werden gekuerzt, Steuer- und Umkehrzeichen sichtbar`, wild.zeilen[0].length < 400 && !/[\u202E\u0000]/.test(wild.zeilen[0]) && wild.zeilen[0].includes('<U+0000>'));
+  }
+}
+
+// ── [6] N3: every raw value on its way to the screen ──
+console.log('\n[6] Rohwerte auf dem Weg zum Bildschirm (N3):');
+
+/** Properties that carry a value of the server or of a file (an id, a name, a reason code, a status ...). */
+const ROH_EIGENSCHAFTEN = new Set(['id', 'grund', 'code', 'upload', 'anzeigename', 'name', 'dateiFehler', 'fehler', 'status', 'feld', 'item', 'eigen', 'server']);
+/** The same as bare names (`{ code }`, `${id}`); a bare name is looked up where it is declared (below). */
+const ROH_BEZEICHNER = new Set(['id', 'grund', 'code', 'upload', 'status', 'roh']);
+/**
+ * Calls that make a raw value visible and short: `sichtbarKuerzen` itself, helpers that call it (`zeileVon`, `grundText` ...,
+ * checked for that below) and the two local wrappers of `konfliktInhalt` (`feldName`, `wertAnzeige`).
+ */
+const SICHERE_AUFRUFE = new Set(['sichtbarKuerzen', 'zeileVon', 'grundText', 'routeFehlerText', 'verworfenZeile', 'feldFehlerText', 'fehlerErgebnisText', 'zugangText', 'quittungText', 'feldName', 'wertAnzeige']);
+/** A call that takes a value as TEXT for the screen (its own arguments are checked as display positions). */
+const SENKEN_AUFRUFE = new Set(['t', 'uebersetze', 'el', 'banner', 'meldung', 'knopf', 'zierTitel']);
+
+/** The raw values (as source text and line) that reach a display position without a safe call between them and it. */
+function ungesicherteAnzeigen(sf: ts.SourceFile): string[] {
+  const funde: string[] = [];
+  const name = (c: ts.CallExpression): string | null => (ts.isIdentifier(c.expression) ? c.expression.text : ts.isPropertyAccessExpression(c.expression) ? c.expression.name.text : null);
+  const deklarationen = new Map<string, ts.Node[]>();
+  besuche(sf, (n) => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) deklarationen.set(n.name.text, [...(deklarationen.get(n.name.text) ?? []), n.initializer]);
+    // a parameter typed as a number or as string literals only (no `string`) cannot carry free text
+    if (ts.isParameter(n) && ts.isIdentifier(n.name) && n.type && !/\bstring\b/.test(n.type.getText(sf).replace(/'[^']*'/g, ''))) deklarationen.set(n.name.text, [...(deklarationen.get(n.name.text) ?? []), n.type]);
+  });
+  /** A bare name is safe when every declaration of it in this file is safe (a safe call, a number type ...). */
+  const gesichert = (n: ts.Identifier): boolean => {
+    const ds = deklarationen.get(n.text);
+    return ds !== undefined && ds.length > 0 && ds.every((d) => ts.isTypeNode(d) || roh(d).length === 0);
+  };
+  /** Raw values inside `n` (also inside a callback: `.map((v) => ...)` builds text), not looking into a safe call, a text call or the CONDITION of a `?:` / `&&`. */
+  const roh = (n: ts.Node): ts.Node[] => {
+    if (ts.isCallExpression(n) && (SICHERE_AUFRUFE.has(name(n) ?? '') || SENKEN_AUFRUFE.has(name(n) ?? ''))) return [];
+    if (ts.isConditionalExpression(n)) return [...roh(n.whenTrue), ...roh(n.whenFalse)];
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) return roh(n.right);
+    if (ts.isPropertyAccessExpression(n) && ROH_EIGENSCHAFTEN.has(n.name.text)) return [n];
+    if (ts.isIdentifier(n) && ROH_BEZEICHNER.has(n.text) && !(ts.isCallExpression(n.parent) && n.parent.expression === n) && !gesichert(n)) return [n];
+    const aus: ts.Node[] = [];
+    ts.forEachChild(n, (k) => {
+      aus.push(...roh(k));
+    });
+    return aus;
+  };
+  const ort = (x: ts.Node): string => `${x.getText(sf)}@${sf.getLineAndCharacterOfPosition(x.getStart(sf)).line + 1}`;
+  const pruefe = (n: ts.Node | undefined): void => {
+    if (!n) return;
+    for (const x of roh(n)) funde.push(ort(x));
+  };
+  besuche(sf, (n) => {
+    if (ts.isCallExpression(n) && SENKEN_AUFRUFE.has(name(n) ?? '')) {
+      const nm = name(n) as string;
+      if (nm === 't' || nm === 'uebersetze') {
+        const opt = n.arguments[1];
+        if (opt && ts.isObjectLiteralExpression(opt)) {
+          for (const p of opt.properties) {
+            if (ts.isShorthandPropertyAssignment(p)) {
+              if (ROH_BEZEICHNER.has(p.name.text) && !gesichert(p.name)) funde.push(ort(p));
+            } else if (ts.isPropertyAssignment(p)) pruefe(p.initializer);
+          }
+        }
+      } else if (nm === 'el') pruefe(n.arguments[2]);
+      else if (nm === 'banner') {
+        const liste = n.arguments[0];
+        if (liste && ts.isArrayLiteralExpression(liste)) for (const e of liste.elements) pruefe(ts.isSpreadElement(e) ? e.expression : e);
+        else pruefe(liste);
+      } else pruefe(n.arguments[0]);
+    }
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(n.left) && n.left.name.text === 'textContent') pruefe(n.right);
+    if (ts.isTemplateExpression(n)) for (const sp of n.templateSpans) pruefe(sp.expression);
+  });
+  return funde;
+}
+{
+  const probe = (code: string): string[] => ungesicherteAnzeigen(ts.createSourceFile('probe.ts', code, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS));
+  check('der Anzeige-Scanner beisst: v.id in einer Vorlage', probe('const z = `${v.id}: x`;').length === 1);
+  check('... v.id als Wert eines t()-Platzhalters', probe("t('k', { liste: v.id });").length === 1);
+  check('... ein Kurzschrift-Platzhalter { code }', probe("uebersetze('k', { code });").length === 1);
+  check('... v.id in banner([...]) und in textContent', probe('this.banner([v.id]); x.textContent = e.id;').length === 2);
+  check('... eine Vorlage MIT Aufruf, der nicht sicher ist (String(v.id))', probe('const z = `${String(v.id)}`;').length === 1);
+  check('... in einem Rueckruf, der Text baut (banner([...liste.map((v) => v.id)]) und `${l.map((v) => v.id)}`)', probe('this.banner([...l.map((v) => v.id + 1)]);').length === 1 && probe('const z = `${l.map((v) => `${v.id}`).join(1)}`;').length >= 1);
+  check('... verschachtelt in einer Verkettung', probe("el('div', '', 'a' + e.name);").length === 1);
+  check('... ein nackter Name, der aus Rohdaten stammt (const k = v.id; ... { k } ist nicht erfasst, aber `{ code }` mit Parameter string ist es)', probe("function f(code: string) { return uebersetze('k', { code }); }").length === 1 && probe("function f(status: number | 'netz') { return uebersetze('k', { status }); }").length === 0 && probe("const code = sichtbarKuerzen(x.id); uebersetze('k', { code });").length === 0 && probe("const code = x.id; uebersetze('k', { code });").length === 1);
+  check('der Scanner laesst durch: sichtbarKuerzen(v.id), verworfenZeile(v), Zahlen, Vergleiche, die Bedingung eines ?:', probe("const z = `${sichtbarKuerzen(v.id)} ${v.index}`; t('k', { a: sichtbarKuerzen(c), n: 3 }); if (e.id === id) return; banner([verworfenZeile(v)]); const z = `${v.id === null ? '#' : sichtbarKuerzen(v.id)}`;").length === 0);
+  {
+    // the names the scanner trusts must really call `sichtbarKuerzen` (directly or through another trusted one)
+    const texteQuelle = QUELLEN[dateien.indexOf('texte.ts')];
+    const koerper = new Map<string, ts.Node>();
+    besuche(texteQuelle, (n) => {
+      if (ts.isFunctionDeclaration(n) && n.name) koerper.set(n.name.text, n);
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer && (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))) koerper.set(n.name.text, n.initializer);
+    });
+    const ruft = (n: ts.Node, ziel: Set<string>): boolean => {
+      let ja = false;
+      besuche(n, (k) => {
+        if (ts.isCallExpression(k) && ts.isIdentifier(k.expression) && ziel.has(k.expression.text)) ja = true;
+      });
+      return ja;
+    };
+    const vertraut = ['zeileVon', 'grundText', 'routeFehlerText', 'verworfenZeile', 'feldName', 'wertAnzeige', 'quittungText'];
+    const ohne = vertraut.filter((v) => !koerper.has(v) || !ruft(koerper.get(v) as ts.Node, new Set(['sichtbarKuerzen', ...vertraut.filter((w) => w !== v)])));
+    check('die dem Scanner vertrauten Helfer rufen sichtbarKuerzen wirklich auf', ohne.length === 0, ohne.join(','));
+  }
+  for (const d of ['seite.ts', 'texte.ts']) {
+    const funde = ungesicherteAnzeigen(QUELLEN[dateien.indexOf(d)]);
+    check(`${d}: kein Rohwert aus Server- oder Dateidaten erreicht den Bildschirm ohne sichtbarKuerzen`, funde.length === 0, funde.join(' | '));
+  }
+}
+
+// invisible characters by rule
+{
+  const FUELLER = [0xffa0, 0x3164, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x034f, 0x180b, 0x180e, 0x2800, 0x00a0, 0x3000, 0x2007, 0x200b, 0x202e, 0xfe0f, 0x00ad, 0x2064, 0xe0041, 0x1d173, 0xfffe, 0xfdd0, 0x2028, 0x0085, 0x1680, 0x205f];
+  const alle = FUELLER.map((c) => ({ c, aus: sichtbarKuerzen(`a${String.fromCodePoint(c)}b`) }));
+  const roh = alle.filter((x) => !x.aus.includes(`<U+${x.c.toString(16).toUpperCase().padStart(4, '0')}>`));
+  check(`die bekannten unsichtbaren Fuell- und Leerzeichen (${FUELLER.length}) werden alle als <U+XXXX> gezeigt`, roh.length === 0, roh.map((x) => x.c.toString(16)).join(','));
+  check('Hangul-Filler U+FFA0, U+17B4 und U+034F ausdruecklich (N2-Angriff, Info 4)', sichtbarKuerzen('ﾠ') === '<U+FFA0>' && sichtbarKuerzen('឴') === '<U+17B4>' && sichtbarKuerzen('͏') === '<U+034F>');
+  check('gewoehnlicher Text bleibt, wie er ist (Umlaute, CJK, Emoji, Leerzeichen, Bindestrich)', sichtbarKuerzen('Äxte aus Eisen – 日本語 🌾 x-1') === 'Äxte aus Eisen – 日本語 🌾 x-1');
+  // by rule over the whole code space: nothing with one of these properties gets through
+  const regeln: Array<[string, RegExp]> = [
+    ['Default_Ignorable', /\p{Default_Ignorable_Code_Point}/u],
+    ['Cf', /\p{Cf}/u],
+    ['Cc', /\p{Cc}/u],
+    ['Co', /\p{Co}/u],
+    ['Zl/Zp', /[\p{Zl}\p{Zp}]/u],
+    ['Noncharacter', /\p{Noncharacter_Code_Point}/u],
+    ['Zs (ausser Leerzeichen)', /\p{Zs}/u],
+  ];
+  const durch: string[] = [];
+  let pruefungen = 0;
+  for (let c = 0; c <= 0x10ffff; c++) {
+    if (c >= 0xd800 && c <= 0xdfff) continue;
+    const z = String.fromCodePoint(c);
+    for (const [name, re] of regeln) {
+      if (!re.test(z) || (name.startsWith('Zs') && c === 0x20)) continue;
+      pruefungen++;
+      if (sichtbarKuerzen(z) === z && durch.length < 10) durch.push(`${name}:${c.toString(16)}`);
+    }
+  }
+  check(`ueber den ganzen Zeichenraum: kein Zeichen dieser Kategorien (${pruefungen} Treffer) laeuft unveraendert durch`, durch.length === 0 && pruefungen > 3000, durch.join(','));
+}
+
+// the receipt's real upper bound
+{
+  const RLO = '‮'.repeat(200);
+  const verworfen = Array.from({ length: 100000 }, () => ({ id: RLO, grund: RLO }));
+  const gehalten: Record<string, number> = {};
+  for (let n = 0; n < 100000; n++) gehalten[`${RLO}${n}`] = n;
+  for (const sprache of ['de', 'en'] as const) {
+    const a = quittungText({ status: '‮'.repeat(100000), verworfen }, (id) => id, uebersetzer(sprache));
+    const b = quittungText({ status: 'seltsam', gehalten, verworfen }, (id) => id, uebersetzer(sprache));
+    const c = quittungText({ status: 'verworfen', verworfen }, (id) => id, uebersetzer(sprache));
+    const d = quittungText({ status: '‮'.repeat(100000), gehalten }, (id) => id, uebersetzer(sprache));
+    const maximal = Math.max(a.length, b.length, c.length, d.length);
+    check(`${sprache}: Schlimmstfall des Angriffs (200 x U+202E in id, grund und status, 100000 Eintraege) bleibt unter QUITTUNG_MAX_ZEICHEN (${QUITTUNG_MAX_ZEICHEN}): ${maximal}`, maximal <= QUITTUNG_MAX_ZEICHEN, String(maximal));
+    check(`${sprache}: die Grenze ist nicht lose (der Schlimmstfall erreicht mehr als 80 % davon, sonst stimmt die Zusage nicht mehr)`, maximal > QUITTUNG_MAX_ZEICHEN * 0.8, String(maximal));
+    check(`${sprache}: im Schlimmstfall steht kein Umkehrzeichen roh in der Ausgabe`, ![a, b, c, d].some((x) => /[‪-‮⁦-⁩]/.test(x)));
+  }
+  check('die alte Zusage "unter 3000 Zeichen" steht nirgends mehr in texte.ts', !readFileSync(resolve(ORDNER, 'texte.ts'), 'utf-8').includes('under 3000'));
+}
+
+// the rows of a verworfen entry, a removed entry and a merge
+{
+  for (const sprache of ['de', 'en'] as const) {
+    const u = uebersetzer(sprache);
+    const z = verworfenZeile({ index: 2, id: '‮abcﾠ' + 'x'.repeat(100), grund: 'id-doppelt' }, u);
+    check(`${sprache}: verworfenZeile: die Kennung ist sichtbar gemacht und gekuerzt, der Grund uebersetzt`, z.startsWith('<U+202E>abc<U+FFA0>') && !/[‮ﾠ]/.test(z) && z.includes(katalog(sprache)[GRUND_SCHLUESSEL['id-doppelt']]) && z.length < 200, z);
+    check(`${sprache}: verworfenZeile ohne Kennung nennt die Position`, verworfenZeile({ index: 7, id: null, grund: 'id-doppelt' }, u).startsWith('#7: '));
+    check(`${sprache}: verworfenZeile mit unbekanntem Grund mit Umkehrzeichen: sichtbar`, !/‮/.test(verworfenZeile({ index: 0, id: 'A', grund: 'neu‮' }, u)));
+    const entf = konfliktInhalt({ server: null, unterschiede: [{ feld: 'nameDe', eigen: 'Meine Axt', server: '' }, { feld: 'gewicht', eigen: '9', server: '' }] }, u);
+    check(`${sprache}: Konflikt bei entferntem Eintrag: eine Zeile je Feld des Entwurfs, mit Wert, ohne Server-Fassung`, entf.zeilen.length === 2 && entf.zeilen[0].includes('Meine Axt') && entf.zeilen[1].includes('9') && !entf.zeilen.join('').includes(katalog(sprache)['editor.gegenstand.konflikt.leer']) && entf.zeilen[0] !== konfliktInhalt({ server: {}, unterschiede: [{ feld: 'nameDe', eigen: 'Meine Axt', server: '' }] }, u).zeilen[0], entf.zeilen.join(' / '));
+    check(`${sprache}: zusammengefuehrtText: nichts = null, sonst die Feldnamen`, zusammengefuehrtText([], u) === null && (zusammengefuehrtText(['gewicht', 'wert.damage'], u) ?? '').includes(katalog(sprache)['editor.gegenstand.feld.gewicht']) && !(zusammengefuehrtText(['gewicht'], u) ?? '').includes('{'));
+    const viele = zusammengefuehrtText(Array.from({ length: 30 }, () => 'gewicht'), u) ?? '';
+    check(`${sprache}: zusammengefuehrtText mit 30 Feldern nennt 12 und den Rest`, viele.includes('18') && (viele.match(new RegExp(katalog(sprache)['editor.gegenstand.feld.gewicht'], 'g')) ?? []).length === 12, viele);
+    check(`${sprache}: zusammengefuehrtText: ein fremdes Feld mit Umkehrzeichen wird sichtbar`, !/‮/.test(zusammengefuehrtText(['x‮'], u) ?? ''));
   }
 }
 

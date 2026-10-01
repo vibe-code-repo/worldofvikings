@@ -18,7 +18,7 @@ import type { TranslationKey } from '../../i18n';
 import { F, M, SCHRIFT, beschriftungStil, el, grundregelnEinhaengen, knopf, stil, zierTitel } from '../design';
 import { aktuelleSprache, t } from '../i18n';
 import { ladeQuittung, type ApiOptionen, type Stand } from './api';
-import { entferneGegenstand, ladeGefangen, pruefeKonflikt, schnappschuss, speichereSchnappschuss, speicherSperre, type KonfliktErgebnis } from './ablauf';
+import { entferneGegenstand, ladeGefangen, ladefehlerBanner, pruefeKonflikt, schnappschuss, speichereSchnappschuss, speicherSperre, type KonfliktErgebnis } from './ablauf';
 import {
   ANIMATIONSSAETZE,
   GEGENSTANDS_TYPEN,
@@ -39,7 +39,21 @@ import {
   type Formular,
   type Vektor3,
 } from './modell';
-import { abhaengigkeitsInhalt, bestaetigungsInhalt, feldFehlerText, konfliktInhalt, fehlerErgebnisText, grundText, quittungText, routeFehlerText, zugangText, type BestaetigungInfo } from './texte';
+import {
+  abhaengigkeitsInhalt,
+  bestaetigungsInhalt,
+  feldFehlerText,
+  konfliktInhalt,
+  fehlerErgebnisText,
+  grundText,
+  quittungText,
+  routeFehlerText,
+  sichtbarKuerzen,
+  verworfenZeile,
+  zugangText,
+  zusammengefuehrtText,
+  type BestaetigungInfo,
+} from './texte';
 
 const Z = 9000;
 
@@ -242,7 +256,10 @@ class GegenstandsSeite {
     try {
       const erg = await ladeGefangen(this.api);
       if (erg.art !== 'ok') {
-        this.banner([erg.art === 'ausnahme' ? t('editor.gegenstand.seite.unerwartet') : erg.art === 'netz' ? zugangText('netz') : fehlerErgebnisText(erg)]);
+        const fehlerText = erg.art === 'ausnahme' ? t('editor.gegenstand.seite.unerwartet') : erg.art === 'netz' ? zugangText(erg.zeit === true ? 'zeit' : 'netz') : fehlerErgebnisText(erg);
+        // An open conflict stays decidable: its lines and the two choices are drawn again under the error.
+        const b = ladefehlerBanner({ fehlerText, konflikt: this.konflikt });
+        this.banner(b.zeilen, b.wahlknoepfe ? [this.wahlKnoepfe()] : []);
         this.meldung('', true);
         return;
       }
@@ -256,7 +273,7 @@ class GegenstandsSeite {
         zeilen.push(
           t('editor.gegenstand.seite.verworfen_hinweis', {
             anzahl: erg.stand.verworfen.length,
-            liste: erg.stand.verworfen.map((v) => `${v.id ?? `#${v.index}`}: ${grundText(v.grund)}`).join('; '),
+            liste: erg.stand.verworfen.map((v) => verworfenZeile(v)).join('; '),
           })
         );
       }
@@ -265,10 +282,13 @@ class GegenstandsSeite {
         : { art: 'keiner' };
       this.konflikt = k.art === 'konflikt' ? k : null;
       if (k.art === 'uebernehmen' && k.server === null) zeilen.push(t('editor.gegenstand.seite.entfernt_woanders'));
+      const zusammengefuehrt = k.art === 'zusammen' || k.art === 'konflikt' ? zusammengefuehrtText(k.uebernommen) : null;
+      if (zusammengefuehrt !== null) zeilen.push(zusammengefuehrt);
       if (this.konflikt) this.zeigeKonflikt(zeilen);
       else this.banner(zeilen);
       this.meldung('');
       if (k.art === 'uebernehmen') this.setzeForm(k.server ? eintragZuFormular(k.server) : null, k.server ? k.server.id : null);
+      else if (k.art === 'zusammen') this.uebernimmZusammen(k.form, k.server);
       else {
         this.zeichneListe();
         this.zeichneForm();
@@ -285,12 +305,29 @@ class GegenstandsSeite {
     const k = this.konflikt;
     if (!k) return;
     const inhalt = konfliktInhalt(k);
+    this.banner([...vorher, inhalt.titel, ...inhalt.zeilen, ...(inhalt.weitere === null ? [] : [inhalt.weitere])], [this.wahlKnoepfe()]);
+  }
+
+  /** The two ways out of a conflict. */
+  private wahlKnoepfe(): HTMLElement {
     const wahl = el('div', stil({ display: 'flex', gap: '8px', 'flex-wrap': 'wrap' }));
     wahl.append(
       knopf(t('editor.gegenstand.konflikt.eigene_behalten'), () => this.eigeneBehalten(), { hoehe: M.knopfHoeheKlein }),
       knopf(t('editor.gegenstand.konflikt.server_uebernehmen'), () => this.serverUebernehmen(), { hoehe: M.knopfHoeheKlein })
     );
-    this.banner([...vorher, inhalt.titel, ...inhalt.zeilen, ...(inhalt.weitere === null ? [] : [inhalt.weitere])], [wahl]);
+    return wahl;
+  }
+
+  /**
+   * The server changed other fields of the open entry and none the draft changed too: the draft now carries those
+   * changes, the saved version it is compared with is the server's, and the form still counts as edited.
+   */
+  private uebernimmZusammen(f: Formular, server: GegenstandsEintrag): void {
+    this.form = f;
+    this.basis = server;
+    this.formAusgang = JSON.stringify(eintragZuFormular(server));
+    this.zeichneListe();
+    this.zeichneForm();
   }
 
   /** Keep the draft: the state loaded just now is its new base, saving overwrites the server's version of this entry. */
@@ -301,6 +338,8 @@ class GegenstandsSeite {
     if (k.server === null) {
       this.ausgewaehlt = null;
       this.form.neu = true;
+    } else if (k.zusammen !== null) {
+      this.form = k.zusammen; // the draft with the server's changes to the fields the author did not touch
     }
     this.basis = this.ausgewaehlt === null ? null : k.server;
     this.banner([]);
@@ -346,9 +385,9 @@ class GegenstandsSeite {
         'div',
         stil({ padding: '8px 10px', 'border-radius': `${M.radiusKlein}px`, cursor: 'pointer', border: `1px solid ${aktiv ? F.wahlRand : 'transparent'}`, background: aktiv ? F.wahlFlaeche : 'transparent' })
       );
-      zeile.appendChild(el('div', stil({ 'font-weight': '500' }), anzeigeName(e)));
+      zeile.appendChild(el('div', stil({ 'font-weight': '500' }), sichtbarKuerzen(anzeigeName(e), 80)));
       const unten = el('div', stil({ display: 'flex', gap: '8px', 'font-size': '11px', color: F.gedimmt, 'font-family': SCHRIFT.mono }));
-      unten.appendChild(el('span', '', e.id));
+      unten.appendChild(el('span', '', sichtbarKuerzen(e.id)));
       if (modellFehlt(e.modell.upload)) unten.appendChild(el('span', stil({ color: F.warnText, 'font-family': SCHRIFT.text }), t('editor.gegenstand.seite.modell_fehlt')));
       zeile.appendChild(unten);
       zeile.onclick = () => this.waehle(e.id);
@@ -474,13 +513,13 @@ class GegenstandsSeite {
     return i;
   }
 
-  private auswahl<T extends string>(werte: ReadonlyArray<{ id: T; name: string }>, gewaehlt: T, bei: (id: T) => void): HTMLSelectElement {
+  private auswahl<T extends string>(werte: ReadonlyArray<{ id: T; text: string }>, gewaehlt: T, bei: (id: T) => void): HTMLSelectElement {
     const s = el(
       'select',
       stil({ width: '100%', height: '32px', padding: '0 8px', background: F.feld, border: `1px solid ${F.randFeld}`, 'border-radius': `${M.radiusKlein}px`, color: F.text, 'font-family': SCHRIFT.text, 'font-size': '13px' })
     );
     for (const w of werte) {
-      const o = el('option', '', w.name);
+      const o = el('option', '', w.text);
       o.value = w.id;
       s.appendChild(o);
     }
@@ -527,11 +566,11 @@ class GegenstandsSeite {
     const allgemein = this.abschnitt(
       'editor.gegenstand.abschnitt.allgemein',
       this.zeile('id', 'editor.gegenstand.feld.id', idFeld, idAenderbar(f) ? t('editor.gegenstand.feld.id_hinweis_neu') : t('editor.gegenstand.feld.id_hinweis_fest')),
-      this.zeile('typ', 'editor.gegenstand.feld.typ', this.auswahl(GEGENSTANDS_TYPEN.map((id) => ({ id, name: t(TYP_SCHLUESSEL[id]) })), f.typ, (v) => (f.typ = v))),
+      this.zeile('typ', 'editor.gegenstand.feld.typ', this.auswahl(GEGENSTANDS_TYPEN.map((id) => ({ id, text: t(TYP_SCHLUESSEL[id]) })), f.typ, (v) => (f.typ = v))),
       this.zeile('stapel', 'editor.gegenstand.feld.stapel', this.eingabe(f.stapel, (v) => (f.stapel = v), { mono: true })),
       this.zeile('gewicht', 'editor.gegenstand.feld.gewicht', this.eingabe(f.gewicht, (v) => (f.gewicht = v), { mono: true })),
       this.zeile('itemLevel', 'editor.gegenstand.feld.item_level', this.eingabe(f.itemLevel, (v) => (f.itemLevel = v), { mono: true })),
-      this.zeile('rarity', 'editor.gegenstand.feld.rarity', this.auswahl(SELTENHEITEN.map((id) => ({ id, name: t(RARITY_SCHLUESSEL[id]) })), f.rarity, (v) => (f.rarity = v))),
+      this.zeile('rarity', 'editor.gegenstand.feld.rarity', this.auswahl(SELTENHEITEN.map((id) => ({ id, text: t(RARITY_SCHLUESSEL[id]) })), f.rarity, (v) => (f.rarity = v))),
       this.zeile('symbol', 'editor.gegenstand.feld.symbol', this.eingabe(f.symbol, (v) => (f.symbol = v), { mono: true }))
     );
 
@@ -548,9 +587,9 @@ class GegenstandsSeite {
 
     // Model
     const uploads = uploadedModelRegistry.uploadedModelEntries();
-    const optionen: Array<{ id: string; name: string }> = [{ id: '', name: t('editor.gegenstand.modell.keins') }];
-    for (const u of uploads) optionen.push({ id: `${uploadedModelRegistry.UPLOAD_MODEL_PREFIX}${u.name}`, name: `${u.anzeigename} (${u.name})` });
-    if (f.upload !== '' && !optionen.some((o) => o.id === f.upload)) optionen.push({ id: f.upload, name: t('editor.gegenstand.modell.fehlt_option', { upload: f.upload }) });
+    const optionen: Array<{ id: string; text: string }> = [{ id: '', text: t('editor.gegenstand.modell.keins') }];
+    for (const u of uploads) optionen.push({ id: uploadedModelRegistry.UPLOAD_MODEL_PREFIX + u.name, text: `${sichtbarKuerzen(u.anzeigename, 80)} (${sichtbarKuerzen(u.name)})` });
+    if (f.upload !== '' && !optionen.some((o) => o.id === f.upload)) optionen.push({ id: f.upload, text: t('editor.gegenstand.modell.fehlt_option', { upload: sichtbarKuerzen(f.upload, 80) }) });
     const modell = this.abschnitt(
       'editor.gegenstand.abschnitt.modell',
       this.zeile('upload', 'editor.gegenstand.feld.upload', this.auswahl(optionen, f.upload, (v) => (f.upload = v)), modellFehlt(f.upload) ? t('editor.gegenstand.seite.modell_fehlt') : undefined),
@@ -562,7 +601,7 @@ class GegenstandsSeite {
         'animationsSatz',
         'editor.gegenstand.feld.animations_satz',
         this.auswahl<string>(
-          [{ id: '', name: t('editor.gegenstand.satz.keiner') }, ...ANIMATIONSSAETZE.map((id) => ({ id: id as string, name: t(SATZ_SCHLUESSEL[id]) }))],
+          [{ id: '', text: t('editor.gegenstand.satz.keiner') }, ...ANIMATIONSSAETZE.map((id) => ({ id: id as string, text: t(SATZ_SCHLUESSEL[id]) }))],
           f.animationsSatz,
           (v) => (f.animationsSatz = v as Formular['animationsSatz'])
         )
@@ -702,7 +741,7 @@ class GegenstandsSeite {
       case 'verworfen':
         this.banner([
           t('editor.gegenstand.seite.verworfen_liste', { anzahl: erg.verworfen.length }),
-          ...erg.verworfen.map((v) => `${v.id ?? `#${v.index}`}: ${grundText(v.grund)}`),
+          ...erg.verworfen.map((v) => verworfenZeile(v)),
         ]);
         this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
         break;
@@ -715,7 +754,7 @@ class GegenstandsSeite {
         this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
         break;
       case 'netz':
-        this.banner([zugangText('netz')]);
+        this.banner([zugangText(erg.zeit === true ? 'zeit' : 'netz')]);
         this.meldung(t('editor.gegenstand.seite.nicht_gespeichert'), true);
         break;
       case 'fehler':

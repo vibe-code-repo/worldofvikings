@@ -11,7 +11,11 @@
  *  [4] finding 5 end to end against an in-memory server with the route's `If-Match` rule: 412, reload, both choices
  *  [6] EG2 N2: removal builds list and hash from ONE snapshot; a foreign PUT and a reload in the dialog give 412
  *  [5] the wiring in `seite.ts` on the syntax tree: the conflict blocks saving, the load runs the check, every
- *      promise of a button goes through `sicher`, the removal asks about dependents BEFORE it sends
+ *      promise of a button goes through `sicher`, the removal asks about dependents BEFORE it sends; no read of a
+ *      hash anywhere in seite.ts (N3: on the syntax tree, not a text pattern)
+ *  [7] EG2 N3: a request that never answers is given up (time limit), buttons free, own message
+ *  [8] EG2 N3: a failed reload keeps an open conflict decidable (banner with both choices)
+ *  [9] EG2 N3 (N1 finding 4/5): three-way merge per field; a removed entry shows the draft's fields
  *
  * Run: npx tsx test/editor-gegenstaende-ablauf.ts   (from client/, cwd as in scripts/kern/client.mjs)
  */
@@ -21,8 +25,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
 import { leseGegenstandsDatei, schreibeGegenstandsDatei, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
-import { entferneGegenstand, ladeGefangen, pruefeKonflikt, schnappschuss, speichereGefangen, speicherSperre, unterschiede } from '../src/editor/gegenstaende/ablauf';
-import { ladeStand, speichernMitBestaetigung, speichere } from '../src/editor/gegenstaende/api';
+import { entferneGegenstand, kopiereFeld, ladeGefangen, ladefehlerBanner, pruefeKonflikt, schnappschuss, speichereGefangen, speicherSperre, unterschiede } from '../src/editor/gegenstaende/ablauf';
+import { ZEITGRENZE_MS, ladeQuittung, ladeStand, speichernMitBestaetigung, speichere } from '../src/editor/gegenstaende/api';
 import { eintragZuFormular, formularZuEintrag, mitEintrag, type Formular } from '../src/editor/gegenstaende/modell';
 
 let fehler = 0;
@@ -128,7 +132,7 @@ console.log('\n[3] Konfliktpruefung (Befund 5):');
     if (k.art === 'konflikt') {
       const u = k.unterschiede.find((x) => x.feld === 'nameDe');
       check('der Konflikt nennt das Feld mit BEIDEN Fassungen (eigene und Server)', u !== undefined && u.eigen === 'Meine Axt' && u.server === 'Axt vom Server', JSON.stringify(k.unterschiede));
-      check('und nur die Felder, in denen beide sich unterscheiden (der Server aenderte den Namen in beiden Sprachen, das Gewicht blieb gleich)', k.unterschiede.every((x) => x.eigen !== x.server) && gleich(k.unterschiede.map((x) => x.feld), ['nameDe', 'nameEn']), JSON.stringify(k.unterschiede));
+      check('und nur das Feld, das BEIDE geaendert haben (N3: der Server aenderte auch nameEn, der Entwurf nicht: das geht ohne Frage in den Entwurf)', gleich(k.unterschiede.map((x) => x.feld), ['nameDe']) && gleich(k.uebernommen, ['nameEn']) && k.zusammen?.nameEn === 'Axt vom Server', JSON.stringify(k.unterschiede));
       check('die Server-Fassung steht bereit', k.server !== null && k.server.texte['inhalt.gegenstand.Axt.name'].de === 'Axt vom Server');
     }
   }
@@ -332,16 +336,34 @@ console.log('\n[5] Verdrahtung in seite.ts (Syntaxbaum):');
     if (ts.isMethodDeclaration(n) && ts.isIdentifier(n.name)) methoden.set(n.name.text, n);
   });
   const rumpf = (name: string): string => methoden.get(name)?.getText(sf) ?? '';
+  /** True if the node reads something called `hash`: `x.hash`, `x['hash']`, `const { hash } = x`, `{ hash }` (EG2 N3: syntax tree, not a text pattern). */
+  const liestHash = (n: ts.Node): boolean => {
+    let gefunden = false;
+    besuche(n, (k) => {
+      if (ts.isPropertyAccessExpression(k) && k.name.text === 'hash') gefunden = true;
+      if (ts.isElementAccessExpression(k) && ts.isStringLiteralLike(k.argumentExpression) && k.argumentExpression.text === 'hash') gefunden = true;
+      if (ts.isBindingElement(k) && ((k.propertyName !== undefined && ts.isIdentifier(k.propertyName) && k.propertyName.text === 'hash') || (k.propertyName === undefined && ts.isIdentifier(k.name) && k.name.text === 'hash'))) gefunden = true;
+      if (ts.isShorthandPropertyAssignment(k) && k.name.text === 'hash') gefunden = true;
+    });
+    return gefunden;
+  };
+  const probeLiestHash = (code: string): boolean => liestHash(ts.createSourceFile('probe.ts', code, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS));
+  check('der Hash-Scanner beisst: this.stand.hash, const { hash } = this.stand, x["hash"], { hash }, Umbenennung', probeLiestHash('const a = this.stand.hash;') && probeLiestHash('const { hash } = this.stand;') && probeLiestHash("const a = x['hash'];") && probeLiestHash('f({ hash });') && probeLiestHash('const { hash: h } = this.stand;') && probeLiestHash('const a = this.stand?.hash;'));
+  check('... und laesst Namen ohne Lesung durch (hashVon, ein Kommentar, ein Text)', !probeLiestHash('const hashVon = 1; // .hash\nconst t = "x.hash";'));
+  const hashFrei = (name: string): boolean => methoden.has(name) && !liestHash(methoden.get(name) as ts.Node);
   check('die Methoden sind da (Scanner ist nicht leer)', ['laden', 'senden', 'speichern', 'entfernen', 'aktualisiere', 'sicher'].every((m) => methoden.has(m)), [...methoden.keys()].join());
   check('senden(): die Sperre kommt aus speicherSperre (laedt, speichert, konflikt), bei gesperrt wird NICHT gesendet und eine uebersetzte Meldung gezeigt', /speicherSperre\(/.test(rumpf('senden')) && /this\.laedt/.test(rumpf('senden')) && /this\.speichert/.test(rumpf('senden')) && /this\.konflikt\s*!==\s*null/.test(rumpf('senden')) && /gesperrt_laedt/.test(rumpf('senden')) && /gesperrt_speichert/.test(rumpf('senden')) && /gesperrt_konflikt/.test(rumpf('senden')) && rumpf('senden').indexOf('gesperrt_konflikt') < rumpf('senden').indexOf('await lauf()'));
-  check('senden(): sendet nur ueber den Schnappschuss-Ablauf (lauf), nie selbst mit this.stand.hash', /await lauf\(\)/.test(rumpf('senden')) && !/\.hash/.test(rumpf('senden')) && !/speichernMitBestaetigung\(|speichereGefangen\(/.test(rumpf('senden')));
+  check('senden(): sendet nur ueber den Schnappschuss-Ablauf (lauf), nie selbst mit this.stand.hash', /await lauf\(\)/.test(rumpf('senden')) && hashFrei('senden') && !/speichernMitBestaetigung\(|speichereGefangen\(/.test(rumpf('senden')));
   check('laden(): prueft den Entwurf gegen den neuen Stand (pruefeKonflikt) und benutzt den gefangenen Aufruf', /pruefeKonflikt\(/.test(rumpf('laden')) && /ladeGefangen\(/.test(rumpf('laden')));
+  check('N3: laden() baut bei einem Ladefehler das Banner mit ladefehlerBanner (der offene Konflikt bleibt entscheidbar) und gibt Wahlknoepfe aus', /ladefehlerBanner\(/.test(rumpf('laden')) && /wahlKnoepfe\(/.test(rumpf('laden')) && /konflikt:\s*this\.konflikt/.test(rumpf('laden')));
+  check('N3: Netzergebnis mit Zeitgrenze zeigt den Text "zeit" (laden und senden)', /zugangText\(erg\.zeit === true \? 'zeit' : 'netz'\)/.test(rumpf('laden')) && /zugangText\(erg\.zeit === true \? 'zeit' : 'netz'\)/.test(rumpf('senden')));
+  check('N3: laden() uebernimmt eine Zusammenfuehrung ohne Wahl (art "zusammen") und nennt die Felder', /k\.art === 'zusammen'/.test(rumpf('laden')) && /zusammengefuehrtText\(/.test(rumpf('laden')) && /k\.zusammen/.test(rumpf('eigeneBehalten')));
   check('aktualisiere(): Sperre kommt aus speicherSperre, Beschriftung "laedt" wird gesetzt', /speicherSperre\(/.test(rumpf('aktualisiere')) && /speichern_laedt/.test(rumpf('aktualisiere')));
   check('laden(): sperrt den Knopf sofort (aktualisiere() vor dem ersten await)', rumpf('laden').indexOf('this.aktualisiere()') !== -1 && rumpf('laden').indexOf('this.aktualisiere()') < rumpf('laden').indexOf('await'));
   const ent = rumpf('entfernen');
-  check('entfernen(): Liste und Hash kommen aus entferneGegenstand (ein Schnappschuss), die Seite baut keine eigene Liste und liest keinen Hash', /entferneGegenstand\(/.test(ent) && !/\.hash/.test(ent) && !/ohneEintrag\(|abhaengige\(/.test(ent) && /this\.senden\(/.test(ent));
-  check('speichern(): Liste und Hash aus EINEM Schnappschuss (schnappschuss + speichereSchnappschuss), kein this.stand.hash', /schnappschuss\(this\.stand\)/.test(rumpf('speichern')) && /speichereSchnappschuss\(/.test(rumpf('speichern')) && !/\.hash/.test(rumpf('speichern')));
-  check('seite.ts liest this.stand.hash nirgends (nur der Schnappschuss traegt den Hash)', !/this\.stand\??\.hash/.test(sf.getText()));
+  check('entfernen(): Liste und Hash kommen aus entferneGegenstand (ein Schnappschuss), die Seite baut keine eigene Liste und liest keinen Hash', /entferneGegenstand\(/.test(ent) && hashFrei('entfernen') && !/ohneEintrag\(|abhaengige\(/.test(ent) && /this\.senden\(/.test(ent));
+  check('speichern(): Liste und Hash aus EINEM Schnappschuss (schnappschuss + speichereSchnappschuss), kein this.stand.hash', /schnappschuss\(this\.stand\)/.test(rumpf('speichern')) && /speichereSchnappschuss\(/.test(rumpf('speichern')) && hashFrei('speichern'));
+  check('seite.ts liest nirgends einen Hash (am Syntaxbaum: kein .hash, kein ["hash"], kein { hash }; nur der Schnappschuss traegt ihn)', !liestHash(sf));
   check('Entfernen-Knopf: wird in aktualisiere() mit speicherSperre gesperrt wie Speichern', (rumpf('aktualisiere').match(/speicherSperre\(/g) ?? []).length === 2 && /entfernenKnopf/.test(rumpf('aktualisiere')) && /entfernenKnopf\s*=\s*knopf\(/.test(sf.getText()));
   const vielleicht: string[] = [];
   besuche(sf, (n) => {
@@ -354,6 +376,164 @@ console.log('\n[5] Verdrahtung in seite.ts (Syntaxbaum):');
   });
   check('sicher() wird von den Knoepfen und dem Laden benutzt (mindestens 5 Stellen)', sicherAufrufe >= 5, String(sicherAufrufe));
   check('sicher() faengt mit .catch und setzt die Sperren zurueck', /\.catch\(/.test(rumpf('sicher')) && /this\.laedt = false/.test(rumpf('sicher')) && /this\.speichert = false/.test(rumpf('sicher')));
+}
+
+// ── [7] time limit ─────────────────────────────────────────────────────
+console.log('\n[7] Zeitgrenze (EG2 N3, N2-Angriff 1): eine Antwort, die nie kommt:');
+{
+  /** A watchdog: a missing time limit shows up as a red check, not as a test that hangs. */
+  const binnen = <T>(p: Promise<T>): Promise<T | { art: 'haengt' }> => Promise.race([p, new Promise<{ art: 'haengt' }>((r) => setTimeout(() => r({ art: 'haengt' }), 3000))]);
+  const nieAntwort = (): ((...a: unknown[]) => Promise<Response>) => () => new Promise<Response>(() => {});
+  const t0 = Date.now();
+  const l = await binnen(ladeStand({ fetcher: nieAntwort() as typeof fetch, zeitgrenzeMs: 60 }));
+  check('Laden: ein Fetch, der nie antwortet, endet nach der Zeitgrenze als netz mit zeit', l.art === 'netz' && l.zeit === true && Date.now() - t0 < 2000, JSON.stringify(l));
+  const p = await binnen(speichere({ fetcher: nieAntwort() as typeof fetch, zeitgrenzeMs: 60 }, [AXT], 'a'.repeat(64)));
+  check('Speichern (PUT): dasselbe, netz mit zeit, kein Haenger', p.art === 'netz' && p.zeit === true, JSON.stringify(p));
+  const q = await binnen(ladeQuittung({ fetcher: nieAntwort() as typeof fetch, zeitgrenzeMs: 60 }));
+  check('Quittung: dasselbe', q.art === 'netz' && q.zeit === true);
+  // the body of an answer that starts and never ends
+  const haengtImText = async (): Promise<Response> => ({ status: 200, headers: new Headers(), text: () => new Promise<string>(() => {}) }) as unknown as Response;
+  const b = await binnen(ladeStand({ fetcher: haengtImText as typeof fetch, zeitgrenzeMs: 60 }));
+  check('auch ein Fetch, der antwortet, dessen Text aber nie fertig wird, wird abgebrochen', b.art === 'netz' && b.zeit === true, JSON.stringify(b));
+  // a real fetch is aborted by the signal
+  let abgebrochen = false;
+  const hoertZu = ((_u: unknown, init?: RequestInit): Promise<Response> =>
+    new Promise<Response>((_ok, nein) => init?.signal?.addEventListener('abort', () => {
+      abgebrochen = true;
+      nein(new Error('aborted'));
+    }))) as typeof fetch;
+  const h = await binnen(ladeStand({ fetcher: hoertZu, zeitgrenzeMs: 60 }));
+  check('der Fetch bekommt ein AbortSignal und es feuert', h.art === 'netz' && h.zeit === true && abgebrochen);
+  // a failed connection is not a time-out
+  const aus = await binnen(ladeStand({ fetcher: (async () => { throw new Error('offline'); }) as typeof fetch, zeitgrenzeMs: 60 }));
+  check('ein Verbindungsfehler bleibt "netz" und ist keine Zeitueberschreitung', aus.art === 'netz' && aus.zeit === false, JSON.stringify(aus));
+  // a quick answer is untouched
+  const gut = await binnen(ladeStand({ fetcher: (async () => new Response(JSON.stringify({ text: schreibeGegenstandsDatei([AXT]), hash: 'h'.repeat(64) }), { status: 200 })) as typeof fetch, zeitgrenzeMs: 60 }));
+  check('eine rechtzeitige Antwort geht unveraendert durch', gut.art === 'ok' && gut.stand.eintraege.length === 1);
+  // the sequence the page lives through: hung PUT, then the next call works (the lock is the page's try/finally; here: the next request is not blocked)
+  let stand = 'haengt';
+  const wechsel = ((): Promise<Response> => stand === 'haengt' ? new Promise<Response>(() => {}) : Promise.resolve(new Response(JSON.stringify({ ok: true, hash: 'n'.repeat(64), eintraege: 1, entfernt: [], entferntOhneId: [] }), { status: 200 }))) as typeof fetch;
+  const erst = await binnen(speichereGefangen({ fetcher: wechsel, zeitgrenzeMs: 60 }, [AXT], 'a'.repeat(64), async () => true));
+  stand = 'geht';
+  const zweit = await binnen(speichereGefangen({ fetcher: wechsel, zeitgrenzeMs: 60 }, [AXT], 'a'.repeat(64), async () => true));
+  check('nach dem haengenden PUT geht der naechste Versuch durch (kein dauerhafter Zustand)', erst.art === 'netz' && zweit.art === 'ok', `${erst.art} ${zweit.art}`);
+  check('die Standardgrenze liegt zwischen 5 und 60 Sekunden', ZEITGRENZE_MS >= 5000 && ZEITGRENZE_MS <= 60000, String(ZEITGRENZE_MS));
+}
+
+// ── [8] a failed reload keeps the conflict decidable ───────────────────
+console.log('\n[8] Ladefehler bei offenem Konflikt (EG2 N3, N2-Angriff 2):');
+{
+  const axtServer = eintrag('Axt', 'Axt vom Server', { gewicht: 3 });
+  const meinForm = eintragZuFormular(AXT);
+  meinForm.nameDe = 'Meine Axt';
+  const k = pruefeKonflikt({ basis: AXT, form: meinForm, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [axtServer] });
+  if (k.art !== 'konflikt') throw new Error('no conflict');
+  const mit = ladefehlerBanner({ fehlerText: 'FEHLERTEXT', konflikt: k });
+  check('offener Konflikt: das Banner zeigt den Fehler UND den Konflikt mit seinen Zeilen, und die Wahlknoepfe bleiben', mit.wahlknoepfe && mit.zeilen[0] === 'FEHLERTEXT' && mit.zeilen.length >= 3 && mit.zeilen.some((z) => z.includes('Meine Axt') && z.includes('Axt vom Server')), JSON.stringify(mit));
+  const ohne = ladefehlerBanner({ fehlerText: 'FEHLERTEXT', konflikt: null });
+  check('ohne Konflikt: nur der Fehler, keine Wahlknoepfe', ohne.wahlknoepfe === false && gleich(ohne.zeilen, ['FEHLERTEXT']));
+  // the end to end sequence of the page: conflict open -> reload fails -> the conflict value is still the same and "keep mine" still works
+  const behalten = k.zusammen;
+  check('der Konflikt bleibt unveraendert (Wahl "Eigene behalten" hat seinen Entwurf noch)', behalten !== null && behalten.nameDe === 'Meine Axt');
+}
+
+// ── [9] three-way merge ────────────────────────────────────────────────
+console.log('\n[9] Drei-Wege-Abgleich je Feld (EG2 N3, N1-Angriff 4 und 5):');
+{
+  const basis = eintrag('Axt', 'Axt', { gewicht: 3 });
+  const aend = (e: GegenstandsEintrag, f: (x: Formular) => void): GegenstandsEintrag => {
+    const x = eintragZuFormular(e);
+    f(x);
+    return formularZuEintrag(x);
+  };
+  const eigenForm = (f: (x: Formular) => void): Formular => {
+    const x = eintragZuFormular(basis);
+    f(x);
+    return x;
+  };
+  // 1. only the server changed a field -> the server's value is taken
+  {
+    const server = aend(basis, (x) => (x.gewicht = '7'));
+    const k = pruefeKonflikt({ basis, form: eigenForm((x) => (x.nameDe = 'Meine Axt')), ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [server] });
+    check('Feld nur auf dem Server geaendert (Gewicht), anderes Feld nur im Entwurf (Name): kein Konflikt, art "zusammen"', k.art === 'zusammen', k.art);
+    if (k.art === 'zusammen') {
+      check('... Server-Wert uebernommen (Gewicht 7), Entwurf behalten (Name), uebernommene Felder genannt', k.form.gewicht === '7' && k.form.nameDe === 'Meine Axt' && gleich(k.uebernommen, ['gewicht']), JSON.stringify(k.uebernommen));
+      check('... und der gespeicherte Eintrag daraus hat Gewicht 7 UND den eigenen Namen (die Server-Aenderung geht beim Speichern nicht verloren)', formularZuEintrag(k.form).gewicht === 7 && formularZuEintrag(k.form).texte['inhalt.gegenstand.Axt.name'].de === 'Meine Axt');
+    }
+  }
+  // 2. only the draft changed a field -> the draft's value stays (server changed something else, so there is a check at all)
+  {
+    const server = aend(basis, (x) => (x.itemLevel = '4'));
+    const k = pruefeKonflikt({ basis, form: eigenForm((x) => (x.gewicht = '9')), ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [server] });
+    check('Feld nur im Entwurf geaendert (Gewicht 9), Server aenderte ein anderes (Item-Level): art "zusammen", Entwurfswert bleibt', k.art === 'zusammen' && k.form.gewicht === '9' && k.form.itemLevel === '4' && gleich(k.uebernommen, ['itemLevel']), JSON.stringify(k));
+  }
+  // 3. both changed the same field -> conflict, only that field is listed
+  {
+    const server = aend(basis, (x) => {
+      x.gewicht = '7';
+      x.itemLevel = '4';
+    });
+    const k = pruefeKonflikt({ basis, form: eigenForm((x) => (x.gewicht = '9')), ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [server] });
+    check('Feld auf beiden Seiten geaendert (Gewicht 9 gegen 7): Konflikt', k.art === 'konflikt', k.art);
+    if (k.art === 'konflikt') {
+      check('... NUR das Feld im Streit steht in der Liste, mit beiden Werten', gleich(k.unterschiede, [{ feld: 'gewicht', eigen: '9', server: '7' }]), JSON.stringify(k.unterschiede));
+      check('... das andere Server-Feld (Item-Level 4) ist schon im Entwurf, der Streitwert bleibt der eigene (9) bis zur Wahl', k.zusammen?.itemLevel === '4' && k.zusammen?.gewicht === '9' && gleich(k.uebernommen, ['itemLevel']));
+    }
+  }
+  // 3b. both changed the same field to the SAME value -> no dispute
+  {
+    const server = aend(basis, (x) => {
+      x.gewicht = '9';
+      x.itemLevel = '4';
+    });
+    const k = pruefeKonflikt({ basis, form: eigenForm((x) => (x.gewicht = '9')), ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [server] });
+    check('beide aendern das Gewicht auf denselben Wert (9): kein Streit, nur Item-Level kommt vom Server', k.art === 'zusammen' && gleich(k.uebernommen, ['itemLevel']) && k.form.gewicht === '9', JSON.stringify(k));
+  }
+  // composite fields move as a whole
+  {
+    const server = aend(basis, (x) => {
+      x.haltePosition = ['1', '2', '3'];
+      x.werte.damage = '8';
+      x.hatRezept = true;
+      x.rezeptMenge = '2';
+      x.zutaten = [{ item: 'Wood', menge: '4' }];
+      x.upload = '';
+    });
+    const k = pruefeKonflikt({ basis, form: eigenForm((x) => (x.nameEn = 'My axe')), ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [server] });
+    check('Halteposition, Schadenswert und Rezept (mehrteilige Felder) kommen als Ganzes vom Server', k.art === 'zusammen' && gleich(k.form.haltePosition, ['1', '2', '3']) && k.form.werte.damage === '8' && k.form.hatRezept && k.form.rezeptMenge === '2' && gleich(k.form.zutaten, [{ item: 'Wood', menge: '4' }]) && k.form.nameEn === 'My axe', JSON.stringify(k));
+    if (k.art === 'zusammen') {
+      const z = k.form.zutaten[0];
+      z.menge = '99';
+      check('... und das zusammengefuehrte Formular teilt keine Objekte mit dem Server-Eintrag (Zutat bearbeiten aendert den Server-Stand nicht)', server.rezept?.zutaten[0].menge === 4);
+    }
+    const f = eintragZuFormular(basis);
+    kopiereFeld(f, eintragZuFormular(server), 'id');
+    check('kopiereFeld fasst die id nie an', f.id === 'Axt');
+  }
+  // Both changed a different field AND the same one: the three states in one go
+  {
+    const server = aend(basis, (x) => {
+      x.gewicht = '7';
+      x.rarity = 'rare';
+    });
+    const k = pruefeKonflikt({ basis, form: eigenForm((x) => {
+      x.gewicht = '9';
+      x.symbol = 'axe';
+    }), ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [server] });
+    check('alle drei Faelle zugleich: Streit nur im Gewicht, Rarity vom Server, Symbol vom Entwurf', k.art === 'konflikt' && gleich(k.unterschiede.map((x) => x.feld), ['gewicht']) && k.zusammen?.rarity === 'rare' && k.zusammen?.symbol === 'axe' && gleich(k.uebernommen, ['rarity']), JSON.stringify(k));
+  }
+  // N1 finding 5: the entry is gone on the server
+  {
+    const form = eigenForm((x) => {
+      x.nameDe = 'Meine Axt';
+      x.gewicht = '9';
+    });
+    const k = pruefeKonflikt({ basis, form, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [FEDER] });
+    check('Server hat den Eintrag geloescht: Konflikt, Server null, und die Felder des Entwurfs stehen als Zeilen (id, Name, Gewicht ...)', k.art === 'konflikt' && k.server === null && k.zusammen === null && ['id', 'nameDe', 'nameEn', 'gewicht', 'typ', 'stapel'].every((f) => k.unterschiede.some((u) => u.feld === f)), k.art === 'konflikt' ? JSON.stringify(k.unterschiede.map((u) => u.feld)) : k.art);
+    if (k.art === 'konflikt') {
+      check('... mit dem Wert des Entwurfs je Zeile (Meine Axt, 9), leere Felder ausgelassen', k.unterschiede.find((u) => u.feld === 'nameDe')?.eigen === 'Meine Axt' && k.unterschiede.find((u) => u.feld === 'gewicht')?.eigen === '9' && !k.unterschiede.some((u) => u.eigen === ''));
+    }
+  }
 }
 
 console.log(fehler === 0 ? '\nalles gruen' : `\n${fehler} FEHLER`);

@@ -348,8 +348,16 @@ export class FigurSteuerung {
    * `false` und einem gemeldeten Fehler; es entsteht keine Engine.
    */
   starte(leinwand: HTMLCanvasElement): Promise<boolean> {
+    if (this.zerstoert) return Promise.resolve(false);
     // Zwei gleichzeitige Aufrufe teilen sich einen Aufbau: nie zwei Engines.
-    this.aufbau ??= this.baueAuf(leinwand);
+    if (!this.aufbau) {
+      const aufbau = this.baueAuf(leinwand);
+      this.aufbau = aufbau;
+      // Ein gescheiterter Aufbau (kein WebGL, Bündel fehlt) darf neu versucht werden.
+      void aufbau.then((ok) => {
+        if (!ok && this.aufbau === aufbau) this.aufbau = null;
+      });
+    }
     return this.aufbau;
   }
 
@@ -435,7 +443,10 @@ export class FigurSteuerung {
         try {
           await vorschau.setze(slot, datei);
         } catch (fehler) {
-          if (istAktuell() && datei) this.rueckruf.beiTeilFehler?.(slot, datei, fehler);
+          // Ein überholter oder entsorgter Lauf rührt den Platz nicht mehr an: Er
+          // gehört inzwischen einem neueren Lauf, oder die Engine ist weg.
+          if (!istAktuell()) return;
+          if (datei) this.rueckruf.beiTeilFehler?.(slot, datei, fehler);
           try {
             await vorschau.setze(slot, null);
           } catch {

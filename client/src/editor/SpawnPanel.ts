@@ -116,6 +116,12 @@ export interface SpawnPanelCallbacks {
   setzeNpc?: (npc: NpcDef | undefined) => void;
   /** Button „In Welt speichern“ of the terrain tab: publish the draft (same way as the route editor). */
   speichernGelaende?: () => void;
+  /** Connected players for the restart confirmation; `null`: unknown (then the dialog names no number). */
+  neustartSpieler?: () => Promise<number | null>;
+  /** Button „Speichern & neu starten“ after the confirmation. */
+  speichernNeustart?: () => void;
+  /** `true` while a save-and-restart run goes on (the button stays locked). */
+  neustartLaeuft?: () => boolean;
 }
 
 /** Anzeigetexte der Listen aus shared/npc.ts (unbekanntes zeigt sich roh). */
@@ -671,7 +677,13 @@ export class SpawnPanel {
     const speichern = document.createElement('div');
     speichern.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
     speichern.appendChild(this.knopf(t('testflug.gelaende.speichern'), () => this.cb.speichernGelaende?.()));
+    this.neustartKnopf = this.knopf(t('testflug.gelaende.speichern_neustart'), () => void this.neustartFragen());
+    speichern.appendChild(this.neustartKnopf);
     block.appendChild(speichern);
+    block.appendChild(this.baueNeustartFrage());
+    this.neustartZeile = document.createElement('div');
+    this.neustartZeile.style.cssText = 'font-size:11px;margin-top:6px;display:none;';
+    block.appendChild(this.neustartZeile);
 
     const tip = document.createElement('div');
     tip.style.cssText = 'font-size:10px;color:#9a8f6a;margin-top:6px;';
@@ -682,6 +694,62 @@ export class SpawnPanel {
     tip3.textContent = t('testflug.gelaende.tip3');
     block.appendChild(tip3);
     return block;
+  }
+
+  private neustartKnopf: HTMLButtonElement | null = null;
+  private neustartFrage: HTMLDivElement | null = null;
+  private neustartFrageSpieler: HTMLDivElement | null = null;
+  private neustartZeile: HTMLDivElement | null = null;
+
+  /** Second confirmation under the buttons: says honestly what the restart does. */
+  private baueNeustartFrage(): HTMLDivElement {
+    const box = document.createElement('div');
+    box.style.cssText = 'display:none;margin-top:6px;padding:6px;border:1px solid #8a5a3a;border-radius:4px;background:#2a2018;font-size:11px;';
+    const titel = document.createElement('div');
+    titel.style.cssText = 'font-weight:bold;margin-bottom:4px;';
+    titel.textContent = t('testflug.neustart.titel');
+    const text = document.createElement('div');
+    text.textContent = t('testflug.neustart.text');
+    const spieler = document.createElement('div');
+    spieler.style.cssText = 'margin-top:4px;display:none;';
+    this.neustartFrageSpieler = spieler;
+    const knoepfe = document.createElement('div');
+    knoepfe.style.cssText = 'display:flex;gap:6px;margin-top:6px;';
+    knoepfe.appendChild(
+      this.knopf(t('testflug.neustart.ja'), () => {
+        box.style.display = 'none';
+        if (this.cb.neustartLaeuft?.()) return;
+        this.cb.speichernNeustart?.();
+      })
+    );
+    knoepfe.appendChild(this.knopf(t('testflug.neustart.abbrechen'), () => (box.style.display = 'none')));
+    box.append(titel, text, spieler, knoepfe);
+    this.neustartFrage = box;
+    return box;
+  }
+
+  private async neustartFragen(): Promise<void> {
+    if (!this.neustartFrage || this.cb.neustartLaeuft?.()) return;
+    const zahl = this.cb.neustartSpieler ? await this.cb.neustartSpieler().catch(() => null) : null;
+    if (this.neustartFrageSpieler) {
+      this.neustartFrageSpieler.style.display = zahl === null ? 'none' : 'block';
+      this.neustartFrageSpieler.textContent = zahl === null ? '' : t('testflug.neustart.spieler', { count: zahl });
+    }
+    this.neustartFrage.style.display = 'block';
+  }
+
+  /** Status line of the save-and-restart run; the button is locked while it goes on. */
+  zeigeNeustartStatus(text: string, phase: 'speichert' | 'startet-neu' | 'laeuft-wieder' | 'fehler'): void {
+    const laeuft = phase === 'speichert' || phase === 'startet-neu';
+    if (this.neustartKnopf) {
+      this.neustartKnopf.disabled = laeuft;
+      this.neustartKnopf.style.opacity = laeuft ? '0.5' : '1';
+    }
+    if (this.neustartZeile) {
+      this.neustartZeile.style.display = 'block';
+      this.neustartZeile.style.color = phase === 'fehler' ? '#e08a7a' : phase === 'laeuft-wieder' ? '#8fd18f' : '#e8d48a';
+      this.neustartZeile.textContent = text;
+    }
   }
 
   private werkzeugMarkieren(): void {

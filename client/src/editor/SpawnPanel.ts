@@ -49,6 +49,7 @@ import { ladeSerie, speichereSerie } from './testflug/greifen';
 import {
   klemmeRadius,
   klemmeZiel,
+  zielAusText,
   ZIEL_MAX,
   ZIEL_MIN,
   RADIUS_MAX,
@@ -279,6 +280,11 @@ export class SpawnPanel {
   private objekteBlock!: HTMLDivElement;
   private gelaendeBlock!: HTMLDivElement;
   private zielFeld: HTMLInputElement | null = null;
+  private pipetteKnopf: HTMLButtonElement | null = null;
+  /** The pipette button was pressed: the next click on the ground reads the height (and starts no stroke). */
+  pipetteBereit = false;
+  /** Called when the pipette button arms the pipette (HUD hint). */
+  aufPipetteBereit: (() => void) | null = null;
   private tabKnoepfe: Record<'objekte' | 'gelaende', HTMLButtonElement> | null = null;
   private werkzeugKnoepfe = new Map<Werkzeug, HTMLButtonElement>();
   private radiusRegler: HTMLInputElement | null = null;
@@ -652,12 +658,20 @@ export class SpawnPanel {
     ziel.min = String(ZIEL_MIN);
     ziel.max = String(ZIEL_MAX);
     ziel.style.cssText = this.feldStil();
+    // Bei jeder Eingabe übernehmen (nicht erst bei `change`): der erste Klick danach stempelt schon mit dem neuen Wert.
+    ziel.oninput = () => {
+      this.gelaendeEinstellung.ziel = zielAusText(ziel.value);
+    };
     ziel.onchange = () => {
-      this.gelaendeEinstellung.ziel = ziel.value.trim() === '' ? null : klemmeZiel(Number(ziel.value));
       if (this.gelaendeEinstellung.ziel !== null) ziel.value = String(this.gelaendeEinstellung.ziel);
     };
     block.appendChild(ziel);
     this.zielFeld = ziel;
+    this.pipetteKnopf = this.knopf(t('testflug.gelaende.pipette_knopf'), () => {
+      this.setzePipetteBereit(true);
+      this.aufPipetteBereit?.();
+    });
+    block.appendChild(this.pipetteKnopf);
 
     const speichern = document.createElement('div');
     speichern.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
@@ -697,6 +711,7 @@ export class SpawnPanel {
   private setzeTab(tab: 'objekte' | 'gelaende'): void {
     if (tab === this.tab) return;
     this.tab = tab;
+    this.setzePipetteBereit(false);
     // Placing and the brush exclude each other: a prefab ghost must not hang on the mouse under the brush.
     if (tab === 'gelaende') this.beendePlatzierModus();
     this.tabMarkieren();
@@ -712,6 +727,14 @@ export class SpawnPanel {
   beendeGelaendeModus(): void {
     if (this.tab === 'objekte') return;
     this.setzeTab('objekte');
+  }
+
+  setzePipetteBereit(an: boolean): void {
+    this.pipetteBereit = an;
+    if (this.pipetteKnopf) {
+      this.pipetteKnopf.style.background = an ? '#243044' : '#1d2431';
+      this.pipetteKnopf.style.color = an ? '#e8d48a' : '#d8cfa8';
+    }
   }
 
   /** Target height in m (from the pipette), clamped to whole cm; keeps the field in step. */
@@ -992,6 +1015,7 @@ export class SpawnPanel {
     // A closed panel leaves the terrain tool: opening it again starts on the object tab.
     else if (this.tab === 'gelaende') {
       this.tab = 'objekte';
+      this.setzePipetteBereit(false);
       this.tabMarkieren();
       this.aufGelaende?.();
     }

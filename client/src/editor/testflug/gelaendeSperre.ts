@@ -126,6 +126,11 @@ export function sperrKreise(platzierungen: readonly SperrPlatzierung[] | undefin
   return aus;
 }
 
+/** True when the vertex at (x, z) lies inside a lock circle (undo/redo must not change it). */
+export function punktGesperrt(kreise: readonly SperrKreis[], x: number, z: number): boolean {
+  return kreise.some((c) => Math.hypot(c.x - x, c.z - z) < c.r);
+}
+
 /** The first lock circle the brush circle (centre, radius) touches, or `null`. */
 export function gesperrtDurch(kreise: readonly SperrKreis[], x: number, z: number, radius: number): SperrKreis | null {
   for (const c of kreise) if (Math.hypot(c.x - x, c.z - z) < c.r + radius) return c;

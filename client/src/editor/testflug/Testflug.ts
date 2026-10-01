@@ -50,7 +50,7 @@ import { ENTWURF_KEY } from '../weltdokument';
 import { verdrahteGrundskalaLive } from './grundskalaLive';
 import { GelaendeAktionen } from './GelaendeAktionen';
 import { GelaendeSteuerung, type Kasten } from './GelaendeSteuerung';
-import { radiusSchritt, verlaufTaste } from './gelaendePinsel';
+import { istPipetteTaste, radiusSchritt, verlaufEntscheid } from './gelaendePinsel';
 import { verdrahteEntwurfHoerer } from './gelaendeHoerer';
 import type { SperrKatalog } from './gelaendeSperre';
 
@@ -870,6 +870,12 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       gelaendeUnten = false;
       gelaende.beenden();
     };
+    panel.aufPipetteBereit = () => hud.meldung(t('testflug.gelaende.pipette_bereit'));
+    // Im Baumodus sinkt die Figur mit Strg; bei offenem Gelände-Reiter nicht (Strg+Z/Y gehören dem Verlauf).
+    scene.onBeforeRenderObservable.add(() => {
+      const p = kontext.player();
+      if (p) p.strgSinktNicht = () => panel.istGelaendeModus;
+    });
     panel.aufGelaende = () => {
       if (!panel.istGelaendeModus) {
         gelaendeAus();
@@ -889,18 +895,24 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     };
     window.addEventListener('keydown', (e) => {
       gelaendeShift = e.shiftKey;
+      // Strg/Cmd+Z nimmt den letzten Strich zurück, Strg+Y / Strg+Umschalt+Z stellt ihn wieder her (nur Gelände-Striche,
+      // nur bei offenem Reiter, nicht im Textfeld, gehaltene Taste = ein Schritt).
+      const verlauf = verlaufEntscheid(e, panel.istGelaendeModus, tipptImFeld(e));
+      if (verlauf.verhindern) e.preventDefault();
+      if (verlauf.aktion) void (verlauf.aktion === 'rueckgaengig' ? gelaende.rueckgaengig() : gelaende.wiederholen());
+      if (verlauf.verhindern) return;
       if (tipptImFeld(e) || !panel.istGelaendeModus) return;
+      // Pipette: Taste H liest die Bodenhöhe unter dem Zeiger in das Zielfeld (H ist im Flug frei; Strg wäre im Baumodus die Sinktaste).
+      if (istPipetteTaste(e)) {
+        e.preventDefault();
+        const gp = !e.repeat && gelaendeZeiger ? bodenPunkt(gelaendeZeiger.x, gelaendeZeiger.y) : null;
+        if (gp) gelaende.pipetteAn(gp);
+        return;
+      }
       if (e.code === 'Escape') {
         gelaendeAus();
         panel.beendeGelaendeModus();
         hud.meldung(t('testflug.gelaende.pinsel_aus'));
-        return;
-      }
-      // Strg/Cmd+Z nimmt den letzten Strich zurück, Strg+Y / Strg+Umschalt+Z stellt ihn wieder her (nur Gelände-Striche).
-      const verlauf = verlaufTaste(e);
-      if (verlauf) {
-        e.preventDefault();
-        if (!e.repeat) void (verlauf === 'rueckgaengig' ? gelaende.rueckgaengig() : gelaende.wiederholen());
         return;
       }
       // `[`/`]` brauchen auf der deutschen Tastatur AltGr: `e.key` statt `e.code`, dazu − und + als Zweitbelegung.
@@ -986,8 +998,9 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // Gelände-Reiter: der Linksklick formt das Gelände statt zu setzen oder zu greifen; Alt greift wie bisher.
       if (panel.istGelaendeModus && !e.altKey && !routen.istZeichenModus) {
         const gp = bodenPunkt(e.offsetX, e.offsetY);
-        // Pipette: Strg/Cmd+Klick liest die Bodenhöhe in das Zielfeld (Alt greift, Shift kehrt um; diese Taste war frei).
-        if (gp && (e.ctrlKey || e.metaKey) && !gelaendeUnten) {
+        // Knopf „Pipette“ scharf: der nächste Klick auf den Boden liest die Höhe und beginnt keinen Strich.
+        if (gp && panel.pipetteBereit) {
+          panel.setzePipetteBereit(false);
           gelaende.pipetteAn(gp);
           return;
         }

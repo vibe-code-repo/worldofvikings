@@ -46,6 +46,16 @@ export function aenderungsKaesten(aenderungen: readonly Aenderung[]): Array<{ mi
   return [...jeZone.values()];
 }
 
+/** List positions of ALL placements within `MARGE_M` of a changed vertex box (loose or not: for undo, redo, takeover). */
+export function platzierungenNahe(platzierungen: readonly SperrPlatzierung[] | undefined, aenderungen: readonly Aenderung[]): number[] {
+  const kaesten = aenderungsKaesten(aenderungen);
+  const aus: number[] = [];
+  (platzierungen ?? []).forEach((p, i) => {
+    if (kaesten.some((b) => p.x >= b.minX - MARGE_M && p.x <= b.maxX + MARGE_M && p.z >= b.minZ - MARGE_M && p.z <= b.maxZ + MARGE_M)) aus.push(i);
+  });
+  return aus;
+}
+
 /**
  * List positions (in `platzierungen`) of the loose placements that lie within `MARGE_M` of a changed
  * vertex box. Without `aenderungen` (nothing known) every loose placement is returned.

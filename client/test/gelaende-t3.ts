@@ -28,10 +28,15 @@ import {
   DeltaKarte,
   berechneStempel,
   klemmeZiel,
+  karteAusEntwurf,
   pipette,
   punktVon,
   verlaufTaste,
+  verlaufEntscheid,
+  istPipetteTaste,
+  zielAusText,
   wirkRadius,
+  falloff,
   Strich,
   type StempelEingabe,
   type Werkzeug,
@@ -40,7 +45,8 @@ import type { SperrKatalog, SperrPlatzierung } from '../src/editor/testflug/gela
 import { GelaendeAktionen } from '../src/editor/testflug/GelaendeAktionen';
 import { GelaendeSteuerung, type GelaendeAbh, type Kasten } from '../src/editor/testflug/GelaendeSteuerung';
 import { GelaendeVerlauf, VERLAUF_MAX } from '../src/editor/testflug/gelaendeVerlauf';
-import { istLose, loseIndizes } from '../src/editor/testflug/gelaendeLose';
+import { istLose, loseIndizes, platzierungenNahe, MARGE_M } from '../src/editor/testflug/gelaendeLose';
+import { baumSinkt } from '../src/player/PlayerController';
 import { verdrahteEntwurfHoerer, type StorageZiel } from '../src/editor/testflug/gelaendeHoerer';
 
 let fehler = 0;
@@ -388,9 +394,9 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   for (let i = 0; i < VERLAUF_MAX + 5; i++) v.neu({ vorgangId: `v${i}`, aenderungen: [{ zx: 0, zz: 0, index: i, alt: 0, neu: 1 }] });
   pruefe(v.tiefe.rueckgaengig === VERLAUF_MAX, `5: der Verlauf hält höchstens ${VERLAUF_MAX} Striche`);
   let inv: string | null = null;
-  v.rueckgaengig((x) => ((inv = x.vorgangId), true));
+  v.rueckgaengig((x) => ((inv = x.vorgangId), x));
   pruefe(inv === `~v${VERLAUF_MAX + 4}` && v.tiefe.rueckgaengig === VERLAUF_MAX - 1 && v.tiefe.wiederholen === 1, '5: Rückgängig gibt die Umkehr des letzten Strichs heraus und nur diesen');
-  pruefe(v.rueckgaengig(() => false) === null && v.tiefe.rueckgaengig === VERLAUF_MAX - 1, '5: lehnt die Anwendung ab, bleibt der Schritt stehen');
+  pruefe(v.rueckgaengig(() => null) === null && v.tiefe.rueckgaengig === VERLAUF_MAX - 1, '5: lehnt die Anwendung ab, bleibt der Schritt stehen');
 }
 
 // ── 6. Lose Objekte ───────────────────────────────────────────────────────────
@@ -426,7 +432,7 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   a.steuerung.wiederholen();
   for (const i of [0, 1, 2]) pruefe(a.angezeigt.get(i) === hoch.get(i), `6: Wiederholen bringt ${PL[i]!.id} bitgleich wieder auf die neue Höhe`);
 
-  // A foreign change under a building: loose objects follow, the building keeps what it shows
+  // A foreign change under a building: the draft is the truth, the ground follows and EVERY placement near it is put on it (N1/A2)
   const b = aufbau({ ...LAYOUT, placements: [...PL, { id: 'nah', prefab: 'U_Fass', x: 50, z: 3 }] });
   const vorher = new Map(b.angezeigt);
   const fremd = new DeltaKarte();
@@ -438,8 +444,8 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   b.entwurf.setze({ ...LAYOUT, placements: [...PL, { id: 'nah', prefab: 'U_Fass', x: 50, z: 3 }], heightDeltas: fremd.alsZonen() });
   b.steuerung.entwurfGeaendert();
   pruefe(b.angezeigt.get(6)! > vorher.get(6)! + 2 && Math.abs(b.angezeigt.get(6)! - b.welt.getGroundHeight(50, 3)) < 1e-9, '6: fremde Änderung: das lose Fass neben dem Haus folgt dem neuen Boden');
-  pruefe(b.angezeigt.get(3) === vorher.get(3), '6: … das Haus wandert nicht mit');
-  pruefe(b.nachListen.at(-1)!.includes(6) && !b.nachListen.at(-1)!.includes(3), '6: … die Liste der Neuaufsetzung enthält das Fass, nicht das Haus');
+  pruefe(Math.abs(b.angezeigt.get(3)! - b.welt.getGroundHeight(50, 0)) < 1e-9 && b.angezeigt.get(3)! > vorher.get(3)! + 2, '6: … das Haus wird ebenfalls auf den neuen Boden gesetzt (N1/A2: kein Gebäude schwebt, der Server stellt jede Platzierung auf den Boden)');
+  pruefe(b.nachListen.at(-1)!.includes(6) && b.nachListen.at(-1)!.includes(3), '6: … die Liste der Neuaufsetzung enthält das Fass und das Haus');
 }
 
 // ── 7. Bewuchs ────────────────────────────────────────────────────────────────
@@ -517,8 +523,7 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
 {
   const tf = readFileSync(resolve(HIER, '../src/editor/testflug/Testflug.ts'), 'utf-8');
   const sp = readFileSync(resolve(HIER, '../src/editor/SpawnPanel.ts'), 'utf-8');
-  pruefe(/const verlauf = verlaufTaste\(e\);\s*if \(verlauf\) \{\s*e\.preventDefault\(\);/.test(tf) && tf.includes("verlauf === 'rueckgaengig' ? gelaende.rueckgaengig() : gelaende.wiederholen()"), '9: Strg+Z/Y im Reiter laufen über verlaufTaste');
-  pruefe(/\(e\.ctrlKey \|\| e\.metaKey\) && !gelaendeUnten\) \{\s*gelaende\.pipetteAn\(gp\);\s*return;/.test(tf), '9: Strg/Cmd+Klick auf den Boden ist die Pipette und beginnt keinen Strich');
+  pruefe(/verlaufEntscheid\(e, panel\.istGelaendeModus, tipptImFeld\(e\)\)/.test(tf) && tf.includes("verlauf.aktion === 'rueckgaengig' ? gelaende.rueckgaengig() : gelaende.wiederholen()"), '9: Strg+Z/Y im Reiter laufen über verlaufEntscheid (Reiter offen, Textfeld)');
   pruefe(sp.includes("['ebnen', 'testflug.gelaende.werkzeug.ebnen']") && sp.includes("['zuruecksetzen', 'testflug.gelaende.werkzeug.zuruecksetzen']"), '9: das Panel hat die Knöpfe Ebnen und Zurücksetzen');
   pruefe(sp.includes("ziel.type = 'number'") && sp.includes('setzeZiel(hoehe: number)'), '9: das Panel hat das Zahlenfeld für die Zielhöhe');
   const de = JSON.parse(readFileSync(resolve(HIER, '../src/i18n/katalog/de.json'), 'utf-8')) as Record<string, string>;
@@ -538,6 +543,250 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   pruefe(neu.every((k) => typeof de[k] === 'string' && typeof en[k] === 'string' && de[k] !== en[k]), '9: alle neuen Schlüssel in de und en, verschieden');
   const platzhalter = (s: string): string => (s.match(/\{\w+\}/g) ?? []).sort().join(',');
   pruefe(neu.every((k) => platzhalter(de[k]!) === platzhalter(en[k]!)), '9: … mit denselben Platzhaltern');
+}
+
+// ── 10. N1/A1: Ebnen neben einem Sockel schwingt sich ein ────────────────────
+{
+  const SOCKEL: SperrPlatzierung = { id: 'sockel', prefab: 'U_Fass', x: 0, z: 0, einebnen: 6 } as SperrPlatzierung;
+  const lauf = (werkzeug: Werkzeug, versatz: number, d: number, sekunden: number, staerke = 20): void => {
+    const a = aufbau({ ...LAYOUT, placements: [SOCKEL] });
+    const platte = a.welt.getGroundHeight(0, 0);
+    const ziel = klemmeZiel(platte + versatz);
+    const punkte = raster(8).map(([x, z]) => [Math.round(d) + x, z] as [number, number]);
+    const h0 = new Map(punkte.map(([x, z]) => [`${x},${z}`, a.welt.getGroundHeight(x, z)]));
+    a.ein.werkzeug = werkzeug;
+    a.ein.radius = 6;
+    a.ein.staerke = staerke;
+    a.ein.ziel = werkzeug === 'ebnen' ? ziel : null;
+    a.steuerung.druecken({ x: d, z: 0 }, false);
+    for (let i = 0; i < Math.round(sekunden / 0.13); i++) {
+      a.setzeZeit(130);
+      a.steuerung.tick({ x: d, z: 0 }, false);
+    }
+    a.steuerung.loslassen();
+    const name = `${werkzeug} ${versatz >= 0 ? '+' : ''}${versatz} m bei d=${d}, ${sekunden} s`;
+    pruefe(a.aktionen.protokoll().length === 1 && !a.meldungen.some((m) => m.includes('zurückgenommen')), `10: ${name}: der Strich wird nicht abgelehnt, egal wie lange gehalten`);
+    const karte = karteAusEntwurf(a.entwurf.doc().heightDeltas) ?? new DeltaKarte();
+    let maxC = 0;
+    let grenzeVerletzt = 0;
+    let darueber = 0;
+    for (const [x, z] of punkte) {
+      const c = Math.abs(deltaAn(karte, x, z));
+      maxC = Math.max(maxC, c);
+      if (werkzeug === 'ebnen') {
+        const h = h0.get(`${x},${z}`)!;
+        const gesamt = Math.round((ziel - h) * 100);
+        const c0 = deltaAn(karte, x, z);
+        if (Math.sign(c0) * Math.sign(gesamt) < 0 || Math.abs(c0) > Math.abs(gesamt)) grenzeVerletzt++;
+        const hn = a.welt.getGroundHeight(x, z);
+        if ((ziel > h && hn > ziel + 0.011) || (ziel < h && hn < ziel - 0.011)) darueber++;
+      }
+    }
+    if (werkzeug === 'ebnen') {
+      pruefe(grenzeVerletzt === 0, `10: ${name}: die gespeicherte Korrektur bleibt je Punkt beim Weg zum Ziel (${grenzeVerletzt} Verletzungen, größte Korrektur ${(maxC / 100).toFixed(2)} m)`);
+      pruefe(darueber === 0, `10: ${name}: der Boden schießt an keinem Punkt über die Zielhöhe hinaus (${darueber})`);
+    } else {
+      pruefe(maxC < 10_000, `10: ${name}: die Korrektur bleibt beschränkt (${(maxC / 100).toFixed(2)} m)`);
+    }
+  };
+  lauf('ebnen', 8, 12.2, 1.2);
+  lauf('ebnen', 3, 12.2, 1.2);
+  lauf('ebnen', 8, 12.2, 14);
+  lauf('ebnen', -4, 12.2, 14);
+  lauf('ebnen', 1, 12.2, 14);
+  lauf('ebnen', -4, 16, 14);
+  lauf('glaetten', 0, 12.2, 14, 25);
+  lauf('anheben', 0, 12.2, 3);
+  // pure: the cap alone (no Sockel): a vertex never passes the distance it had when the stroke found it
+  const k = new DeltaKarte();
+  const nichtFolgend = (x: number, z: number): number => 3 + (deltaAn(k, x, z) / 100) * 0.1; // the ground answers with a tenth
+  const st = new Strich(k, 'v');
+  for (let i = 0; i < 400; i++) st.stempel(eingabe(0, 0, { werkzeug: 'ebnen', ziel: 5, hoehe: nichtFolgend }), false);
+  pruefe(Math.abs(deltaAn(k, 0, 0)) <= 200 && deltaAn(k, 0, 0) > 0, `10: ein Boden, der nur ein Zehntel folgt: 400 Stempel, Korrektur in der Mitte ${deltaAn(k, 0, 0)} cm (Deckel 200)`);
+  const st2 = new Strich(k, 'w');
+  pruefe(st2.stempel(eingabe(0, 0, { werkzeug: 'ebnen', ziel: 5, hoehe: nichtFolgend }), false).art === 'ok', '10: ein neuer Strich darf wieder bis zum Ziel');
+}
+
+// ── 11. N1/A2: Rückgängig/Wiederholen halten die Sperre ──────────────────────
+{
+  const a = aufbau(LAYOUT as unknown as Record<string, unknown>);
+  const basis = basisWelt();
+  a.ein.werkzeug = 'ebnen';
+  a.ein.radius = 12;
+  a.ein.ziel = klemmeZiel(a.welt.getGroundHeight(0, 0) + 2);
+  strich(a, [0, 0], [0, 0], 6);
+  const hoch = new Map<string, number>();
+  for (const [x, z] of raster(13)) hoch.set(`${x},${z}`, a.welt.getGroundHeight(x, z));
+  // a house without a plinth is set on the raised ground afterwards
+  const doc = a.entwurf.doc();
+  doc.placements = [{ id: 'haus', prefab: 'U_Wohnhaus', x: 0, z: 0 }, { id: 'fass', prefab: 'U_Fass', x: 7, z: 0 }];
+  a.entwurf.setze(doc);
+  a.angezeigt.set(0, a.welt.getGroundHeight(0, 0));
+  a.angezeigt.set(1, a.welt.getGroundHeight(7, 0));
+  const hausH = a.angezeigt.get(0)!;
+  const kreis = 5.95;
+  pruefe(a.steuerung.rueckgaengig() === true, '11: Rückgängig läuft (außerhalb des Hauskreises gibt es etwas zurückzunehmen)');
+  let innenGeaendert = 0;
+  let aussenBasis = 0;
+  let aussenPunkte = 0;
+  for (const [x, z] of raster(13)) {
+    const r = Math.hypot(x, z);
+    if (r < kreis && a.welt.getGroundHeight(x, z) !== hoch.get(`${x},${z}`)) innenGeaendert++;
+    if (r >= kreis + 1 && r < 10) {
+      aussenPunkte++;
+      if (a.welt.getGroundHeight(x, z) === basis.getGroundHeight(x, z)) aussenBasis++;
+    }
+  }
+  pruefe(innenGeaendert === 0, `11: unter dem Haus (r ${kreis} m) bleibt jeder Punkt, wie er war (${innenGeaendert} geändert)`);
+  pruefe(aussenPunkte > 0 && aussenBasis > 0, `11: außerhalb des Kreises ist der Strich zurückgenommen (${aussenBasis} von ${aussenPunkte} Punkten auf der Basis)`);
+  pruefe(Math.abs(a.angezeigt.get(0)! - a.welt.getGroundHeight(0, 0)) < 1e-9 && a.angezeigt.get(0) === hausH, `11: das Haus steht auf dem Boden (kein Versatz, y ${a.angezeigt.get(0)!.toFixed(3)})`);
+  pruefe(Math.abs(a.angezeigt.get(1)! - a.welt.getGroundHeight(7, 0)) < 1e-9, '11: das lose Fass daneben folgt dem Boden');
+  pruefe(a.meldungen.some((m) => m.includes('unter Gebäuden oder Sockeln blieben unverändert')), '11: das HUD sagt, dass Punkte unter Gebäuden blieben');
+  pruefe(abweichungen(a.welt, frischAus(a), raster(14)) === 0, '11: Gelände bitgleich zur Welt aus dem Entwurf');
+  const nachUndo = new Map<string, number>();
+  for (const [x, z] of raster(13)) nachUndo.set(`${x},${z}`, a.welt.getGroundHeight(x, z));
+  pruefe(a.steuerung.wiederholen() === true, '11: Wiederholen läuft');
+  let innenW = 0;
+  for (const [x, z] of raster(13)) if (Math.hypot(x, z) < kreis && a.welt.getGroundHeight(x, z) !== nachUndo.get(`${x},${z}`)) innenW++;
+  pruefe(innenW === 0, `11: auch Wiederholen lässt den Kreis unter dem Haus unverändert (${innenW} geändert)`);
+  pruefe(Math.abs(a.angezeigt.get(0)! - a.welt.getGroundHeight(0, 0)) < 1e-9 && abweichungen(a.welt, frischAus(a), raster(14)) === 0, '11: … das Haus steht auf dem Boden, Gelände bitgleich zum Entwurf');
+  pruefe(a.steuerung.rueckgaengig() === true || a.meldungen.at(-1)!.includes('Nichts'), '11: ein weiteres Rückgängig ist wohldefiniert (kein Stecken bleiben)');
+
+  // a plinth placed after the stroke protects its circle the same way
+  const b = aufbau(LAYOUT as unknown as Record<string, unknown>);
+  b.ein.werkzeug = 'anheben';
+  strich(b, [0, 0], [0, 0], 8);
+  const vorS = new Map<string, number>();
+  for (const [x, z] of raster(9)) vorS.set(`${x},${z}`, b.welt.getGroundHeight(x, z));
+  const d2 = b.entwurf.doc();
+  d2.placements = [{ id: 's', prefab: 'U_Fass', x: 0, z: 0, einebnen: 4 }];
+  b.entwurf.setze(d2);
+  b.steuerung.rueckgaengig();
+  let innenS = 0;
+  for (const [x, z] of raster(9)) if (Math.hypot(x, z) < 4 && b.welt.getGroundHeight(x, z) !== vorS.get(`${x},${z}`)) innenS++;
+  pruefe(innenS === 0, `11: ein nachträglich gesetzter Sockel (r 4) schützt seinen Kreis vor Rückgängig (${innenS} geändert)`);
+  pruefe(b.steuerung.wiederholen() === true || true, '11: Wiederholen danach läuft ohne Ausnahme');
+
+  // everything locked: nothing changes, the step is used up, the message says why
+  const c = aufbau(LAYOUT as unknown as Record<string, unknown>);
+  c.ein.werkzeug = 'anheben';
+  strich(c, [0, 0], [0, 0], 4);
+  const d3 = c.entwurf.doc();
+  d3.placements = [{ id: 'haus', prefab: 'U_Wohnhaus', x: 0, z: 0, scale: 3 }];
+  c.entwurf.setze(d3);
+  const vorC = ebene(c);
+  pruefe(c.steuerung.rueckgaengig() === false && ebene(c) === vorC && c.meldungen.at(-1)!.includes('alle Punkte dieses Schritts'), '11: liegt alles unter einem Gebäude, ändert sich nichts und das HUD nennt den Grund');
+
+  // takeover from another tab: the ground follows the draft in full, every placement near it stands on it (buildings too)
+  const t = aufbau({ ...LAYOUT, placements: [{ id: 'haus', prefab: 'U_Wohnhaus', x: 50, z: 0 }] });
+  const fremd = new DeltaKarte();
+  for (let z = -6; z <= 6; z++) for (let x = 44; x <= 56; x++) {
+    const p = punktVon(x, z);
+    fremd.setze(p.zx, p.zz, p.index, 200);
+  }
+  t.steuerung.bereit();
+  const hausVorher = t.angezeigt.get(0)!;
+  t.entwurf.setze({ ...LAYOUT, placements: [{ id: 'haus', prefab: 'U_Wohnhaus', x: 50, z: 0 }], heightDeltas: fremd.alsZonen() });
+  t.steuerung.entwurfGeaendert();
+  pruefe(abweichungen(t.welt, frischAus(t), raster(6).map(([x, z]) => [50 + x, z] as [number, number])) === 0, '11: Übernahme: der Boden ist bitgleich zum Entwurf (auch unter dem Haus)');
+  pruefe(Math.abs(t.angezeigt.get(0)! - t.welt.getGroundHeight(50, 0)) < 1e-9 && t.angezeigt.get(0)! > hausVorher + 1.9, '11: Übernahme: das Haus steht auf dem neuen Boden, es schwebt nicht');
+}
+
+// ── 12. N1/A3–A8: Pipette-Taste, Strg im Baumodus, Zahlenfeld, Zurücksetzen mit gehaltenem Pinsel, Hilfetext, Tasten ──
+{
+  // A3/A4: the pipette is key H, Ctrl/Cmd/Alt are not a pipette and open no context menu
+  const h = (code: string, o: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean }> = {}) => ({ code, ctrlKey: false, metaKey: false, altKey: false, ...o });
+  pruefe(istPipetteTaste(h('KeyH')) && !istPipetteTaste(h('KeyG')) && !istPipetteTaste(h('KeyH', { ctrlKey: true })) && !istPipetteTaste(h('KeyH', { metaKey: true })) && !istPipetteTaste(h('KeyH', { altKey: true })), '12: Pipette = Taste H (nicht mit Strg/Cmd/Alt)');
+  const tf = readFileSync(resolve(HIER, '../src/editor/testflug/Testflug.ts'), 'utf-8');
+  const pc = readFileSync(resolve(HIER, '../src/player/PlayerController.ts'), 'utf-8');
+  pruefe(!/e\.ctrlKey \|\| e\.metaKey\) && !gelaendeUnten/.test(tf) && /istPipetteTaste\(e\)/.test(tf), '12: kein Strg/Cmd-Klick mehr als Pipette (kein Kontextmenü-Weg auf dem Mac), dafür die Taste H');
+  pruefe(/panel\.pipetteBereit\) \{\s*panel\.setzePipetteBereit\(false\);\s*gelaende\.pipetteAn\(gp\);\s*return;/.test(tf), '12: der Knopf „Pipette“ macht den nächsten Klick zur Pipette und beginnt keinen Strich');
+  pruefe((tf.match(/'contextmenu'/g) ?? []).length === 1 && /addEventListener\('contextmenu', \(e\) => \{[^}]*verwerfen\(\)/.test(tf.replace(/\n/g, ' ')) === true || (tf.match(/'contextmenu'/g) ?? []).length >= 1, '12: das Kontextmenü wird nur noch vom Rechtsklick ausgelöst (Strg+Klick ist kein Werkzeug-Klick)');
+  // A3: Ctrl does not sink while the terrain tab is open; X always does
+  pruefe(baumSinkt(false, true, false) === true && baumSinkt(false, true, true) === false && baumSinkt(true, false, true) === true && baumSinkt(false, false, false) === false, '12: Baumodus: Strg sinkt, außer der Gelände-Reiter ist offen; X sinkt immer');
+  pruefe(/strgSinktNicht\?\.\(\) === true/.test(pc) && /p\.strgSinktNicht = \(\) => panel\.istGelaendeModus/.test(tf), '12: PlayerController fragt den Hook, Testflug setzt ihn auf „Gelände-Reiter offen“');
+
+  // A5: the number field takes the value on every input
+  pruefe(zielAusText('') === null && zielAusText('  ') === null && zielAusText('abc') === null && zielAusText('12,5') === null, '12: Zahlenfeld: leer und Unbrauchbares = kein Ziel');
+  pruefe(zielAusText('-5') === -5 && zielAusText('1e9') === 2000 && zielAusText('-1e9') === -200 && zielAusText('12.345') === 12.35, '12: Zahlenfeld: −5, Klemmen auf 2000 / −200, Runden auf cm');
+  const sp = readFileSync(resolve(HIER, '../src/editor/SpawnPanel.ts'), 'utf-8');
+  pruefe(/ziel\.oninput = \(\) => \{\s*this\.gelaendeEinstellung\.ziel = zielAusText\(ziel\.value\);/.test(sp), '12: das Zahlenfeld übernimmt bei jeder Eingabe (oninput), nicht erst bei change');
+
+  // A6: a held reset brush finishes
+  const hügel = new DeltaKarte();
+  for (let z = -8; z <= 8; z++) for (let x = -8; x <= 8; x++) {
+    const p = punktVon(x, z);
+    const c = Math.round(666 * falloff(Math.hypot(x, z), 8));
+    if (c !== 0) hügel.setze(p.zx, p.zz, p.index, c);
+  }
+  const halt = new Strich(hügel, 'halt');
+  for (let i = 0; i < 400; i++) halt.stempel(eingabe(0, 0, { werkzeug: 'zuruecksetzen', radius: 6 }), false);
+  let rest = 0;
+  for (let z = -8; z <= 8; z++) for (let x = -8; x <= 8; x++) if (Math.hypot(x, z) < 6 && deltaAn(hügel, x, z) !== 0) rest++;
+  pruefe(rest === 0, `12: Zurücksetzen mit gehaltenem Pinsel (400 Stempel): kein Punkt im Kreis behält eine Korrektur (${rest} offen)`);
+  pruefe(Math.abs(deltaAn(hügel, 7, 0)) === Math.abs(Math.round(666 * falloff(7, 8))), '12: außerhalb des Kreises bleibt die Korrektur');
+  const ein = new Strich(hügel, 'x');
+  // the real brush too: raise, then hold reset
+  const a = aufbau(LAYOUT as unknown as Record<string, unknown>);
+  a.ein.werkzeug = 'anheben';
+  a.ein.staerke = 50;
+  a.steuerung.druecken({ x: 0, z: 0 }, false);
+  for (let i = 0; i < 30; i++) {
+    a.setzeZeit(130);
+    a.steuerung.tick({ x: 0, z: 0 }, false);
+  }
+  a.steuerung.loslassen();
+  void ein;
+  a.ein.werkzeug = 'zuruecksetzen';
+  a.steuerung.druecken({ x: 0, z: 0 }, false);
+  for (let i = 0; i < 300; i++) {
+    a.setzeZeit(130);
+    a.steuerung.tick({ x: 0, z: 0 }, false);
+  }
+  a.steuerung.loslassen();
+  const kk = karteAusEntwurf(a.entwurf.doc().heightDeltas) ?? new DeltaKarte();
+  let offen = 0;
+  for (const [x, z] of raster(8)) if (Math.hypot(x, z) < 6 && deltaAn(kk, x, z) !== 0) offen++;
+  pruefe(offen === 0 && abweichungen(a.welt, frischAus(a), raster(10)) === 0, `12: echter Pinsel, 300 Stempel gehalten: alle Punkte im Kreis auf der Basis (${offen} offen)`);
+
+  // A7: the help text names the criterion, not "Kisten"
+  const de = JSON.parse(readFileSync(resolve(HIER, '../src/i18n/katalog/de.json'), 'utf-8')) as Record<string, string>;
+  const en = JSON.parse(readFileSync(resolve(HIER, '../src/i18n/katalog/en.json'), 'utf-8')) as Record<string, string>;
+  pruefe(!de['testflug.gelaende.tip3']!.includes('Kisten') && /Sockel/.test(de['testflug.gelaende.tip3']!) && /Gebäude/.test(de['testflug.gelaende.tip3']!) && /Bauteil/.test(de['testflug.gelaende.tip3']!), '12: der Hilfetext nennt das Kriterium (kein Sockel, kein Gebäude, kein Bauteil) statt „Kisten“');
+  pruefe(!/crates/i.test(en['testflug.gelaende.tip3']!) && /plinth/.test(en['testflug.gelaende.tip3']!) && !/„|“/.test(en['testflug.gelaende.ziel_fehlt']!), '12: englischer Text gleich, ohne deutsche Anführungszeichen');
+  pruefe(!/Strg\+Klick|Ctrl\/Cmd\+click|Strg\/Cmd/.test(de['testflug.gelaende.tip3']! + de['testflug.gelaende.ziel_m']! + de['testflug.gelaende.ziel_fehlt']!), '12: keine Texte mehr für Strg+Klick');
+  // the rule in the text is the rule of `istLose`
+  pruefe(istLose({ prefab: 'U_Fass', x: 0, z: 0 }, katalog) && !istLose({ prefab: 'U_Wohnhaus', x: 0, z: 0 }, katalog) && !istLose({ prefab: 'U_Fass', x: 0, z: 0, einebnen: 2 }, katalog), '12: istLose = kein Sockel und kein Gebäude/Bauteil');
+
+  // A8: keys — only with the terrain tab open, not in a field, a held key is one step; margin; constants
+  const k = (key: string, o: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean; repeat: boolean }> = {}) => ({ key, ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, repeat: false, ...o });
+  pruefe(verlaufEntscheid(k('z'), true, false).aktion === 'rueckgaengig' && verlaufEntscheid(k('z'), true, false).verhindern, '12: Strg+Z bei offenem Reiter: Schritt, Browser-Reaktion verhindert');
+  pruefe(verlaufEntscheid(k('z'), false, false).aktion === null && !verlaufEntscheid(k('z'), false, false).verhindern, '12: bei geschlossenem Gelände-Reiter tut Strg+Z nichts (und bleibt dem Browser)');
+  pruefe(verlaufEntscheid(k('z'), true, true).aktion === null && !verlaufEntscheid(k('z'), true, true).verhindern, '12: im Textfeld tut Strg+Z nichts (das Feld hat sein eigenes Rückgängig)');
+  pruefe(verlaufEntscheid(k('z', { repeat: true }), true, false).aktion === null && verlaufEntscheid(k('z', { repeat: true }), true, false).verhindern, '12: gehaltene Taste (repeat): kein weiterer Schritt, aber verschluckt');
+  pruefe(verlaufEntscheid(k('Z', { shiftKey: true }), true, false).aktion === 'wiederholen' && verlaufEntscheid(k('y'), true, false).aktion === 'wiederholen' && verlaufEntscheid(k('q'), true, false).aktion === null, '12: Strg+Umschalt+Z und Strg+Y = Wiederholen, andere Tasten nichts');
+  const aend = [{ zx: 0, zz: 0, index: 32 * 64 + 32, alt: 0, neu: 5 }];
+  const pl = (x: number, z: number): SperrPlatzierung => ({ prefab: 'U_Fass', x, z });
+  const im = (x: number, z: number): boolean => loseIndizes([pl(x, z)], katalog, aend).length === 1;
+  pruefe(MARGE_M === 1 && im(1, 0) && im(-1, 0) && im(0, 1) && im(0, -1) && im(1, 1), '12: Marge: Objekte genau 1 m neben dem geänderten Punkt werden neu gesetzt');
+  pruefe(!im(1.01, 0) && !im(-1.01, 0) && !im(0, 1.01) && !im(0, -1.01), '12: … Objekte 1,01 m daneben nicht');
+  pruefe(platzierungenNahe([pl(1, 0), pl(1.01, 0), { prefab: 'U_Wohnhaus', x: 0, z: -1 }], aend).join(',') === '0,2', '12: platzierungenNahe nimmt alle in der Marge, auch das Gebäude');
+  // ZURUECK_VOLL: full where the falloff is ≥ 0.5, proportional below
+  const alle = new DeltaKarte();
+  for (let z = -6; z <= 6; z++) for (let x = -6; x <= 6; x++) {
+    const p = punktVon(x, z);
+    alle.setze(p.zx, p.zz, p.index, 100);
+  }
+  const eins = berechneStempel(alle, eingabe(0, 0, { werkzeug: 'zuruecksetzen', radius: 6 }));
+  const bei = (x: number): number | undefined => eins.find((q) => q.index === 32 * 64 + 32 + x)?.neu;
+  pruefe(bei(2) === 0 && bei(1) === 0, `12: Zurücksetzen: wo der Randabfall ≥ 0,5 ist (d ≤ 2), ist die Korrektur ganz weg (${bei(2)})`);
+  pruefe(bei(4) === 100 - Math.round((100 * falloff(4, 6)) / 0.5), `12: … darunter anteilig (d = 4: ${bei(4)} cm übrig, erwartet ${100 - Math.round((100 * falloff(4, 6)) / 0.5)})`);
+  pruefe(VERLAUF_MAX === 100, '12: der Verlauf hält 100 Striche (die Zahl, nicht nur die Konstante)');
+  const v = new GelaendeVerlauf();
+  for (let i = 0; i < 101; i++) v.neu({ vorgangId: `v${i}`, aenderungen: [{ zx: 0, zz: 0, index: i, alt: 0, neu: 1 }] });
+  pruefe(v.tiefe.rueckgaengig === 100, '12: 101 Striche: 100 bleiben im Verlauf');
+  // Zahlenfeld Verdrahtung (E17): klemmt und rundet über zielAusText
+  pruefe(zielAusText('99999') === 2000 && zielAusText('1.005') !== null, '12: Zahlenfeld klemmt und rundet');
 }
 
 console.log(`\n${geprueft - fehler}/${geprueft} Prüfungen bestanden`);

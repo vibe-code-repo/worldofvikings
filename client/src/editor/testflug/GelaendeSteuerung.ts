@@ -22,6 +22,7 @@ import {
   invertiere,
   klemmeRadius,
   pipette,
+  punktWelt,
   Strich,
   wirkRadius,
   StempelTakt,
@@ -31,8 +32,8 @@ import {
   type Werkzeug,
 } from './gelaendePinsel';
 import { GelaendeVerlauf } from './gelaendeVerlauf';
-import { loseIndizes } from './gelaendeLose';
-import { gesperrtDurch, sperrKreise, type SperrKatalog, type SperrKreis, type SperrPlatzierung } from './gelaendeSperre';
+import { loseIndizes, platzierungenNahe } from './gelaendeLose';
+import { gesperrtDurch, punktGesperrt, sperrKreise, type SperrKatalog, type SperrKreis, type SperrPlatzierung } from './gelaendeSperre';
 import { t } from '../i18n';
 
 /** Bounding box of changed vertices, in world coordinates. */
@@ -148,8 +149,14 @@ export class GelaendeSteuerung {
     // Somebody else changed the layer: the steps of this flight refer to a ground that is gone.
     this.verlauf.leeren();
     this.neuBauenJeZone(geaendert);
-    this.loseNachfuehren(geaendert);
+    // The draft is the truth (the server builds the ground from it), so the ground follows it in full, and every
+    // placement near a change is put on it again, buildings too: none may float or sink.
+    this.alleNachfuehren(geaendert);
     this.abh.meldung(t('testflug.gelaende.entwurf_uebernommen', { n: geaendert.length }));
+  }
+
+  private alleNachfuehren(aenderungen: readonly Aenderung[]): void {
+    this.abh.nachStrich(platzierungenNahe(this.abh.platzierungen(), aenderungen));
   }
 
   private loseNachfuehren(aenderungen: readonly Aenderung[]): void {
@@ -356,28 +363,50 @@ export class GelaendeSteuerung {
     // Compare with the draft first: a foreign change empties the history (nothing to undo then).
     this.abgleichen();
     const karte = this.karte;
-    let angewandt: GelaendeVorgang | null = null;
-    const anwenden = (v: GelaendeVorgang): boolean => {
-      const r = this.abh.aktionen.strichAbschliessen(v);
+    // Undo and redo obey the lock like a stroke: what lies under a plinth or a building NOW (placed after the
+    // stroke, maybe) stays as it is, and so does a point that does not hold the value the step expects any more
+    // (an earlier step left it out). The step that was really applied goes to the other line.
+    this.kreiseZeit = -Infinity;
+    const kreise = this.sperrkreiseHolen();
+    let gesperrt = 0;
+    const anwenden = (v: GelaendeVorgang): GelaendeVorgang | null => {
+      const erlaubt: GelaendeVorgang = {
+        vorgangId: v.vorgangId,
+        aenderungen: v.aenderungen.filter((a) => {
+          const p = punktWelt(a);
+          if (punktGesperrt(kreise, p.x, p.z)) {
+            gesperrt++;
+            return false;
+          }
+          return karte.delta(a.zx, a.zz, a.index) === a.alt;
+        }),
+      };
+      if (erlaubt.aenderungen.length === 0) return erlaubt;
+      const r = this.abh.aktionen.strichAbschliessen(erlaubt);
       if (!r.ok) {
         this.abh.meldung(r.message);
-        return false;
+        return null;
       }
       // The draft stands; the live layer follows (same values, so this cannot conflict; if it does, the draft wins).
-      if (!wendeVorgang(karte, v).ok) this.abgleichen();
-      angewandt = v;
-      return true;
+      if (!wendeVorgang(karte, erlaubt).ok) this.abgleichen();
+      return erlaubt;
     };
-    const v = art === 'rueckgaengig' ? this.verlauf.rueckgaengig(anwenden) : this.verlauf.wiederholen(anwenden);
-    if (!v || !angewandt) {
+    const angewandt = art === 'rueckgaengig' ? this.verlauf.rueckgaengig(anwenden) : this.verlauf.wiederholen(anwenden);
+    if (!angewandt) {
       if (!this.verlauf.kannRueckgaengig && art === 'rueckgaengig') this.abh.meldung(t('testflug.gelaende.nichts_rueckgaengig'));
       if (!this.verlauf.kannWiederholen && art === 'wiederholen') this.abh.meldung(t('testflug.gelaende.nichts_wiederholen'));
       return false;
     }
-    const a = angewandt as GelaendeVorgang;
-    this.neuBauenJeZone(a.aenderungen);
-    this.loseNachfuehren(a.aenderungen);
-    this.abh.meldung(t(art === 'rueckgaengig' ? 'testflug.gelaende.rueckgaengig' : 'testflug.gelaende.wiederholt', { n: a.aenderungen.length }));
+    if (angewandt.aenderungen.length === 0) {
+      this.abh.meldung(t('testflug.gelaende.alles_gesperrt'));
+      return false;
+    }
+    this.neuBauenJeZone(angewandt.aenderungen);
+    // Everything near the change is put on the ground again, buildings too: a placement has no height of its own and the
+    // server stands it on the ground, so none may keep showing the old one.
+    this.alleNachfuehren(angewandt.aenderungen);
+    this.abh.meldung(t(art === 'rueckgaengig' ? 'testflug.gelaende.rueckgaengig' : 'testflug.gelaende.wiederholt', { n: angewandt.aenderungen.length }));
+    if (gesperrt > 0) this.abh.meldung(t('testflug.gelaende.teils_gesperrt', { n: gesperrt }));
     return true;
   }
 

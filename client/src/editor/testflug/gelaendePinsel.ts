@@ -258,6 +258,12 @@ export interface StempelEingabe {
   hoehe: (wx: number, wz: number) => number;
   /** Target ground height in metres (only `ebnen`; without a finite value a level stamp changes nothing). */
   ziel?: number;
+  /**
+   * Level only: height and correction of each vertex the FIRST time this stroke touched it. With it a vertex never
+   * moves further than the distance it had to the target at that time, however long the brush is held (see `ebnen`).
+   * Without it (pure stamps in tests) there is no cap.
+   */
+  anker?: Map<number, { h: number; c: number }>;
 }
 
 /** The height the pipette takes from the ground at a point: metres, whole centimetres (what the target field shows). */
@@ -303,11 +309,31 @@ export function berechneStempel(karte: DeltaKarte, e: StempelEingabe): Aenderung
       let zuwachs: number;
       if (ebnen) {
         // Pull the vertex towards the target by the falloff; in the middle (w = 1) it lands on the target.
-        zuwachs = Math.round((e.ziel! - e.hoehe(ix, iz)) * 100 * w);
+        const hJetzt = e.hoehe(ix, iz);
+        zuwachs = Math.round((e.ziel! - hJetzt) * 100 * w);
+        if (e.anker) {
+          // The ground does not always follow 1 cm of correction with 1 cm of height (the slope of a plinth blends
+          // the corrected height against the slab and gets wider the further it is from it): a stamp that only
+          // looks at the visible height would pile up correction without end. So the correction of a vertex may
+          // move from where this stroke found it towards the target, by at most the distance it had then — it
+          // settles, never overshoots, and what is stored stays bounded however long the brush is held.
+          const { zx, zz, index } = punktVon(ix, iz);
+          const nr = punktNummer(zx, zz, index);
+          const cJetzt = karte.delta(zx, zz, index);
+          let anker = e.anker.get(nr);
+          if (!anker) e.anker.set(nr, (anker = { h: hJetzt, c: cJetzt }));
+          const gesamt = Math.round((e.ziel! - anker.h) * 100);
+          const rel = Math.min(Math.max(cJetzt + zuwachs - anker.c, Math.min(0, gesamt)), Math.max(0, gesamt));
+          zuwachs = anker.c + rel - cJetzt;
+        }
       } else if (e.werkzeug === 'zuruecksetzen') {
         // Take the correction away; fully where the falloff is ≥ ZURUECK_VOLL, fading to the rim (no step at the edge).
+        // At least 1 cm per stamp, so a held brush finishes: rounding would otherwise stall at the rim (A6).
         const { zx, zz, index } = punktVon(ix, iz);
-        zuwachs = -Math.round(karte.delta(zx, zz, index) * Math.min(1, w / ZURUECK_VOLL));
+        const alt = karte.delta(zx, zz, index);
+        if (alt === 0) continue;
+        const weg = Math.min(Math.abs(alt), Math.max(1, Math.round(Math.abs(alt) * Math.min(1, w / ZURUECK_VOLL))));
+        zuwachs = -Math.sign(alt) * weg;
       } else if (hoehen) {
         let summe = 0;
         for (let dz = -1; dz <= 1; dz++) {
@@ -345,6 +371,8 @@ export class Strich {
   private readonly vorher = new Map<number, Aenderung>();
   private tot: GrenzGrund | null = null;
   private beendet = false;
+  /** Level: what each vertex was when this stroke first touched it (`StempelEingabe.anker`). */
+  private readonly anker = new Map<number, { h: number; c: number }>();
 
   constructor(
     private readonly karte: DeltaKarte,
@@ -359,7 +387,7 @@ export class Strich {
   stempel(e: StempelEingabe, gesperrt: boolean): StempelErgebnis {
     if (this.tot || this.beendet) return { art: 'abgelehnt' };
     if (gesperrt) return { art: 'gesperrt' };
-    const aenderungen = berechneStempel(this.karte, e);
+    const aenderungen = berechneStempel(this.karte, e.werkzeug === 'ebnen' ? { ...e, anker: this.anker } : e);
     for (const a of aenderungen) {
       const nr = punktNummer(a.zx, a.zz, a.index);
       if (!this.vorher.has(nr)) this.vorher.set(nr, { ...a, neu: a.alt });
@@ -475,6 +503,39 @@ export function radiusSchritt(e: { key: string; code: string; metaKey: boolean; 
   if (e.key === '[' || e.key === '-' || e.code === 'NumpadSubtract') return -1;
   if (e.key === ']' || e.key === '+' || e.code === 'NumpadAdd') return 1;
   return 0;
+}
+
+/** World position of a changed vertex. */
+export function punktWelt(a: { zx: number; zz: number; index: number }): { x: number; z: number } {
+  return { x: a.zx * ZONE - ZONE / 2 + (a.index % ZONE), z: a.zz * ZONE - ZONE / 2 + Math.floor(a.index / ZONE) };
+}
+
+/** The text of the target field as a target height: `null` = empty or not a number (no target). */
+export function zielAusText(text: string): number | null {
+  const s = text.trim();
+  if (s === '') return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? klemmeZiel(n) : null;
+}
+
+/** The pipette key (H, „Höhe“): free in the flight; Ctrl/Alt/Meta make it a shortcut of something else. */
+export function istPipetteTaste(e: { code: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean }): boolean {
+  return e.code === 'KeyH' && !e.ctrlKey && !e.metaKey && !e.altKey;
+}
+
+/**
+ * What a key press means for the history: the step, and whether the browser's own reaction is stopped.
+ * Only with the terrain tab open and not while typing in a field; a held key (repeat) is swallowed without a step.
+ */
+export function verlaufEntscheid(
+  e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean; repeat: boolean },
+  reiterOffen: boolean,
+  imFeld: boolean
+): { aktion: 'rueckgaengig' | 'wiederholen' | null; verhindern: boolean } {
+  if (!reiterOffen || imFeld) return { aktion: null, verhindern: false };
+  const a = verlaufTaste(e);
+  if (!a) return { aktion: null, verhindern: false };
+  return { aktion: e.repeat ? null : a, verhindern: true };
 }
 
 /**

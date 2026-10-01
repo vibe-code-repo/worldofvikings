@@ -40,24 +40,29 @@ export class GelaendeVerlauf {
   }
 
   /**
-   * Takes back the last stroke: `anwenden` gets the INVERSE and says whether it was applied; only then
-   * the step moves to the redo line. Exactly one stroke per call.
+   * Takes back the last stroke: `anwenden` gets the INVERSE and returns what it really applied (`null` = nothing was
+   * done, the step stays). Points under a lock may be left out, so the redo line gets exactly what was applied, turned
+   * around; an applied step that changed nothing is dropped. Exactly one stroke per call.
    */
-  rueckgaengig(anwenden: (v: GelaendeVorgang) => boolean): GelaendeVorgang | null {
+  rueckgaengig(anwenden: (v: GelaendeVorgang) => GelaendeVorgang | null): GelaendeVorgang | null {
     const v = this.zurueck[this.zurueck.length - 1];
-    if (!v || !anwenden(invertiere(v))) return null;
+    if (!v) return null;
+    const angewandt = anwenden(invertiere(v));
+    if (!angewandt) return null;
     this.zurueck.pop();
-    this.vor.push(v);
-    return v;
+    if (angewandt.aenderungen.length > 0) this.vor.push(invertiere(angewandt));
+    return angewandt;
   }
 
-  /** Puts the last taken-back stroke in again (the ORIGINAL Vorgang, so the layer is bit-equal to before the undo). */
-  wiederholen(anwenden: (v: GelaendeVorgang) => boolean): GelaendeVorgang | null {
+  /** Puts the last taken-back stroke in again (the ORIGINAL Vorgang unless points were left out, so the layer is bit-equal to before the undo). */
+  wiederholen(anwenden: (v: GelaendeVorgang) => GelaendeVorgang | null): GelaendeVorgang | null {
     const v = this.vor[this.vor.length - 1];
-    if (!v || !anwenden(v)) return null;
+    if (!v) return null;
+    const angewandt = anwenden(v);
+    if (!angewandt) return null;
     this.vor.pop();
-    this.zurueck.push(v);
-    return v;
+    if (angewandt.aenderungen.length > 0) this.zurueck.push(angewandt);
+    return angewandt;
   }
 
   /** The draft was changed from outside: what the steps refer to is gone. */

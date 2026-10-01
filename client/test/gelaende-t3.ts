@@ -679,7 +679,13 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   dE.placements = [{ id: 'haus', prefab: 'U_Wohnhaus', x: 0, z: 0 }];
   e2.entwurf.setze(dE);
   pruefe(e2.steuerung.rueckgaengig() === true, '11: zwei Striche, danach ein Haus: Rückgängig 1 läuft');
-  pruefe(e2.steuerung.rueckgaengig() === true, '11: … und Rückgängig 2 bleibt nicht an den Punkten unter dem Haus hängen (kein Konflikt)');
+  // the house is taken away again: its points hold the state of the second stroke, the first step must not choke on them
+  {
+    const dX = e2.entwurf.doc();
+    dX.placements = [];
+    e2.entwurf.setze(dX);
+  }
+  pruefe(e2.steuerung.rueckgaengig() === true, '11: … und Rückgängig 2 bleibt nicht an den Punkten hängen, die der erste Schritt ausließ (kein Konflikt)');
   let ausserE = 0;
   for (const [x, z] of raster(13)) if (Math.hypot(x, z) >= 7 && Math.hypot(x, z) < 11 && e2.welt.getGroundHeight(x, z) !== basisE.getGroundHeight(x, z)) ausserE++;
   pruefe(ausserE === 0, `11: … außerhalb des Hauskreises ist der Boden wieder die Basis (${ausserE} Abweichungen)`);

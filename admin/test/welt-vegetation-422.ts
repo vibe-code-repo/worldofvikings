@@ -174,6 +174,20 @@ try {
   const r5 = await anfrage('GET');
   check('5 beschädigte Datei: GET 422 art vegetation mit Befund (#1, r)', r5.status === 422 && r5.daten.art === 'vegetation' && (r5.daten.fehlerhaftVegetation as Array<{ eintrag: string; feld: string }>)?.[0]?.eintrag === '#1', `${r5.status} ${JSON.stringify(r5.daten).slice(0, 200)}`);
   check('5 GET hat die Datei nicht angefasst', platte().equals(vorKaputt));
+
+  // 8 (V2, Auflage aus dem V1-Angriff): die 422-Antwort nennt den Hash der Bytes auf der Platte (Body UND ETag),
+  // damit eine Reparatur mit If-Match ohne Handarbeit geht.
+  {
+    const { createHash } = await import('node:crypto');
+    const erwartet = createHash('sha256').update(platte()).digest('hex');
+    const roh = await fetch(BASIS, { headers: { 'x-wov-token': TOKEN } });
+    const leib = (await roh.json()) as Record<string, unknown>;
+    check('8 422 nennt den Hash der Datei im Body', roh.status === 422 && leib.hash === erwartet, `${roh.status} ${String(leib.hash).slice(0, 16)} vs ${erwartet.slice(0, 16)}`);
+    check('8 422 trägt den ETag-Kopf mit demselben Hash', roh.headers.get('etag') === `"${erwartet}"`, String(roh.headers.get('etag')));
+    // Die Reparatur mit genau diesem Hash klappt (POST mit If-Match), ohne Handarbeit an der Datei.
+    const heil = await anfrage('POST', dokument({ vegetationEntfernt: [{ x: 1, z: 1, r: 5 }] }), `"${erwartet}"`);
+    check('8 Reparatur mit dem genannten Hash: 200', heil.status === 200, `${heil.status} ${JSON.stringify(heil.daten).slice(0, 160)}`);
+  }
 } finally {
   (dienst as ChildProcess | null)?.kill('SIGTERM');
   await new Promise((f) => setTimeout(f, 300));

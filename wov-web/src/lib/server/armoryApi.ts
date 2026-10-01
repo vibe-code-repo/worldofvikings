@@ -54,7 +54,31 @@ async function liesBegrenzt(res: Response): Promise<string> {
 /** Längster Suchbegriff, den der Server annimmt (Armory.ts: ARMORY_SUCHE_MAX). */
 const SUCHE_MAX = 32;
 
+/** Eine Besucheradresse, wie sie in `X-Forwarded-For` stehen darf (IPv4/IPv6, keine Sonderzeichen). */
+const ADRESSE_MUSTER = /^[0-9a-fA-F:.]{2,45}$/;
+
+/**
+ * Der Kopf, der die Adresse des Besuchers an den Spielserver weitergibt.
+ * Der Abruf läuft über Loopback; ohne den Kopf teilten sich alle Besucher
+ * eine Herkunft und damit eine Drossel. Fehlt die Adresse oder sieht sie
+ * seltsam aus, geht kein Kopf mit.
+ */
+export function weiterleitung(besucher: string | undefined): Record<string, string> {
+  return besucher && ADRESSE_MUSTER.test(besucher) ? { 'x-forwarded-for': besucher } : {};
+}
+
+/** Die Adresse des Besuchers aus dem Adapter; der Adapter wirft, wenn er keine kennt. */
+export function adresseVon(getClientAddress: () => string): string | undefined {
+  try {
+    return getClientAddress();
+  } catch {
+    return undefined;
+  }
+}
+
 export interface AbrufOptionen {
+  /** Adresse des Besuchers (`event.getClientAddress()`), wird als `X-Forwarded-For` mitgegeben. */
+  besucher?: string;
   /** Basisadresse; Vorgabe `WOV_GAME_API` bzw. der lokale Spielserver. */
   basis?: string;
   zeitlimitMs?: number;
@@ -78,7 +102,7 @@ async function hole(fetch: Fetcher, pfad: string, opt: AbrufOptionen): Promise<E
     const antwort = await Promise.race([
       (async () => {
         const res = await fetch(`${basisAdresse(opt)}${pfad}`, {
-          headers: { accept: 'application/json' },
+          headers: { accept: 'application/json', ...weiterleitung(opt.besucher) },
           signal: regler.signal,
         });
         if (!res.ok) return { ok: false, status: res.status } as const;

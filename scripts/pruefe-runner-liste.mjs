@@ -154,6 +154,7 @@ const AUSNAHMEN = [
   { pfad: 'wov-web/src/lib/reckenAnzeige.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
   { pfad: 'wov-web/src/lib/ruestkammerQuelle.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
   { pfad: 'wov-web/src/lib/ruestkammerSsr.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
+  { pfad: 'wov-web/src/lib/prozess.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
   { pfad: 'wov-web/src/lib/server/armoryApi.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
   { pfad: 'wov-web/src/lib/reckenVorschau.dom.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
   { pfad: 'wov-web/src/lib/reckenVorschau.ssr.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },

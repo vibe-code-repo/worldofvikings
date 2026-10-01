@@ -6,6 +6,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { CANONICAL_HOME, X_DEFAULT_ADRESSE } from './basisDomains';
+import { beendeProzess } from './testhilfen/prozess';
 
 /**
  * Rüstkammer und Ruhmeshalle am AUSGELIEFERTEN Stand: der gebaute Handler von
@@ -87,6 +88,7 @@ type Antwort = { status: number; koerper: string };
 
 let modus: (url: URL) => Antwort | 'haengt' = () => ({ status: 500, koerper: '{}' });
 const gesehen: string[] = [];
+const koepfe: Array<Record<string, string | string[] | undefined>> = [];
 let attrappe: http.Server;
 let webPort = 0;
 
@@ -136,6 +138,7 @@ beforeAll(async () => {
   attrappe = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
     gesehen.push(`${url.pathname}${url.search}`);
+    koepfe.push(req.headers);
     const a = modus(url);
     if (a === 'haengt') return;
     res.writeHead(a.status, { 'content-type': 'application/json' });
@@ -161,12 +164,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (!vorhanden) return;
-  const ende = kind ? new Promise((r) => kind?.once('exit', r)) : Promise.resolve();
-  kind?.kill();
-  await ende;
+  // Endet auch, wenn das Kind schon tot ist oder das Beenden ignoriert.
+  await beendeProzess(kind, 5000);
   attrappe.closeAllConnections();
   await new Promise((r) => attrappe.close(r));
-});
+}, 15000);
 
 beschreibe('Rüstkammer ohne JavaScript (gebauter Stand)', () => {
   it('Vorbedingung: in der CI liegt der Build vor', () => {
@@ -196,6 +198,22 @@ beschreibe('Rüstkammer ohne JavaScript (gebauter Stand)', () => {
     expect((await frage('/de/ruestkammer')).text).not.toContain('1 Recken');
     expect((await frage('/en/armory')).text).toContain('1 hero');
     expect((await frage('/en/armory')).text).not.toContain('1 heroes');
+  });
+
+  it('der Besucher wird als X-Forwarded-For an den Spielserver weitergegeben (Liste, Profil, Ruhmeshalle)', async () => {
+    modus = (u) =>
+      u.pathname === '/accounts/armory'
+        ? listeAntwort([eintrag(1, 'Ragnar')])
+        : json(200, profil(1));
+    for (const pfad of ['/de/ruestkammer', '/de/ruestkammer?reck=1', '/de/ruhmeshalle']) {
+      koepfe.length = 0;
+      await frage(pfad);
+      expect(koepfe.length, pfad).toBe(1);
+      // Der Test-Besucher kommt von Loopback; der Adapter meldet dessen Adresse.
+      expect(String(koepfe[0]['x-forwarded-for']), pfad).toMatch(
+        /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/,
+      );
+    }
   });
 
   it('Suche und Seite kommen unverändert beim Spielserver an; Müll wird zu Seite 1', async () => {
@@ -318,6 +336,8 @@ beschreibe('Rüstkammer ohne JavaScript (gebauter Stand)', () => {
     expect(r.text).toContain('nicht in der Kammer');
     expect(r.main).toContain('href="/de/ruestkammer"');
     expect(r.text).not.toContain('unknown-character');
+    // Die Fehlerseite gehört nicht in den Index.
+    expect(r.html).toMatch(/<meta name="robots" content="noindex"/);
     expect((await frage('/en/armory?reck=99')).text).toContain('not in the armory');
     for (const muell of ['abc', '0', '-1', '1.5', '1e3']) {
       expect((await frage(`/de/ruestkammer?reck=${muell}`)).status).toBe(404);

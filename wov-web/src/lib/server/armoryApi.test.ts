@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { ANTWORT_MAX, ladeRecke, ladeRuestkammer, seiteAus, sucheAus } from './armoryApi';
+import {
+  ANTWORT_MAX,
+  adresseVon,
+  ladeRecke,
+  ladeRuestkammer,
+  seiteAus,
+  sucheAus,
+  weiterleitung,
+} from './armoryApi';
 
 // Der Abruf gegen einen Attrappen-`fetch`: kein Netz, keine Spielserver-Instanz.
 
@@ -240,5 +248,44 @@ describe('Adressteile', () => {
     expect(sucheAus(null)).toBe('');
     expect(sucheAus('  Ragnar  ')).toBe('Ragnar');
     expect(Array.from(sucheAus('ä'.repeat(50))).length).toBe(32);
+  });
+});
+
+describe('Besucheradresse als X-Forwarded-For', () => {
+  /** Ein `fetch`, der die Köpfe mitschreibt. */
+  function kopfAttrappe() {
+    const koepfe: Array<Record<string, string>> = [];
+    const fetch = async (_url: string, init?: RequestInit): Promise<Response> => {
+      koepfe.push({ ...(init?.headers as Record<string, string>) });
+      return json(liste([]));
+    };
+    return { fetch, koepfe };
+  }
+
+  it('Liste und Profil geben die Adresse des Besuchers mit', async () => {
+    const a = kopfAttrappe();
+    await ladeRuestkammer(a.fetch, '', 1, { ...BASIS, besucher: '203.0.113.7' });
+    await ladeRecke(a.fetch, 7, { ...BASIS, besucher: '2001:db8::1' });
+    expect(a.koepfe[0]['x-forwarded-for']).toBe('203.0.113.7');
+    expect(a.koepfe[1]['x-forwarded-for']).toBe('2001:db8::1');
+  });
+
+  it('ohne Adresse oder mit Sonderzeichen geht kein Kopf mit', async () => {
+    const a = kopfAttrappe();
+    await ladeRuestkammer(a.fetch, '', 1, BASIS);
+    await ladeRuestkammer(a.fetch, '', 1, { ...BASIS, besucher: '1.2.3.4, 5.6.7.8' });
+    await ladeRuestkammer(a.fetch, '', 1, { ...BASIS, besucher: '1.2.3.4\r\nx: y' });
+    for (const k of a.koepfe) expect(k).not.toHaveProperty('x-forwarded-for');
+    expect(weiterleitung(undefined)).toEqual({});
+    expect(weiterleitung('')).toEqual({});
+  });
+
+  it('adresseVon: wirft der Adapter, gibt es keine Adresse', () => {
+    expect(adresseVon(() => '10.0.0.1')).toBe('10.0.0.1');
+    expect(
+      adresseVon(() => {
+        throw new Error('keine Adresse');
+      }),
+    ).toBeUndefined();
   });
 });

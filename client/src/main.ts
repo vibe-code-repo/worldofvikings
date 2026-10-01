@@ -3088,7 +3088,7 @@ async function main() {
 
   window.addEventListener('keydown', (e) => {
     // Tasten, die nur bei aufgeschlagener Karte gelten (zentrieren, zoomen).
-    if (worldMap?.taste(e.code)) {
+    if (!istTexteingabeAktiv(e) && worldMap?.taste(e.code)) {
       e.preventDefault();
       return;
     }

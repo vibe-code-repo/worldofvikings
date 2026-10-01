@@ -11,6 +11,7 @@
  * Run: npx tsx test/texteingabe-tasten.ts   (from client/)
  */
 import { readFileSync } from 'node:fs';
+import * as ts from 'typescript';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { istTexteingabeAktiv, istTexteingabeElement } from '../src/engine/texteingabe';
@@ -88,6 +89,47 @@ pruefe(!/e\.target instanceof HTMLInputElement/.test(tf) && !/e\.target instance
 pruefe(/KeyV[\s\S]{0,300}tipptImFeld\(e\)\) return/.test(tf), '3: V prüft tipptImFeld');
 pruefe(/istTexteingabeAktiv\(e\)\) return;\s*dekoPlatzierung/.test(mm), '3: Deko-Tasten in main.ts sperren im Feld');
 pruefe(/if \(istTexteingabeAktiv\(e\)\)/.test(imq), '3: InputManager sperrt im Feld');
+
+// ── 4. Jeder keydown-Handler im Testflug prüft das Feld (Syntaxbaum), Karten- und Editor-Tasten ebenso ──
+/** keydown-Handler auf window, deren Text keinen `tipptImFeld(`-Aufruf enthält (Escape→setzeAb ausgenommen). */
+function handlerOhneFeldpruefung(quelle: string): string[] {
+  const sf = ts.createSourceFile('x.ts', quelle, ts.ScriptTarget.Latest, true);
+  const ohne: string[] = [];
+  let gesamt = 0;
+  const gehe = (n: ts.Node): void => {
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'addEventListener') {
+      const [art, fn] = n.arguments;
+      if (art && ts.isStringLiteral(art) && art.text === 'keydown' && fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))) {
+        gesamt++;
+        const text = fn.getText(sf);
+        if (!/tipptImFeld\(/.test(text) && !/setzeAb\(\)/.test(text)) ohne.push(`Zeile ${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}`);
+      }
+    }
+    ts.forEachChild(n, gehe);
+  };
+  gehe(sf);
+  return gesamt >= 9 ? ohne : [`nur ${gesamt} Handler gefunden`];
+}
+const bs = lies('src/editor/testflug/BewuchsStufe.ts');
+const em = lies('src/editor/editorMain.ts');
+pruefe(handlerOhneFeldpruefung(tf).length === 0, `4: jeder keydown-Handler in Testflug.ts prüft tipptImFeld (${handlerOhneFeldpruefung(tf).join(', ')})`);
+pruefe(/optionen\.tipptImFeld\(e\)/.test(bs), '4: BewuchsStufe prüft das Feld');
+const mutiere = (quelle: string, alt: string, neu: string): string => {
+  if (quelle.split(alt).length !== 2) throw new Error('Stelle nicht eindeutig: ' + alt);
+  return quelle.replace(alt, neu);
+};
+for (const [name, alt, neu] of [
+  ['G ohne tipptImFeld', "if (tipptImFeld(e) || e.code !== 'KeyG') return;", "if (e.code !== 'KeyG') return;"],
+  ['Q ohne tipptImFeld', "if (tipptImFeld(e) || e.code !== 'KeyQ' || e.repeat || !player) return;", "if (e.code !== 'KeyQ' || e.repeat || !player) return;"],
+  ['Komma/Punkt ohne tipptImFeld', "if (tipptImFeld(e) || !panel.istOffen || (e.code !== 'Comma'", "if (!panel.istOffen || (e.code !== 'Comma'"],
+  ['V ohne tipptImFeld', "if (tipptImFeld(e)) return;\n      const an", "const an"],
+] as const) {
+  pruefe(handlerOhneFeldpruefung(mutiere(tf, alt, neu)).length > 0, `4: Mutant „${name}“ wird rot`);
+}
+pruefe(/!istTexteingabeAktiv\(e\) && worldMap\?\.taste\(e\.code\)/.test(mm), '4: Kartentasten (WorldMap.taste) sperren im Feld');
+pruefe(!/!istTexteingabeAktiv\(e\) && worldMap/.test(mutiere(mm, '!istTexteingabeAktiv(e) && worldMap?.taste', 'worldMap?.taste')), '4: Mutant „WorldMap.taste ohne Feldprüfung“ wird rot');
+pruefe(/if \(!e\.ctrlKey \|\| istTexteingabeAktiv\(e\)\) return;\s*if \(e\.code === 'KeyZ' && !e\.shiftKey\) \{\s*rueckgaengig\(\)/.test(em), '4: Strg+Z/Y im Karteneditor sperrt im Feld');
+pruefe(!/if \(!e\.ctrlKey \|\| istTexteingabeAktiv\(e\)\) return;/.test(mutiere(em, 'if (!e.ctrlKey || istTexteingabeAktiv(e)) return;', 'if (!e.ctrlKey) return;')), '4: Mutant „Strg+Z ohne Feldprüfung“ wird rot');
 
 if (fehler) {
   console.error(`${fehler} Prüfung(en) rot`);

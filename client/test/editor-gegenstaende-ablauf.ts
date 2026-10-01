@@ -26,9 +26,9 @@ import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
 import { leseGegenstandsDatei, schreibeGegenstandsDatei, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import type { Anzeigetext } from '../src/editor/gegenstaende/anzeige';
-import { eigeneBehaltenAbgleich, entferneGegenstand, entscheideNachSpeichern, hatVorwarnung, juengsteAntwort, kanonisch, kopiereFeld, ladeGefangen, ladefehlerBanner, pruefeKonflikt, schnappschuss, speichereGefangen, speichereSchnappschuss, speicherSperre, unterschiede, vorwarnungVon } from '../src/editor/gegenstaende/ablauf';
-import { ZEITGRENZE_MS, ladeQuittung, ladeStand, speichernMitBestaetigung, speichere } from '../src/editor/gegenstaende/api';
-import { eintragZuFormular, formularZuEintrag, mitEintrag, type Formular } from '../src/editor/gegenstaende/modell';
+import { eigeneBehaltenAbgleich, entferneGegenstand, entscheideNachSpeichern, brauchtVorwarnung, hatVorwarnung, juengsteAntwort, kanonisch, kopiereFeld, ladeGefangen, ladefehlerBanner, pruefeKonflikt, schnappschuss, speichereGefangen, speichereSchnappschuss, speicherSperre, unterschiede, vorabFuer, vorwarnungVon } from '../src/editor/gegenstaende/ablauf';
+import { ZEITGRENZE_MS, type Stand, ladeQuittung, ladeStand, speichernMitBestaetigung, speichere } from '../src/editor/gegenstaende/api';
+import { eintragZuFormular, formularZuEintrag, mitEintrag, vereinheitlichung, type Formular } from '../src/editor/gegenstaende/modell';
 
 let fehler = 0;
 function check(name: string, ok: boolean, zusatz = ''): void {
@@ -376,7 +376,7 @@ console.log('\n[5] Verdrahtung in seite.ts (Syntaxbaum):');
     if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'sicher' && n.expression.expression.kind === ts.SyntaxKind.ThisKeyword) sicherAufrufe++;
   });
   check('sicher() wird von den Knoepfen und dem Laden benutzt (mindestens 5 Stellen)', sicherAufrufe >= 5, String(sicherAufrufe));
-  check('sicher() faengt mit .catch und setzt die Sperren zurueck', /\.catch\(/.test(rumpf('sicher')) && /this\.laedt = false/.test(rumpf('sicher')) && /this\.speichert = false/.test(rumpf('sicher')));
+  check('sicher() faengt mit .catch und gibt die Speichersperre frei (die Ladesperre nicht, EG2 N9 I4: dort gilt der Test unten)', /\.catch\(/.test(rumpf('sicher')) && /this\.speichert = false/.test(rumpf('sicher')));
 }
 
 // ── [7] time limit ─────────────────────────────────────────────────────
@@ -806,12 +806,12 @@ console.log('\n[10] N4: "Eigene behalten" gegen das lebende Formular, Nachladen 
     // The id of a discarded entry
     const w = vorwarnungVon(stand, 'Kaputt');
     check('vorwarnungVon: ein Eintrag mit der Id eines verworfenen Eintrags (Kaputt) meldet das Ueberschreiben', gleich(w.ueberschreibt.map((v) => v.id), ['Kaputt']) && vorwarnungVon(stand, 'Axt').ueberschreibt.length === 0 && vorwarnungVon(stand, null).ueberschreibt.length === 0);
-    const nurId = { vereinheitlicht: { ids: [], dateiebene: false }, ueberschreibt: w.ueberschreibt };
+    const nurId = { vereinheitlicht: { ids: [], dateiebene: false }, verworfeneInDatei: [], ueberschreibt: w.ueberschreibt };
     anfragen.length = 0;
     let fragen2 = 0;
     const idNein = await speichereSchnappschuss({ fetcher }, s, liste, async () => true, { warnung: nurId, frage: async () => (fragen2++, false) });
     check('nur die Id-Kollision, ohne Vereinheitlichung: es wird trotzdem gefragt, ohne "ja" kein PUT', idNein.art === 'dialog-nein' && fragen2 === 1 && anfragen.length === 0);
-    check('hatVorwarnung: leer = nichts zu fragen; Id-Kollision allein, Vereinheitlichung allein, nur Dateiebene = fragen', !hatVorwarnung({ vereinheitlicht: { ids: [], dateiebene: false }, ueberschreibt: [] }) && hatVorwarnung(nurId) && hatVorwarnung({ vereinheitlicht: { ids: ['A'], dateiebene: false }, ueberschreibt: [] }) && hatVorwarnung({ vereinheitlicht: { ids: [], dateiebene: true }, ueberschreibt: [] }));
+    check('hatVorwarnung: leer = nichts zu fragen; Id-Kollision allein, Vereinheitlichung allein, nur Dateiebene = fragen', !hatVorwarnung({ vereinheitlicht: { ids: [], dateiebene: false }, verworfeneInDatei: [], ueberschreibt: [] }) && hatVorwarnung(nurId) && hatVorwarnung({ vereinheitlicht: { ids: ['A'], dateiebene: false }, verworfeneInDatei: [], ueberschreibt: [] }) && hatVorwarnung({ vereinheitlicht: { ids: [], dateiebene: true }, verworfeneInDatei: [], ueberschreibt: [] }));
 
     // The newest load wins
     const nachLauf = juengsteAntwort();
@@ -849,6 +849,202 @@ console.log('\n[10] N4: "Eigene behalten" gegen das lebende Formular, Nachladen 
     check('seite.ts: speichern() und entfernen() geben die Vorwarnung (vorab) an den Ablauf', /this\.vorab\(this\.stand, eintrag\.id\)/.test(rumpf('speichern')) && /,\s*vorab\)/.test(rumpf('speichern')) && /this\.vorab\(this\.stand, null\)/.test(rumpf('entfernen')) && /,\s*vorab\)/.test(rumpf('entfernen')));
     check('seite.ts: das Laden zeigt die Vereinheitlichung als Banner (vereinheitlichtZeilen)', /vereinheitlichtZeilen\(erg\.stand\.vereinheitlicht\)/.test(rumpf('laden')));
     check('seite.ts: die Ergebniszeile bei netz/zeit kommt aus nichtGespeichertText, kein festes "nicht gespeichert" in senden()', (rumpf('senden').match(/nichtGespeichertText\(erg\.art\)/g) ?? []).length >= 6 && !/seite\.nicht_gespeichert/.test(rumpf('senden')));
+  }
+}
+
+// ── [12] EG2 N9: verworfene Eintraege in der Vorwarnung, der Merker, die Infos I1 bis I5 ──
+console.log('\n[12] EG2 N9: Vorwarnung (verworfene Eintraege, einmal je Stand), I1, I3, I4, I5:');
+{
+  const V = (index: number, id: string | null, grund: Stand['verworfen'][number]['grund'] = 'typ-unbekannt'): Stand['verworfen'][number] => ({ index, id, grund });
+  const standMit = (hash: string, o: { ids?: string[]; datei?: boolean; verworfen?: ReturnType<typeof V>[] }) => ({ hash, vereinheitlicht: { ids: o.ids ?? [], dateiebene: o.datei ?? false }, verworfen: o.verworfen ?? [] });
+  const zwei = [V(1, null, 'id-ungueltig'), V(2, 'Epsilon', 'zahl-ungueltig')];
+
+  // A1
+  const sA = standMit('a'.repeat(64), { verworfen: zwei });
+  for (const id of ['Gamma', 'Zeta', null]) {
+    const w = vorwarnungVon(sA, id);
+    check(`A1: vorwarnungVon(${id === null ? 'Entfernen' : id}): beide verworfenen Eintraege der Datei stehen drin, auch ohne gleiche Id`, w.verworfeneInDatei.length === 2 && w.ueberschreibt.length === 0 && hatVorwarnung(w), JSON.stringify(w));
+  }
+  check('A1: gleiche Id eines verworfenen Eintrags: ueberschreibt und verworfeneInDatei zugleich', vorwarnungVon(sA, 'Epsilon').ueberschreibt.length === 1 && vorwarnungVon(sA, 'Epsilon').verworfeneInDatei.length === 2);
+  check('A1: hatVorwarnung allein wegen verworfener Eintraege; ohne irgendetwas nicht', hatVorwarnung({ vereinheitlicht: { ids: [], dateiebene: false }, verworfeneInDatei: [V(0, 'X')], ueberschreibt: [] }) && !hatVorwarnung(vorwarnungVon(standMit('b'.repeat(64), {}), 'Gamma')));
+  {
+    // end to end with an in-memory route: two discarded and two valid entries, saving Gamma
+    // the two valid entries are in the canonical form, so the question is only about the two discarded ones
+    const kanonDatei = JSON.parse(schreibeGegenstandsDatei([eintrag('Gamma', 'Gamma'), eintrag('Zeta', 'Zeta')])) as { gegenstaende: Array<Record<string, unknown>> };
+    const [kGamma, kZeta] = kanonDatei.gegenstaende;
+    const text = JSON.stringify({ version: 1, gegenstaende: [kGamma, { ...kZeta, id: 'x y' }, { ...kZeta, id: 'Epsilon', stapel: 'viel' }, kZeta] });
+    const anfragen: string[] = [];
+    const fetcher = async (_u: unknown, init?: RequestInit): Promise<Response> => {
+      anfragen.push(init?.method ?? 'GET');
+      if (init?.method === 'PUT') return new Response(JSON.stringify({ ok: true, hash: 'f'.repeat(64), eintraege: 2 }), { status: 200 });
+      return new Response(JSON.stringify({ text, hash: 'c'.repeat(64), quelle: 'arbeit' }), { status: 200 });
+    };
+    const geladen = await ladeStand({ fetcher });
+    if (geladen.art !== 'ok') throw new Error('load failed');
+    const st = geladen.stand;
+    check('A1: Laden: zwei gueltige, zwei verworfene Eintraege, keine Vereinheitlichung', st.eintraege.length === 2 && st.verworfen.length === 2 && st.vereinheitlicht.ids.length === 0 && !st.vereinheitlicht.dateiebene, JSON.stringify(st));
+    const liste = mitEintrag(st.eintraege, 'Gamma', st.eintraege[0]);
+    anfragen.length = 0;
+    let gesehen = -1;
+    let merker: string | null = null;
+    const nein = await speichereSchnappschuss({ fetcher }, schnappschuss(st), liste, async () => true, vorabFuer({ merker, setzeMerker: (h) => (merker = h), stand: st, id: 'Gamma', dialog: async (w) => ((gesehen = w.verworfeneInDatei.length), false) }));
+    check('A1: Gamma speichern, Antwort "nein": die Frage kommt (2 verworfene genannt), dialog-nein, kein PUT, Merker bleibt leer', nein.art === 'dialog-nein' && gesehen === 2 && anfragen.length === 0 && merker === null, `${nein.art} ${gesehen} ${anfragen.join()} ${merker}`);
+    const ja = await speichereSchnappschuss({ fetcher }, schnappschuss(st), liste, async () => true, vorabFuer({ merker, setzeMerker: (h) => (merker = h), stand: st, id: 'Gamma', dialog: async () => true }));
+    check('A1: Antwort "ja": genau ein PUT, Merker = Hash des Stands', ja.art === 'ok' && anfragen.filter((m) => m === 'PUT').length === 1 && merker === st.hash, `${ja.art} ${anfragen.join()}`);
+  }
+
+  // A2: brauchtVorwarnung / vorabFuer
+  const sH1 = standMit('1'.repeat(64), { ids: ['Axt'], verworfen: [V(3, 'Kaputt'), V(4, 'Anders')] });
+  const sH2 = standMit('2'.repeat(64), { ids: ['Axt'], verworfen: [V(3, 'Kaputt')] });
+  const b0 = brauchtVorwarnung(null, sH1, 'Gamma');
+  check('A2: ohne Merker wird gefragt, die Warnung ist ungekuerzt, der Merker nach "ja" ist der Hash des Stands', b0.fragen && b0.warnung.vereinheitlicht.ids.length === 1 && b0.warnung.verworfeneInDatei.length === 2 && b0.merkerNachJa === sH1.hash);
+  const b1 = brauchtVorwarnung(sH1.hash, sH1, 'Gamma');
+  check('A2: nach "ja" fuer DIESEN Stand: weder Vereinheitlichung noch verworfene Eintraege werden noch einmal gefragt (keine Frage)', !b1.fragen && b1.warnung.vereinheitlicht.ids.length === 0 && !b1.warnung.vereinheitlicht.dateiebene && b1.warnung.verworfeneInDatei.length === 0);
+  const b2 = brauchtVorwarnung(sH1.hash, sH1, 'Kaputt');
+  check('A2: die Zeilen zum Ueberschreiben (gleiche Id) werden nie geleert: auch mit Merker wird gefragt, nur sie', b2.fragen && b2.warnung.ueberschreibt.length === 1 && b2.warnung.ueberschreibt[0].id === 'Kaputt' && b2.warnung.vereinheitlicht.ids.length === 0 && b2.warnung.verworfeneInDatei.length === 0);
+  const b3 = brauchtVorwarnung(sH1.hash, sH2, 'Gamma');
+  check('A2: neues Laden mit anderem Hash und neuer Warnung: wieder gefragt, mit der vollen Warnung (ein "ja" fuer den alten Stand gilt nicht)', b3.fragen && b3.warnung.vereinheitlicht.ids.length === 1 && b3.warnung.verworfeneInDatei.length === 1 && b3.merkerNachJa === sH2.hash);
+  check('A2: ein "ja" fuer einen anderen Stand (auch ein beliebiger Merker) unterdrueckt nichts', brauchtVorwarnung('x', sH1, 'Gamma').fragen && brauchtVorwarnung('', sH1, 'Gamma').fragen);
+  check('A2: ein sauberer Stand fragt nie, auch ohne Merker', !brauchtVorwarnung(null, standMit('3'.repeat(64), {}), 'Gamma').fragen);
+
+  // a page in miniature: memory + the real flow, as seite.ts uses it
+  {
+    const abl = async (stand: ReturnType<typeof standMit>, id: string | null, antwort: boolean | 'wirft', seite: { merker: string | null; fragen: number; puts: number }): Promise<string> => {
+      const erg = await speichereSchnappschuss(
+        { fetcher: async (_u: unknown, init?: RequestInit) => (init?.method === 'PUT' ? (seite.puts++, new Response(JSON.stringify({ ok: true, hash: '9'.repeat(64), eintraege: 1 }), { status: 200 })) : new Response('{}', { status: 500 })) },
+        { eintraege: [], hash: stand.hash },
+        [],
+        async () => true,
+        vorabFuer({ merker: seite.merker, setzeMerker: (h) => (seite.merker = h), stand, id, dialog: async () => { seite.fragen++; if (antwort === 'wirft') throw new Error('Dialog kaputt'); return antwort; } })
+      );
+      return erg.art;
+    };
+    const seite = { merker: null as string | null, fragen: 0, puts: 0 };
+    check('A2 (Ablauf): "nein": gefragt, kein PUT, Merker leer', (await abl(sH1, 'Gamma', false, seite)) === 'dialog-nein' && seite.fragen === 1 && seite.puts === 0 && seite.merker === null);
+    check('A2 (Ablauf): danach wird wieder gefragt (nach "nein"); der Dialog wirft: ausnahme, kein PUT, Merker leer', (await abl(sH1, 'Gamma', 'wirft', seite)) === 'ausnahme' && seite.fragen === 2 && seite.puts === 0 && seite.merker === null);
+    check('A2 (Ablauf): wieder gefragt, "ja": PUT, Merker = Hash', (await abl(sH1, 'Gamma', true, seite)) === 'ok' && seite.fragen === 3 && seite.puts === 1 && seite.merker === sH1.hash);
+    check('A2 (Ablauf): dasselbe geladene Stand noch einmal (z. B. ein Netzfehler zuvor): KEINE zweite Frage, PUT geht raus', (await abl(sH1, 'Gamma', false, seite)) === 'ok' && seite.fragen === 3 && seite.puts === 2);
+    check('A2 (Ablauf): dasselbe Laden, aber ein Eintrag mit der Id eines verworfenen: gefragt', (await abl(sH1, 'Kaputt', false, seite)) === 'dialog-nein' && seite.fragen === 4 && seite.puts === 2);
+    check('A2 (Ablauf): neuer Stand mit anderem Hash und Warnung: gefragt', (await abl(sH2, 'Gamma', false, seite)) === 'dialog-nein' && seite.fragen === 5 && seite.puts === 2);
+  }
+
+  // Binding in seite.ts on the syntax tree
+  const HIER = dirname(fileURLToPath(import.meta.url));
+  const pfad = resolve(HIER, '../src/editor/gegenstaende/seite.ts');
+  const sf = ts.createSourceFile(pfad, readFileSync(pfad, 'utf-8'), ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+  const methoden = new Map<string, ts.MethodDeclaration>();
+  const besuche = (n: ts.Node, f: (x: ts.Node) => void): void => {
+    f(n);
+    ts.forEachChild(n, (k) => besuche(k, f));
+  };
+  besuche(sf, (n) => {
+    if (ts.isMethodDeclaration(n) && ts.isIdentifier(n.name)) methoden.set(n.name.text, n);
+  });
+  const m = (name: string): ts.MethodDeclaration => {
+    const x = methoden.get(name);
+    if (x === undefined) throw new Error(`seite.ts has no method ${name}`);
+    return x;
+  };
+  const rumpfText = (name: string): string => m(name).getText(sf);
+  const eigenschaft = (o: ts.ObjectLiteralExpression, name: string): ts.ObjectLiteralElementLike | undefined => o.properties.find((p) => p.name !== undefined && ts.isIdentifier(p.name) && p.name.text === name);
+  const vorab = m('vorab');
+  const stmts = vorab.body?.statements ?? [];
+  const ret = stmts.length === 1 && ts.isReturnStatement(stmts[0]) ? stmts[0].expression : undefined;
+  const aufruf = ret !== undefined && ts.isCallExpression(ret) && ts.isIdentifier(ret.expression) && ret.expression.text === 'vorabFuer' && ret.arguments.length === 1 && ts.isObjectLiteralExpression(ret.arguments[0]) ? ret.arguments[0] : undefined;
+  check('A2 (Bindung): vorab() ist nur `return vorabFuer({...})`, keine eigene Entscheidung in der Seite', aufruf !== undefined && (vorab.body?.statements.length ?? 0) === 1);
+  if (aufruf === undefined) throw new Error('vorab() is not a call of vorabFuer');
+  const prop = (n: string): ts.Node | undefined => {
+    const p = eigenschaft(aufruf, n);
+    return p !== undefined && ts.isPropertyAssignment(p) ? p.initializer : p;
+  };
+  const merkerP = prop('merker');
+  check('A2 (Bindung): merker = this.vorwarnungMerker (der gespeicherte Merker)', merkerP !== undefined && merkerP.getText(sf) === 'this.vorwarnungMerker');
+  const setzeP = prop('setzeMerker');
+  check('A2 (Bindung): setzeMerker speichert in this.vorwarnungMerker (h => this.vorwarnungMerker = h)', setzeP !== undefined && ts.isArrowFunction(setzeP) && setzeP.parameters.length === 1 && (() => {
+    let b: ts.Node = setzeP.body;
+    while (ts.isParenthesizedExpression(b)) b = b.expression;
+    return ts.isBinaryExpression(b) && b.operatorToken.kind === ts.SyntaxKind.EqualsToken && b.left.getText(sf) === 'this.vorwarnungMerker' && b.right.getText(sf) === (setzeP.parameters[0].name as ts.Identifier).text;
+  })());
+  check('A2 (Bindung): stand und id werden unveraendert durchgereicht (stand, id)', eigenschaft(aufruf, 'stand') !== undefined && eigenschaft(aufruf, 'id') !== undefined && ts.isShorthandPropertyAssignment(eigenschaft(aufruf, 'stand') as ts.Node) && ts.isShorthandPropertyAssignment(eigenschaft(aufruf, 'id') as ts.Node));
+  const dialogP = prop('dialog');
+  let dialogOk = false;
+  if (dialogP !== undefined && ts.isArrowFunction(dialogP) && dialogP.parameters.length === 1 && ts.isIdentifier(dialogP.parameters[0].name)) {
+    const par = dialogP.parameters[0].name.text;
+    const b = dialogP.body;
+    dialogOk = ts.isCallExpression(b) && b.expression.getText(sf) === 'fragenDialog' && b.arguments.length === 1 && ts.isCallExpression(b.arguments[0]) && b.arguments[0].expression.getText(sf) === 'vorwarnungsInhalt' && b.arguments[0].arguments.length === 1 && b.arguments[0].arguments[0].getText(sf) === par;
+  }
+  check('A2 (Bindung): der Dialog ist `w => fragenDialog(vorwarnungsInhalt(w))`: wirklich der Dialog, mit der Warnung genau so, wie der Ablauf sie gibt (nichts verschwiegen)', dialogOk, dialogP?.getText(sf));
+  check('A2 (Bindung): seite.ts hat die Entscheidung nicht mehr (kein vorwarnungVon, keinen Vergleich mit dem Stand, keine keineVereinheitlichung)', !/vorwarnungVon|keineVereinheitlichung|vorwarnungBestaetigt/.test(sf.getText()));
+
+  // I1: a doubled id whose FIRST entry is discarded
+  {
+    const kIota = (JSON.parse(schreibeGegenstandsDatei([eintrag('Iota', 'Iota')])) as { gegenstaende: Array<Record<string, unknown>> }).gegenstaende[0];
+    const g = (extra: Record<string, unknown> = {}) => ({ ...kIota, ...extra });
+    const text = JSON.stringify({ version: 1, gegenstaende: [g({ stapel: 'viel' }), g()] });
+    const l = leseGegenstandsDatei(text);
+    check('I1 (Vorbedingung): der erste Iota wird verworfen, der zweite angenommen', l.eintraege.length === 1 && l.verworfen.length === 1 && l.verworfen[0].index === 0 && l.verworfen[0].id === 'Iota', JSON.stringify(l.verworfen));
+    check('I1: der unveraenderte zweite Iota wird NICHT als vereinheitlicht gemeldet', gleich(vereinheitlichung(text, l.eintraege, l.verworfen), { ids: [], dateiebene: false }), JSON.stringify(vereinheitlichung(text, l.eintraege, l.verworfen)));
+    check('I1: ohne die Liste der verworfenen Eintraege wuerde er es (der alte Fehler)', gleich(vereinheitlichung(text, l.eintraege).ids, ['Iota']));
+    const text2 = JSON.stringify({ version: 1, gegenstaende: [g({ stapel: 'viel' }), g({ zauber: 1 })] });
+    const l2 = leseGegenstandsDatei(text2);
+    check('I1: ist der zweite Iota wirklich zu vereinheitlichen (das unbekannte Feld faellt weg), wird er gemeldet', gleich(vereinheitlichung(text2, l2.eintraege, l2.verworfen).ids, ['Iota']), JSON.stringify(vereinheitlichung(text2, l2.eintraege, l2.verworfen)));
+    const geladen = await ladeStand({ fetcher: async () => new Response(JSON.stringify({ text, hash: 'd'.repeat(64), quelle: 'arbeit' }), { status: 200 }) });
+    check('I1 (Verdrahtung): ladeStand reicht die verworfenen Eintraege an die Pruefung weiter', geladen.art === 'ok' && geladen.stand.vereinheitlicht.ids.length === 0 && geladen.stand.verworfen.length === 1);
+  }
+
+  // I5: whitespace and doubled keys are not a unification (known limit, decided in N9)
+  {
+    const a = leseGegenstandsDatei(schreibeGegenstandsDatei([AXT]));
+    const kanon = schreibeGegenstandsDatei([AXT]);
+    const eingerueckt = JSON.stringify(JSON.parse(kanon), null, '\t');
+    const doppelt = kanon.replace(/"gewicht":\s*(\d+)/, '"gewicht":1,"gewicht":$1');
+    for (const [name, t] of [['anders eingerueckt', eingerueckt], ['doppelter Schluessel (der letzte gilt)', doppelt]] as const) {
+      const l = leseGegenstandsDatei(t);
+      check(`I5: ${name}: gleicher Inhalt wie die kanonische Datei, KEINE Frage (bekannte Grenze, kein Datenverlust)`, l.eintraege.length === 1 && gleich(vereinheitlichung(t, l.eintraege, l.verworfen), { ids: [], dateiebene: false }) && t !== kanon, JSON.stringify(vereinheitlichung(t, l.eintraege, l.verworfen)));
+    }
+    check('I5 (Vorbedingung): die kanonische Datei selbst ist unveraendert', a.eintraege.length === 1 && gleich(vereinheitlichung(kanon, a.eintraege, a.verworfen), { ids: [], dateiebene: false }));
+  }
+
+  // I2 binding: 'fehler' gives the status to the text
+  check('I2 (Bindung): senden() uebergibt bei "fehler" den Status an nichtGespeichertText', /case 'fehler':[\s\S]*?nichtGespeichertText\(erg\.art, undefined, erg\.status\)/.test(rumpfText('senden')));
+
+  // I3: after a failed reload the state is marked stale; the next save or removal loads first
+  {
+    const zuweisung = (name: string, links: string, rechts: string): ts.BinaryExpression[] => {
+      const aus: ts.BinaryExpression[] = [];
+      besuche(m(name), (n) => {
+        if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && n.left.getText(sf) === links && n.right.getText(sf) === rechts) aus.push(n);
+      });
+      return aus;
+    };
+    const imZweig = (n: ts.Node, bedingung: RegExp): boolean => {
+      for (let p: ts.Node | undefined = n.parent; p !== undefined; p = p.parent) if (ts.isIfStatement(p) && bedingung.test(p.expression.getText(sf)) && p.thenStatement.pos <= n.pos && n.end <= p.thenStatement.end) return true;
+      return false;
+    };
+    const veraltetGesetzt = zuweisung('nachSpeichern', 'this.standVeraltet', 'true');
+    check("I3: nachSpeichern(): scheitert der Abruf (erg.art !== 'ok'), wird this.standVeraltet = true gesetzt", veraltetGesetzt.length === 1 && imZweig(veraltetGesetzt[0], /erg\.art !== 'ok'/));
+    check('I3: nachSpeichern() und laden(): ein erfolgreiches Laden (this.stand = erg.stand) setzt this.standVeraltet = false', zuweisung('nachSpeichern', 'this.standVeraltet', 'false').length === 1 && zuweisung('laden', 'this.standVeraltet', 'false').length === 1 && /this\.stand = erg\.stand;\s*this\.standVeraltet = false;/.test(rumpfText('nachSpeichern')) && /this\.stand = erg\.stand;\s*this\.standVeraltet = false;/.test(rumpfText('laden')));
+    for (const name of ['speichern', 'entfernen']) {
+      const t = rumpfText(name);
+      const wo = t.search(/if \(this\.standVeraltet\) return this\.laden\(true\);/);
+      check(`I3: ${name}() laedt zuerst neu und sendet dann nichts, wenn der Stand veraltet ist (vor dem Schnappschuss und vor senden())`, wo !== -1 && wo < t.search(/this\.senden\(|schnappschuss\(/) && wo < t.search(/this\.vorab\(/));
+    }
+    check('I3: this.standVeraltet kommt sonst nirgends vor (nur die Stellen oben)', (sf.getText().match(/this\.standVeraltet/g) ?? []).length === 5, String((sf.getText().match(/this\.standVeraltet/g) ?? []).length));
+  }
+
+  // I4: sicher() leaves the loading lock alone; the lock is freed by the load itself, also when aktualisiere() throws
+  {
+    let laedtGesetzt = 0;
+    besuche(m('sicher'), (n) => {
+      if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && n.left.getText(sf) === 'this.laedt') laedtGesetzt++;
+    });
+    check('I4: sicher() setzt this.laedt nirgends (ein Laden, das es nicht gestartet hat, behaelt seine Sperre)', laedtGesetzt === 0 && /this\.speichert = false/.test(rumpfText('sicher')));
+    for (const name of ['laden', 'nachSpeichern']) {
+      const s2 = m(name).body?.statements ?? [];
+      const i = s2.findIndex((x) => x.getText(sf) === 'this.laedt = true;');
+      const nach = i >= 0 ? s2[i + 1] : undefined;
+      check(`I4: ${name}(): direkt nach this.laedt = true folgt das try, dessen finally die Sperre freigibt (nichts davor kann sie haengen lassen)`, nach !== undefined && ts.isTryStatement(nach) && nach.finallyBlock !== undefined && /this\.laedt = false;/.test(nach.finallyBlock.getText(sf)) && !/^\s*this\.aktualisiere\(\)/.test(s2.slice(i + 1, i + 2).map((x) => x.getText(sf)).join('')));
+    }
   }
 }
 

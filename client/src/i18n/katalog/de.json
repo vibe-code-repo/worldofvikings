@@ -225,6 +225,7 @@
   "editor.gegenstand.vorwarnung.speichern": "Trotzdem speichern",
   "editor.gegenstand.vorwarnung.titel": "Die Datei wird beim Speichern verändert",
   "editor.gegenstand.vorwarnung.ueberschreibt": "Wird überschrieben (ungültiger Eintrag der Datei): {zeile}",
+  "editor.gegenstand.vorwarnung.verworfen": "{anzahl} ungültige Einträge der Datei werden beim Speichern entfernt.",
   "editor.server.busy": "Eine Server-Aktion läuft bereits — bitte warten.",
   "editor.server.button.restart": "Server neu starten",
   "editor.server.button.restart_hint": "Startet den Spielserver neu — unabhängig vom Testwelt-Zustand, immer benutzbar.",

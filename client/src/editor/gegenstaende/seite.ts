@@ -32,7 +32,7 @@ import {
   schnappschuss,
   speichereSchnappschuss,
   speicherSperre,
-  vorwarnungVon,
+  vorabFuer,
   type KonfliktErgebnis,
   type VorabFrage,
 } from './ablauf';
@@ -47,7 +47,6 @@ import {
   eintragZuFormular,
   formularZuEintrag,
   idAenderbar,
-  keineVereinheitlichung,
   kopie,
   leeresFormular,
   mitEintrag,
@@ -176,8 +175,10 @@ class GegenstandsSeite {
   private basis: GegenstandsEintrag | null = null;
   /** Set while the author has to choose between their version and the server's; saving is locked meanwhile. */
   private konflikt: Extract<KonfliktErgebnis, { art: 'konflikt' }> | null = null;
-  /** The loaded state the author already said yes to for the pre-save warning (asked once per loaded state, no hash involved). */
-  private vorwarnungBestaetigt: Stand | null = null;
+  /** The state (its hash, kept by `vorabFuer`) the author already said yes to for the pre-save warning: asked once per loaded state. */
+  private vorwarnungMerker: string | null = null;
+  /** The reload after a save failed: `stand` is older than the file. The next save or removal loads first and sends nothing. */
+  private standVeraltet = false;
   /** Every load goes through this: only the newest answer counts. */
   private readonly juengste = juengsteAntwort();
   private offen = false;
@@ -260,7 +261,7 @@ class GegenstandsSeite {
   /** Every promise of a button goes through here: nothing stays unhandled, a throw becomes one message. */
   private sicher(p: Promise<unknown>): void {
     p.catch(() => {
-      this.laedt = false;
+      // `laedt` is not touched: every load frees it itself (`finally`), and a load this call did not start may be running.
       this.speichert = false;
       this.meldung(tA('editor.gegenstand.seite.unerwartet'), true);
       this.aktualisiere();
@@ -275,9 +276,9 @@ class GegenstandsSeite {
   private async laden(nach412 = false): Promise<void> {
     if (this.laedt || this.speichert) return;
     this.laedt = true;
-    this.aktualisiere();
-    this.meldung(tA('editor.gegenstand.seite.laedt'));
     try {
+      this.aktualisiere();
+      this.meldung(tA('editor.gegenstand.seite.laedt'));
       const erg = await this.juengste(() => ladeGefangen(this.api));
       if (erg === null) return; // a newer load was started meanwhile: its answer decides, this one is stale
       if (erg.art !== 'ok') {
@@ -289,6 +290,7 @@ class GegenstandsSeite {
         return;
       }
       this.stand = erg.stand;
+      this.standVeraltet = false;
       const zeilen: Anzeigetext[] = [];
       if (nach412) zeilen.push(tA('editor.gegenstand.seite.veraltet'));
       if (erg.stand.dateiFehler !== null) {
@@ -807,7 +809,7 @@ class GegenstandsSeite {
         break;
       case 'fehler':
         this.banner([fehlerErgebnisText(erg)]);
-        this.meldung(nichtGespeichertText(erg.art), true);
+        this.meldung(nichtGespeichertText(erg.art, undefined, erg.status), true);
         break;
     }
     this.aktualisiere();
@@ -816,6 +818,7 @@ class GegenstandsSeite {
 
   private async speichern(): Promise<void> {
     if (!this.form || !this.stand || this.fehlerListe().length > 0) return;
+    if (this.standVeraltet) return this.laden(true);
     const eintrag = formularZuEintrag(this.form, this.basis);
     const s = schnappschuss(this.stand);
     const vorab = this.vorab(this.stand, eintrag.id);
@@ -826,20 +829,12 @@ class GegenstandsSeite {
   }
 
   /**
-   * The question before the first save of a loaded file that the writer would change (clamped values, dropped fields) and
-   * before an entry takes the id of one the reader discarded. A "yes" counts for the state it was given for (no second
-   * question about the unifying until the next load); the overwrite of a discarded id is asked again each time.
+   * The question before the first save of a loaded file that the writer would change (clamped values, dropped fields,
+   * discarded entries) and before an entry takes the id of one the reader discarded. All of the decision lives in
+   * `vorabFuer` (`ablauf.ts`); the page only supplies the memory and the dialog.
    */
   private vorab(stand: Stand, id: string | null): VorabFrage {
-    const w = vorwarnungVon(stand, id);
-    return {
-      warnung: this.vorwarnungBestaetigt === stand ? { ...w, vereinheitlicht: keineVereinheitlichung() } : w,
-      frage: async (warnung) => {
-        const ja = await fragenDialog(vorwarnungsInhalt(warnung));
-        if (ja) this.vorwarnungBestaetigt = stand;
-        return ja;
-      },
-    };
+    return vorabFuer({ merker: this.vorwarnungMerker, setzeMerker: (h) => (this.vorwarnungMerker = h), stand, id, dialog: (w) => fragenDialog(vorwarnungsInhalt(w)) });
   }
 
   /**
@@ -848,6 +843,7 @@ class GegenstandsSeite {
    */
   private async entfernen(): Promise<void> {
     if (this.ausgewaehlt === null || !this.stand) return;
+    if (this.standVeraltet) return this.laden(true);
     const id = this.ausgewaehlt;
     const vorher = { form: kanonisch(this.form), id: this.form?.id ?? '', ausgewaehlt: this.ausgewaehlt };
     const name = (x: string): string | null => {
@@ -872,16 +868,18 @@ class GegenstandsSeite {
    */
   private async nachSpeichern(id: string | null, vorher: { form: string; id: string; ausgewaehlt: string | null }, geschrieben: GegenstandsEintrag | null): Promise<void> {
     this.laedt = true;
-    this.aktualisiere();
     try {
+      this.aktualisiere();
       const erg = await this.juengste(() => ladeGefangen(this.api));
       if (erg === null) return; // a newer load was started meanwhile: its answer decides
       if (erg.art !== 'ok') {
+        this.standVeraltet = true; // `this.stand` is the state from before the save: the next save loads first
         const grund = erg.art === 'ausnahme' ? tA('editor.gegenstand.seite.unerwartet') : erg.art === 'netz' ? zugangText(erg.zeit === true ? 'zeit' : 'netz') : fehlerErgebnisText(erg);
         this.banner([tA('editor.gegenstand.seite.nach_speichern_ladefehler', { grund })]);
         return;
       }
       this.stand = erg.stand;
+      this.standVeraltet = false;
       const e = id === null ? undefined : erg.stand.eintraege.find((x) => x.id === id);
       const w = entscheideNachSpeichern({
         formVorher: vorher.form,

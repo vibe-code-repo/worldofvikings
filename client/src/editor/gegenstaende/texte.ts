@@ -291,9 +291,21 @@ export function vereinheitlichtZeilen(v: Vereinheitlichung, uebersetze: Ueberset
   return zeilen;
 }
 
-/** The result line of a save that did not go through: with no answer at all the server may have written, so it is not "not saved". */
-export function nichtGespeichertText(art: string, uebersetze: Uebersetzer = tA): Anzeigetext {
-  return uebersetze(art === 'netz' ? 'editor.gegenstand.seite.unklar_gespeichert' : 'editor.gegenstand.seite.nicht_gespeichert');
+/**
+ * Whether a refused or failed save certainly wrote nothing. `status` is that of an answer of kind `fehler`: 0 = the
+ * request was never sent, 500 = the route says so itself, 4xx = refused before the route wrote (also by a proxy). A 502,
+ * a 504, a 200 whose body cannot be read, or any other 5xx may have come after the write, so nothing is claimed.
+ */
+export const sicherNichtGeschrieben = (status: number): boolean => status === 0 || status === 500 || (status >= 400 && status < 500);
+
+/**
+ * The result line of a save that did not go through: with no answer at all, or with an answer that may have come after the
+ * write (`fehler` with a status that is not certain, see `sicherNichtGeschrieben`), the server may have written, so it is
+ * not "not saved".
+ */
+export function nichtGespeichertText(art: string, uebersetze: Uebersetzer = tA, status?: number): Anzeigetext {
+  const unklar = art === 'netz' || (art === 'fehler' && (status === undefined || !sicherNichtGeschrieben(status)));
+  return uebersetze(unklar ? 'editor.gegenstand.seite.unklar_gespeichert' : 'editor.gegenstand.seite.nicht_gespeichert');
 }
 
 /** "<name> (<id>)", or just the id when the name is missing or the same; both made safe to show. */
@@ -360,22 +372,33 @@ export function bestaetigungsInhalt(info: BestaetigungInfo, name: (id: string) =
 
 /**
  * The dialog before the first save of a file that is not in the form the writer produces (`Vorwarnung`): how many entries
- * are unified (ten ids at most), a key at file level, and the discarded entries whose id the saved entry takes over.
+ * are unified (ten ids at most), a key at file level, the discarded entries whose id the saved entry takes over, and
+ * every other discarded entry of the file (the save drops them all; their number stands in the sentence, their lines in
+ * the list, ten lines at most over everything, then "and N more").
  */
 export function vorwarnungsInhalt(
-  w: { vereinheitlicht: Vereinheitlichung; ueberschreibt: ReadonlyArray<{ index: number; id: string | null; grund: string }> },
+  w: {
+    vereinheitlicht: Vereinheitlichung;
+    verworfeneInDatei?: ReadonlyArray<{ index: number; id: string | null; grund: string }>;
+    ueberschreibt: ReadonlyArray<{ index: number; id: string | null; grund: string }>;
+  },
   uebersetze: Uebersetzer = tA
 ): BestaetigungsInhalt {
+  const verworfene = w.verworfeneInDatei ?? [];
+  const nochNichtGenannt = verworfene.filter((v) => !w.ueberschreibt.some((u) => u.index === v.index));
   const alle: Anzeigetext[] = [
     ...w.vereinheitlicht.ids.map((id) => sichtbarKuerzen(id)),
     ...(w.vereinheitlicht.dateiebene ? [uebersetze('editor.gegenstand.vorwarnung.datei')] : []),
     ...w.ueberschreibt.map((v) => uebersetze('editor.gegenstand.vorwarnung.ueberschreibt', { zeile: verworfenZeile(v, uebersetze) })),
+    ...nochNichtGenannt.map((v) => verworfenZeile(v, uebersetze)),
   ];
   const { punkte, weitere } = ersteZeilen(alle);
   const anzahl = w.vereinheitlicht.ids.length;
+  const grundSatz = anzahl > 0 ? uebersetze('editor.gegenstand.vorwarnung.satz_eintraege', { anzahl }) : uebersetze('editor.gegenstand.vorwarnung.satz_sonst');
+  const verworfenSatz = verworfene.length + w.ueberschreibt.filter((u) => !verworfene.some((v) => v.index === u.index)).length;
   return {
     titel: uebersetze('editor.gegenstand.vorwarnung.titel'),
-    satz: anzahl > 0 ? uebersetze('editor.gegenstand.vorwarnung.satz_eintraege', { anzahl }) : uebersetze('editor.gegenstand.vorwarnung.satz_sonst'),
+    satz: verworfene.length > 0 ? fuege(' ', uebersetze('editor.gegenstand.vorwarnung.verworfen', { anzahl: verworfenSatz }), grundSatz) : grundSatz,
     punkte,
     weitere: weitere > 0 ? uebersetze('editor.gegenstand.bestaetigung.weitere', { anzahl: weitere }) : null,
     bestaetigen: uebersetze('editor.gegenstand.vorwarnung.speichern'),

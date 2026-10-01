@@ -182,7 +182,7 @@ export async function ladeStand(o: ApiOptionen = {}): Promise<LadeErgebnis> {
       dateiFehler: lesung.dateiFehler,
       eintraege: lesung.eintraege,
       verworfen: lesung.verworfen,
-      vereinheitlicht: vereinheitlichung(r.daten.text, lesung.eintraege),
+      vereinheitlicht: vereinheitlichung(r.daten.text, lesung.eintraege, lesung.verworfen),
     },
   };
 }

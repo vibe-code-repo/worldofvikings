@@ -14,7 +14,7 @@
 import { ID_MUSTER, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { STAT_IDS } from '@wov/shared/src/items/stats.js';
 import { ladeStand, speichernMitBestaetigung, type ApiOptionen, type LadeErgebnis, type SpeicherAblauf, type Stand } from './api';
-import { abhaengige, eintragZuFormular, istListe, istUnveraendert, ohneEintrag, type Formular, type Vereinheitlichung } from './modell';
+import { abhaengige, eintragZuFormular, istListe, istUnveraendert, keineVereinheitlichung, ohneEintrag, type Formular, type Vereinheitlichung } from './modell';
 import type { Anzeigetext } from './anzeige';
 import { konfliktInhalt, type BestaetigungInfo, type Uebersetzer } from './texte';
 
@@ -49,23 +49,63 @@ export function schnappschuss(stand: Pick<Stand, 'eintraege' | 'hash'>): Schnapp
 
 /**
  * What the author has to know before the first save of a loaded file: the save writes the canonical text of the WHOLE
- * list. `vereinheitlicht` = what that text changes in the file as loaded (`vereinheitlichung`); `ueberschreibt` = the
- * entries of the file the reader discarded whose id the saved entry carries (the save replaces that raw entry).
+ * list. `vereinheitlicht` = what that text changes in the file as loaded (`vereinheitlichung`); `verworfeneInDatei` =
+ * every entry of the file the reader discarded (the save drops them all, whichever entry is saved); `ueberschreibt` =
+ * the part of those whose id the saved entry carries (the save replaces that raw entry).
  */
 export interface Vorwarnung {
   vereinheitlicht: Vereinheitlichung;
+  verworfeneInDatei: Array<{ index: number; id: string | null; grund: string }>;
   ueberschreibt: Array<{ index: number; id: string | null; grund: string }>;
 }
 
 /** True if there is anything to ask about. */
-export const hatVorwarnung = (w: Vorwarnung): boolean => !istUnveraendert(w.vereinheitlicht) || w.ueberschreibt.length > 0;
+export const hatVorwarnung = (w: Vorwarnung): boolean => !istUnveraendert(w.vereinheitlicht) || w.verworfeneInDatei.length > 0 || w.ueberschreibt.length > 0;
 
 /**
  * The warning for saving the entry `id` (null: a removal, which writes the file too but saves no entry) into a list
  * loaded as `stand`.
  */
 export function vorwarnungVon(stand: Pick<Stand, 'vereinheitlicht' | 'verworfen'>, id: string | null): Vorwarnung {
-  return { vereinheitlicht: stand.vereinheitlicht, ueberschreibt: id === null ? [] : stand.verworfen.filter((v) => v.id === id) };
+  return { vereinheitlicht: stand.vereinheitlicht, verworfeneInDatei: [...stand.verworfen], ueberschreibt: id === null ? [] : stand.verworfen.filter((v) => v.id === id) };
+}
+
+/**
+ * Whether to ask before saving into `stand`, and what the "yes" is remembered as. The question is asked ONCE per loaded
+ * state (key: its hash): after a "yes" for this very state, the unifying and the dropped entries are not asked again
+ * (they are the same ones); the overwrite of a discarded id (`ueberschreibt`) is asked every time. After a "no" or a
+ * throw nothing is remembered (the caller only stores `merkerNachJa` on a yes), so the next save asks again.
+ */
+export function brauchtVorwarnung(
+  merker: string | null,
+  stand: Pick<Stand, 'hash' | 'vereinheitlicht' | 'verworfen'>,
+  id: string | null
+): { fragen: boolean; warnung: Vorwarnung; merkerNachJa: string } {
+  const w = vorwarnungVon(stand, id);
+  const warnung: Vorwarnung = merker === stand.hash ? { ...w, vereinheitlicht: keineVereinheitlichung(), verworfeneInDatei: [] } : w;
+  return { fragen: hatVorwarnung(warnung), warnung, merkerNachJa: stand.hash };
+}
+
+/**
+ * The `VorabFrage` of one save: `merker` is what the page remembered (the hash of the state the author said yes for),
+ * `setzeMerker` stores a new one, `dialog` shows the question. The merker is stored only after a "yes".
+ */
+export function vorabFuer(a: {
+  merker: string | null;
+  setzeMerker: (hash: string) => void;
+  stand: Pick<Stand, 'hash' | 'vereinheitlicht' | 'verworfen'>;
+  id: string | null;
+  dialog: (w: Vorwarnung) => Promise<boolean>;
+}): VorabFrage {
+  const b = brauchtVorwarnung(a.merker, a.stand, a.id);
+  return {
+    warnung: b.warnung,
+    frage: async (warnung) => {
+      const ja = await a.dialog(warnung);
+      if (ja) a.setzeMerker(b.merkerNachJa);
+      return ja;
+    },
+  };
 }
 
 /** The question before the first save: `true` = go on. Without a yes nothing is sent. */

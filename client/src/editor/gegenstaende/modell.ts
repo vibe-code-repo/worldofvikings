@@ -547,9 +547,14 @@ const istJsonObjekt = (v: unknown): v is Record<string, unknown> => typeof v ===
  * Compares the raw text of the file with the canonical text of what the reader made of it (`eintraege`, the text
  * `schreibeGegenstandsDatei` would write), entry by entry, field by field, and at file level. Key order and spacing do
  * not count; a clamped number, a dropped unknown field, a default that is missing in the file do. Entries the reader
- * discards are not listed here (the load banner names them). Never throws: a text that is no document gives "nothing".
+ * discards are not listed here (the load banner names them; `verworfen` tells which raw entries they are, so a doubled id whose
+ * first entry was discarded is compared with the entry the reader accepted). Never throws: a text that is no document gives "nothing".
+ *
+ * Known limit (EG2 N9, decided): other spacing, another key order and a key written twice in one entry (the last one counts, as for
+ * every JSON reader) change the bytes but not the content. Nothing is lost, so the first save does not ask about them; the file
+ * simply looks different afterwards.
  */
-export function vereinheitlichung(rohtext: string, eintraege: readonly GegenstandsEintrag[]): Vereinheitlichung {
+export function vereinheitlichung(rohtext: string, eintraege: readonly GegenstandsEintrag[], verworfen: ReadonlyArray<{ index: number }> = []): Vereinheitlichung {
   const aus = keineVereinheitlichung();
   let roh: unknown;
   let kanon: unknown;
@@ -567,7 +572,8 @@ export function vereinheitlichung(rohtext: string, eintraege: readonly Gegenstan
   const kanonListe = istListe(kanon.gegenstaende) ? kanon.gegenstaende : [];
   for (const k of kanonListe) {
     if (!istJsonObjekt(k) || typeof k.id !== 'string') continue;
-    const r = rohListe.find((x) => istJsonObjekt(x) && x.id === k.id);
+    // The raw entry the reader ACCEPTED: with a doubled id whose first entry was discarded, that is a later one.
+    const r = rohListe.find((x, index) => istJsonObjekt(x) && x.id === k.id && !verworfen.some((v) => v.index === index));
     if (r !== undefined && sortiertJson(r) !== sortiertJson(k)) aus.ids.push(k.id);
   }
   return aus;

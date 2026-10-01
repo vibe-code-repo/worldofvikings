@@ -35,6 +35,7 @@ import {
   QUITTUNG_MAX_ZEICHEN,
   konfliktInhalt,
   nichtGespeichertText,
+  sicherNichtGeschrieben,
   quittungText,
   routeFehlerText,
   sichtbarKuerzen,
@@ -46,6 +47,7 @@ import {
   type Uebersetzer,
 } from '../src/editor/gegenstaende/texte';
 import { DEFAULT_IGNORABLE, WEITERE_LEERE, kuerzeHart } from '../src/editor/gegenstaende/anzeige';
+import { speichere } from '../src/editor/gegenstaende/api';
 
 let fehler = 0;
 function check(name: string, ok: boolean, zusatz = ''): void {
@@ -1074,11 +1076,14 @@ function baueProgramm(probe?: string): ts.Program {
     const versionImKommentar = /Unicode (\d+\.\d+) `DerivedCoreProperties/.exec(readFileSync(resolve(ORDNER, 'anzeige.ts'), 'utf-8'))?.[1] ?? '';
     const urteil = (laufzeit: string, kommentar: string, mehrInLaufzeit: number, nurInListe: number): { ok: boolean; hinweis: string | null } => {
       const neuer = Number(laufzeit) > Number(kommentar);
+      const aelter = Number(laufzeit) < Number(kommentar);
+      if (aelter) return { ok: mehrInLaufzeit === 0, hinweis: nurInListe > 0 ? `Hinweis: die Laufzeit (Unicode ${laufzeit}) ist aelter als die Konstante (Unicode ${kommentar}) und kennt ${nurInListe} Default-Ignorable-Zeichen der Konstante nicht; geprueft wird nur, dass nichts aus der Laufzeit in der Konstante fehlt.` : null };
       if (!neuer) return { ok: mehrInLaufzeit === 0 && nurInListe === 0, hinweis: null };
       return { ok: nurInListe === 0, hinweis: mehrInLaufzeit > 0 ? `Hinweis: die Laufzeit (Unicode ${laufzeit}) kennt ${mehrInLaufzeit} Default-Ignorable-Zeichen mehr als die Konstante (Unicode ${kommentar}); DEFAULT_IGNORABLE in anzeige.ts ergaenzen.` : null };
     };
     check('Zeitbombe entschaerft: gleiche Version = genaue Gleichheit (ein Zeichen mehr in der Laufzeit ist ein Fehler)', !urteil('17.0', '17.0', 1, 0).ok && !urteil('17.0', '17.0', 0, 1).ok && urteil('17.0', '17.0', 0, 0).ok);
     check('Zeitbombe entschaerft: neuere Laufzeit = nur "nichts aus der Konstante fehlt in der Laufzeit", mit Hinweis bei Mehr-Zeichen', urteil('18.0', '17.0', 3, 0).ok && urteil('18.0', '17.0', 3, 0).hinweis !== null && !urteil('18.0', '17.0', 0, 1).ok && urteil('18.0', '17.0', 0, 0).hinweis === null);
+    check('Zeitbombe entschaerft (N9, I6): aeltere Laufzeit = nur "nichts aus der Laufzeit fehlt in der Konstante", mit Hinweis bei Zeichen, die die Laufzeit nicht kennt', urteil('16.0', '17.0', 0, 5).ok && urteil('16.0', '17.0', 0, 5).hinweis !== null && !urteil('16.0', '17.0', 1, 0).ok && urteil('16.0', '17.0', 0, 0).hinweis === null && urteil('16.0', '17.0', 0, 0).ok);
     check('die Version im Kommentar der Konstante ist lesbar', /^\d+\.\d+$/.test(versionImKommentar), versionImKommentar);
     let fehlt = 0;
     let zuviel = 0;
@@ -1173,7 +1178,40 @@ function baueProgramm(probe?: string): ts.Program {
     const vor2 = vorwarnungsInhalt({ vereinheitlicht: { ids: [], dateiebene: false }, ueberschreibt: [{ index: 3, id: 'Kaputt', grund: 'typ-unbekannt' }] }, u);
     check(`${sprache}: Vorwarnung nur wegen einer verworfenen Id: die Zeile nennt Kaputt und den Grund, kein "{anzahl}" im Satz`, vor2.punkte.length === 1 && vor2.punkte[0].includes('Kaputt') && vor2.punkte[0].includes(katalog(sprache)[GRUND_SCHLUESSEL['typ-unbekannt']]) && !vor2.satz.includes('{') && vor2.weitere === null, vor2.punkte.join());
     check(`${sprache}: kein Platzhalter bleibt in den neuen Texten stehen`, ![...zeilenVe, vor.satz, vor.titel, vor.bestaetigen, ...vor.punkte, ...vor2.punkte, vor2.satz].some((t) => /\{[a-z]+\}/.test(t)));
-    check(`${sprache}: Ergebniszeile: bei netz und zeit "unklar", sonst "nicht gespeichert"`, nichtGespeichertText('netz', u) === katalog(sprache)['editor.gegenstand.seite.unklar_gespeichert'] && ['veraltet', 'gesperrt', 'verworfen', 'fehler', 'ausnahme', 'dialog-nein', 'abgebrochen'].every((art) => nichtGespeichertText(art, u) === katalog(sprache)['editor.gegenstand.seite.nicht_gespeichert']) && katalog(sprache)['editor.gegenstand.seite.unklar_gespeichert'] !== katalog(sprache)['editor.gegenstand.seite.nicht_gespeichert']);
+    // EG2 N9 A1: the file's discarded entries are in the question, whichever entry is saved
+    {
+      const zwoelf = Array.from({ length: 12 }, (_, i) => ({ index: i, id: `Kaputt${i + 1}`, grund: 'typ-unbekannt' }));
+      const v12 = vorwarnungsInhalt({ vereinheitlicht: { ids: [], dateiebene: false }, verworfeneInDatei: zwoelf, ueberschreibt: [] }, u);
+      const satzV = (n: number): string => katalog(sprache)['editor.gegenstand.vorwarnung.verworfen'].replace('{anzahl}', String(n));
+      check(`${sprache}: Vorwarnung mit 12 verworfenen Eintraegen (nichts sonst): der Satz nennt die Zahl 12 im eigenen Satz, zehn Zeilen, "und 2 weitere"`, v12.satz.includes(satzV(12)) && v12.punkte.length === 10 && v12.punkte[0].includes('Kaputt1') && v12.punkte[0].includes(katalog(sprache)[GRUND_SCHLUESSEL['typ-unbekannt']]) && v12.weitere === katalog(sprache)['editor.gegenstand.bestaetigung.weitere'].replace('{anzahl}', '2'), JSON.stringify(v12));
+      const zwei = vorwarnungsInhalt({ vereinheitlicht: { ids: [], dateiebene: false }, verworfeneInDatei: [{ index: 1, id: null, grund: 'id-ungueltig' }, { index: 2, id: 'Epsilon', grund: 'zahl-ungueltig' }], ueberschreibt: [] }, u);
+      check(`${sprache}: Vorwarnung mit 2 verworfenen Eintraegen: zwei Zeilen (eine ohne Kennung mit #1), kein weitere, kein Platzhalter`, zwei.satz.includes(satzV(2)) && zwei.punkte.length === 2 && zwei.punkte[0].startsWith('#1: ') && zwei.punkte[1].startsWith('Epsilon') && zwei.weitere === null && !/\{[a-z]+\}/.test(zwei.satz + zwei.punkte.join()), JSON.stringify(zwei));
+      const mitUe = vorwarnungsInhalt({ vereinheitlicht: { ids: [], dateiebene: false }, verworfeneInDatei: [{ index: 3, id: 'Kaputt', grund: 'typ-unbekannt' }, { index: 5, id: 'Anders', grund: 'typ-unbekannt' }], ueberschreibt: [{ index: 3, id: 'Kaputt', grund: 'typ-unbekannt' }] }, u);
+      check(`${sprache}: Vorwarnung: der Eintrag, den das Speichern ueberschreibt, steht nicht doppelt in der Liste, zaehlt aber im Satz (2)`, mitUe.satz.includes(satzV(2)) && mitUe.punkte.length === 2 && mitUe.punkte.filter((x) => x.includes('Kaputt')).length === 1 && mitUe.punkte.some((x) => x.includes('Anders')), JSON.stringify(mitUe));
+      const ohne = vorwarnungsInhalt({ vereinheitlicht: { ids: ['A'], dateiebene: false }, verworfeneInDatei: [], ueberschreibt: [] }, u);
+      check(`${sprache}: Vorwarnung ohne verworfene Eintraege hat den Satz nicht`, !ohne.satz.includes(katalog(sprache)['editor.gegenstand.vorwarnung.verworfen'].split('{anzahl}')[1].trim()));
+      const idUmkehr = vorwarnungsInhalt({ vereinheitlicht: { ids: [], dateiebene: false }, verworfeneInDatei: [{ index: 0, id: 'x‮y', grund: 'typ-unbekannt' }], ueberschreibt: [] }, u);
+      check(`${sprache}: Vorwarnung: eine Kennung mit Umkehrzeichen wird sichtbar gemacht`, !/‮/.test(idUmkehr.punkte.join('')) && idUmkehr.punkte[0].includes('<U+202E>'));
+    }
+    // EG2 N9 I2: "not saved" only where the route certainly wrote nothing; every other answer after a possible write is "unclear"
+    {
+      const unklar = katalog(sprache)['editor.gegenstand.seite.unklar_gespeichert'];
+      const nicht = katalog(sprache)['editor.gegenstand.seite.nicht_gespeichert'];
+      const text = async (status: number, body: string): Promise<string> => {
+        const erg = await speichere({ fetcher: async () => new Response(body, { status }) }, [], 'a'.repeat(64));
+        if (erg.art !== 'fehler') throw new Error(`unexpected ${erg.art} for ${status}`);
+        return nichtGespeichertText(erg.art, u, erg.status);
+      };
+      check(`${sprache}: Status 500 (die Route sagt selbst "nichts geschrieben"): "nicht gespeichert"`, (await text(500, '{"fehler":"intern"}')) === nicht);
+      check(`${sprache}: Status 502 (Proxy, Schreiben moeglich): "unklar"`, (await text(502, '<html>Bad Gateway</html>')) === unklar);
+      check(`${sprache}: Status 504 (Proxy-Zeitgrenze, Schreiben moeglich): "unklar"`, (await text(504, '<html>Gateway Time-out</html>')) === unklar);
+      check(`${sprache}: Status 200 mit kaputtem Koerper (Schreiben moeglich): "unklar"`, (await text(200, 'kein json')) === unklar);
+      check(`${sprache}: Status 200 mit Koerper ohne ok/hash: "unklar"`, (await text(200, '{"ok":false}')) === unklar);
+      check(`${sprache}: Status 400, 413 (vor dem Schreiben abgelehnt): "nicht gespeichert"`, (await text(400, '{"fehler":"datei-kein-json"}')) === nicht && (await text(413, '{"fehler":"zu-gross"}')) === nicht);
+      check(`${sprache}: 'fehler' ohne Status (nichts bekannt): "unklar"; Status 0 (nie gesendet): "nicht gespeichert"`, nichtGespeichertText('fehler', u) === unklar && nichtGespeichertText('fehler', u, 0) === nicht);
+      check(`${sprache}: sicherNichtGeschrieben: 0, 400, 413, 500 ja; 200, 502, 504, 599 nein`, [0, 400, 413, 500].every((x) => sicherNichtGeschrieben(x)) && [200, 502, 504, 599].every((x) => !sicherNichtGeschrieben(x)));
+    }
+    check(`${sprache}: Ergebniszeile: bei netz und zeit "unklar", sonst "nicht gespeichert" (die Antwort "fehler" hat ihren eigenen Test N9 I2 davor)`, nichtGespeichertText('netz', u) === katalog(sprache)['editor.gegenstand.seite.unklar_gespeichert'] && ['veraltet', 'gesperrt', 'verworfen', 'ausnahme', 'dialog-nein', 'abgebrochen'].every((art) => nichtGespeichertText(art, u) === katalog(sprache)['editor.gegenstand.seite.nicht_gespeichert']) && katalog(sprache)['editor.gegenstand.seite.unklar_gespeichert'] !== katalog(sprache)['editor.gegenstand.seite.nicht_gespeichert']);
   }
 }
 

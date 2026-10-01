@@ -225,6 +225,7 @@
   "editor.gegenstand.vorwarnung.speichern": "Save anyway",
   "editor.gegenstand.vorwarnung.titel": "Saving changes the file",
   "editor.gegenstand.vorwarnung.ueberschreibt": "Will be overwritten (invalid entry of the file): {zeile}",
+  "editor.gegenstand.vorwarnung.verworfen": "{anzahl} invalid entries of the file are removed when saving.",
   "editor.server.busy": "A server action is already running — please wait.",
   "editor.server.button.restart": "Restart server",
   "editor.server.button.restart_hint": "Restarts the game server — independent of test-world state, always available.",

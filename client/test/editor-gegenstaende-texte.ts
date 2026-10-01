@@ -1095,7 +1095,10 @@ function baueProgramm(probe?: string): ts.Program {
       if (imMotor && !inListe) fehlt++;
       if (inListe && !imMotor) zuviel++;
     }
-    const u = urteil(process.versions.unicode ?? '', versionImKommentar, fehlt, zuviel);
+    // An empty or unreadable version must not slip into one of the comparison branches (Number('') is 0).
+    const lesbar = /^\d+\.\d+$/.test(process.versions.unicode ?? '') && /^\d+\.\d+$/.test(versionImKommentar);
+    check(`die Unicode-Version der Laufzeit (${process.versions.unicode}) und des Kommentars (${versionImKommentar}) sind lesbar; sonst kein Vergleich`, lesbar);
+    const u = lesbar ? urteil(process.versions.unicode as string, versionImKommentar, fehlt, zuviel) : { ok: false, hinweis: null };
     if (u.hinweis !== null) console.log(`  ${u.hinweis}`);
     check(`die Konstante deckt sich mit der Unicode-Eigenschaft der Laufzeit (${process.versions.unicode}, Konstante ${versionImKommentar})`, u.ok, `fehlt ${fehlt}, zuviel ${zuviel}`);
   }
@@ -1178,6 +1181,13 @@ function baueProgramm(probe?: string): ts.Program {
     const vor2 = vorwarnungsInhalt({ vereinheitlicht: { ids: [], dateiebene: false }, ueberschreibt: [{ index: 3, id: 'Kaputt', grund: 'typ-unbekannt' }] }, u);
     check(`${sprache}: Vorwarnung nur wegen einer verworfenen Id: die Zeile nennt Kaputt und den Grund, kein "{anzahl}" im Satz`, vor2.punkte.length === 1 && vor2.punkte[0].includes('Kaputt') && vor2.punkte[0].includes(katalog(sprache)[GRUND_SCHLUESSEL['typ-unbekannt']]) && !vor2.satz.includes('{') && vor2.weitere === null, vor2.punkte.join());
     check(`${sprache}: kein Platzhalter bleibt in den neuen Texten stehen`, ![...zeilenVe, vor.satz, vor.titel, vor.bestaetigen, ...vor.punkte, ...vor2.punkte, vor2.satz].some((t) => /\{[a-z]+\}/.test(t)));
+    // EG2 N10: singular for the count 1, plural for 2 (own keys, chosen by the count)
+    {
+      const ein = vorwarnungsInhalt({ vereinheitlicht: { ids: ['A'], dateiebene: false }, verworfeneInDatei: [{ index: 1, id: 'K1', grund: 'typ-unbekannt' }], ueberschreibt: [] }, u);
+      const zw = vorwarnungsInhalt({ vereinheitlicht: { ids: ['A', 'B'], dateiebene: false }, verworfeneInDatei: [{ index: 1, id: 'K1', grund: 'typ-unbekannt' }, { index: 2, id: 'K2', grund: 'typ-unbekannt' }], ueberschreibt: [] }, u);
+      const k = katalog(sprache);
+      check(`${sprache}: Vorwarnung bei Anzahl 1 nimmt die Einzahl-Saetze (Eintraege und verworfen), bei 2 die Mehrzahl mit der Zahl`, ein.satz === `${k['editor.gegenstand.vorwarnung.verworfen_eins']} ${k['editor.gegenstand.vorwarnung.satz_eintraege_eins']}`.replaceAll('{anzahl}', '1') && zw.satz === `${k['editor.gegenstand.vorwarnung.verworfen'].replace('{anzahl}', '2')} ${k['editor.gegenstand.vorwarnung.satz_eintraege'].replace('{anzahl}', '2')}` && !ein.satz.includes('{'), ein.satz + ' | ' + zw.satz);
+    }
     // EG2 N9 A1: the file's discarded entries are in the question, whichever entry is saved
     {
       const zwoelf = Array.from({ length: 12 }, (_, i) => ({ index: i, id: `Kaputt${i + 1}`, grund: 'typ-unbekannt' }));

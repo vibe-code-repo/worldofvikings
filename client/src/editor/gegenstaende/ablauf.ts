@@ -390,9 +390,11 @@ export type EigeneBehalten =
  * conflict was found. If that leaves a field in dispute that was not in the shown conflict, the author has not seen it:
  * `neu`, the mask shows the conflict again. A dispute that only got smaller (the author settled a field by editing it)
  * needs no second look: they pressed "keep mine" for the rest.
- * "Keep mine" means the author's value for every field in the shown dispute AND for every field the author changed since
- * it was shown (live form against `konflikt.formBeiAnzeige`), even if the value typed equals the original: a field set
- * back to the starting value is an edit, not "only the server changed it". Every other field stays a three-way merge.
+ * "Keep mine" means the author's value for every field in the shown dispute AND for every field the author changed
+ * since it was shown (live form against `konflikt.formBeiAnzeige`), even if the value typed equals the original.
+ * Every other field, i.e. one the author has not touched since the conflict was shown and that was not in the shown
+ * dispute, stays a three-way merge (base, draft, server), where a field whose draft value equals the base takes the
+ * server's value.
  */
 export function eigeneBehaltenAbgleich(a: { basis: GegenstandsEintrag | null; form: Formular; ausgewaehlt: string | null; konflikt: OffenerKonflikt }): EigeneBehalten {
   const server = a.konflikt.server;

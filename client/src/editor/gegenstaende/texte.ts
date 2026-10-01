@@ -394,11 +394,11 @@ export function vorwarnungsInhalt(
   ];
   const { punkte, weitere } = ersteZeilen(alle);
   const anzahl = w.vereinheitlicht.ids.length;
-  const grundSatz = anzahl > 0 ? uebersetze('editor.gegenstand.vorwarnung.satz_eintraege', { anzahl }) : uebersetze('editor.gegenstand.vorwarnung.satz_sonst');
+  const grundSatz = anzahl > 0 ? uebersetze(anzahl === 1 ? 'editor.gegenstand.vorwarnung.satz_eintraege_eins' : 'editor.gegenstand.vorwarnung.satz_eintraege', { anzahl }) : uebersetze('editor.gegenstand.vorwarnung.satz_sonst');
   const verworfenSatz = verworfene.length + w.ueberschreibt.filter((u) => !verworfene.some((v) => v.index === u.index)).length;
   return {
     titel: uebersetze('editor.gegenstand.vorwarnung.titel'),
-    satz: verworfene.length > 0 ? fuege(' ', uebersetze('editor.gegenstand.vorwarnung.verworfen', { anzahl: verworfenSatz }), grundSatz) : grundSatz,
+    satz: verworfene.length > 0 ? fuege(' ', uebersetze(verworfenSatz === 1 ? 'editor.gegenstand.vorwarnung.verworfen_eins' : 'editor.gegenstand.vorwarnung.verworfen', { anzahl: verworfenSatz }), grundSatz) : grundSatz,
     punkte,
     weitere: weitere > 0 ? uebersetze('editor.gegenstand.bestaetigung.weitere', { anzahl: weitere }) : null,
     bestaetigen: uebersetze('editor.gegenstand.vorwarnung.speichern'),

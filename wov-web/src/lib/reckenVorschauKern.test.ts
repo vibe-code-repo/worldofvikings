@@ -184,6 +184,10 @@ class Attrappe implements VorschauApi {
   nachEntsorgen: string[] = [];
   entsorgt = 0;
   wirftBei = new Set<string>();
+  /** datei -> Versprechen, auf das `setze` für diese Datei einmalig wartet. */
+  haelt = new Map<string, Promise<void>>();
+  /** Der Zustand der Plätze, wie ihn das echte Bündel führt: Der Platz gilt sofort. */
+  plaetze = new Map<string, string | null>();
   /** Läuft vor `ladeKoerper`; ein Test hält damit einen Ladevorgang an. */
   vorKoerper: (() => Promise<void>) | null = null;
   beiKopfZustand: ((z: KopfZustand) => void) | null = null;
@@ -201,6 +205,12 @@ class Attrappe implements VorschauApi {
   }
   async setze(slot: string, datei: string | null) {
     this.merke(`setze ${slot} ${datei}`);
+    this.plaetze.set(slot, datei);
+    const halt = datei ? this.haelt.get(datei) : undefined;
+    if (halt) {
+      this.haelt.delete(datei as string);
+      await halt;
+    }
     if (datei && this.wirftBei.has(datei)) throw new Error(`Incompatible armor skeleton: ${datei}`);
   }
   private merke(aufruf: string) {
@@ -224,6 +234,8 @@ function aufbau(
   opt: {
     webgl?: boolean;
     buendelFehler?: boolean;
+    /** Die ersten n Versuche, das Bündel zu laden, scheitern. */
+    buendelFehlerAnzahl?: number;
     buendelWarte?: Promise<void>;
     beiBilder?: () => void;
   } = {},
@@ -238,7 +250,9 @@ function aufbau(
       ladeBuendel: async () => {
         buendelGeladen += 1;
         await opt.buendelWarte;
-        if (opt.buendelFehler) throw new Error('kein Bündel');
+        if (opt.buendelFehler || buendelGeladen <= (opt.buendelFehlerAnzahl ?? 0)) {
+          throw new Error('kein Bündel');
+        }
         class Gebaut extends Attrappe {
           constructor() {
             super();
@@ -663,5 +677,191 @@ describe('Nachbesserung N1: Lebenszyklus', () => {
     expect(await lauf).toBe(false);
     expect(engines[0].nachEntsorgen).toEqual([]);
     expect(meldungen).not.toContain('fertig true');
+  });
+});
+
+const echteDaten = JSON.parse(
+  readFileSync(join(HIER, '../../static/assets/appearance.json'), 'utf8'),
+) as AussehenDaten;
+const satz = (id: string) =>
+  (echteDaten.equipmentSets?.find((s) => s.id === id)?.parts ?? []).map((p) => ({
+    kennung: p.itemId,
+  }));
+const offen = () => {
+  let ja!: () => void;
+  const p = new Promise<void>((r) => {
+    ja = r;
+  });
+  return { p, ja };
+};
+const MANN_ECHT: FigurAussehen = {
+  klasse: 'krieger',
+  figur: 'wikinger',
+  frisur: 'H_04+B_02',
+  haarfarbe: echteDaten.hairColors[0].id,
+  augenfarbe: echteDaten.eyeColors[0].id,
+};
+
+describe('Nachbesserung N2: nachsichtige Rüstung und Lebenszyklus', () => {
+  it('F1: ein veralteter Lauf, dessen Teil spät scheitert, leert den Platz des neueren Laufs nicht', async () => {
+    const { steuerung, engines } = aufbau();
+    await steuerung.starte(LEINWAND);
+    const v = engines[0];
+    const halt = offen();
+    v.haelt.set('ironward/IronwardHelmet', halt.p);
+    v.wirftBei.add('ironward/IronwardHelmet');
+    const alt = steuerung.ladeAlles(() => planFuerRecke(echteDaten, MANN_ECHT, satz('ironward')));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(v.plaetze.get('klassenruestung-0')).toBe('ironward/IronwardHelmet');
+    expect(
+      await steuerung.ladeAlles(() => planFuerRecke(echteDaten, MANN_ECHT, satz('wildwarden'))),
+    ).toBe(true);
+    expect(v.plaetze.get('klassenruestung-0')).toBe('wildwarden/wildwarden_crown');
+    halt.ja();
+    expect(await alt).toBe(false);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(v.plaetze.get('klassenruestung-0')).toBe('wildwarden/wildwarden_crown');
+  });
+
+  it('F2: scheitert ein Teil erst nach dispose(), geht kein Aufruf mehr an die entsorgte Engine', async () => {
+    const teil: string[] = [];
+    const steuerung = new FigurSteuerung(
+      {
+        hatWebGL: () => true,
+        warteBilder: async () => {},
+        ladeBuendel: async () => ({ Vorschau: Attrappe as unknown as BuendelModul['Vorschau'] }),
+      },
+      { beiTeilFehler: (slot) => teil.push(slot) },
+    );
+    await steuerung.starte(LEINWAND);
+    const v = steuerung.vorschau as unknown as Attrappe;
+    const halt = offen();
+    v.haelt.set('ironward/IronwardHelmet', halt.p);
+    v.wirftBei.add('ironward/IronwardHelmet');
+    const lauf = steuerung.ladeAlles(() => planFuerRecke(echteDaten, MANN_ECHT, satz('ironward')));
+    await new Promise((r) => setTimeout(r, 5));
+    steuerung.dispose();
+    halt.ja();
+    expect(await lauf).toBe(false);
+    expect(teil).toEqual([]);
+    expect(v.nachEntsorgen).toEqual([]);
+  });
+
+  it('F3: starte() nach dispose() meldet false und baut nichts', async () => {
+    const { steuerung, engines, geladen } = aufbau();
+    expect(await steuerung.starte(LEINWAND)).toBe(true);
+    steuerung.dispose();
+    expect(await steuerung.starte(LEINWAND)).toBe(false);
+    expect(engines).toHaveLength(1);
+    expect(geladen()).toBe(1);
+  });
+
+  it('F4: nach einem gescheiterten Bündel-Laden geht ein zweiter Versuch mit derselben Steuerung', async () => {
+    const { steuerung, engines, fehler } = aufbau({ buendelFehlerAnzahl: 1 });
+    expect(await steuerung.starte(LEINWAND)).toBe(false);
+    expect(fehler.at(-1)?.art).toBe('buendel');
+    expect(await steuerung.starte(LEINWAND)).toBe(true);
+    expect(engines).toHaveLength(1);
+    expect(await steuerung.starte(LEINWAND)).toBe(true); // gelungen: kein dritter Aufbau
+    expect(engines).toHaveLength(1);
+  });
+
+  it('F4: ohne WebGL darf es ebenfalls neu versucht werden', async () => {
+    let webgl = false;
+    const engines: Attrappe[] = [];
+    const steuerung = new FigurSteuerung({
+      hatWebGL: () => webgl,
+      ladeBuendel: async () => ({
+        Vorschau: class extends Attrappe {
+          constructor() {
+            super();
+            engines.push(this);
+          }
+        } as unknown as BuendelModul['Vorschau'],
+      }),
+    });
+    expect(await steuerung.starte(LEINWAND)).toBe(false);
+    webgl = true;
+    expect(await steuerung.starte(LEINWAND)).toBe(true);
+    expect(engines).toHaveLength(1);
+  });
+
+  it('F5: im festen Rahmen sperrt die Leinwand das Wischen auch im Stylesheet nicht', () => {
+    const q = quelle('ReckenVorschau.svelte');
+    const eng = /\.eng canvas\s*\{[^}]*\}/.exec(q)?.[0] ?? '';
+    expect(eng).toContain('touch-action: pan-y');
+    const allgemein = /\n\s*canvas\s*\{[^}]*\}/.exec(q)?.[0] ?? '';
+    expect(allgemein).toContain('touch-action: none'); // die Erstellung bleibt, wie sie war
+  });
+
+  it('X15 (N5): nur ein Körperfehler nennt die Körper-Adresse, jeder spätere Schritt nicht', async () => {
+    const { steuerung, engines, fehler } = aufbau();
+    await steuerung.starte(LEINWAND);
+    engines[0].wirftBei.add('wikinger/H_04'); // die Frisur, nicht der Körper
+    expect(await steuerung.ladeAlles(planKrieger)).toBe(false);
+    const f = fehler.at(-1);
+    expect(f?.art).toBe('laden');
+    expect(f && 'url' in f ? f.url : 'x').toBe('');
+  });
+
+  it('X15 (N5): scheitert der Waffenschritt nach dem Körper, bleibt die Adresse leer', async () => {
+    const { steuerung, engines, fehler } = aufbau();
+    await steuerung.starte(LEINWAND);
+    engines[0].setzeWaffe = async () => {
+      throw new Error('Waffe kaputt');
+    };
+    expect(await steuerung.ladeAlles(planKrieger)).toBe(false);
+    const f = fehler.at(-1);
+    expect(f && 'url' in f ? f.url : 'x').toBe('');
+  });
+});
+
+describe('Nachbesserung N2: Pfade stammen nur aus dem Katalog', () => {
+  const boese = [
+    '../../etc/passwd',
+    'https://evil.example/x',
+    'data:model/gltf-binary;base64,AAAA',
+    '//evil.example/x',
+    'H_04/../../x',
+    'javascript:alert(1)',
+  ];
+  const erlaubt = new Set<string>();
+  for (const f of echteDaten.figures) if (f.model) erlaubt.add(f.model);
+  erlaubt.add(`${echteDaten.folder}/${echteDaten.body}`);
+  for (const l of [echteDaten.hairstyles, echteDaten.beards, echteDaten.eyebrows]) {
+    for (const e of l) if (e.file) erlaubt.add(`${echteDaten.folder}/${e.file}`);
+  }
+  for (const s of echteDaten.equipmentSets ?? []) {
+    for (const p of s.parts) erlaubt.add(p.model.replace(/\.glb$/, ''));
+  }
+
+  it('alle Pfade des Plans kommen aus appearance.json, egal was das Profil liefert', () => {
+    for (const b of boese) {
+      for (const feld of [
+        'klasse',
+        'figur',
+        'frisur',
+        'haarfarbe',
+        'augenfarbe',
+        'bart',
+        'augenbraue',
+      ] as const) {
+        const p = planFuerRecke(echteDaten, { ...MANN_ECHT, [feld]: b }, [{ kennung: b }]);
+        for (const pfad of [p.koerper, p.frisur, p.bart, p.augenbraue, ...p.ruestung]) {
+          if (pfad !== null) expect(erlaubt.has(pfad), `${feld}=${b} -> ${pfad}`).toBe(true);
+        }
+        expect(p.haarton === '' || /^#[0-9a-f]{6}$/i.test(p.haarton)).toBe(true);
+      }
+    }
+  });
+
+  it('Hinweis: nur die Augenfarbe geht ungeprüft durch (Tabellen-Nachschlag im Bündel, kein Pfad)', () => {
+    expect(planFuerRecke(echteDaten, { ...MANN_ECHT, augenfarbe: '../x' }).augenfarbe).toBe('../x');
+  });
+
+  it('der Plan der Erstellung reicht eine unbekannte Figur nicht in den Pfad durch', () => {
+    expect(baueLadePlan(echteDaten, { ...MANN_ECHT, figur: '../x' }).koerper).toBe(
+      'wikingerin/WikingerinKoerper',
+    );
   });
 });

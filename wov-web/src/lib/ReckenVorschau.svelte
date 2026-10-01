@@ -366,7 +366,8 @@
   @keyframes portal-atmen { 50% { border-color: rgba(255, 220, 102, 0.72); box-shadow: 0 0 44px rgba(225, 177, 38, 0.3), inset 0 0 36px rgba(225, 177, 38, 0.17); } }
   @keyframes runenkern-leuchten { 50% { opacity: 0.58; transform: translate(-50%, -50%) scale(0.9); } }
   canvas { position: absolute; inset: -28px -10px -36px; width: calc(100% + 20px); height: calc(100% + 64px); outline: none; background: transparent; cursor: grab; touch-action: none; opacity: 0; transition: opacity 0.3s ease; }
-  .eng canvas { inset: 0; width: 100%; height: 100%; }
+  /* Im festen Rahmen scrollt senkrechtes Wischen die Seite, auch solange (oder falls) die Engine nicht läuft. */
+  .eng canvas { inset: 0; width: 100%; height: 100%; touch-action: pan-y; }
   canvas.bereit { opacity: 1; }
   canvas:active { cursor: grabbing; }
   .buehne-hinweis { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; color: #b8ad95; font-size: 12px; text-align: center; text-shadow: 0 2px 6px #000; pointer-events: none; }

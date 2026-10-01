@@ -659,6 +659,34 @@ async function main(): Promise<void> {
       (server.beuteAmBoden.besitzer(wolf4) === '' && (server.beuteAmBoden.schaden(wolf4, 'anderer', 10), server.beuteAmBoden.besitzer(wolf4) === 'anderer')),
       `owner ${server.beuteAmBoden.besitzer(wolf4)}`
     );
+    // [3e] N5 (N4-1): the call `spawns.treffer(ziel, { id, schaden })` in handleAttack — the wolf knows its attacker.
+    // The wolf stands 2 m in front of the player and looks AWAY from him (it cannot see him): only the blow can make it notice him.
+    console.log('\n[3e] A blow puts the attacker into the wolf aggro table (real handleAttack)');
+    if (!wolf4.destroyed) server.zdos.destroyZDO(wolf4.zdoid); // no neighbour of [3d] that could call it
+    mitte = await neuerPlatz(geoAnker.wiese);
+    const wolf5 = setze('Wolf', vorn(mitte, 2));
+    wolf5.rotation = { x: 0, y: 1, z: 0, w: 0 }; // yaw pi: looks +z/−z away from the player (he stands behind it)
+    // The wolf must not wander (it would turn towards the player): idle for ever, standing where it was put.
+    const zustand = (spawns as unknown as { creatures: Map<string, { idleUntil: number; mode: string }> }).creatures.get(wolf5.zdoid.toString());
+    if (zustand) {
+      zustand.idleUntil = Number.POSITIVE_INFINITY;
+      zustand.mode = 'idle';
+    }
+    await warte(300);
+    const phaseVor = spawns.kiPhase(wolf5);
+    const tabelle = (): Map<string, { wert: number }> | undefined =>
+      (spawns as unknown as { creatures: Map<string, { zdo: ZDO; ki?: { tabelle: Map<string, { wert: number }> } }> }).creatures.get(wolf5.zdoid.toString())?.ki?.tabelle;
+    const vorher = tabelle()?.has(peer.userId.toString()) ?? false;
+    peer.stamina = 100;
+    await blicke(ws, 0, 100);
+    sendAttack(ws, mitte, 'AxeFlint', 0);
+    await warte(420);
+    const tabEintrag = tabelle()?.get(peer.userId.toString());
+    check(
+      'before the blow the wolf is unaware (phase wandern, no entry); after it the attacker is in the table with the damage (15) and the wolf has noticed him',
+      phaseVor === 'wandern' && !vorher && tabEintrag?.wert === 15 && spawns.kiPhase(wolf5) !== 'wandern',
+      `phase before ${phaseVor}, entry before ${vorher}, entry after ${tabEintrag?.wert}, phase after ${spawns.kiPhase(wolf5)}`
+    );
     ws.close();
   } finally {
     server.stop();

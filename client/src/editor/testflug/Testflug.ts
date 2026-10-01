@@ -29,6 +29,10 @@ import {
 import type { NpcDef } from '@wov/shared';
 import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 import { SpawnPanel } from '../SpawnPanel';
+import type { EntwurfDienste } from './entwurfSpeichern';
+import { echtesHolen, monotoneUhr, spielerLesen } from './neustart';
+import { neustartSteuerung } from './neustartSteuerung';
+import { panelRueckrufe, speichernVerdrahtung } from './speichernVerdrahtung';
 import { RoutenEditor } from '../RoutenEditor';
 import { RoutenVorschau } from '../RoutenVorschau';
 import { platzierungsUpdate, vorschauZeichner } from './vorschauZeichnen';
@@ -249,7 +253,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         ent.flush();
         hud.meldung(t('testflug.npc_angaben_uebernommen', { prefab: alt.prefab }));
       },
-      speichernGelaende: () => speichereEntwurf(),
+      ...panelRueckrufe(() => ({ verdrahtung, neustart })),
       entferneLetztes: () => {
         const roh = persistenz.laden();
         if (!roh?.placements?.length) return;
@@ -467,25 +471,24 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     // einmal auf und liest dabei die gewählte Platzierung — vor der
     // Deklaration wäre das ein Zugriff in die temporale Todeszone.
     /** Entwurf in die Serverdatei schreiben — Routen-Editor und Reiter „Gelände“ teilen sich diesen Weg. */
-    const speichereEntwurf = (): void => {
-        const roh = leseEntwurf();
-        if (!roh) {
-          hud.meldung(t('testflug.kein_entwurf_speichern'));
-          return;
-        }
-        const sauber = sanitizeWorldLayout(roh as never);
-        if (!sauber) {
-          hud.meldung(t('testflug.entwurf_unbrauchbar'));
-          return;
-        }
-        hud.meldung(t('testflug.speichere_in_welt'));
-        void persistenz
-          .speichern(sauber)
-          .then((a) => {
-            hud.meldung(speicherText(a));
-          })
-          .catch((err) => hud.meldung(t('testflug.speichern_fehlgeschlagen', { fehler: String(err) })));
+    const entwurfDienste: EntwurfDienste = {
+      laden: () => persistenz.laden(),
+      rohtext: () => persistenz.rohtext?.() ?? null,
+      speichern: (dokument) => persistenz.speichern(dokument),
     };
+    /** „Speichern & neu starten“ des Reiters Gelände: derselbe Speicherweg, dann Neustart (`neustart.ts`). */
+    const neustart = neustartSteuerung({
+      entwurf: entwurfDienste,
+      holen: echtesHolen,
+      jetzt: monotoneUhr,
+      schlafe: (ms) => new Promise((fertig) => window.setTimeout(fertig, ms)),
+      spieler: () => spielerLesen(echtesHolen),
+      oberflaeche: panel,
+      hud: (text) => hud.meldung(text),
+      belegt: () => verdrahtung.einfachLaeuft(),
+    });
+    /** Einfaches Speichern samt Sperren; Gelände-Reiter und Routen-Editor teilen es (`speichernVerdrahtung.ts`). */
+    const verdrahtung = speichernVerdrahtung({ entwurf: entwurfDienste, hud: (text) => hud.meldung(text), neustart: () => neustart });
     const routen = new RoutenEditor(scene, {
       bodenHoehe: (x, z) => kontext.world()?.getGroundHeight(x, z) ?? 0,
       meldung: (t) => hud.meldung(t),
@@ -498,7 +501,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       },
       // Entwurf in die Serverdatei schreiben (Persistenz-Baustein `speichern`,
       // derselbe Endpunkt wie beim Karten-Editor).
-      aufSpeichern: speichereEntwurf,
+      aufSpeichern: verdrahtung.speichereEntwurf,
       // Umschalter „Vorschau an/aus" (Vorgabe AN). Der Zustand lebt im
       // Panel, das Laufen in RoutenVorschau — beim Ausschalten kehren die
       // NPCs auf ihren gespeicherten Platz zurück.

@@ -60,6 +60,8 @@ import {
   STAERKE_START,
   type Werkzeug,
 } from './testflug/gelaendePinsel';
+import type { NeustartPhase } from './testflug/neustart';
+import type { NeustartOberflaeche } from './testflug/neustartSteuerung';
 import { t } from './i18n';
 import type { TranslationKey } from '../i18n';
 
@@ -116,6 +118,12 @@ export interface SpawnPanelCallbacks {
   setzeNpc?: (npc: NpcDef | undefined) => void;
   /** Button „In Welt speichern“ of the terrain tab: publish the draft (same way as the route editor). */
   speichernGelaende?: () => void;
+  /** Click on „Speichern & neu starten“: only asks (`neustartSteuerung.ts`). */
+  neustartKlick?: () => void;
+  /** Click on „Ja“ in the confirmation: the run starts. */
+  neustartJa?: () => void;
+  /** Click on „Abbrechen“ in the confirmation. */
+  neustartAbbruch?: () => void;
 }
 
 /** Anzeigetexte der Listen aus shared/npc.ts (unbekanntes zeigt sich roh). */
@@ -269,7 +277,7 @@ function vorauswahl(): string {
   return gemerkt !== null && istEigenesModell(gemerkt) ? gemerkt : VORGABE_PREFAB;
 }
 
-export class SpawnPanel {
+export class SpawnPanel implements NeustartOberflaeche {
   /** Wird bei jeder Änderung von Wahl/Modus gerufen — main.ts gleicht den Geist ab. */
   aufWahl: (() => void) | null = null;
   /** Called when the terrain tool turns on or off (tab change, panel closed, `beendeGelaendeModus`). */
@@ -670,8 +678,15 @@ export class SpawnPanel {
 
     const speichern = document.createElement('div');
     speichern.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
-    speichern.appendChild(this.knopf(t('testflug.gelaende.speichern'), () => this.cb.speichernGelaende?.()));
+    this.speichernKnopf = this.knopf(t('testflug.gelaende.speichern'), () => this.cb.speichernGelaende?.());
+    speichern.appendChild(this.speichernKnopf);
+    this.neustartKnopf = this.knopf(t('testflug.gelaende.speichern_neustart'), () => this.cb.neustartKlick?.());
+    speichern.appendChild(this.neustartKnopf);
     block.appendChild(speichern);
+    block.appendChild(this.baueNeustartFrage());
+    this.neustartZeile = document.createElement('div');
+    this.neustartZeile.style.cssText = 'font-size:11px;margin-top:6px;display:none;';
+    block.appendChild(this.neustartZeile);
 
     const tip = document.createElement('div');
     tip.style.cssText = 'font-size:10px;color:#9a8f6a;margin-top:6px;';
@@ -682,6 +697,66 @@ export class SpawnPanel {
     tip3.textContent = t('testflug.gelaende.tip3');
     block.appendChild(tip3);
     return block;
+  }
+
+  private speichernKnopf: HTMLButtonElement | null = null;
+  private neustartKnopf: HTMLButtonElement | null = null;
+  private neustartFrage: HTMLDivElement | null = null;
+  private neustartFrageSpieler: HTMLDivElement | null = null;
+  private neustartZeile: HTMLDivElement | null = null;
+
+  /** Second confirmation under the buttons: says honestly what the restart does. */
+  private baueNeustartFrage(): HTMLDivElement {
+    const box = document.createElement('div');
+    box.style.cssText = 'display:none;margin-top:6px;padding:6px;border:1px solid #8a5a3a;border-radius:4px;background:#2a2018;font-size:11px;';
+    const titel = document.createElement('div');
+    titel.style.cssText = 'font-weight:bold;margin-bottom:4px;';
+    titel.textContent = t('testflug.neustart.titel');
+    const text = document.createElement('div');
+    text.textContent = t('testflug.neustart.text');
+    const spieler = document.createElement('div');
+    spieler.style.cssText = 'margin-top:4px;display:none;';
+    this.neustartFrageSpieler = spieler;
+    const knoepfe = document.createElement('div');
+    knoepfe.style.cssText = 'display:flex;gap:6px;margin-top:6px;';
+    knoepfe.appendChild(
+      this.knopf(t('testflug.neustart.ja'), () => this.cb.neustartJa?.())
+    );
+    knoepfe.appendChild(this.knopf(t('testflug.neustart.abbrechen'), () => this.cb.neustartAbbruch?.()));
+    box.append(titel, text, spieler, knoepfe);
+    this.neustartFrage = box;
+    return box;
+  }
+
+  zeigeNeustartFrage(spieler: number | null): void {
+    if (!this.neustartFrage) return;
+    if (this.neustartFrageSpieler) {
+      this.neustartFrageSpieler.style.display = spieler === null ? 'none' : 'block';
+      this.neustartFrageSpieler.textContent = spieler === null ? '' : t('testflug.neustart.spieler', { count: spieler });
+    }
+    this.neustartFrage.style.display = 'block';
+  }
+
+  schliesseNeustartFrage(): void {
+    if (this.neustartFrage) this.neustartFrage.style.display = 'none';
+  }
+
+  /** Status line of the save-and-restart run. */
+  zeigeNeustartStatus(text: string, phase: NeustartPhase): void {
+    if (this.neustartZeile) {
+      this.neustartZeile.style.display = 'block';
+      this.neustartZeile.style.color = phase === 'fehler' ? '#e08a7a' : phase === 'laeuft-wieder' ? '#8fd18f' : '#e8d48a';
+      this.neustartZeile.textContent = text;
+    }
+  }
+
+  /** Both save buttons are locked while a save-and-restart run goes on. */
+  sperreSpeichern(an: boolean): void {
+    for (const k of [this.speichernKnopf, this.neustartKnopf]) {
+      if (!k) continue;
+      k.disabled = an;
+      k.style.opacity = an ? '0.5' : '1';
+    }
   }
 
   private werkzeugMarkieren(): void {

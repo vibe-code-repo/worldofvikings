@@ -44,6 +44,8 @@ export default [
   // des Dienstes ankommt — und beim Loeschen wieder verschwindet. Braucht
   // weder Assets noch GPU, ~2 s.
   ['admin', 'test/modulregistry.ts'],
+  // Gelaende T4a: Spielerzahl in GET /api/server aus dem Metrik-Schnappschuss (peers), null bei fehlender/veralteter Quelle. Rein, ~1 s.
+  ['admin', 'test/server-steuerung-spieler.ts'],
   // Serversteuerung im Editor (29.09., Mikes Befund): GET/POST /api/server
   // gegen den echten Betriebsdienst mit einem systemctl-Stand-in — anders
   // als /api/testwelt und /dienst hier NICHT nur die Entscheidungslogik,

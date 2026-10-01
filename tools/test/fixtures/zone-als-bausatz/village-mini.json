@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 5,
+  "id": "mini",
+  "name": "Mini Village",
+  "zones": [
+    {
+      "id": "village",
+      "name": "Village",
+      "entities": [
+        { "id": "environment-floor_0001", "prefab": "environment-floor", "position": [10, 5, 20], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+        { "id": "vegetation-grass-short-clump-1_0001", "prefab": "vegetation-grass-short-clump-1", "position": [11, 5, 21], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+        { "id": "environment-sm-prop-cloud-01_0001", "prefab": "environment-sm-prop-cloud-01", "position": [50, 60, 50], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+        { "id": "rock-cliff_0001", "prefab": "environment-sm-env-rock-cliff-01", "position": [30, 2, 30], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+        { "id": "environment-chestbottom_0001", "prefab": "environment-chestbottom", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1.3, 1] },
+        { "id": "environment-chesttop_0001", "prefab": "environment-chesttop", "position": [0, 0.479, -0.348], "rotation": [0, 0, 0], "scale": [1, 1.3, 1] },
+        { "id": "environment-chestbottom_0002", "prefab": "environment-chestbottom", "position": [12, 5.1, 22], "rotation": [0, 0, 0], "scale": [1, 1.3, 1] },
+        { "id": "yaw_1", "prefab": "environment-sm-bld-roof-long-01", "position": [14, 5.2, 20], "rotation": [0, -1.5708, 0], "scale": [1, 1, 1] },
+        { "id": "tilt_1", "prefab": "environment-floor", "position": [16, 5, 24], "rotation": [0.3, 0.5, 0], "scale": [1, 1, 1] },
+        { "id": "mirror_1", "prefab": "environment-floor", "position": [18, 4, 26], "rotation": [0, 0, 0.4], "scale": [-1, 1, 1] },
+        { "id": "wide_1", "prefab": "environment-sm-bld-roof-long-01", "position": [20, 7, 28], "rotation": [0, 0, 0], "scale": [1.379, 1, 1.2524] },
+        { "id": "Bad Id!", "prefab": "environment-floor", "position": [22, 5, 30], "rotation": [0, 0, 0], "scale": [1, 1, 1] }
+      ]
+    },
+    {
+      "id": "interiors",
+      "name": "Interiors",
+      "entities": [
+        { "id": "in_1", "prefab": "environment-floor", "position": [40, 5, 40], "rotation": [0, 0, 0], "scale": [1, 1, 1] }
+      ]
+    },
+    {
+      "id": "surroundings",
+      "name": "Surroundings",
+      "entities": [
+        { "id": "surr_1", "prefab": "environment-floor", "position": [60, 5, 60], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
+        { "id": "vegetation-grass-short-clump-1_0002", "prefab": "vegetation-grass-short-clump-1", "position": [61, 5, 61], "rotation": [0, 0, 0], "scale": [1, 1, 1] }
+      ]
+    }
+  ]
+}

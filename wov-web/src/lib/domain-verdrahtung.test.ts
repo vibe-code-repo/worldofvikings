@@ -195,7 +195,16 @@ function links(html: string, rel: string): Map<string, string> {
  * Für sie gibt es keine gebaute Datei; die Sitemap-Adresse selbst wird trotzdem
  * geprüft. Jede andere Adresse ohne gebaute Seite ist ein Fehler.
  */
-const NICHT_VORGERENDERT = new Set(['/de/thing', '/en/thing']);
+const NICHT_VORGERENDERT = new Set([
+  '/de/thing',
+  '/en/thing',
+  // Rüstkammer und Ruhmeshalle zeigen den Stand des Spielservers (R2, `prerender = false`).
+  // canonical und hreflang prüft `ruestkammerSsr.test.ts` am ausgelieferten HTML.
+  '/de/ruestkammer',
+  '/en/armory',
+  '/de/ruhmeshalle',
+  '/en/hall-of-fame',
+]);
 
 const beschreibe = vorhanden || inDerCi ? describe : describe.skip;
 

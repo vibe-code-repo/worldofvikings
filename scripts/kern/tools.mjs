@@ -245,6 +245,15 @@ export default [
   */
   ['tools/test', 'asset-paket-teile.ts'],
   /*
+    Dev-Log-Werkzeug (30.09.2026): tools/devlog/eintragen.mjs prueft einen Tageseintrag
+    gegen das Schema aus wov-web/src/lib/devlog.ts, lehnt interne Spuren ab (PR-Nummer,
+    Commit-Hash, Pfad, Endung, Sperrliste), fuegt ein/ersetzt/kuerzt auf 512 KB und
+    schreibt atomar. Kindprozesse auf Wegwerf-Ordnern unter /tmp, keine Ports, keine
+    Assets. ~8 s.
+    Dev-log insert tool: schema, every block rule, insert/replace/trim, atomic write.
+  */
+  ['tools/test', 'devlog-eintragen.ts'],
+  /*
     Die Rauschmaske auf dem Felsanteil (A11, 11.09.2026).
 
     `tools/test/fels-rauschen.ts` rechnet ueber 4 Millionen Proben nach,
@@ -555,6 +564,8 @@ export default [
   // World-map publisher: the small probe (256 px, ~20-35 s); `--gross` runs the full 4096 px probe by hand.
   ['tools', 'test/weltkarte-probe.mjs'],
   ['tools', 'test/wov-sicherung-welt.ts'],
+  // Zone-to-kit converter (C3): small fixtures only, every thinning rule, counting rule, byte-equal reruns, Euler per axis, start village.
+  ['tools/test', 'zone-als-bausatz.ts'],
   ['tools/worldlayout-mcp', 'height-correction-readers.ts'],
   ['tools/worldlayout-mcp', 'probe-kontext.ts'],
   // WorldLayout-MCP-Server (Aufgabe B8): echter Client-Handshake gegen den

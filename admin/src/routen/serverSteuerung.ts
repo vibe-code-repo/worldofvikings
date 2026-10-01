@@ -45,13 +45,40 @@ export interface ServerSteuerungUmgebung {
   neustart(): Promise<void>;
   stoppen(): Promise<void>;
   starten(): Promise<void>;
+  /** Connected players, or `null` when unknown (no fresh metrics file). Optional: older callers omit it. */
+  spieler?(): number | null;
+}
+
+/** A snapshot older than this no longer says who is connected (the server writes one per second). */
+export const METRIK_ALTER_MAX_MS = 15_000;
+
+/**
+ * Connected players from the game server's metrics snapshot (`peers`,
+ * `shared/src/metrik.ts`; no change to the game server needed). `null` when the
+ * file is missing, unreadable, malformed or stale: a number from a stopped
+ * server would be a false statement in the restart dialog.
+ */
+export function spielerAusMetriken(roh: string | null, jetztMs: number): number | null {
+  if (roh === null) return null;
+  try {
+    const m = JSON.parse(roh) as { zeitMs?: unknown; peers?: unknown };
+    if (typeof m.zeitMs !== 'number' || typeof m.peers !== 'number') return null;
+    if (!Number.isInteger(m.peers) || m.peers < 0) return null;
+    if (jetztMs - m.zeitMs > METRIK_ALTER_MAX_MS || m.zeitMs - jetztMs > METRIK_ALTER_MAX_MS) return null;
+    return m.peers;
+  } catch {
+    return null;
+  }
 }
 
 /** Same shape as `Antwort` in admin/src/main.ts. */
 export type ServerSteuerungAntwort = { code: number; daten: unknown };
 
 export async function serverStatusLesen(umg: ServerSteuerungUmgebung): Promise<ServerSteuerungAntwort> {
-  return { code: 200, daten: { dienst: 'wov-server', zustand: await umg.zustand(), instanz: umg.instanz } };
+  const zustand = await umg.zustand();
+  // `spieler` only while the service runs: the snapshot of a stopped server is stale or missing anyway.
+  const spieler = zustand.aktiv ? (umg.spieler?.() ?? null) : null;
+  return { code: 200, daten: { dienst: 'wov-server', zustand, instanz: umg.instanz, spieler } };
 }
 
 export async function serverAktionBehandeln(leib: unknown, umg: ServerSteuerungUmgebung): Promise<ServerSteuerungAntwort> {

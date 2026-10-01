@@ -306,7 +306,7 @@ interface Aufbau {
   welt: ReturnType<typeof createWorld>;
   setzeZeit(ms: number): number;
   kreise: Array<{ r: number; gesperrt: boolean }>;
-  ein: { werkzeug: 'anheben' | 'absenken' | 'glaetten'; radius: number; staerke: number };
+  ein: { werkzeug: 'anheben' | 'absenken' | 'glaetten'; radius: number; staerke: number; ziel: number | null };
 }
 function aufbau(doc: Record<string, unknown>): Aufbau {
   const welt = createWorld('gelaende-pinsel-test', {}, doc);
@@ -318,7 +318,7 @@ function aufbau(doc: Record<string, unknown>): Aufbau {
   const kreise: Array<{ r: number; gesperrt: boolean }> = [];
   let zeit = 1000;
   let vorgaenge = 0;
-  const ein: Aufbau['ein'] = { werkzeug: 'anheben', radius: 6, staerke: 20 };
+  const ein: Aufbau['ein'] = { werkzeug: 'anheben', radius: 6, staerke: 20, ziel: null };
   const abh: GelaendeAbh = {
     hoehe: (x, z) => welt.getGroundHeight(x, z),
     geo: () => welt.geo,
@@ -330,6 +330,8 @@ function aufbau(doc: Record<string, unknown>): Aufbau {
     katalog,
     aktionen,
     einstellung: () => ein,
+    setzeZiel: (h) => void (ein.ziel = h),
+    pipetteAnzeige: () => undefined,
     meldung: (t) => meldungen.push(t),
     kreis: { zeige: (_x, _z, r, gesperrt) => void kreise.push({ r, gesperrt }), verberge: () => undefined },
     nachStrich: () => {
@@ -718,7 +720,8 @@ const zieheStrich = (a: Aufbau, von: [number, number], bis: [number, number], bi
   }
   // wiring in the flight
   const tf = readFileSync(resolve(HIER, '../src/editor/testflug/Testflug.ts'), 'utf-8');
-  pruefe(/addEventListener\('storage'[^]*?ENTWURF_KEY[^]*?gelaende\.entwurfGeaendert\(\)/.test(tf), '13: Verdrahtung: das storage-Ereignis des Entwurfs ruft entwurfGeaendert()');
+  // Since T3 the listener is `gelaendeHoerer.ts`; its behaviour (closed tab, `key === null`, other keys) is run in `gelaende-t3.ts`.
+  pruefe(/verdrahteEntwurfHoerer\([^]*?ENTWURF_KEY[^]*?gelaende\.entwurfGeaendert\(\)/.test(tf), '13: Verdrahtung: das storage-Ereignis des Entwurfs ruft über den Hörer entwurfGeaendert()');
 }
 
 // ── 14. enthaelt() und der Ring der verdrängten Entwürfe (B2) ─────────────────

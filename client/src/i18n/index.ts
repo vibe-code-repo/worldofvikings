@@ -1,5 +1,5 @@
 import { inhaltText, type InhaltSchluessel } from '@wov/shared';
-import { SERVER_MELDUNG_SCHLUESSEL_PRAEFIX } from '@wov/shared';
+import { MELDUNG_NAMENSPARAMETER, zerlegeServerMeldung } from '@wov/shared';
 import de from './katalog/de.json';
 import en from './katalog/en.json';
 
@@ -73,13 +73,27 @@ export class GameI18n {
    * Uebersetzen an, `inhaltText()` traegt den Sprach-Rueckfall.
    */
   /**
-   * Text of a server message: `@key` (SERVER_MELDUNG_SCHLUESSEL_PRAEFIX) is a catalogue key and
+   * Text of a server message: `@key` or `@key|{json}` (SERVER_MELDUNG_SCHLUESSEL_PRAEFIX) is a catalogue key and
    * gets translated, anything else is shown as sent (the server's older messages are plain text).
    */
   serverMeldung(text: string): string {
-    if (!text.startsWith(SERVER_MELDUNG_SCHLUESSEL_PRAEFIX)) return text;
-    const key = text.slice(SERVER_MELDUNG_SCHLUESSEL_PRAEFIX.length);
-    return Object.hasOwn(CATALOGUES[this.current], key) ? this.t(key as TranslationKey) : text;
+    const meldung = zerlegeServerMeldung(text);
+    if (!meldung || !Object.hasOwn(CATALOGUES[this.current], meldung.schluessel)) return text;
+    // `@key|{json}`: the parameters fill the `{name}` placeholders; creature and item names are shown translated.
+    const variablen: Record<string, string | number> = {};
+    for (const [name, wert] of Object.entries(meldung.parameter)) {
+      variablen[name] = MELDUNG_NAMENSPARAMETER.includes(name) ? this.anzeigeName(String(wert)) : wert;
+    }
+    return this.t(meldung.schluessel as TranslationKey, variablen);
+  }
+
+  /** Display name of a creature or an item as the server names it: the catalogue (`beute.name.*`), else the content texts, else as sent. */
+  anzeigeName(name: string): string {
+    const key = `beute.name.${name}`;
+    if (Object.hasOwn(CATALOGUES[this.current], key)) return this.t(key as TranslationKey);
+    const inhaltKey = `inhalt.item.${name}`;
+    const inhalt = inhaltText(inhaltKey, this.current);
+    return inhalt !== inhaltKey ? inhalt : name;
   }
 
   tInhalt(key: InhaltSchluessel): string {

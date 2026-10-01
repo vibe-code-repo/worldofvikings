@@ -173,6 +173,7 @@ const PUBLIC_MEMBERS: readonly string[] = [
   'adminCommands',
   'adminListe',
   'aggro',
+  'beuteAmBoden', // D5: the loot on the ground; public so that d5-beute can wind its clock forward and read the tally
   'config',
   'dungeons',
   'dungeonsWurzel', // step 2: context member of DungeonEditPakete (the constructor reads it too, so it stays in the class)

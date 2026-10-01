@@ -1,0 +1,94 @@
+/**
+ * Quittung.ts (D2) — the client's side of the server's hit check: the fields appended to `Attack`
+ * and the reading of `AttackAck` (one per swing). Pure, no Babylon, no socket.
+ *
+ * Der Client zeigt Schlag, Ton und Geste sofort (Vorhersage) und korrigiert nach der Quittung: Der Server
+ * zaehlt die Kette selbst; verweigert er einen Schlag der Kette oder beginnt sie neu, faengt auch die Figur
+ * wieder bei Hieb 1 an. Der Treffer selbst (Blut, Funken, Ton) kommt weiter mit `HitEffect`.
+ */
+
+/** Fields an up-to-date client appends to `Attack` (see PacketType.AttackAck). */
+export interface SchlagFelder {
+  seq: number;
+  /** Combo step the figure plays (1..3); 0 = unknown, the server counts alone. */
+  schritt: number;
+  /** Age of the swing in ms (0: sent in the frame of the click). */
+  alterMs: number;
+  /** Time from swing start to the weapon tip in ms. */
+  spitzeMs: number;
+}
+
+/**
+ * How long (s), counted from the start of a swing, the figure keeps its chain open at most: the window of the
+ * server, 0.95 s from swing START to swing ARRIVAL (cooldown of the slowest weapon `ABKLINGZEIT_LANGSAMSTE_MS`
+ * 350 ms plus `KETTE_FENSTER_S` 0.6 s, server/src/spiel/Treffer.ts). The client cannot import the server's constants;
+ * client/test/d2-quittung.ts binds this number to them. Since D2 N2 the server never refuses a finisher (it counts it as
+ * step 1), so a lower cap only cost combo window (0.80 s made the figure jump to blow 1 in 22 % of the clicks at
+ * 0.75 s). The figure's own window (clip length / tempo - 0.25 s + 0.6 s = 1.33 .. 1.63 s for the real weapon clips)
+ * is longer; without the cap the figure would play blow 2 or 3 where the server already counts blow 1 again. Where
+ * the arrival differs (latency jitter), the acknowledgement corrects the figure (N1-4).
+ */
+export const SERVER_KETTE_S = 0.95;
+
+/** The figure's chain window (s from swing start): its own, but never longer than the server's. */
+export function komboRestS(angriffRest: number, komboFenster: number): number {
+  return Math.min(angriffRest + komboFenster, SERVER_KETTE_S);
+}
+
+/** `AttackAck.ergebnis`, as the server sends it (server/src/spiel/Treffer.ts, SchlagErgebnis). */
+export const ERGEBNIS_TREFFER = 0;
+export const ERGEBNIS_KOMBO = 2;
+
+export interface Quittung {
+  seq: number;
+  /** Combo step the server counted, 0 = refused. */
+  schritt: number;
+  ergebnis: number;
+}
+
+export function liesQuittung(r: { readInt32(): number }): Quittung {
+  return { seq: r.readInt32(), schritt: r.readInt32(), ergebnis: r.readInt32() };
+}
+
+/** Keeps the swings that wait for their acknowledgement and the measured round trips. */
+export class SchlagBuch {
+  private naechste = 0;
+  private readonly offen = new Map<number, { t: number; schritt: number }>();
+  /** Sequence number of the swing that started the figure's current chain (played step 1). */
+  private kettenStart = 0;
+  /** Round trips (ms) of the last acknowledged swings, newest last. */
+  readonly latenzen: number[] = [];
+  /** Sequence number of the newest swing sent. */
+  letzteSeq = 0;
+
+  /** A swing leaves now: its sequence number. Old entries (an ack that never came) are dropped. */
+  neu(jetzt: number, schritt: number): number {
+    const seq = ++this.naechste;
+    this.letzteSeq = seq;
+    this.offen.set(seq, { t: jetzt, schritt });
+    if (schritt === 1) this.kettenStart = seq;
+    for (const alt of this.offen.keys()) {
+      if (alt >= seq - 16) break;
+      this.offen.delete(alt);
+    }
+    return seq;
+  }
+
+  /**
+   * The server answered. Returns the round trip in ms and whether the figure's chain must start
+   * again (the server refused the finisher, or counted a lower step than the figure played), only
+   * when the swing belongs to the figure's current chain: an answer that arrives after the next swing still
+   * corrects that chain, but one from before the figure's last restart (a swing that played step 1) must not
+   * reset the chain that has moved on.
+   */
+  quittiere(q: Quittung, jetzt: number): { latenzMs: number; kettenNeu: boolean } | null {
+    const e = this.offen.get(q.seq);
+    if (!e) return null;
+    this.offen.delete(q.seq);
+    const latenzMs = jetzt - e.t;
+    this.latenzen.push(latenzMs);
+    if (this.latenzen.length > 32) this.latenzen.shift();
+    const abweichend = q.ergebnis === ERGEBNIS_KOMBO || (q.schritt > 0 && e.schritt > q.schritt);
+    return { latenzMs, kettenNeu: abweichend && q.seq >= this.kettenStart };
+  }
+}

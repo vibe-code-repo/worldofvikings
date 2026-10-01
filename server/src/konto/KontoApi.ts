@@ -319,7 +319,7 @@ export class KontoApi {
 
     if (pfad === '/accounts/armory' && m === 'GET') return this.armoryListe(req, res);
     const armoryProfil = /^\/accounts\/armory\/(\d{1,9})$/.exec(pfad);
-    if (armoryProfil && m === 'GET') return this.armoryEinzeln(res, Number(armoryProfil[1]));
+    if (armoryProfil && m === 'GET') return this.armoryEinzeln(req, res, Number(armoryProfil[1]));
 
     const melden = /^\/accounts\/characters\/(\d+)\/report$/.exec(pfad);
     if (melden && m === 'POST') return this.profilMelden(req, res, Number(melden[1]));
@@ -668,12 +668,14 @@ export class KontoApi {
    * Was in der Antwort steht und was nie, regelt `Armory.ts` (Positivliste).
    */
   private armoryListe(req: IncomingMessage, res: ServerResponse): void {
+    if (!this.armory.erlaubt(this.herkunft(req))) return this.json(res, 429, { error: 'rate-limited' });
     const abfrage = new URL(req.url ?? '/', 'http://x').searchParams;
     this.json(res, 200, this.armory.liste(abfrage.get('seite'), abfrage.get('q')));
   }
 
   /** Ruestkammer, Profil: 404 fuer unbekannte, geloeschte, gebannte und Standardkonto-Charaktere. */
-  private armoryEinzeln(res: ServerResponse, id: number): void {
+  private armoryEinzeln(req: IncomingMessage, res: ServerResponse, id: number): void {
+    if (!this.armory.erlaubt(this.herkunft(req))) return this.json(res, 429, { error: 'rate-limited' });
     const profil = this.armory.profil(id);
     if (!profil) return this.json(res, 404, { error: 'unknown' });
     this.json(res, 200, profil);

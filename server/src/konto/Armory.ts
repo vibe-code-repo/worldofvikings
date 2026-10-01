@@ -34,7 +34,7 @@
  */
 import {
   AUSRUESTUNG_SLOTS, KEINE_WERTE, STAT_IDS, SLOT_VORGABE, ausgehenderNahkampfSchaden, decodeArmor, findItem,
-  istAusruestungsSlot, istRarity, lebensmaximum, summiereWerte, waffenSchaden, werteFuerRuestungsteil,
+  istAugenfarbe, istAusruestungsSlot, istFigur, istFrisur, istHaarfarbe, istRarity, lebensmaximum, summiereWerte, waffenSchaden, werteFuerRuestungsteil,
   type AusruestungsSlot, type ItemShared, type ItemStats, type Rarity, type Werte,
 } from '@wov/shared';
 import { PROFILTEXT_MAX, type ArmoryZeile, type Kontendatenbank } from './Kontendatenbank.js';
@@ -43,8 +43,18 @@ import { PROFILTEXT_MAX, type ArmoryZeile, type Kontendatenbank } from './Konten
 export const ARMORY_SEITENGROESSE = 24;
 /** Lebensdauer eines gepufferten Ergebnisses, s. Kopfkommentar. */
 export const ARMORY_CACHE_MS = 30_000;
-/** Hoechstzahl gepufferter Ergebnisse; ist sie erreicht, fliegt das aelteste hinaus. */
+/** Fruehestens nach so vielen ms wird die Liste wegen geaenderter Sichtbarkeit neu gebaut. */
+export const ARMORY_NEUBAU_MIN_MS = 1_000;
+/** Hoechstzahl gepufferter Profile; ist sie erreicht, fliegt das aelteste hinaus. */
 export const ARMORY_CACHE_MAX = 256;
+/** Drossel je Herkunft: so viele Anfragen je Fenster. */
+export const ARMORY_DROSSEL_MAX = 300;
+export const ARMORY_DROSSEL_FENSTER_MS = 10_000;
+const DROSSEL_KARTE_MAX = 4096;
+/** Immer ausgeschlossen, auch wenn die Konfiguration keinen `standard-konto`-Block hat. */
+const FESTE_STANDARDKONTEN = ['gast', 'guest', 'admin'];
+/** Laengste `ruestung`-Zeichenkette, die wir dekodieren (echte Werte sind unter 500 Zeichen). */
+const RUESTUNG_MAX_ZEICHEN = 1000;
 /** Laenge des Suchbegriffs in Zeichen (Namen haben hoechstens 24). */
 export const ARMORY_SUCHE_MAX = 32;
 /** Groesster Spielerzustand, den wir parsen; darueber gilt er als unlesbar. */
@@ -129,83 +139,135 @@ export interface ArmoryProfil extends ArmoryEintrag {
   fertigkeiten?: { name: string; stufe: number }[];
 }
 
-type Eintrag<T> = { bis: number; wert: T };
+/** Alle sichtbaren Charaktere zu einem Zeitpunkt, in Anzeigereihenfolge; Suche und Seiten sind Array-Arbeit. */
+interface Aufnahme {
+  zeilen: ArmoryZeile[];
+  /** Gefaltete Namen, gleiche Reihenfolge wie `zeilen`. */
+  gefaltet: string[];
+  nachId: Map<number, ArmoryZeile>;
+  /** Fingerabdruck der Sichtbarkeit beim Bau. */
+  stempel: string;
+  gebaut: number;
+  bis: number;
+}
 
 export class Armory {
   /** Uhr in ms; Tests setzen sie. */
   uhr: () => number = () => Date.now();
-  private readonly puffer = new Map<string, Eintrag<unknown>>();
-  private stempel = '';
+  private aufnahme: Aufnahme | null = null;
+  /** Fertige Profile ohne Profiltext, je ARMORY_CACHE_MS gueltig; fliegen auch mit einer neuen Aufnahme hinaus. */
+  private readonly profile = new Map<number, { bis: number; wert: ArmoryProfil }>();
+  private readonly drosselung = new Map<string, { anzahl: number; bis: number }>();
+  /** Benutzernamen, die nie erscheinen: die der Konfiguration PLUS die fest eingebauten. */
+  private readonly ausgeschlossen: ReadonlySet<string>;
 
   constructor(
     private readonly db: Kontendatenbank,
-    /** Benutzernamen der Standardkonten; ihre Charaktere erscheinen nie. */
-    private readonly ausgeschlossen: readonly string[],
-  ) {}
+    /** Benutzernamen der Standardkonten aus der Konfiguration; ihre Charaktere erscheinen nie. */
+    konfiguriert: readonly string[],
+  ) {
+    this.ausgeschlossen = new Set([...FESTE_STANDARDKONTEN, ...konfiguriert].map(falte));
+  }
+
+  /**
+   * Zweite Linie gegen Last: je Herkunft hoechstens ARMORY_DROSSEL_MAX
+   * Anfragen je ARMORY_DROSSEL_FENSTER_MS. Hinter einem Proxy kommt die
+   * Herkunft aus `X-Forwarded-For` (net/Herkunft.ts); die Webseite, die
+   * serverseitig ueber Loopback fragt, teilt sich eine Herkunft.
+   */
+  erlaubt(herkunft: string): boolean {
+    const jetzt = this.uhr();
+    if (this.drosselung.size >= DROSSEL_KARTE_MAX) {
+      for (const [k, e] of this.drosselung) if (e.bis <= jetzt) this.drosselung.delete(k);
+      while (this.drosselung.size >= DROSSEL_KARTE_MAX) {
+        const aeltester = this.drosselung.keys().next();
+        if (aeltester.done) break;
+        this.drosselung.delete(aeltester.value);
+      }
+    }
+    const e = this.drosselung.get(herkunft);
+    if (!e || e.bis <= jetzt) {
+      this.drosselung.set(herkunft, { anzahl: 1, bis: jetzt + ARMORY_DROSSEL_FENSTER_MS });
+      return true;
+    }
+    e.anzahl += 1;
+    return e.anzahl <= ARMORY_DROSSEL_MAX;
+  }
 
   /** `seiteRoh` und `qRoh` sind die ungeprueften Query-Werte. Wirft nie bei Eingaben. */
   liste(seiteRoh: unknown, qRoh: unknown): ArmoryListe {
+    const a = this.aktuelleAufnahme();
     const suche = bereinigeSuche(qRoh);
-    const gewuenscht = bereinigeSeite(seiteRoh);
-    return this.gepuffert(`l:${gewuenscht}:${suche}`, () => {
-      const jetzt = this.uhr();
-      let seite = gewuenscht;
-      let r = this.db.armoryZeilen({
-        suche, ausgeschlossen: this.ausgeschlossen, limit: ARMORY_SEITENGROESSE,
-        offset: (seite - 1) * ARMORY_SEITENGROESSE, jetzt,
-      });
-      const seiten = Math.max(1, Math.ceil(r.gesamt / ARMORY_SEITENGROESSE));
-      if (seite > seiten) {
-        seite = seiten;
-        r = this.db.armoryZeilen({
-          suche, ausgeschlossen: this.ausgeschlossen, limit: ARMORY_SEITENGROESSE,
-          offset: (seite - 1) * ARMORY_SEITENGROESSE, jetzt,
-        });
-      }
-      return {
-        eintraege: r.zeilen.map(baueEintrag), seite, seitenGroesse: ARMORY_SEITENGROESSE, gesamt: r.gesamt, seiten,
-      };
-    });
+    let treffer: ArmoryZeile[];
+    if (suche === '') treffer = a.zeilen;
+    else {
+      treffer = [];
+      for (let i = 0; i < a.zeilen.length; i++) if (a.gefaltet[i].includes(suche)) treffer.push(a.zeilen[i]);
+    }
+    const seiten = Math.max(1, Math.ceil(treffer.length / ARMORY_SEITENGROESSE));
+    // Die Seite wird auf den gueltigen Bereich begrenzt, bevor irgendetwas von ihr abhaengt.
+    const seite = Math.min(bereinigeSeite(seiteRoh), seiten);
+    const von = (seite - 1) * ARMORY_SEITENGROESSE;
+    return {
+      eintraege: treffer.slice(von, von + ARMORY_SEITENGROESSE).map(baueEintrag),
+      seite, seitenGroesse: ARMORY_SEITENGROESSE, gesamt: treffer.length, seiten,
+    };
   }
 
   /** Das Profil, oder null (unbekannt, geloescht, gebannt, Standardkonto). */
   profil(id: number): ArmoryProfil | null {
     if (!Number.isSafeInteger(id) || id <= 0) return null;
-    // Die Sichtbarkeit wird bei JEDEM Aufruf an der Datenbank geprueft; gepuffert wird nur das teure Abbild.
-    const zeile = this.db.armoryZeile(id, this.ausgeschlossen, this.uhr());
-    if (!zeile) return null;
-    return this.gepuffert(`p:${id}`, () => {
-      const profil = baueProfil(zeile, this.db.armorySpielerdaten(zeile.spielerId));
-      if (this.db.avatarVon(zeile.kontoId) === zeile.id) {
-        const text = this.db.profilTextVon(zeile.kontoId);
-        if (text !== '') profil.profil = text.slice(0, PROFILTEXT_MAX);
+    // Die Sichtbarkeit eines Profils wird bei JEDEM Aufruf an der Datenbank geprueft (eine Zeile, billig):
+    // Geloeschte und gebannte Charaktere verschwinden sofort, auch wenn die Liste noch eine Sekunde alt ist.
+    const zeile = this.db.armoryEinzeln(id, this.uhr());
+    if (!zeile || this.ausgeschlossen.has(falte(zeile.kontoName))) return null;
+    const jetzt = this.uhr();
+    let basis = this.profile.get(id);
+    if (!basis || basis.bis <= jetzt) {
+      this.profile.delete(id);
+      basis = { bis: jetzt + ARMORY_CACHE_MS, wert: baueProfil(zeile, this.db.armorySpielerdaten(zeile.spielerId)) };
+      if (this.profile.size >= ARMORY_CACHE_MAX) {
+        const aeltester = this.profile.keys().next();
+        if (!aeltester.done) this.profile.delete(aeltester.value);
       }
-      return profil;
-    });
+      this.profile.set(id, basis);
+    }
+    // Profiltext und Avatar werden bei JEDEM Aufruf gelesen, nie gepuffert: ein Avatarwechsel
+    // gilt sofort, und der Text haengt nie an einem anderen Charakter.
+    const ergebnis: ArmoryProfil = { ...basis.wert };
+    if (this.db.avatarVon(zeile.kontoId) === zeile.id) {
+      const text = this.db.profilTextVon(zeile.kontoId);
+      if (text !== '') ergebnis.profil = text.slice(0, PROFILTEXT_MAX);
+    }
+    return ergebnis;
   }
 
-  private gepuffert<T>(schluessel: string, berechne: () => T): T {
+  private aktuelleAufnahme(): Aufnahme {
     const jetzt = this.uhr();
+    const alt = this.aufnahme;
+    // Ein Neubau kostet bei grossem Bestand zig Millisekunden; wer Charaktere anlegt und loescht, soll ihn nicht
+    // je Anfrage erzwingen koennen. Daher hoechstens einer je ARMORY_NEUBAU_MIN_MS, auch bei geaendertem Stempel.
+    if (alt && alt.bis > jetzt && jetzt - alt.gebaut < ARMORY_NEUBAU_MIN_MS) return alt;
     const stempel = this.db.armoryStempel();
-    if (stempel !== this.stempel) {
-      this.puffer.clear();
-      this.stempel = stempel;
-    }
-    const alt = this.puffer.get(schluessel) as Eintrag<T> | undefined;
-    if (alt && alt.bis > jetzt) return alt.wert;
-    const wert = berechne();
-    if (alt) this.puffer.delete(schluessel);
-    if (this.puffer.size >= ARMORY_CACHE_MAX) {
-      for (const [k, e] of this.puffer) if (e.bis <= jetzt) this.puffer.delete(k);
-      while (this.puffer.size >= ARMORY_CACHE_MAX) {
-        const aeltester = this.puffer.keys().next();
-        if (aeltester.done) break;
-        this.puffer.delete(aeltester.value);
-      }
-    }
-    this.puffer.set(schluessel, { bis: jetzt + ARMORY_CACHE_MS, wert });
-    return wert;
+    if (alt && alt.stempel === stempel && alt.bis > jetzt) return alt;
+    const zeilen = this.db.armoryAlle(jetzt).filter((z) => !this.ausgeschlossen.has(falte(z.kontoName)));
+    const neu: Aufnahme = {
+      zeilen,
+      gefaltet: zeilen.map((z) => falte(z.name)),
+      nachId: new Map(zeilen.map((z) => [z.id, z])),
+      stempel,
+      gebaut: jetzt,
+      bis: jetzt + ARMORY_CACHE_MS,
+    };
+    this.aufnahme = neu;
+    this.profile.clear();
+    return neu;
   }
+}
+
+/** Namensvergleich ohne Rücksicht auf Schreibung und Unicode-Form (NFC, klein). */
+function falte(text: string): string {
+  return text.normalize('NFC').toLowerCase();
 }
 
 /** Seite ab 1; alles Unlesbare, Negative oder Riesige wird zu einer brauchbaren Zahl. */
@@ -214,14 +276,15 @@ export function bereinigeSeite(roh: unknown): number {
   return Math.min(1_000_000_000, Math.max(1, Number(roh)));
 }
 
-/** Suchbegriff: getrimmt, auf ARMORY_SUCHE_MAX Zeichen gekuerzt, kleingeschrieben. Leer = keine Suche. */
+/** Suchbegriff: getrimmt, auf ARMORY_SUCHE_MAX Zeichen gekuerzt, NFC und klein. Leer = keine Suche. */
 export function bereinigeSuche(roh: unknown): string {
   if (typeof roh !== 'string') return '';
-  return Array.from(roh.trim()).slice(0, ARMORY_SUCHE_MAX).join('').toLowerCase();
+  return falte(Array.from(roh.trim()).slice(0, ARMORY_SUCHE_MAX).join(''));
 }
 
-function kennung(wert: unknown, vorgabe: string): string {
-  return typeof wert === 'string' && wert.length > 0 && wert.length <= KENNUNG_MAX ? wert : vorgabe;
+/** Ein Aussehenswert aus dem Spielstand gilt nur, wenn die Kennung zu den erlaubten gehoert; sonst die Konten-Zeile. */
+function kennung(wert: unknown, erlaubt: (id: unknown) => boolean, vorgabe: string): string {
+  return typeof wert === 'string' && wert.length <= KENNUNG_MAX && erlaubt(wert) ? wert : vorgabe;
 }
 
 export function baueEintrag(z: ArmoryZeile): ArmoryEintrag {
@@ -241,14 +304,16 @@ export function baueProfil(z: ArmoryZeile, daten: string | null): ArmoryProfil {
   const eintrag = baueEintrag(z);
   // Das Aussehen im Spielstand ist juenger als die Zeile beim Anlegen des Charakters.
   eintrag.aussehen = {
-    figur: kennung(gespeichert.figur, z.figur),
-    frisur: kennung(gespeichert.frisur, z.frisur),
-    haarfarbe: kennung(gespeichert.haarfarbe, z.haarfarbe),
-    augenfarbe: kennung(gespeichert.augenfarbe, z.augenfarbe),
+    figur: kennung(gespeichert.figur, istFigur, z.figur),
+    frisur: kennung(gespeichert.frisur, istFrisur, z.frisur),
+    haarfarbe: kennung(gespeichert.haarfarbe, istHaarfarbe, z.haarfarbe),
+    augenfarbe: kennung(gespeichert.augenfarbe, istAugenfarbe, z.augenfarbe),
   };
 
+  // Nur ANGELEGTE Stapel (`equipped === true`) mit bekanntem Item zaehlen.
   const ausruestung: Partial<Record<AusruestungsSlot, ArmoryStueck>> = {};
-  let waffe: ArmoryStueck | null = null;
+  const hand = new Map<string, ArmoryStueck>();
+  let ersteHand: string | null = null;
   const stapel = Array.isArray(gespeichert.inventar) ? gespeichert.inventar.slice(0, INVENTAR_MAX) : [];
   for (const roh of stapel) {
     if (!roh || typeof roh !== 'object' || (roh as Record<string, unknown>).equipped !== true) continue;
@@ -258,9 +323,15 @@ export function baueProfil(z: ArmoryZeile, daten: string | null): ArmoryProfil {
     const slot = item.ausruestung ?? SLOT_VORGABE;
     if (!istAusruestungsSlot(slot)) continue;
     const stueck = baueStueck(item, s.quality);
-    if (slot === 'waffe') waffe ??= stueck;
-    else ausruestung[slot as AusruestungsSlot] ??= stueck;
+    if (slot === 'waffe') {
+      if (!hand.has(item.name)) hand.set(item.name, stueck);
+      ersteHand ??= item.name;
+    } else ausruestung[slot as AusruestungsSlot] ??= stueck;
   }
+  // Die Hand wie der Spielserver (WovServer, Laden): `waffe` im Spielstand gilt, sonst der erste angelegte Handstapel.
+  // Ein angelegter Stapel, der nicht die Waffe ist (z. B. Holz), erscheint nicht.
+  const waffenName = typeof gespeichert.waffe === 'string' ? gespeichert.waffe : ersteHand;
+  const waffe = (waffenName !== null && hand.get(waffenName)) || null;
 
   return {
     ...eintrag,
@@ -288,7 +359,7 @@ function baueStueck(item: ItemShared, qualitaetRoh: unknown): ArmoryStueck {
     name: item.label,
     seltenheit: istRarity(item.rarity) ? item.rarity : 'common',
     itemStufe: zahl(item.itemLevel, 1),
-    qualitaet: zahl(qualitaetRoh, 0),
+    qualitaet: qualitaet(qualitaetRoh),
     werte: nurStatistiken(item.stats),
     symbol: symbolPfad(item.icon),
   };
@@ -298,6 +369,11 @@ function baueStueck(item: ItemShared, qualitaetRoh: unknown): ArmoryStueck {
 
 function zahl(wert: unknown, vorgabe: number): number {
   return typeof wert === 'number' && Number.isFinite(wert) ? wert : vorgabe;
+}
+
+/** Qualitaet ist eine kleine Spielzahl; Werte ausserhalb 0..1000 werden gekappt. */
+function qualitaet(wert: unknown): number {
+  return Math.min(1000, Math.max(0, zahl(wert, 0)));
 }
 
 function nurStatistiken(stats: ItemStats | undefined): ItemStats {
@@ -324,7 +400,7 @@ function symbolPfad(icon: unknown): string | null {
  * kaputtes `ruestung` ergibt "nichts angelegt".
  */
 function leiteWerteAb(ruestung: unknown, waffe: ArmoryStueck | null): ArmoryWerte {
-  const teile = typeof ruestung === 'string' ? Object.values(decodeArmor(ruestung)) : [];
+  const teile = typeof ruestung === 'string' && ruestung.length <= RUESTUNG_MAX_ZEICHEN ? Object.values(decodeArmor(ruestung)) : [];
   const summe: Werte = teile.length > 0 ? summiereWerte(teile.map((id) => werteFuerRuestungsteil(id))) : KEINE_WERTE;
   const schaden = waffenSchaden(waffe?.werte);
   return {

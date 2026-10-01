@@ -175,6 +175,8 @@ export interface ArmoryZeile {
   id: number;
   kontoId: number;
   spielerId: string;
+  /** Benutzername des Kontos; nur fuer den Standardkonto-Filter, nie ausgeliefert. */
+  kontoName: string;
   name: string;
   klasse: string;
   figur: string;
@@ -186,18 +188,17 @@ export interface ArmoryZeile {
 }
 
 const ARMORY_AUSWAHL = `SELECT c.id, c.konto_id, c.spieler_id, c.name, c.klasse, c.figur, c.frisur, c.haarfarbe,
-  c.augenfarbe, c.erstellt, c.zuletzt_gespielt FROM charaktere c JOIN konten k ON k.id = c.konto_id`;
+  c.augenfarbe, c.erstellt, c.zuletzt_gespielt, k.benutzername FROM charaktere c JOIN konten k ON k.id = c.konto_id`;
 
-/** Kein wirksamer Bann auf Konto oder Spieler; der Parameter ist "jetzt" in ms. */
-const ARMORY_NICHT_GEBANNT = `NOT EXISTS (SELECT 1 FROM banns b
-  WHERE ((b.art = 'konto' AND b.wert = CAST(c.konto_id AS TEXT)) OR (b.art = 'spieler' AND b.wert = c.spieler_id))
-    AND (b.bis IS NULL OR b.bis > ?))`;
+/** Obergrenze der Ruestkammer-Liste, nur als Notbremse. */
+const ARMORY_ZEILEN_MAX = 100_000;
 
 function zuArmoryZeile(z: Record<string, unknown>): ArmoryZeile {
   return {
     id: Number(z.id),
     kontoId: Number(z.konto_id),
     spielerId: String(z.spieler_id),
+    kontoName: String(z.benutzername),
     name: String(z.name),
     klasse: String(z.klasse ?? ''),
     figur: String(z.figur ?? ''),
@@ -850,94 +851,85 @@ export class Kontendatenbank {
   // ── Ruestkammer: Lesewege (nur lesen) ───────────────────────────────
 
   /**
-   * Charaktere, die die oeffentliche Ruestkammer zeigen darf, seitenweise.
+   * ALLE Charaktere, die die oeffentliche Ruestkammer zeigen duerfte: ohne
+   * wirksamen Bann auf Konto oder Spieler (`jetzt` in ms). Geloeschte Konten
+   * sind schon deshalb weg, weil ihre Charaktere mit ihnen geloescht werden.
+   * Die Standardkonten filtert Armory.ts (es kennt die Namen).
    *
-   * Sichtbar heisst: kein Konto der Liste `ausgeschlossen` (Standardkonten),
-   * kein wirksamer Bann auf Konto oder Spieler. Geloeschte Konten sind schon
-   * deshalb weg, weil ihre Charaktere mit ihnen geloescht werden. `suche` ist
-   * eine bereits gefaltete (kleingeschriebene) Teilzeichenkette; sie geht als
-   * Parameter in die Abfrage, nie in den SQL-Text. Die Faltung macht eine
-   * Funktion der Verbindung, weil SQLites `lower()` nur ASCII kennt und
-   * "aerger" sonst "Aerger", aber nicht "Ärger" fuer "är" fande.
-   *
-   * Sortierung: zuletzt gespielt absteigend (Charaktere ohne Spielzeit ans
-   * Ende), dann neuere zuerst, dann Id: stabil, damit Seiten sich nicht
-   * ueberlappen. Gelesen wird KEIN `spielerzustand`.
+   * Eine Abfrage ohne Suchtext: Armory.ts haelt das Ergebnis kurz im Speicher
+   * und sucht dort. Sortierung: zuletzt gespielt absteigend (nie Gespielte ans
+   * Ende), dann neuere zuerst, dann Id; stabil, damit Seiten sich nicht
+   * ueberlappen. Gelesen wird KEIN `spielerzustand`. Die Grenze schuetzt vor
+   * einem ausser Kontrolle geratenen Bestand.
    */
-  armoryZeilen(
-    angaben: { suche: string; ausgeschlossen: readonly string[]; limit: number; offset: number; jetzt: number },
-  ): { gesamt: number; zeilen: ArmoryZeile[] } {
-    this.armoryFaltung();
-    const wo: string[] = [ARMORY_NICHT_GEBANNT];
-    const params: (string | number)[] = [angaben.jetzt];
-    if (angaben.ausgeschlossen.length > 0) {
-      wo.push(`wov_falte(k.benutzername) NOT IN (${angaben.ausgeschlossen.map(() => '?').join(',')})`);
-      params.push(...angaben.ausgeschlossen.map((n) => n.toLowerCase()));
+  armoryAlle(jetzt: number): ArmoryZeile[] {
+    // Banns sind wenige: einmal holen und in JS abgleichen, statt je Zeile eine Unterabfrage zu fahren.
+    const gebannteKonten = new Set<string>();
+    const gebannteSpieler = new Set<string>();
+    for (const z of this.db
+      .prepare(`SELECT art, wert FROM banns WHERE art IN ('konto', 'spieler') AND (bis IS NULL OR bis > ?)`)
+      .all(jetzt) as { art: string; wert: string }[]) {
+      (z.art === 'konto' ? gebannteKonten : gebannteSpieler).add(String(z.wert).toLowerCase());
     }
-    if (angaben.suche !== '') {
-      wo.push('instr(wov_falte(c.name), ?) > 0');
-      params.push(angaben.suche);
-    }
-    const bedingung = wo.join(' AND ');
-    const n = this.db
-      .prepare(`SELECT COUNT(*) AS n FROM charaktere c JOIN konten k ON k.id = c.konto_id WHERE ${bedingung}`)
-      .get(...params) as { n: number };
-    const zeilen = (
+    return (
       this.db
-        .prepare(`${ARMORY_AUSWAHL} WHERE ${bedingung}
-          ORDER BY COALESCE(c.zuletzt_gespielt, 0) DESC, c.erstellt DESC, c.id DESC LIMIT ? OFFSET ?`)
-        .all(...params, angaben.limit, angaben.offset) as Record<string, unknown>[]
-    ).map(zuArmoryZeile);
-    return { gesamt: Number(n.n), zeilen };
+        .prepare(`${ARMORY_AUSWAHL}
+          ORDER BY COALESCE(c.zuletzt_gespielt, 0) DESC, c.erstellt DESC, c.id DESC LIMIT ${ARMORY_ZEILEN_MAX}`)
+        .all() as Record<string, unknown>[]
+    )
+      .map(zuArmoryZeile)
+      .filter((z) => !gebannteKonten.has(String(z.kontoId)) && !gebannteSpieler.has(z.spielerId.toLowerCase()));
   }
 
-  /** Ein sichtbarer Charakter (gleiche Regeln wie `armoryZeilen`), sonst null. */
-  armoryZeile(id: number, ausgeschlossen: readonly string[], jetzt: number): ArmoryZeile | null {
-    this.armoryFaltung();
-    const wo: string[] = [ARMORY_NICHT_GEBANNT, 'c.id = ?'];
-    const params: (string | number)[] = [jetzt, id];
-    if (ausgeschlossen.length > 0) {
-      wo.push(`wov_falte(k.benutzername) NOT IN (${ausgeschlossen.map(() => '?').join(',')})`);
-      params.push(...ausgeschlossen.map((x) => x.toLowerCase()));
-    }
-    const z = this.db.prepare(`${ARMORY_AUSWAHL} WHERE ${wo.join(' AND ')}`).get(...params) as
-      | Record<string, unknown>
-      | undefined;
+  /** Ein Charakter nach Id mit denselben Bann-Regeln wie `armoryAlle`, oder null. */
+  armoryEinzeln(id: number, jetzt: number): ArmoryZeile | null {
+    this.armoryEinzelnAbfrage ??= this.db.prepare(`${ARMORY_AUSWAHL} WHERE c.id = ?
+      AND NOT EXISTS (SELECT 1 FROM banns b WHERE b.art = 'konto' AND b.wert = CAST(c.konto_id AS TEXT) AND (b.bis IS NULL OR b.bis > ?))
+      AND NOT EXISTS (SELECT 1 FROM banns b WHERE b.art = 'spieler' AND lower(b.wert) = lower(c.spieler_id) AND (b.bis IS NULL OR b.bis > ?))`);
+    const z = this.armoryEinzelnAbfrage.get(id, jetzt, jetzt) as Record<string, unknown> | undefined;
     return z ? zuArmoryZeile(z) : null;
   }
+  private armoryEinzelnAbfrage: ReturnType<DatabaseSync['prepare']> | null = null;
 
   /**
-   * Der JSON-Text des neuesten Spielerzustands dieses Spielers, ueber alle
-   * Welten (die Kontenseite kennt die Welt-Kennung nicht; der hoechste
-   * `stand` ist der juengste Schreibvorgang). Null, wenn keine Zeile besteht.
+   * Der JSON-Text des Spielerzustands dieses Spielers in der AKTIVEN Welt,
+   * der Welt, mit der dieser Server Zustand liest und schreibt (`aktiveWelt`).
+   * Eine fremde Welt, die in derselben Datei Zeilen hinterliess, zaehlt nicht.
+   * Ist die aktive Welt noch unbekannt (nichts gelesen, nichts geschrieben),
+   * gibt es null: lieber keine Ausruestung als die einer fremden Welt.
    */
   armorySpielerdaten(spielerId: string): string | null {
+    if (this.aktiveWelt === null) return null;
     const z = this.db
-      .prepare('SELECT daten FROM spielerzustand WHERE spieler_id = ? ORDER BY stand DESC LIMIT 1')
-      .get(spielerId) as { daten: unknown } | undefined;
+      .prepare('SELECT daten FROM spielerzustand WHERE spieler_id = ? AND welt_id = ?')
+      .get(spielerId, this.aktiveWelt) as { daten: unknown } | undefined;
     return z ? String(z.daten) : null;
   }
 
   /**
    * Fingerabdruck dessen, was die Sichtbarkeit aendert: Anzahl und hoechste Id
-   * der Charaktere (Loeschen, Anlegen), Zahl und juengster Eintrag der Banns.
-   * Der Puffer der Ruestkammer wirft sich weg, sobald er sich aendert, damit
-   * ein geloeschtes oder gebanntes Konto nicht noch eine halbe Minute steht.
+   * der Charaktere (Loeschen, Anlegen) und die Konto-/Spielerbanns nach Zahl,
+   * Summe ihrer `gesetzt`- und ihrer `bis`-Werte (ein ueberschriebener Bann mit
+   * anderer Frist aendert die Summe, auch bei gleicher Millisekunde). Die
+   * Ruestkammer baut ihren Speicherstand neu, sobald er sich aendert, damit ein
+   * geloeschtes oder gebanntes Konto nicht noch eine halbe Minute steht.
    */
   armoryStempel(): string {
-    const c = this.db.prepare('SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS m FROM charaktere').get() as
-      { n: number; m: number };
-    const b = this.db.prepare('SELECT COUNT(*) AS n, COALESCE(MAX(gesetzt), 0) AS m FROM banns').get() as
-      { n: number; m: number };
-    return `${c.n}:${c.m}:${b.n}:${b.m}`;
+    this.armoryStempelAbfrage ??= this.db.prepare(`SELECT
+      (SELECT COUNT(*) FROM charaktere) AS cn, (SELECT COALESCE(MAX(id), 0) FROM charaktere) AS cm,
+      (SELECT COUNT(*) FROM banns WHERE art IN ('konto', 'spieler')) AS bn,
+      (SELECT COALESCE(SUM(gesetzt), 0) FROM banns WHERE art IN ('konto', 'spieler')) AS bg,
+      (SELECT COALESCE(SUM(COALESCE(bis, 0)), 0) FROM banns WHERE art IN ('konto', 'spieler')) AS bb,
+      (SELECT COALESCE(SUM(id), 0) FROM banns WHERE art IN ('konto', 'spieler')) AS bi`);
+    const z = this.armoryStempelAbfrage.get() as Record<string, number>;
+    return `${z.cn}:${z.cm}:${z.bn}:${z.bg}:${z.bb}:${z.bi}`;
   }
 
-  private armoryFaltungBereit = false;
-  private armoryFaltung(): void {
-    if (this.armoryFaltungBereit) return;
-    this.db.function('wov_falte', { deterministic: true }, (text) => String(text ?? '').toLowerCase());
-    this.armoryFaltungBereit = true;
-  }
+  /** Einmal vorbereitet: der Stempel wird bei jeder Ruestkammer-Anfrage gebraucht. */
+  private armoryStempelAbfrage: ReturnType<DatabaseSync['prepare']> | null = null;
+
+  /** Welt, mit der dieser Server zuletzt Zustand gelesen oder geschrieben hat; null, solange unbekannt. */
+  private aktiveWelt: string | null = null;
 
   // ── Avatar ──────────────────────────────────────────────────────────
 
@@ -1147,6 +1139,7 @@ export class Kontendatenbank {
     zdos: readonly { zdoId: string; weltId: string; stand: number; daten: string | null }[],
   ): void {
     if (spieler.length === 0 && zdos.length === 0) return;
+    const geschrieben = spieler.length > 0 ? spieler[spieler.length - 1].weltId : zdos[zdos.length - 1].weltId;
     const ersetzen = this.db.prepare(
       'INSERT OR REPLACE INTO spielerzustand (spieler_id, welt_id, stand, daten) VALUES (?, ?, ?, ?)',
     );
@@ -1159,6 +1152,7 @@ export class Kontendatenbank {
       haken('txn-mitte');
       for (const z of zdos) zdoErsetzen.run(z.zdoId, z.weltId, z.stand, z.daten);
       this.db.exec('COMMIT');
+      this.aktiveWelt = geschrieben;
     } catch (err) {
       try { this.db.exec('ROLLBACK'); } catch { /* Transaktion schon weg */ }
       throw err;
@@ -1167,6 +1161,7 @@ export class Kontendatenbank {
 
   /** Alle Zeilen der Welt `weltId` (Zeitstempel in ms, JSON-Text). Zeilen anderer Welten bleiben unberuehrt. */
   spielerzustandLesen(weltId: string): { spielerId: string; stand: number; daten: string }[] {
+    this.aktiveWelt = weltId; // Der Server liest den Zustand der Welt, in der er laeuft (Ruestkammer: nur diese zaehlt).
     return (
       this.db
         .prepare('SELECT spieler_id, stand, daten FROM spielerzustand WHERE welt_id = ?')

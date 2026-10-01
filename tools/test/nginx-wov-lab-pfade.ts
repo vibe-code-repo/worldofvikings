@@ -161,6 +161,14 @@ const ERWARTUNGEN: Erwartung[] = [
     muster:
       /location\s+@devlog-rueckfall\s*\{[^}]*root\s+\/opt\/worldofvikings\/wov-web\/build\/client\s*;[^}]*try_files\s+\/api\/devlog\.json\s+=404\s*;[^}]*disable_symlinks\s+on\b[^;]*;[^}]*Cache-Control\s+"no-cache"[^}]*\}/,
   },
+  /*
+    Rüstkammer R1 (Angriffsbefund B1): die Lesewege `/accounts/armory` sind nur für den
+    Webseiten-Dienst gedacht, der den Spielserver über 127.0.0.1 ruft. Außen 404, auf
+    allen Hosts. Fällt der Block weg, ist jede Listenanfrage eine Last auf dem Faden des
+    Spielservers, von überall.
+  */
+  { weg: '/accounts/armory ist von aussen dicht (404)', muster: /location\s+\/accounts\/armory\s*\{\s*return\s+404\s*;\s*\}/ },
+  { weg: '/api/accounts/armory ist von aussen dicht (404)', muster: /location\s+\/api\/accounts\/armory\s*\{\s*return\s+404\s*;\s*\}/ },
   { weg: '/api/accounts/ (Konten-API des Spielservers)', muster: /location\s+\/api\/accounts\/\s*\{/ },
   { weg: '/api/forum/ (Das Thing, Foren-API des Spielservers)', muster: /location\s+\/api\/forum\/\s*\{/ },
   { weg: '/accounts/ (Konten-API, bare, fuer den eingebauten Anmeldedialog)', muster: /location\s+\/accounts\/\s*\{/ },
@@ -323,6 +331,19 @@ function main(): void {
   ];
   for (const { weg, ok } of blockErgebnisse) {
     console.log(`${ok ? 'OK  ' : 'FEHL'}  ${weg}`);
+    if (!ok) fehler++;
+  }
+
+  /*
+    Rüstkammer R1: auch die beiden anderen Konfigurationen, die `/accounts/` durchreichen
+    (Live-Container und Proxy-Manager-Vorlage des Testgestades), sperren den Weg.
+  */
+  for (const datei of ['deploy/nginx-live.conf', 'deploy/npm-play-dev.conf']) {
+    let ok = false;
+    try {
+      ok = /location\s+\/accounts\/armory\s*\{\s*return\s+404\s*;\s*\}/.test(ohneKommentare(readFileSync(resolve(WURZEL, datei), 'utf-8')));
+    } catch { /* ok bleibt false */ }
+    console.log(`${ok ? 'OK  ' : 'FEHL'}  ${datei}: /accounts/armory ist von aussen dicht (404)`);
     if (!ok) fehler++;
   }
 

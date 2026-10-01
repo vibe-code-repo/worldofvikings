@@ -4,6 +4,7 @@ import {
   ausruestungsZeilen,
   fehlerArt,
   fertigkeitenListe,
+  fertigkeitName,
   figurStuecke,
   glyphe,
   klassenName,
@@ -113,6 +114,22 @@ describe('optionale Felder erscheinen nur, wenn vorhanden', () => {
       }).map((f) => f.name),
     ).toEqual(['b', 'a']);
     expect(fertigkeitenListe({ ...RECKE, fertigkeiten: [] })).toEqual([]);
+  });
+
+  it('Fertigkeitsname: übersetzter Schlüssel, sonst Rückfall (nie der rohe Schlüssel)', () => {
+    const katalog = { 'fertigkeit.schmieden': 'Schmieden', 'anderes.feld': 'x' };
+    expect(fertigkeitName('fertigkeit.schmieden', katalog, 'unbekannte Fertigkeit')).toBe(
+      'Schmieden',
+    );
+    expect(fertigkeitName('fertigkeit.kochen', katalog, 'unbekannte Fertigkeit')).toBe(
+      'unbekannte Fertigkeit',
+    );
+    expect(fertigkeitName('anderes.feld', katalog, 'unbekannte Fertigkeit')).toBe(
+      'unbekannte Fertigkeit',
+    );
+    expect(fertigkeitName('fertigkeit.toString', katalog, 'unbekannte Fertigkeit')).toBe(
+      'unbekannte Fertigkeit',
+    );
   });
 
   it('Spielzeit', () => {

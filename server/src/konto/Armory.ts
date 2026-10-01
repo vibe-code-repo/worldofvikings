@@ -16,10 +16,10 @@
  * Konten erscheinen nicht (Regel in `Kontendatenbank.armoryZeilen`).
  *
  * ── Erweiterbar ohne Umbau ───────────────────────────────────────────
- * Stufe/Erfahrung, Fertigkeiten, Tode und Spielzeit gibt es im Spiel noch
- * nicht. `ArmoryProfil` fuehrt sie als OPTIONALE Felder; die Antwort laesst
- * sie weg, solange der Server sie nicht kennt. Kommen sie, setzt `baueProfil`
- * sie, und die Webseite liest `undefined` als "unbekannt".
+ * Tode und Spielzeit erfasst das Spiel (spiel/Spielwerte.ts), Stufe und
+ * Fertigkeiten kommen noch. `ArmoryProfil` fuehrt sie als OPTIONALE Felder; die
+ * Antwort laesst sie weg, solange der Spielstand sie nicht hat (`leseSpielwerte`),
+ * und die Webseite liest `undefined` als "unbekannt". Erfahrung (xp) geht nie raus.
  *
  * ── Speicherstand statt Puffer je Anfrage ───────────────────────────
  * Die Liste kommt aus EINEM Speicherstand aller sichtbaren Charaktere

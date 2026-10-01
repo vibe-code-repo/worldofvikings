@@ -149,7 +149,7 @@ import {
   findItem, ITEM_DEFS,
   REZEPTE,
   packContainer,
-  setzeUnbekannteVerwahren,
+  fordereVerwahrenAn,
   unpackContainer,
   TRUHE_INHALT_MEMBER,
   TRUHE_LOOTED_MEMBER,
@@ -1317,7 +1317,10 @@ export class WovServer {
       startQuittung: this.config.gegenstandsStartQuittung,
       ohneGutenStand: this.config.gegenstandsOhneGutenStand,
       unbekanntGehalten: (istBekannt) => zaehleUnbekannteGehalten(this.bestandsQuellen(), istBekannt),
-      verwahren: (an) => setzeUnbekannteVerwahren(an),
+      verwahren: (an) => {
+        if (an) this.verwahrenFreigabe ??= fordereVerwahrenAn();
+        else this.verwahrenFreigabe?.(), (this.verwahrenFreigabe = null);
+      },
       speichertGerade: () => this.speichertGerade,
       gehalten: (ids) => zaehleGehalten(this.bestandsQuellen(), ids),
       entfernen: (ids) => this.entferneGegenstaende(ids),
@@ -1325,18 +1328,22 @@ export class WovServer {
     });
   }
 
+  /** This server's request for the keep-unknown switch (`fordereVerwahrenAn`), while its item watch needs it. */
+  private verwahrenFreigabe: (() => void) | null = null;
+
   private bestandsQuellen(): BestandsQuellen {
     return {
       online: () => this.net.getPeers().filter((p) => p.authenticated && !p.nurEditor).map((p) => ({ spielerId: p.spielerId, name: p.name, inventar: p.inventar })),
       gespeichert: () => this.savedPlayers.values(),
       zdos: () => [...this.welten.values()].flatMap((w) => w.zdos.getAllZDOs()),
+      beuteEntfernen: (zdo) => this.beuteAmBoden.entferne(zdo),
     };
   }
 
   /** Alle Exemplare entfernter Datengegenstaende endgueltig raus: Inventare, gespeicherte Spieler, Truhen (Karte G2). */
   private entferneGegenstaende(ids: ReadonlySet<string>): void {
     const weg = entferneGehalten(this.bestandsQuellen(), ids, () => this.stempelZaehler().naechster());
-    console.log(`[Gegenstaende] entfernt: ${weg.lebend} Stapel in Inventaren, ${weg.gespeichert.length} gespeicherte(r) Spieler, ${weg.truhen.length} Truhe(n)`);
+    console.log(`[Gegenstaende] entfernt: ${weg.lebend} Stapel in Inventaren, ${weg.gespeichert.length} gespeicherte(r) Spieler, ${weg.truhen.length} Truhe(n), ${weg.beute} Bodenstueck(e)`);
     // Abwesende Spieler sofort in die Konten-SQLite, Truhen und Anwesende ueber den normalen Sicherungsweg.
     if (weg.gespeichert.length > 0) this.spielerSicherung?.sichere(weg.gespeichert, 'admin');
     this.sichereSpieler(this.net.getPeers(), 'gegenstaende', 'alle');
@@ -1868,8 +1875,9 @@ export class WovServer {
       console.error(`[WoV] net.stop fehlgeschlagen: ${err}`);
     }
 
-    // The keep-unknown switch is process-wide: this server's item watch may have left it on (F5).
-    if (this.gegenstandsWache) setzeUnbekannteVerwahren(false);
+    // This server's item watch may have asked for the keep-unknown switch (F5): give back ITS request, nobody else's.
+    this.verwahrenFreigabe?.();
+    this.verwahrenFreigabe = null;
 
     console.log(`[WoV] Server stopped${gespeichert ? '' : ' (OHNE Endstand)'}`);
     return gespeichert;
@@ -3402,7 +3410,7 @@ export class WovServer {
     }
     this.pruefeWaffe(peer);
     peer.sendPacketWith(PacketType.InventorySync, (w) => {
-      w.writeString(JSON.stringify(peer.inventar.serialize()));
+      w.writeString(JSON.stringify(peer.inventar.syncStapel()));
     });
     this.sendeEquipStand(peer, false);
   }
@@ -4351,6 +4359,7 @@ export class WovServer {
 
     if ((flags & (F.PICKABLE | F.PICKABLE_ITEM | F.ITEM_DROP)) !== 0n) {
       const boden = this.beuteAmBoden.aufheben(ziel); // D5: loot of a dead creature has an owner (asked above)
+      if (boden && !findItem(boden.name)) return senden(false, 'Nichts in Reichweite'); // the item no longer exists: leave the piece (the item watch removes it after its confirmation)
       const item = boden ?? pickableItem(def?.name ?? '');
       const menge = item?.amount ?? 0;
       // Give first, take from the ZDO only what was really given: a full inventory leaves the piece lying there.

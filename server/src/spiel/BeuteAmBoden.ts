@@ -205,6 +205,14 @@ export class BeuteAmBoden {
     }
   }
 
+  /** Takes one piece of loot off the ground for good (the item watch removing a data item): destroys its ZDO and forgets it. */
+  entferne(zdo: ZDO): void {
+    const id = zdo.zdoid.toString();
+    const s = this.stuecke.get(id);
+    this.stuecke.delete(id);
+    if (!zdo.destroyed) (s?.raum ?? null)?.destroyZDO(zdo.zdoid);
+  }
+
   /** Diagnostics and tests: pieces of loot currently tracked / creatures with a damage tally. */
   get anzahlStuecke(): number {
     return this.stuecke.size;

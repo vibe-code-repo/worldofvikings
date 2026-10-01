@@ -31,6 +31,9 @@ export const HOTBAR_SIZE = INVENTORY_WIDTH;
  */
 /** Upper bound for a stack amount when nothing better is known (bounds the over-stack split loop too). */
 export const STAPEL_OBERGRENZE = 9999;
+// 9999 is ten times the largest data stack (`MAX_STAPEL` = 999 in gegenstandsDaten.ts) and 200 times the largest code
+// stack (50 in itemDefs.ts): a legitimate stack never gets near it, so only damage is above, and one bound keeps
+// the split loop short.
 
 /**
  * Largest amount that is repaired and split. 1e9 is far below 2^53 (about 9e15, where whole numbers stop being exact
@@ -47,8 +50,11 @@ export const MENGE_REPARIERBAR_MAX = 1e9;
  * finds no cell is kept), quality a whole number from 1, durability finite and not negative, and at most the item's
  * own maximum if it has one. No value is invented: without a maximum a missing or broken durability stays missing.
  */
+/** An amount that counts as held: a finite number of at least 1 (what the repair would keep, whatever its size). */
+export const mengeGueltig = (menge: unknown): menge is number => typeof menge === 'number' && Number.isFinite(menge) && menge >= 1;
+
 export function repariereStapel(s: SavedItemStack, shared: ItemShared): { stack: SavedItemStack; repariert: boolean } | null {
-  if (typeof s.stack !== 'number' || !Number.isFinite(s.stack) || s.stack < 1 || s.stack > MENGE_REPARIERBAR_MAX) return null;
+  if (!mengeGueltig(s.stack) || s.stack > MENGE_REPARIERBAR_MAX) return null;
   const stack = Math.floor(s.stack);
   const quality = typeof s.quality === 'number' && Number.isFinite(s.quality) ? Math.max(1, Math.floor(s.quality)) : 1;
   const max = shared.maxDurability;
@@ -58,12 +64,28 @@ export function repariereStapel(s: SavedItemStack, shared: ItemShared): { stack:
   return { stack: { ...s, stack, quality, durability: durability as number }, repariert };
 }
 
+/** Set by hand (tests, old callers). Servers do not use it: they ask with `fordereVerwahrenAn`. */
 let unbekannteVerwahren = false;
+/** How many holders (servers of this process) need the keeping on right now. */
+let verwahrenHalter = 0;
 export function setzeUnbekannteVerwahren(an: boolean): void {
   unbekannteVerwahren = an;
 }
 export function unbekannteWerdenVerwahrt(): boolean {
-  return unbekannteVerwahren;
+  return unbekannteVerwahren || verwahrenHalter > 0;
+}
+/**
+ * Asks for the keeping to be on until the returned function is called (once; calling it again does nothing). The keeping
+ * is off only when nobody asks any more, so one server stopping cannot switch it off under another one in the same process.
+ */
+export function fordereVerwahrenAn(): () => void {
+  verwahrenHalter++;
+  let frei = false;
+  return () => {
+    if (frei) return;
+    frei = true;
+    verwahrenHalter--;
+  };
 }
 
 export class Inventory {
@@ -108,6 +130,23 @@ export class Inventory {
     return k;
   }
 
+  /**
+   * The stacks the client may show: the grid, exactly what `countOf` counts. NOT the kept stacks (they are part of the
+   * saved state only: a kept stack of a known item, e.g. the part of a huge amount that found no cell, would
+   * otherwise show up at the client as a real stack that the server does not count).
+   */
+  syncStapel(): SavedItemStack[] {
+    return this.items.map((it) => ({
+      name: it.shared.name,
+      stack: it.stack,
+      durability: it.durability,
+      quality: it.quality,
+      gridX: it.gridX,
+      gridY: it.gridY,
+      equipped: it.equipped,
+    }));
+  }
+
   /** Takes over the whole content (stacks and kept stacks) of `von`, e.g. a staged copy after a successful change. */
   uebernimm(von: Inventory): void {
     const k = von.kopie();
@@ -122,13 +161,7 @@ export class Inventory {
    */
   static ausSpeicherstand(saved: readonly SavedItemStack[], width = INVENTORY_WIDTH, height = INVENTORY_HEIGHT): Inventory {
     const inv = new Inventory(width, height);
-    const vorher = unbekannteVerwahren;
-    unbekannteVerwahren = true;
-    try {
-      inv.load(saved);
-    } finally {
-      unbekannteVerwahren = vorher;
-    }
+    inv.loadMit(saved, true);
     return inv;
   }
 
@@ -376,6 +409,10 @@ export class Inventory {
 
   /** Unknown item names are dropped rather than failing the whole load (kept raw while `setzeUnbekannteVerwahren`). */
   load(saved: readonly SavedItemStack[]): void {
+    this.loadMit(saved, unbekannteWerdenVerwahrt());
+  }
+
+  private loadMit(saved: readonly SavedItemStack[], unbekannteBehalten: boolean): void {
     this.items = [];
     this.verwahrt = [];
     // First pass: what is kept raw (unknown names, amounts that cannot be repaired), so every kept cell is known
@@ -384,7 +421,7 @@ export class Inventory {
     for (const s of saved) {
       const shared = findItem(s.name);
       if (!shared) {
-        if (unbekannteVerwahren) this.verwahrt.push({ ...s });
+        if (unbekannteBehalten) this.verwahrt.push({ ...s });
         continue;
       }
       const r = repariereStapel(s, shared);

@@ -21,8 +21,15 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Inventory, findItem, packContainer, setzeUnbekannteVerwahren, unpackContainer } from '@wov/shared';
 import { MENGE_REPARIERBAR_MAX, STAPEL_OBERGRENZE } from '@wov/shared/src/items/Inventory.js';
-import { leseGegenstandsDatei, wendeGegenstandsDatenAn, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
+import { MAX_STAPEL, leseGegenstandsDatei, schreibeGegenstandsDatei, wendeGegenstandsDatenAn, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
+import { bestaetigenAnfrageSchreiben } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
+import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { gegenstandsBestaetigenDatei, gegenstandsLetzterGuterDatei, gegenstandsQuittungsDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
+import { TRUHE_INHALT_MEMBER, getStableHash } from '@wov/shared';
+import { ZDOManager } from '../src/zdo/ZDOManager.js';
+import { BeuteAmBoden, BEUTE_MARKE } from '../src/spiel/BeuteAmBoden.js';
+import { entferneGehalten, zaehleGehalten, type BestandsQuellen } from '../src/spiel/Gegenstandsbestand.js';
+import { createWovServer } from '../src/WovServer.js';
 import { grantStarterSet } from '../src/konto/StarterSet.js';
 import { unbekannteWerdenVerwahrt } from '@wov/shared/src/items/Inventory.js';
 import { GegenstandsWache, ladeGegenstandsDatei, type GegenstandsQuittung } from '../src/world/gegenstandsLive.js';
@@ -100,7 +107,9 @@ function umgebung(name: string, halt: Record<string, number>) {
 const gespeichert = (name: string, extra: Record<string, unknown> = {}) =>
   ({ name, stack: 3, durability: 10, quality: 1, gridX: 0, gridY: 0, equipped: false, ...extra }) as never;
 
-function main(): void {
+const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+async function main(): Promise<void> {
   try {
     console.log('\n[A] working copy and last good state both missing (N3-1)');
     {
@@ -391,6 +400,64 @@ function main(): void {
       const zurueck = aus.serialize();
       check('N8-2: the admin way (copy, change, write back) keeps the raw stack in the saved state', zurueck.some((x) => x.name === 'XUnbekannt' && x.stack === 3));
     }
+
+    console.log('\n[K] N10: ground loot, dead chest rows, bound, the keep switch per server');
+    {
+      check('the bound 9999 is above the largest data stack (MAX_STAPEL) and is explained there', STAPEL_OBERGRENZE >= MAX_STAPEL, `${STAPEL_OBERGRENZE} / ${MAX_STAPEL}`);
+
+      // P3: loot on the ground of a data item counts as held and is removed after the confirmation
+      wendeGegenstandsDatenAn(eintraege('Holzaxt'));
+      const zdos = new ZDOManager(1n);
+      const beute = new BeuteAmBoden();
+      beute.legeHin(zdos, { x: 5, y: 0, z: 5 }, [{ name: 'Holzaxt', amount: 3 }]);
+      const quellen: BestandsQuellen = { online: () => [], gespeichert: () => [], zdos: () => zdos.getAllZDOs(), beuteEntfernen: (z) => beute.entferne(z) };
+      check('N10-P3: zaehleGehalten counts the piece on the ground', JSON.stringify(zaehleGehalten(quellen, new Set(['Holzaxt']))) === '{"Holzaxt":3}');
+      const dir = resolve(DIR, 'boden');
+      mkdirSync(dir, { recursive: true });
+      const pfad = resolve(dir, 'gegenstaende.json');
+      writeFileSync(pfad, schreibeGegenstandsDatei(eintraege('Holzaxt')));
+      const wache = new GegenstandsWache({
+        pfad, quittungsPfad: gegenstandsQuittungsDatei(pfad), bestaetigenPfad: gegenstandsBestaetigenDatei(pfad), angewendet: eintraege('Holzaxt'),
+        gehalten: (ids) => zaehleGehalten(quellen, ids), entfernen: (ids) => { entferneGehalten(quellen, ids, () => 1); }, neuBinden: () => undefined, log: stumm,
+      });
+      await warte(30);
+      const leer = schreibeGegenstandsDatei([]);
+      writeFileSync(pfad, leer);
+      await warte(30);
+      wache.tick();
+      const q = JSON.parse(readFileSync(gegenstandsQuittungsDatei(pfad), 'utf-8')) as GegenstandsQuittung;
+      check('N10-P3: the entry is struck, only a piece on the ground is left: receipt bestaetigung-noetig, the piece stays', q.status === 'bestaetigung-noetig' && q.gehalten?.Holzaxt === 3 && beute.anzahlStuecke === 1, JSON.stringify(q));
+      bestaetigenAnfrageSchreiben(gegenstandsBestaetigenDatei(pfad), layoutHash(Buffer.from(leer)));
+      await warte(30);
+      wache.tick();
+      check('N10-P3: after the confirmation the piece is removed (ZDO destroyed, forgotten)', zdos.getAllZDOs().filter((z) => z.getInt(BEUTE_MARKE) === 1).length === 0 && beute.anzahlStuecke === 0);
+      wendeGegenstandsDatenAn([]);
+
+      // 4b: a dead chest row asks for nothing
+      const truhe = zdos.createZDO(getStableHash('piece_chest_wood'), { x: 9, y: 0, z: 9 });
+      truhe.setString(TRUHE_INHALT_MEMBER, '[["XTot",0,0,1],["XTot","3",0,1],["XTot",null,0,1],["XTot",-2,0,1]]');
+      check('N10-4b: dead chest rows (amount 0, text, null, negative) hold nothing', JSON.stringify(zaehleGehalten({ ...quellen, zdos: () => zdos.getAllZDOs() }, new Set(['XTot']))) === '{}');
+      truhe.setString(TRUHE_INHALT_MEMBER, '[["XTot",2,0,1],["XTot",0,0,1]]');
+      check('N10-4b: a usable row still counts (2)', JSON.stringify(zaehleGehalten(quellen, new Set(['XTot']))) === '{"XTot":2}');
+
+      // P5: two servers in one process; the stop of one leaves the keep switch on for the other
+      const dirS = resolve(DIR, 'zwei-server');
+      const config = (name: string, extra: object) => ({
+        port: 0, worldsDir: resolve(dirS, 'welten'), kontenDir: resolve(dirS, 'welten', 'konten'), worldName: name,
+        saveIntervalMs: 3600_000, everyoneAdmin: true, worldCreatures: false, worldFeatures: false, worldVegetation: false, ...extra,
+      });
+      mkdirSync(dirS, { recursive: true });
+      setzeUnbekannteVerwahren(false);
+      const a = createWovServer(config('n10-a', { gegenstandsDatei: resolve(dirS, 'a.json'), gegenstandsStart: [], gegenstandsOhneGutenStand: true }));
+      const b = createWovServer(config('n10-b', { gegenstandsDatei: resolve(dirS, 'b.json'), gegenstandsStart: [], gegenstandsOhneGutenStand: true }));
+      a.start();
+      b.start();
+      check('N10-P5: both servers ask: the switch is on', unbekannteWerdenVerwahrt() === true);
+      b.stop();
+      check('N10-P5: B stopped, A still needs it: the switch stays on', unbekannteWerdenVerwahrt() === true);
+      a.stop();
+      check('N10-P5: A stopped too: now it is off', unbekannteWerdenVerwahrt() === false);
+    }
   } finally {
     setzeUnbekannteVerwahren(false);
     wendeGegenstandsDatenAn([]);
@@ -398,11 +465,12 @@ function main(): void {
   }
 }
 
-try {
-  main();
-  console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAILED`);
-  process.exit(failures === 0 ? 0 : 1);
-} catch (e) {
-  console.error(e);
-  process.exit(1);
-}
+main()
+  .then(() => {
+    console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAILED`);
+    process.exit(failures === 0 ? 0 : 1);
+  })
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });

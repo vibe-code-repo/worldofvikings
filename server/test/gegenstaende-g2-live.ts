@@ -132,7 +132,7 @@ async function wartePaketQuittung(status: string, hash: string, maxMs = 4000): P
 
 // ── Real WebSocket plumbing ──────────────────────────────────────────
 interface Meldung { ok: boolean; message: string }
-type MitLog = WebSocket & { _meldungen?: Meldung[]; _sync?: number };
+type MitLog = WebSocket & { _meldungen?: Meldung[]; _sync?: number; _syncText?: string };
 function verbinde(name: string): Promise<MitLog> {
   return new Promise((ok, fail) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}`) as MitLog;
@@ -158,6 +158,7 @@ function verbinde(name: string): Promise<MitLog> {
         ws._meldungen!.push({ ok: r.readBool(), message: r.readString() });
       } else if (type === PacketType.InventorySync) {
         ws._sync!++;
+        ws._syncText = r.readString();
       } else if (type === P.PeerInfo) {
         clearTimeout(timer);
         ok(ws);
@@ -225,6 +226,7 @@ async function main(): Promise<void> {
   PORT = portVon(server);
   const zugriff = server as unknown as {
     gebeItem(peer: Peer, name: string, amount: number): void;
+    inventarSync(peer: Peer): void;
     gegenstandsWache: GegenstandsWache | null;
     savedPlayers: Map<string, { inventar?: Array<{ name: string; stack: number }>; waffe?: string; spielerId?: string }>;
     ermittleGespeichertenStand: () => unknown;
@@ -482,6 +484,27 @@ async function main(): Promise<void> {
     });
     wache.tick();
     check('a throwing part of the watch: interneFehler = 1, one error line, tick did not throw', wache.interneFehler === 1 && meldungen.some((m) => m.includes('boom')), `${wache.interneFehler}`);
+
+    // ── [10] InventorySync carries only what the server counts ────────
+    console.log('\n[10] InventorySync: the grid only, not the kept stacks (N10)');
+    {
+      const ws10 = await verbinde('Clara');
+      sockets.push(ws10);
+      const clara = hole('Clara');
+      await warte(400);
+      zugriff.inventarSync(clara);
+      await warte(300);
+      clara.inventar.load([{ name: 'Wood', stack: 20000, durability: 0, quality: 1, gridX: 0, gridY: 0, equipped: false }]);
+      check('setup: 20000 Wood loaded: the grid is full (32 cells) and the rest is kept apart', clara.inventar.all.length === 32 && clara.inventar.verwahrte.length > 0, `${clara.inventar.all.length} stacks, ${clara.inventar.verwahrte.length} kept`);
+      const vor = ws10._sync!;
+      zugriff.inventarSync(clara);
+      await warte(400);
+      const gesendet = JSON.parse(ws10._syncText ?? '[]') as Array<{ name: string; stack: number }>;
+      const clientSumme = gesendet.filter((x) => x.name === 'Wood').reduce((a, x) => a + x.stack, 0);
+      check('a new sync arrived after the load', ws10._sync! > vor);
+      check('the sync holds the same Wood as the server counts (countOf), not the kept part', clientSumme === clara.inventar.countOf('Wood') && gesendet.length === clara.inventar.all.length, `client ${clientSumme} / server ${clara.inventar.countOf('Wood')} / ${gesendet.length} stacks`);
+      check('the saved state still holds all 20000 (grid + kept)', clara.inventar.serialize().filter((x) => x.name === 'Wood').reduce((a, x) => a + x.stack, 0) === 20000);
+    }
   } finally {
     for (const ws of sockets) ws.close();
     server.stop();

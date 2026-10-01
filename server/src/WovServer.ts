@@ -4316,9 +4316,10 @@ export class WovServer {
     const def = this.prefabs.getByHash(ziel.prefabHash);
     const flags = def?.flags ?? 0n;
     const F = PrefabFlag;
+    // Loot on the ground is recognised by its mark BEFORE the prefab flags: the item of a data item has no prefab definition.
+    const boden = this.beuteAmBoden.aufheben(ziel); // D5: loot of a dead creature has an owner (asked above)
 
-    if ((flags & (F.PICKABLE | F.PICKABLE_ITEM | F.ITEM_DROP)) !== 0n) {
-      const boden = this.beuteAmBoden.aufheben(ziel); // D5: loot of a dead creature has an owner (asked above)
+    if (boden || (flags & (F.PICKABLE | F.PICKABLE_ITEM | F.ITEM_DROP)) !== 0n) {
       if (boden && !findItem(boden.name)) return senden(false, 'Nichts in Reichweite'); // the item no longer exists: leave the piece (the item watch removes it after its confirmation)
       const item = boden ?? pickableItem(def?.name ?? '');
       const menge = item?.amount ?? 0;

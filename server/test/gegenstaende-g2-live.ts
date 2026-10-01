@@ -227,6 +227,7 @@ async function main(): Promise<void> {
   const zugriff = server as unknown as {
     gebeItem(peer: Peer, name: string, amount: number): void;
     inventarSync(peer: Peer): void;
+    beuteAmBoden: { legeHin(raum: unknown, pos: { x: number; y: number; z: number }, stuecke: Array<{ name: string; amount: number }>): unknown };
     gegenstandsWache: GegenstandsWache | null;
     savedPlayers: Map<string, { inventar?: Array<{ name: string; stack: number }>; waffe?: string; spielerId?: string }>;
     ermittleGespeichertenStand: () => unknown;
@@ -504,6 +505,41 @@ async function main(): Promise<void> {
       check('a new sync arrived after the load', ws10._sync! > vor);
       check('the sync holds the same Wood as the server counts (countOf), not the kept part', clientSumme === clara.inventar.countOf('Wood') && gesendet.length === clara.inventar.all.length, `client ${clientSumme} / server ${clara.inventar.countOf('Wood')} / ${gesendet.length} stacks`);
       check('the saved state still holds all 20000 (grid + kept)', clara.inventar.serialize().filter((x) => x.name === 'Wood').reduce((a, x) => a + x.stack, 0) === 20000);
+    }
+
+    // ── [11] Ground loot of a data item can be picked up ──────────────
+    console.log('\n[11] Ground loot of a data item: pick-up over a real Interact (N10-1)');
+    {
+      const hash11 = schreibeArbeit(dateiText([holzaxt(10)]));
+      check('setup: the Holzaxt is defined again', (await wartePaketQuittung('angewendet', hash11)) !== null && findItem('Holzaxt') !== undefined);
+      const ws11 = await verbinde('Dora');
+      sockets.push(ws11);
+      const dora = hole('Dora');
+      await warte(400);
+      const sendInteract = (pos: Vector3, prefabHash: number): void => {
+        const w = new Writer();
+        w.writeVector3(pos);
+        w.writeInt32(prefabHash);
+        ws11.send(Buffer.concat([Buffer.from([PacketType.Interact]), w.toBuffer()]));
+      };
+      const pos = { ...dora.position };
+      zugriff.beuteAmBoden.legeHin(server.zdos, pos, [{ name: 'Holzaxt', amount: 2 }]);
+      const stueck = server.zdos.getAllZDOs().find((z) => z.getString('beute_item') === 'Holzaxt')!;
+      const vorher = dora.inventar.countOf('Holzaxt');
+      sendInteract(pos, stueck.prefabHash);
+      await warte(500);
+      check('the inventory rises by 2 (Holzaxt has no prefab definition, the loot mark decides)', dora.inventar.countOf('Holzaxt') === vorher + 2, `${vorher} -> ${dora.inventar.countOf('Holzaxt')}`);
+      check('the answer is "picked up" and the piece is gone', ws11._meldungen!.some((m) => m.ok) && stueck.destroyed);
+
+      // the item is removed from the definitions while a piece lies there: the piece stays, nothing is given
+      zugriff.beuteAmBoden.legeHin(server.zdos, pos, [{ name: 'Holzaxt', amount: 3 }]);
+      const zweites = server.zdos.getAllZDOs().filter((z) => z.getString('beute_item') === 'Holzaxt' && !z.destroyed)[0]!;
+      const vor2 = dora.inventar.countOf('Holzaxt');
+      ws11._meldungen!.length = 0;
+      wendeGegenstandsDatenAn([]);
+      sendInteract(pos, zweites.prefabHash);
+      await warte(500);
+      check('item removed meanwhile: nothing is given, the piece stays on the ground, the answer is a refusal', dora.inventar.countOf('Holzaxt') === vor2 && !zweites.destroyed && ws11._meldungen!.some((m) => !m.ok), JSON.stringify(ws11._meldungen));
     }
   } finally {
     for (const ws of sockets) ws.close();

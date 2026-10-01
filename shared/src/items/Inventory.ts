@@ -71,6 +71,11 @@ let verwahrenHalter = 0;
 export function setzeUnbekannteVerwahren(an: boolean): void {
   unbekannteVerwahren = an;
 }
+/**
+ * PROCESS-WIDE on purpose: `Inventory.load` and `unpackContainer` ask this one question for every inventory of the
+ * process, whichever server asked for the keeping. One production process runs one game server; only tests start
+ * several, and the counter makes sure that one stopping server takes back only its own request.
+ */
 export function unbekannteWerdenVerwahrt(): boolean {
   return unbekannteVerwahren || verwahrenHalter > 0;
 }

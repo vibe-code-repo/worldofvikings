@@ -19,7 +19,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Inventory, findItem, packContainer, setzeUnbekannteVerwahren, unpackContainer } from '@wov/shared';
+import { Inventory, fordereVerwahrenAn, findItem, packContainer, setzeUnbekannteVerwahren, unpackContainer } from '@wov/shared';
 import { MENGE_REPARIERBAR_MAX, STAPEL_OBERGRENZE } from '@wov/shared/src/items/Inventory.js';
 import { MAX_STAPEL, leseGegenstandsDatei, schreibeGegenstandsDatei, wendeGegenstandsDatenAn, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { bestaetigenAnfrageSchreiben } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
@@ -439,6 +439,25 @@ async function main(): Promise<void> {
       check('N10-4b: dead chest rows (amount 0, text, null, negative) hold nothing', JSON.stringify(zaehleGehalten({ ...quellen, zdos: () => zdos.getAllZDOs() }, new Set(['XTot']))) === '{}');
       truhe.setString(TRUHE_INHALT_MEMBER, '[["XTot",2,0,1],["XTot",0,0,1]]');
       check('N10-4b: a usable row still counts (2)', JSON.stringify(zaehleGehalten(quellen, new Set(['XTot']))) === '{"XTot":2}');
+
+      // N10-2: the release function gives back one request, once: calling it twice must not take a second holder's request
+      setzeUnbekannteVerwahren(false);
+      const frei1 = fordereVerwahrenAn();
+      const frei2 = fordereVerwahrenAn();
+      frei1();
+      frei1();
+      check('N10-2: a release called twice takes back only its own request: the other holder keeps the switch on', unbekannteWerdenVerwahrt() === true);
+      frei2();
+      check('N10-2: after the last release the switch is off', unbekannteWerdenVerwahrt() === false);
+
+      // N10-2: uebernimm copies: changing the source afterwards leaves the taker alone
+      const quelle = new Inventory();
+      quelle.addItem(holz(), 5);
+      const nehmer = new Inventory();
+      nehmer.uebernimm(quelle);
+      quelle.addItem(holz(), 7);
+      quelle.verwahreStapel({ name: 'XUnbekannt', stack: 1, durability: 0, quality: 1, gridX: 7, gridY: 3, equipped: false });
+      check('N10-2: after uebernimm the source can change without changing the taker (a true copy)', nehmer.countOf('Wood') === 5 && nehmer.verwahrte.length === 0);
 
       // P5: two servers in one process; the stop of one leaves the keep switch on for the other
       const dirS = resolve(DIR, 'zwei-server');

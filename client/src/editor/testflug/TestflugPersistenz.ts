@@ -46,6 +46,8 @@ export type SpeicherAntwort = {
   message: string;
   /** Objects whose deletion the service holds back (`loeschsperre.anzahl` of the receipt); 0 or missing: none. */
   loeschsperre?: number;
+  /** Why the running game did not apply the saved state (`geo`, `server-aus`, `abgelehnt`, …); missing: applied or unknown. */
+  grund?: string;
 };
 
 /**

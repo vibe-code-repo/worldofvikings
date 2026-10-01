@@ -261,6 +261,8 @@ export default [
     stehen als Konstanten im Test. NullEngine, Sekundenbruchteile.
   */
   ['client', 'test/figur-toenung.ts'],
+  // Gelaende T4a N2: das ECHTE SpawnPanel im DOM-Nachbau, verdrahtet wie im Testflug (Frage, Ja, Sperre beider Knoepfe, einfaches Speichern im Lauf).
+  ['client', 'test/gelaende-neustart-panel.ts'],
   // Gelaende T4a: Speichern & neu starten im Testflug (Entwurf speichern, nur bei Erfolg Neustart, Warten, Zeitlimit, F1-Schutz, Doppelklick,
   // Z3). DOM-frei mit Attrappen fuer fetch und Uhr.
   ['client', 'test/gelaende-neustart.ts'],

@@ -31,7 +31,8 @@ export type HoehenProblem = { reason: 'invalid' | 'limit' | 'inspection-limit'; 
 /** The collections whose entries the sanitiser can drop (besides `heightDeltas`, which has its own check). */
 export const GEPRUEFTE_SAMMLUNGEN = ['continents', 'regions', 'placements', 'rivers', 'lakes', 'routes', 'bausaetze', 'defaultSpawn'] as const;
 export type Sammlung = (typeof GEPRUEFTE_SAMMLUNGEN)[number];
-export type VerworfenTeil = { feld: Sammlung; anzahl: number };
+/** `keineListe`: the collection is there but not a list (R2); `anzahl` is then 1. */
+export type VerworfenTeil = { feld: Sammlung; anzahl: number; keineListe?: true };
 
 export type EntwurfErgebnis =
   | { art: 'kein-entwurf' }
@@ -42,7 +43,7 @@ export type EntwurfErgebnis =
   /** The sanitiser would drop entries (count per collection): nothing was sent. */
   | { art: 'verworfen'; teile: VerworfenTeil[] }
   /** The service answered; `antwort.ok` says whether it took the draft. */
-  | { art: 'antwort'; antwort: SpeicherAntwort }
+  | { art: 'antwort'; antwort: SpeicherAntwort; leereRouten: number }
   /** The request itself threw (network). */
   | { art: 'ausnahme'; fehler: string };
 
@@ -54,22 +55,36 @@ export interface EntwurfDienste {
   speichern(dokument: object): Promise<SpeicherAntwort>;
 }
 
+/** Routes of the raw draft with an empty point list: "Neue Route" writes exactly that, before the first point (R1). */
+export function leereRoutenZaehlen(roh: object): number {
+  const routen = (roh as Record<string, unknown>).routes;
+  if (!Array.isArray(routen)) return 0;
+  return routen.filter((r) => typeof r === 'object' && r !== null && Array.isArray((r as { points?: unknown }).points) && (r as { points: unknown[] }).points.length === 0).length;
+}
+
 /**
  * Entries of the raw draft that the sanitiser dropped. Duplicates it merged into one entry
- * (`zusammengefasst`) are not lost and not counted. `heightDeltas` is handled by `heightProblem`.
+ * (`zusammengefasst`) are not lost and not counted; neither are routes that fall away only because they have no
+ * point yet (`leereRouten`, R1: they are announced, not blocked). `heightDeltas` is handled by `heightProblem`.
+ * A collection that is present but not a list counts as damaged (R2).
  */
-export function verworfenePruefen(roh: object, layout: object, zusammengefasst: number): VerworfenTeil[] {
+export function verworfenePruefen(roh: object, layout: object, zusammengefasst: number, leereRouten = 0): VerworfenTeil[] {
   const r = roh as Record<string, unknown>;
   const l = layout as Record<string, unknown>;
   const teile: VerworfenTeil[] = [];
   for (const feld of GEPRUEFTE_SAMMLUNGEN) {
-    let anzahl: number;
-    if (feld === 'defaultSpawn') anzahl = r[feld] !== undefined && r[feld] !== null && l[feld] === undefined ? 1 : 0;
-    else {
-      const vorher = Array.isArray(r[feld]) ? (r[feld] as unknown[]).length : 0;
-      const nachher = Array.isArray(l[feld]) ? (l[feld] as unknown[]).length : 0;
-      anzahl = vorher - nachher - (feld === 'placements' ? zusammengefasst : 0);
+    if (feld === 'defaultSpawn') {
+      if (r[feld] !== undefined && r[feld] !== null && l[feld] === undefined) teile.push({ feld, anzahl: 1 });
+      continue;
     }
+    const wert = r[feld];
+    if (wert !== undefined && wert !== null && !Array.isArray(wert)) {
+      teile.push({ feld, anzahl: 1, keineListe: true });
+      continue;
+    }
+    const vorher = Array.isArray(wert) ? wert.length : 0;
+    const nachher = Array.isArray(l[feld]) ? (l[feld] as unknown[]).length : 0;
+    const anzahl = vorher - nachher - (feld === 'placements' ? zusammengefasst : 0) - (feld === 'routes' ? leereRouten : 0);
     if (anzahl > 0) teile.push({ feld, anzahl });
   }
   return teile;
@@ -89,10 +104,11 @@ export async function entwurfSpeichern(d: EntwurfDienste): Promise<EntwurfErgebn
     const p = bericht.heightProblem;
     return { art: 'hoehe', problem: { reason: p.reason, zonen: p.zonen, punkte: p.punkte } };
   }
-  const teile = verworfenePruefen(roh, bericht.layout, bericht.zusammengefasst.length);
+  const leereRouten = leereRoutenZaehlen(roh);
+  const teile = verworfenePruefen(roh, bericht.layout, bericht.zusammengefasst.length, leereRouten);
   if (teile.length > 0) return { art: 'verworfen', teile };
   try {
-    return { art: 'antwort', antwort: await d.speichern(bericht.layout) };
+    return { art: 'antwort', antwort: await d.speichern(bericht.layout), leereRouten };
   } catch (err) {
     return { art: 'ausnahme', fehler: String(err) };
   }
@@ -127,7 +143,7 @@ function sammlungName(feld: Sammlung): string {
 
 /** „Regionen: 1, Flüsse: 2“ */
 export function verworfenText(teile: readonly VerworfenTeil[]): string {
-  return teile.map((x) => `${sammlungName(x.feld)}: ${x.anzahl}`).join(', ');
+  return teile.map((x) => `${sammlungName(x.feld)}: ${x.keineListe ? t('testflug.gelaende.verworfen.keine_liste') : x.anzahl}`).join(', ');
 }
 
 /** The HUD line for the plain save (the outcome of `entwurfSpeichern`, without a restart). */
@@ -144,7 +160,7 @@ export function entwurfErgebnisText(e: EntwurfErgebnis): string {
     case 'verworfen':
       return t('testflug.gelaende.verworfen.beschaedigt', { liste: verworfenText(e.teile) });
     case 'antwort':
-      return speicherText(e.antwort);
+      return e.leereRouten > 0 ? `${speicherText(e.antwort)} · ${t('testflug.gelaende.leere_route')}` : speicherText(e.antwort);
     case 'ausnahme':
       return t('testflug.speichern_fehlgeschlagen', { fehler: e.fehler });
   }

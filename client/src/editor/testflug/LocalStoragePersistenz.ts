@@ -59,6 +59,14 @@ function basisNachziehen(hash: string | null): void {
   }
 }
 
+/**
+ * R4: The form the service delivers: SHA-256 as hex (`layoutDatei.ts`). A proxy's own ETag or an HTML
+ * snippet in a `hash` field is not a confirmation.
+ */
+export function istDienstHash(hash: string | null | undefined): hash is string {
+  return typeof hash === 'string' && /^[0-9a-f]{64}$/.test(hash);
+}
+
 /** Storage key shared with `editor.html`. */
 export const ENTWURF_SCHLUESSEL = 'wov-editor-layout';
 
@@ -81,10 +89,10 @@ export function localStoragePersistenz(): TestflugPersistenz {
       if (antwort.art === 'ok') {
         // M1: Only an answer with a valid new hash confirms the save. HTML, an empty or cut-off body, `{}` or a 204 do
         // not: then the base stays as it is (the next save is answered by the service's 409, not by a lost base).
-        if (!antwort.hash) return { ok: false, message: UNBESTAETIGT() } satisfies SpeicherAntwort;
+        if (!istDienstHash(antwort.hash)) return { ok: false, message: UNBESTAETIGT() } satisfies SpeicherAntwort;
         // Der Server hat jetzt unseren Stand: Er ist die Basis des nächsten Speicherns.
         basisNachziehen(antwort.hash);
-        return { ok: true, message: antwort.sperrAnzahl ? (antwort.messageOhneSperre ?? antwort.message) : antwort.message, ...(antwort.sperrAnzahl ? { loeschsperre: antwort.sperrAnzahl } : {}) } satisfies SpeicherAntwort;
+        return { ok: true, message: antwort.sperrAnzahl ? (antwort.messageOhneSperre ?? antwort.message) : antwort.message, ...(antwort.sperrAnzahl ? { loeschsperre: antwort.sperrAnzahl } : {}), ...(antwort.grund ? { grund: antwort.grund } : {}) } satisfies SpeicherAntwort;
       }
       // Bei 409 bleibt die alte Basis im Zettel: Erst der Editor-Dialog (Serverstand laden oder „Entwurf behalten") ersetzt sie.
       if (antwort.art === 'veraltet') return { ok: false, message: VERALTET() } satisfies SpeicherAntwort;

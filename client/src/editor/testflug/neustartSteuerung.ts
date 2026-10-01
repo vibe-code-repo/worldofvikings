@@ -9,6 +9,7 @@
  * Knöpfe von Anfang bis Ende gesperrt, Status und Spielerzahl an die Oberfläche. Das Panel setzt
  * `NeustartOberflaeche` um und leitet nur Klicks weiter.
  */
+import { t } from '../i18n';
 import { neustartLauf, neustartText, type NeustartDienste, type NeustartPhase } from './neustart';
 
 export interface NeustartOberflaeche {
@@ -25,6 +26,8 @@ export interface NeustartSteuerungDienste extends Omit<NeustartDienste, 'status'
   oberflaeche: NeustartOberflaeche;
   /** The line in the flight HUD (end of a run and errors). */
   hud(text: string): void;
+  /** `true` while a plain save is on its way: a run must not start then (R5). */
+  belegt?(): boolean;
 }
 
 export interface NeustartSteuerung {
@@ -55,6 +58,10 @@ export function neustartSteuerung(d: NeustartSteuerungDienste): NeustartSteuerun
     laeuft: () => lauf.laeuft(),
     async neustartKlick() {
       if (lauf.laeuft()) return;
+      if (d.belegt?.()) {
+        d.hud(t('testflug.neustart.fehler.speichert_noch'));
+        return;
+      }
       const zahl = await d.spieler().catch(() => null);
       if (lauf.laeuft()) return;
       ui.zeigeNeustartFrage(zahl);
@@ -62,6 +69,10 @@ export function neustartSteuerung(d: NeustartSteuerungDienste): NeustartSteuerun
     async neustartJa() {
       ui.schliesseNeustartFrage();
       if (lauf.laeuft()) return;
+      if (d.belegt?.()) {
+        d.hud(t('testflug.neustart.fehler.speichert_noch'));
+        return;
+      }
       ui.sperreSpeichern(true);
       try {
         await lauf.starten();

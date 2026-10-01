@@ -51,6 +51,8 @@ export type NeustartStatus =
       loeschsperre: number;
       /** The text of the service's save answer (a warning like 202 `abgelehnt` is in it). */
       meldung: string;
+      /** Routes without a point that were left out of the save (not an error). */
+      leereRouten: number;
       /** The restart itself was never confirmed; the service merely runs. */
       unklar: boolean;
       /** The draft changed while the run went on: those changes are not on the server. */
@@ -130,7 +132,13 @@ export function neustartLauf(d: NeustartDienste): NeustartLauf {
 
   async function ablauf(): Promise<NeustartStatus> {
     melde({ phase: 'speichert' });
-    const rohVorher = d.entwurf.rohtext?.() ?? null;
+    // R6: the storage may throw on a read; that is a message, not a run stuck on "Speichere …".
+    let rohVorher: string | null;
+    try {
+      rohVorher = d.entwurf.rohtext?.() ?? null;
+    } catch (err) {
+      return fehler({ grund: 'entwurf', fehler: String(err) });
+    }
     const e = await entwurfSpeichern(d.entwurf);
     if (e.art === 'kein-entwurf') return fehler({ grund: 'kein-entwurf' });
     if (e.art === 'unbrauchbar') return fehler({ grund: 'unbrauchbar' });
@@ -140,7 +148,10 @@ export function neustartLauf(d: NeustartDienste): NeustartLauf {
     if (e.art === 'ausnahme') return fehler({ grund: 'netz', fehler: e.fehler });
     if (!e.antwort.ok) return fehler({ grund: 'speichern', message: e.antwort.message });
     const loeschsperre = e.antwort.loeschsperre ?? 0;
-    const meldung = e.antwort.message;
+    const leereRouten = e.leereRouten;
+    // R7: after a restart "written, not applied (geo)" is outdated and reads like a contradiction; a warning
+    // about objects (`abgelehnt`, …) stays.
+    const meldung = e.antwort.grund === 'geo' || e.antwort.grund === 'server-aus' ? '' : e.antwort.message;
 
     melde({ phase: 'startet-neu', sekunden: 0 });
     // No answer (network, gateway timeout) does not mean "no restart": the service answers only after `systemctl`.
@@ -173,9 +184,15 @@ export function neustartLauf(d: NeustartDienste): NeustartLauf {
         stabilSeit ??= jetzt;
         // `systemctl restart` returns before the world stands: hold on a moment.
         if (d.jetzt() - stabilSeit > STABIL_MS) {
-          const rohNachher = d.entwurf.rohtext?.() ?? null;
-          const striche = rohVorher !== null && rohNachher !== rohVorher;
-          return melde({ phase: 'laeuft-wieder', sekunden: sek, loeschsperre, meldung, unklar, striche });
+          // R6: unreadable storage now: whether strokes came in meanwhile is unknown, so the note applies.
+          let striche: boolean;
+          try {
+            const rohNachher = d.entwurf.rohtext?.() ?? null;
+            striche = rohVorher !== null && rohNachher !== rohVorher;
+          } catch {
+            striche = rohVorher !== null;
+          }
+          return melde({ phase: 'laeuft-wieder', sekunden: sek, loeschsperre, meldung, leereRouten, unklar, striche });
         }
       } else {
         stabilSeit = null;
@@ -195,6 +212,9 @@ export function neustartLauf(d: NeustartDienste): NeustartLauf {
       laeuft = true;
       try {
         return await ablauf();
+      } catch (err) {
+        // Whatever throws unexpectedly: the line must not stay on "Speichere …".
+        return fehler({ grund: 'netz', fehler: String(err) });
       } finally {
         laeuft = false;
       }
@@ -214,8 +234,9 @@ export function neustartText(s: NeustartStatus): string {
     case 'laeuft-wieder': {
       const teile = [
         s.unklar ? t('testflug.neustart.status.laeuft_unklar', { sekunden: s.sekunden }) : t('testflug.neustart.status.laeuft_wieder', { sekunden: s.sekunden }),
-        t('testflug.neustart.status.meldung', { message: s.meldung }),
       ];
+      if (s.meldung !== '') teile.push(t('testflug.neustart.status.meldung', { message: s.meldung }));
+      if (s.leereRouten > 0) teile.push(t('testflug.gelaende.leere_route'));
       if (s.loeschsperre > 0) teile.push(t('testflug.neustart.status.loeschsperre', { count: s.loeschsperre }));
       if (s.striche) teile.push(t('testflug.neustart.status.striche'));
       return teile.join(' ');

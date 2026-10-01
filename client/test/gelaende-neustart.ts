@@ -14,6 +14,8 @@
  * 10. M1: a 2xx answer without a valid new hash is not "saved" (real `localStoragePersistenz`, fake `fetch`/storage).
  * 11. M2: what the sanitiser would drop (region id twice, broken river/lake/placement) stops both buttons.
  * 12. N1–N7: time limit after the POST, monotone clock, unreadable draft, warning text, unclear restart, locks, strokes.
+ * 14. N2 (R1–R7): empty route announced not blocked, non-list collections, every collection checked, hash form,
+ *     restart refused during a plain save, throwing `rohtext`, no outdated geo sentence.
  * 13. M3: the control logic (`neustartSteuerung`): no run before "Ja", unlock after every end, status and players reach the surface.
  *
  * Run: npx tsx test/gelaende-neustart.ts   (from client/)
@@ -22,9 +24,10 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout } from '@wov/shared';
-import { entwurfErgebnisText, entwurfSpeichern, type EntwurfDienste } from '../src/editor/testflug/entwurfSpeichern';
+import { entwurfErgebnisText, entwurfSpeichern, GEPRUEFTE_SAMMLUNGEN, type EntwurfDienste } from '../src/editor/testflug/entwurfSpeichern';
 import { neustartSteuerung, type NeustartOberflaeche } from '../src/editor/testflug/neustartSteuerung';
-import { localStoragePersistenz } from '../src/editor/testflug/LocalStoragePersistenz';
+import { speichernVerdrahtung } from '../src/editor/testflug/speichernVerdrahtung';
+import { istDienstHash, localStoragePersistenz } from '../src/editor/testflug/LocalStoragePersistenz';
 import { STAND_KEY } from '../src/editor/weltdokument';
 import { LIMIT_MS, MAX_ABFRAGEN, neustartLauf, neustartText, spielerLesen, type Holen, type NeustartStatus } from '../src/editor/testflug/neustart';
 import type { SpeicherAntwort } from '../src/editor/testflug/TestflugPersistenz';
@@ -33,6 +36,14 @@ const HIER = dirname(fileURLToPath(import.meta.url));
 const lies = (rel: string): string => readFileSync(resolve(HIER, rel), 'utf-8');
 
 let fehler = 0;
+let fertig = false;
+// A test that dies on a never-settled promise would leave without a word and with exit 0: that is a failure.
+process.on('exit', () => {
+  if (!fertig) {
+    console.error('Test vorzeitig beendet (ein Versprechen wurde nie erfüllt)');
+    process.exitCode = 1;
+  }
+});
 function pruefe(ok: boolean, name: string, zusatz = ''): void {
   console.log(`  ${ok ? '✓' : '✗'} ${name}${zusatz ? ` (${zusatz})` : ''}`);
   if (!ok) fehler++;
@@ -110,6 +121,9 @@ function lauf(opt: { speichern: (d: object) => Promise<SpeicherAntwort>; laden?:
   return { l, stati, speichernAufrufe };
 }
 
+const HASH2 = '2'.repeat(64);
+const HASH3 = 'c'.repeat(64);
+const warteTick = (): Promise<void> => new Promise((f) => setTimeout(f, 5));
 const OK: SpeicherAntwort = { ok: true, message: 'Gespeichert' };
 
 async function main(): Promise<void> {
@@ -236,23 +250,29 @@ async function main(): Promise<void> {
   // ── 9. Verdrahtung und Texte ──
   const testflug = lies('../src/editor/testflug/Testflug.ts');
   const panel = lies('../src/editor/SpawnPanel.ts');
-  pruefe(/const speichereEntwurf = \(\): void => \{[\s\S]{0,500}entwurfSpeichern\(entwurfDienste\)/.test(testflug), '9: der einfache Speichern-Knopf geht über entwurfSpeichern (F1)');
+  const verd = lies('../src/editor/testflug/speichernVerdrahtung.ts');
+  pruefe(/speichereEntwurf\(\) \{[\s\S]{0,900}entwurfSpeichern\(d\.entwurf\)/.test(verd), '9: der einfache Speichern-Knopf geht über entwurfSpeichern (F1)');
+  pruefe(/\.\.\.panelRueckrufe\(\(\) => \(\{ verdrahtung, neustart \}\)\)/.test(testflug), '9: Testflug reicht die Panel-Rückrufe der Verdrahtung durch (Ja, Klick, Abbrechen, Speichern)');
+  pruefe(/aufSpeichern: verdrahtung\.speichereEntwurf/.test(testflug), '9: der Routen-Editor speichert über denselben Schutz');
+  pruefe(/belegt: \(\) => verdrahtung\.einfachLaeuft\(\)/.test(testflug), '9: die Steuerung kennt das laufende einfache Speichern (R5)');
+  pruefe(/neustartJa: \(\) => void holen\(\)\.neustart\.neustartJa\(\)/.test(verd) && /neustartKlick: \(\) => void holen\(\)\.neustart\.neustartKlick\(\)/.test(verd) && /neustartAbbruch: \(\) => holen\(\)\.neustart\.neustartAbbruch\(\)/.test(verd), '9: die Panel-Rückrufe sind verdrahtet (Ja ist nicht tot)');
   pruefe(!/sanitizeWorldLayout\(roh as never\)/.test(testflug), '9: Testflug.ts bereinigt den Entwurf nicht mehr am Schutz vorbei');
-  pruefe(/neustartSteuerung\(\{[\s\S]{0,200}entwurf: entwurfDienste/.test(testflug), '9: der Neustart-Knopf geht über denselben Speicherweg');
+  pruefe(/neustartSteuerung\(\{[\s\S]{0,200}entwurf: entwurfDienste/.test(testflug) && /speichernVerdrahtung\(\{ entwurf: entwurfDienste/.test(testflug), '9: beide Knöpfe gehen über denselben Speicherweg (entwurfDienste)');
   pruefe(/'testflug\.gelaende\.speichern_neustart'\), \(\) => this\.cb\.neustartKlick\?\.\(\)/.test(panel), '9: der Knopf „Speichern & neu starten“ ruft nur die Frage (neustartKlick)');
   pruefe((panel.match(/cb\.neustartJa\?\.\(\)/g) ?? []).length === 1 && /'testflug\.neustart\.ja'\), \(\) => this\.cb\.neustartJa\?\.\(\)/.test(panel), '9: neustartJa hängt allein am „Ja“ der Bestätigung');
   pruefe(/class SpawnPanel implements NeustartOberflaeche/.test(panel) && /oberflaeche: panel,/.test(testflug), '9: das Panel ist die Oberfläche der Steuerung (Status, Frage, Sperre verdrahtet)');
   pruefe(/spieler: \(\) => spielerLesen\(echtesHolen\)/.test(testflug), '9: die Spielerzahl ist verdrahtet');
   pruefe(/neustartSteuerung\(\{[\s\S]{0,400}jetzt: monotoneUhr/.test(testflug) && !/jetzt: \(\) => Date\.now/.test(testflug), '9: monotone Uhr statt Wanduhr');
-  pruefe(/if \(neustart\.laeuft\(\)\) \{[\s\S]{0,80}testflug\.neustart\.fehler\.gesperrt/.test(testflug), '9: der einfache Speichern-Knopf ist während des Laufs gesperrt (N6)');
+  pruefe(/if \(d\.neustart\(\)\.laeuft\(\)\) \{[\s\S]{0,80}testflug\.neustart\.fehler\.gesperrt/.test(verd), '9: der einfache Speichern-Knopf ist während des Laufs gesperrt (N6)');
   pruefe(/for \(const k of \[this\.speichernKnopf, this\.neustartKnopf\]\)/.test(panel) && /k\.disabled = an/.test(panel), '9: das Panel sperrt beide Knöpfe');
   const de = JSON.parse(lies('../src/i18n/katalog/de.json')) as Record<string, string>;
   const en = JSON.parse(lies('../src/i18n/katalog/en.json')) as Record<string, string>;
   const schluessel = Object.keys(de).filter((k) => k.startsWith('testflug.neustart.') || k.startsWith('testflug.gelaende.hoehe.') || k.startsWith('testflug.gelaende.verworfen.') || k === 'testflug.gelaende.speichern_neustart');
-  pruefe(schluessel.length === 34, '9: 34 neue Schlüssel', String(schluessel.length));
+  pruefe(schluessel.length === 36, '9: 36 neue Schlüssel', String(schluessel.length));
   pruefe(schluessel.every((k) => typeof en[k] === 'string' && en[k] !== de[k]), '9: jeder Schlüssel in en vorhanden und übersetzt');
-  const quelle = lies('../src/editor/testflug/neustart.ts') + lies('../src/editor/testflug/entwurfSpeichern.ts') + lies('../src/editor/testflug/LocalStoragePersistenz.ts') + testflug + panel;
+  const quelle = lies('../src/editor/testflug/neustart.ts') + lies('../src/editor/testflug/entwurfSpeichern.ts') + lies('../src/editor/testflug/LocalStoragePersistenz.ts') + lies('../src/editor/testflug/neustartSteuerung.ts') + lies('../src/editor/testflug/speichernVerdrahtung.ts') + testflug + panel;
   pruefe(schluessel.every((k) => quelle.includes(`'${k}'`)), '9: jeder neue Schlüssel wird im Quelltext benutzt');
+  pruefe(quelle.includes("'testflug.gelaende.leere_route'") && typeof de['testflug.gelaende.leere_route'] === 'string' && typeof en['testflug.gelaende.leere_route'] === 'string', '9: Text „Leere Route nicht gespeichert“ in de und en');
   pruefe(typeof de['testflug.persistenz.local.unbestaetigt'] === 'string' && typeof en['testflug.persistenz.local.unbestaetigt'] === 'string', '9: Text „nicht bestätigt“ in de und en');
   const text = de['testflug.neustart.text'] ?? '';
   pruefe(/Spieler/.test(text) && /getrennt/.test(text) && /automatisch/.test(text) && /Gelände/.test(text), '9: der Dialogtext sagt ehrlich, was passiert');
@@ -291,13 +311,13 @@ async function main(): Promise<void> {
       pruefe(ende !== null && neustartText(ende).includes('nicht bestätigt'), `10: ${name} → HUD nennt „nicht bestätigt“`);
     }
     speicher.set(STAND_KEY, zettel);
-    antwort = () => new Response(JSON.stringify({ ok: true, message: 'Gespeichert', hash: 'h2' }), { status: 200 });
+    antwort = () => new Response(JSON.stringify({ ok: true, message: 'Gespeichert', hash: HASH2 }), { status: 200 });
     const gut = await p.speichern(ENTWURF());
-    pruefe(gut.ok === true && JSON.parse(speicher.get(STAND_KEY) ?? '{}').basis === 'h2', '10: gültiger Hash → gespeichert, Basis nachgezogen', JSON.stringify(gut));
+    pruefe(gut.ok === true && JSON.parse(speicher.get(STAND_KEY) ?? '{}').basis === HASH2, '10: gültiger Hash → gespeichert, Basis nachgezogen', JSON.stringify(gut));
     speicher.set(STAND_KEY, zettel);
-    antwort = () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { ETag: '"h3"' } });
+    antwort = () => new Response(JSON.stringify({ ok: true }), { status: 200, headers: { ETag: `"${HASH3}"` } });
     const etag = await p.speichern(ENTWURF());
-    pruefe(etag.ok === true && JSON.parse(speicher.get(STAND_KEY) ?? '{}').basis === 'h3', '10: Hash im ETag-Kopf genügt', JSON.stringify(etag));
+    pruefe(etag.ok === true && JSON.parse(speicher.get(STAND_KEY) ?? '{}').basis === HASH3, '10: Hash im ETag-Kopf genügt', JSON.stringify(etag));
   }
 
   // ── 11. M2: was der Sanitizer verwerfen würde, hält an ──
@@ -486,7 +506,191 @@ async function main(): Promise<void> {
     pruefe(!d.st.laeuft(), '13: nach dem Ende frei');
   }
 
+  // ── 13b. M3 (R3): Steuerung genauer ──
+  {
+    const log: string[] = [];
+    const sperren: boolean[] = [];
+    const ui: NeustartOberflaeche = {
+      zeigeNeustartFrage: () => void log.push('frage'),
+      schliesseNeustartFrage: () => void log.push('zu'),
+      zeigeNeustartStatus: () => undefined,
+      sperreSpeichern: (an) => void sperren.push(an),
+    };
+    const bau = (spieler: () => Promise<number | null>, netz = attrappe({ zustaende: [{ aktiv: false, roh: 'activating' }, { aktiv: true, roh: 'active' }] }), speichern: () => Promise<SpeicherAntwort> = async () => OK) => {
+      const u = uhr();
+      return neustartSteuerung({ entwurf: { laden: () => ENTWURF(), speichern }, holen: netz.holen, jetzt: u.jetzt, schlafe: u.schlafe, spieler, oberflaeche: ui, hud: () => undefined });
+    };
+    // X20: ein zweites „Ja“ im Lauf hebt die Sperre nicht auf
+    const st = bau(async () => 1);
+    const lauf1 = st.neustartJa();
+    await st.neustartJa();
+    pruefe(sperren.join() === 'true', '13b: ein zweites „Ja“ im Lauf ändert die Sperre nicht (kein vorzeitiges Aufheben)', sperren.join());
+    await lauf1;
+    pruefe(sperren.join() === 'true,false', '13b: Sperre an, nach dem Ende genau einmal aus', sperren.join());
+    // X23: „Ja“ schließt die Frage
+    log.length = 0;
+    await bau(async () => 1).neustartJa();
+    pruefe(log[0] === 'zu', '13b: „Ja“ schließt die Frage', log.join());
+    // X19: die Frage erscheint nicht, wenn inzwischen ein Lauf begonnen hat
+    log.length = 0;
+    let frei: (n: number | null) => void = () => undefined;
+    let speicherFrei: (a: SpeicherAntwort) => void = () => undefined;
+    const st2 = bau(() => new Promise<number | null>((f) => (frei = f)), undefined, () => new Promise<SpeicherAntwort>((f) => (speicherFrei = f)));
+    const klick = st2.neustartKlick();
+    const lauf2 = st2.neustartJa();
+    await warteTick();
+    frei(2);
+    await klick;
+    speicherFrei(OK);
+    await lauf2;
+    pruefe(!log.includes('frage'), '13b: die Frage erscheint nicht, wenn inzwischen ein Lauf begonnen hat', log.join());
+  }
+
+  // ── 14. N2: R1–R7 ──
+  {
+    const route0 = { id: 'route1', points: [] as unknown[], mode: 'loop', speed: 1.4 };
+    // R1: leere Route
+    const gesendetR1: object[] = [];
+    const r1 = await entwurfSpeichern({ laden: () => ENTWURF({ routes: [route0] }), speichern: async (d) => { gesendetR1.push(d); return OK; } });
+    pruefe(r1.art === 'antwort' && r1.leereRouten === 1, 'R1: „Neue Route“ ohne Punkt sperrt das Speichern nicht', r1.art);
+    pruefe(gesendetR1.length === 1 && !('routes' in (gesendetR1[0] as object)), 'R1: die leere Route geht nicht mit auf den Server');
+    pruefe(entwurfErgebnisText(r1).includes('Leere Route nicht gespeichert'), 'R1: das HUD sagt es in einem Satz', entwurfErgebnisText(r1));
+    const netz1 = attrappe({});
+    const e1 = await lauf({ speichern: async () => OK, laden: () => ENTWURF({ routes: [route0] }), netz: netz1 }).l.starten();
+    pruefe(e1?.phase === 'laeuft-wieder' && netz1.posts().length === 1 && neustartText(e1).includes('Leere Route nicht gespeichert'), 'R1: auch „Speichern & neu starten“ läuft durch und nennt die leere Route', e1 ? neustartText(e1) : '');
+    const kaputt = await entwurfSpeichern({ laden: () => ENTWURF({ routes: [route0, { id: 'r2', points: [[0, 0], [1, 'x']], mode: 'loop' }] }), speichern: async () => OK });
+    pruefe(kaputt.art === 'verworfen' && kaputt.teile.some((x) => x.feld === 'routes' && x.anzahl === 1), 'R1: eine Route mit kaputtem Punkt sperrt weiter (die leere daneben zählt nicht mit)', JSON.stringify(kaputt));
+
+    // R2: Sammlung ist keine Liste
+    const keineListe: Array<[string, Record<string, unknown>, string]> = [
+      ['regions als Objekt', { regions: { '0': { id: 'kern' } } }, 'regions'],
+      ['rivers als Objekt', { rivers: { a: 1 } }, 'rivers'],
+      ['placements als Text', { placements: 'viele' }, 'placements'],
+      ['lakes als Zahl', { lakes: 5 }, 'lakes'],
+      ['routes als Objekt', { routes: {} }, 'routes'],
+      ['bausaetze als Text', { bausaetze: 'x' }, 'bausaetze'],
+      ['continents als Objekt', { continents: { a: 1 } }, 'continents'],
+    ];
+    for (const [name, extra, feld] of keineListe) {
+      let gesendet = 0;
+      const e = await entwurfSpeichern({ laden: () => ENTWURF(extra), speichern: async () => { gesendet++; return OK; } });
+      pruefe(gesendet === 0 && e.art === 'verworfen' && e.teile.some((x) => x.feld === feld && x.keineListe === true), `R2: ${name} → nichts gesendet, als beschädigt gemeldet`, e.art);
+      pruefe(entwurfErgebnisText(e).includes('keine Liste'), `R2: ${name} → HUD sagt „keine Liste“`, entwurfErgebnisText(e));
+      const netz = attrappe({});
+      const ende = await lauf({ speichern: async () => OK, laden: () => ENTWURF(extra), netz }).l.starten();
+      pruefe(netz.aufrufe.length === 0 && ende?.phase === 'fehler', `R2: ${name} → kein Neustart`);
+    }
+    const nullen = await entwurfSpeichern({ laden: () => ENTWURF({ rivers: null, lakes: null, routes: null }), speichern: async () => OK });
+    pruefe(nullen.art === 'antwort', 'R2: ein Feld mit null ist kein Verlust', nullen.art);
+
+    // R3: jede geprüfte Sammlung hat einen Zeugen
+    const kern = { id: 'kern', biome: 'grassland', shape: { kind: 'circle', x: 0, z: 0, radius: 2000 }, edgeFalloff: 300 };
+    const jeSammlung: Array<[string, Record<string, unknown>, string]> = [
+      ['continents', { continents: [null, { id: {} }] }, 'continents'],
+      ['regions', { regions: [kern, { ...kern }] }, 'regions'],
+      ['placements', { placements: [{ prefab: 'Beech1', x: 'abc', z: 10 }] }, 'placements'],
+      ['rivers', { rivers: [{ id: 'f', width: 8, points: [[0, 0], [100, 'x']] }] }, 'rivers'],
+      ['lakes', { lakes: [{ id: 's', x: 'a', z: 0, radius: 50 }] }, 'lakes'],
+      ['routes', { routes: [{ id: 'r', points: [[0, 0], [1, 'x']], mode: 'loop' }] }, 'routes'],
+      ['bausaetze', { bausaetze: [null, {}] }, 'bausaetze'],
+      ['defaultSpawn', { defaultSpawn: [null, {}] }, 'defaultSpawn'],
+    ];
+    pruefe(GEPRUEFTE_SAMMLUNGEN.every((f) => jeSammlung.some(([, , x]) => x === f)), 'R3: jede geprüfte Sammlung hat einen Zeugen im Test', GEPRUEFTE_SAMMLUNGEN.join());
+    for (const [name, extra, feld] of jeSammlung) {
+      let gesendet = 0;
+      const e = await entwurfSpeichern({ laden: () => ENTWURF(extra), speichern: async () => { gesendet++; return OK; } });
+      pruefe(gesendet === 0 && e.art === 'verworfen' && e.teile.some((x) => x.feld === feld), `R3: ${name} → nichts gesendet`, e.art);
+    }
+
+    // R4: nur 64 Hex-Zeichen sind ein Hash
+    pruefe(istDienstHash(HASH2) && !istDienstHash('h2') && !istDienstHash('5f3a-proxy') && !istDienstHash('<html>') && !istDienstHash('A'.repeat(64)) && !istDienstHash('2'.repeat(63)) && !istDienstHash('2'.repeat(65)) && !istDienstHash(null) && !istDienstHash(''), 'R4: istDienstHash nimmt nur 64 Kleinbuchstaben-Hex');
+    {
+      const speicher = new Map<string, string>();
+      (globalThis as unknown as { localStorage: unknown }).localStorage = { getItem: (k: string) => speicher.get(k) ?? null, setItem: (k: string, v: string) => void speicher.set(k, v) };
+      const zettel = JSON.stringify({ zeit: '2026-10-01T00:00:00.000Z', instanz: 'dev', quelle: 'server', tabId: 'tabA', basis: 'h1' });
+      let antwort: () => Response = () => new Response('{}');
+      (globalThis as unknown as { fetch: unknown }).fetch = async () => antwort();
+      const p = localStoragePersistenz();
+      const faelle: Array<[string, () => Response]> = [
+        ['HTML mit fremdem ETag', () => new Response('<html>Gateway</html>', { status: 200, headers: { ETag: '"5f3a-proxy"' } })],
+        ['schwacher fremder ETag', () => new Response('<html></html>', { status: 200, headers: { ETag: 'W/"abc"' } })],
+        ['HTML im hash-Feld', () => new Response(JSON.stringify({ ok: true, hash: '<html>' }), { status: 200 })],
+        ['Hash mit Großbuchstaben', () => new Response(JSON.stringify({ ok: true, hash: 'A'.repeat(64) }), { status: 200 })],
+        ['Hash zu kurz', () => new Response(JSON.stringify({ ok: true, hash: '2'.repeat(63) }), { status: 200 })],
+      ];
+      for (const [name, a] of faelle) {
+        speicher.set(STAND_KEY, zettel);
+        antwort = a;
+        const r = await p.speichern(ENTWURF());
+        pruefe(r.ok === false && JSON.parse(speicher.get(STAND_KEY) ?? '{}').basis === 'h1', `R4: ${name} → nicht gespeichert, Basis unangetastet`, JSON.stringify(r).slice(0, 80));
+      }
+      // R7 durch die Persistenz: der Grund wird durchgereicht
+      speicher.set(STAND_KEY, zettel);
+      antwort = () => new Response(JSON.stringify({ ok: true, hash: HASH2, angewendet: false, grund: 'geo', message: 'Geschrieben, aber nicht angewendet (geo).' }), { status: 202 });
+      const geo = await p.speichern(ENTWURF());
+      pruefe(geo.ok === true && geo.grund === 'geo', 'R7: die Persistenz reicht den Grund (geo) durch', JSON.stringify(geo));
+    }
+
+    // R5: ein Neustart-Lauf wird abgelehnt, solange ein einfaches Speichern unterwegs ist
+    {
+      let freigeben: (a: SpeicherAntwort) => void = () => undefined;
+      let speichernN = 0;
+      const entwurf: EntwurfDienste = { laden: () => ENTWURF(), speichern: () => (speichernN++, new Promise<SpeicherAntwort>((f) => (freigeben = f))) };
+      const hud: string[] = [];
+      const netz = attrappe({});
+      const u = uhr();
+      let st: ReturnType<typeof neustartSteuerung>;
+      const v = speichernVerdrahtung({ entwurf, hud: (x) => hud.push(x), neustart: () => st });
+      st = neustartSteuerung({ entwurf, holen: netz.holen, jetzt: u.jetzt, schlafe: u.schlafe, spieler: async () => 0, oberflaeche: { zeigeNeustartFrage() {}, schliesseNeustartFrage() {}, zeigeNeustartStatus() {}, sperreSpeichern() {} }, hud: (x) => hud.push(x), belegt: () => v.einfachLaeuft() });
+      v.speichereEntwurf();
+      v.speichereEntwurf();
+      await st.neustartJa();
+      await st.neustartKlick();
+      pruefe(speichernN === 1 && netz.aufrufe.length === 0, 'R5: unterwegs ist nur EIN Welt-POST, „Ja“ und Klick starten nichts', `${speichernN}/${netz.aufrufe.length}`);
+      pruefe(hud.filter((x) => x.includes('läuft noch')).length === 3, 'R5: jedes Mal der Hinweis „Speichern läuft noch“', hud.join(' | '));
+      freigeben(OK);
+      await warteTick();
+      pruefe(!v.einfachLaeuft(), 'R5: nach dem Ende ist das Speichern wieder frei');
+      const zweiterLauf = st.neustartJa();
+      await warteTick();
+      pruefe(speichernN === 2, 'R5: danach läuft ein Neustart-Lauf (zweites Speichern)');
+      freigeben(OK);
+      await zweiterLauf;
+    }
+
+    // R6: rohtext wirft
+    {
+      const netz = attrappe({});
+      const r = lauf({ speichern: async () => OK, netz, rohtext: () => { throw new Error('Speicher gesperrt'); } });
+      const ende = await r.l.starten();
+      pruefe(ende?.phase === 'fehler' && ende.grund === 'entwurf' && r.stati.at(-1)?.phase === 'fehler', 'R6: wirft rohtext() am Anfang → Fehlermeldung, die Zeile bleibt nicht auf „Speichere …“', JSON.stringify(ende));
+      pruefe(netz.aufrufe.length === 0 && !r.l.laeuft(), 'R6: nichts gesendet, Sperre frei');
+      let n = 0;
+      const netz2 = attrappe({});
+      const r2 = lauf({ speichern: async () => OK, netz: netz2, rohtext: () => { if (n++ > 0) throw new Error('weg'); return 'A'; } });
+      const e2 = await r2.l.starten();
+      pruefe(e2?.phase === 'laeuft-wieder' && e2.striche === true, 'R6: wirft rohtext() am Ende → Lauf endet sauber, der Hinweis auf offene Änderungen kommt vorsichtshalber', JSON.stringify(e2));
+      // etwas Unerwartetes wirft mitten im Lauf (hier die Uhr): eine Meldung, keine abgelehnte Zusage, Sperre frei
+      let aufrufeUhr = 0;
+      const stati4: NeustartStatus[] = [];
+      const l4 = neustartLauf({ entwurf: { laden: () => ENTWURF(), speichern: async () => OK }, holen: attrappe({}).holen, jetzt: () => { if (++aufrufeUhr > 2) throw new Error('Uhr kaputt'); return aufrufeUhr; }, schlafe: async () => undefined, status: (x) => stati4.push(x) });
+      const e4 = await l4.starten().catch(() => 'abgelehnt' as const);
+      pruefe(e4 !== 'abgelehnt' && e4?.phase === 'fehler' && stati4.at(-1)?.phase === 'fehler' && !l4.laeuft(), 'R6: ein unerwarteter Fehler im Lauf wird zur Fehlermeldung, die Sperre ist frei', JSON.stringify(e4));
+      const r3 = lauf({ speichern: async () => { throw new Error('boom'); }, netz: attrappe({}), laden: () => { throw new Error('x'); } });
+      const e3 = await r3.l.starten();
+      pruefe(e3?.phase === 'fehler' && !r3.l.laeuft(), 'R6: unlesbar bleibt eine Meldung');
+    }
+
+    // R7: der überholte Satz bei geo und server-aus fehlt, eine Warnung zu Objekten bleibt
+    for (const [grund, bleibt] of [['geo', false], ['server-aus', false], ['abgelehnt', true], [undefined, true]] as const) {
+      const e = await lauf({ speichern: async () => ({ ok: true, message: 'Meldung-des-Dienstes', ...(grund ? { grund } : {}) }), netz: attrappe({}) }).l.starten();
+      const text = e ? neustartText(e) : '';
+      pruefe(text.includes('Meldung-des-Dienstes') === bleibt, `R7: Grund ${String(grund)} → Dienstmeldung ${bleibt ? 'bleibt' : 'entfällt'}`, text);
+    }
+  }
+
   console.log(fehler === 0 ? '\nalle Prüfungen bestanden' : `\n${fehler} Prüfung(en) FEHLGESCHLAGEN`);
+  fertig = true;
   process.exit(fehler === 0 ? 0 : 1);
 }
 

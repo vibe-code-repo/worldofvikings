@@ -34,6 +34,7 @@
  * Profiltext nie gepuffert. Eine Drossel je Herkunft (`erlaubt`) ist die zweite
  * Linie; nginx sperrt den Weg von aussen (deploy/nginx/wov-lab.conf).
  */
+import { randomBytes } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import {
   AUSRUESTUNG_SLOTS, KEINE_WERTE, STAT_IDS, SLOT_VORGABE, ausgehenderNahkampfSchaden, decodeArmor, findItem,
@@ -55,21 +56,27 @@ export const ARMORY_DROSSEL_MAX = 300;
 export const ARMORY_DROSSEL_FENSTER_MS = 10_000;
 const DROSSEL_KARTE_MAX = 4096;
 /** Hoechstdauer eines Arbeitsstuecks des Neubaus, danach gibt der Faden frei (Ziel: Takt des Spiels unter 20 ms). */
-export const ARMORY_SCHRITT_MS = 2;
-/** Eine Suche braucht mindestens so viele Zeichen (Codepunkte, nach Faltung); kuerzere sind keine Suche. */
+export const ARMORY_SCHRITT_MS = 1;
+/** Eine Suche braucht mindestens so viele Zeichen (Grapheme, nach vollstaendiger Faltung); kuerzere sind keine Suche. */
 export const ARMORY_SUCHE_MIN = 2;
+/** Hoechstzahl der je Suchanfrage nachgeprueften Kandidaten; darueber ist die Suche "zu allgemein" (`suche_gekuerzt`). */
+export const ARMORY_KANDIDATEN_MAX = 5_000;
 /** Zahl der Eimer des Suchindex (fest). */
 export const ARMORY_EIMER = 65_536;
-const ARMORY_SEITE_ZEILEN = 250;
-const ARMORY_LAUF = 1024;
-const ARMORY_MISCH_MASKE = 1023;
-const ARMORY_INDEX_MASKE = 511;
+const ARMORY_SEITE_ZEILEN = 100;
+const ARMORY_LAUF = 512;
+const ARMORY_MISCH_MASKE = 511;
+const ARMORY_INDEX_MASKE = 127;
 /** Ergebnis-Puffer der Suche je Speicherstand: Eintraege und Gesamtzahl der Positionen. */
 const ARMORY_SUCH_CACHE_MAX = 256;
 const ARMORY_SUCH_CACHE_INTS = 2_000_000;
-/** Eimer eines Buchstabenpaars (UTF-16-Einheiten): Hash ueber beide Einheiten, 16 Bit. */
-function eimerVon(a: number, b: number): number {
-  return Math.imul((a << 16) | b, 0x9e3779b1) >>> 16;
+/**
+ * Eimer eines Buchstabenpaars (UTF-16-Einheiten): zweistufiger Hash mit zwei Salzen, 16 Bit. Die Salze werden bei JEDEM
+ * Indexaufbau neu aus `crypto` gezogen; wer die Formel kennt (sie steht im Repo), kann ohne die Salze keine Namen und
+ * Suchbegriffe bauen, die im selben Eimer landen, und eine einmal gefundene Kollision haelt hoechstens bis zum naechsten Aufbau.
+ */
+function eimerVon(a: number, b: number, s1: number, s2: number): number {
+  return Math.imul(Math.imul(((a << 16) | b) ^ s1, 0x9e3779b1) ^ s2, 0x85ebca6b) >>> 16;
 }
 /** Immer ausgeschlossen, auch wenn die Konfiguration keinen `standard-konto`-Block hat. */
 const FESTE_STANDARDKONTEN = ['gast', 'guest', 'admin'];
@@ -115,6 +122,12 @@ export interface ArmoryListe {
   seiten: number;
   /** Die tatsaechlich angewandte Suche (gefaltet); '' wenn keine Suche gilt, auch bei einem zu kurzen `q`. */
   suche: string;
+  /**
+   * true, wenn die Suche zu allgemein war: mehr als ARMORY_KANDIDATEN_MAX Namen kamen als Treffer in Frage, geprueft wurden
+   * nur die ersten (in Anzeigereihenfolge), `eintraege`/`gesamt`/`seiten` beschreiben nur diese. Die Webseite zeigt dann
+   * "Suche zu allgemein, bitte genauer". Bei keiner Suche immer false.
+   */
+  suche_gekuerzt: boolean;
 }
 
 /** Ein angelegtes Stueck. */
@@ -172,9 +185,9 @@ interface Aufnahme {
    * sind das CSR-Feld dazu: Eimer b liegt in `ids[offsets[b]..offsets[b+1]]`, aufsteigend, je Name hoechstens einmal.
    * Der Speicher haengt nur von der Zahl der Namen und ihrer Laenge ab, nie von der Vielfalt der Zeichen.
    */
-  index: { offsets: Int32Array; ids: Int32Array };
+  index: { offsets: Int32Array; ids: Int32Array; salz1: number; salz2: number };
   /** Ergebnisse je normalisiertem `q` (Positionen in `zeilen`); lebt und stirbt mit dem Stand. */
-  suchCache: Map<string, Int32Array>;
+  suchCache: Map<string, { treffer: Int32Array; gekuerzt: boolean }>;
   suchCacheZahl: number;
   /** Fingerabdruck der Sichtbarkeit beim Bau. */
   stempel: string;
@@ -243,10 +256,12 @@ export class Armory {
     const lage = this.aktuelleAufnahme();
     if (!lage) return null; // der erste Aufbau laeuft noch, oder ein Fehler sperrt kurz
     const a = lage.stand;
-    // Weniger als ARMORY_SUCHE_MIN Zeichen (nach Faltung, in Codepunkten) sind keine Suche: die Antwort ist die der Liste ohne Suche.
+    // Weniger als ARMORY_SUCHE_MIN Zeichen sind keine Suche, gezaehlt NACH der vollstaendigen Faltung (NFC, klein) in
+    // Graphemen (`\u0130` faltet zu `i` + Punkt-darueber, zwei Codepunkte, aber ein Zeichen): die Antwort ist die der Liste ohne Suche.
     let suche = bereinigeSuche(qRoh);
-    if (Array.from(suche).length < ARMORY_SUCHE_MIN) suche = '';
-    const treffer = suche === '' ? null : this.sucheIn(a, suche);
+    if (zeichenZahl(suche) < ARMORY_SUCHE_MIN) suche = '';
+    const ergebnis = suche === '' ? null : this.sucheIn(a, suche);
+    const treffer = ergebnis ? ergebnis.treffer : null;
     const gesamt = treffer ? treffer.length : a.zeilen.length;
     const seiten = Math.max(1, Math.ceil(gesamt / ARMORY_SEITENGROESSE));
     // Die Seite wird auf den gueltigen Bereich begrenzt, bevor irgendetwas von ihr abhaengt.
@@ -262,7 +277,7 @@ export class Armory {
       const jetzt = this.uhr();
       zeilen = zeilen.filter((z) => this.db.armoryEinzeln(z.id, jetzt) !== null);
     }
-    return { eintraege: zeilen.map(baueEintrag), seite, seitenGroesse: ARMORY_SEITENGROESSE, gesamt, seiten, suche };
+    return { eintraege: zeilen.map(baueEintrag), seite, seitenGroesse: ARMORY_SEITENGROESSE, gesamt, seiten, suche, suche_gekuerzt: ergebnis?.gekuerzt ?? false };
   }
 
   /**
@@ -270,33 +285,37 @@ export class Armory {
    * die kuerzeste Liste der Buchstabenpaare von `q` liefert die Kandidaten, nur die werden geprueft. Einzelne
    * Zeichen werden gescannt (es gibt nur wenige verschiedene, ihr Ergebnis steht dann im Puffer).
    */
-  private sucheIn(a: Aufnahme, q: string): Int32Array {
+  private sucheIn(a: Aufnahme, q: string): { treffer: Int32Array; gekuerzt: boolean } {
     const alt = a.suchCache.get(q);
     if (alt) {
       this.statistik.suchTreffer += 1;
       return alt;
     }
     // Kandidaten: der kleinste Eimer unter den Buchstabenpaaren von `q`; Kollisionen schaden nicht, jeder Kandidat wird geprueft.
-    const { offsets, ids } = a.index;
+    const { offsets, ids, salz1, salz2 } = a.index;
     let von = 0;
     let bis = 0;
     let kleinste = Infinity;
     for (let i = 0; i + 2 <= q.length; i++) {
-      const b = eimerVon(q.charCodeAt(i), q.charCodeAt(i + 1));
+      const b = eimerVon(q.charCodeAt(i), q.charCodeAt(i + 1), salz1, salz2);
       const n = offsets[b + 1] - offsets[b];
       if (n < kleinste) { kleinste = n; von = offsets[b]; bis = offsets[b + 1]; }
     }
+    // Harte Obergrenze der geprueften Kandidaten je Anfrage: was darueber liegt, wird nicht mehr angesehen (Anzeigereihenfolge),
+    // und die Antwort sagt es (`suche_gekuerzt`). So kostet keine Anfrage mehr als ARMORY_KANDIDATEN_MAX `includes`.
+    const gekuerzt = bis - von > ARMORY_KANDIDATEN_MAX;
+    if (gekuerzt) bis = von + ARMORY_KANDIDATEN_MAX;
     this.statistik.suchKandidaten += bis - von;
     const l: number[] = [];
     for (let k = von; k < bis; k++) if (a.gefaltet[ids[k]].includes(q)) l.push(ids[k]);
-    const ergebnis = Int32Array.from(l);
-    if (ergebnis.length <= ARMORY_SUCH_CACHE_INTS) {
-      if (a.suchCache.size >= ARMORY_SUCH_CACHE_MAX || a.suchCacheZahl + ergebnis.length > ARMORY_SUCH_CACHE_INTS) {
+    const ergebnis = { treffer: Int32Array.from(l), gekuerzt };
+    if (ergebnis.treffer.length <= ARMORY_SUCH_CACHE_INTS) {
+      if (a.suchCache.size >= ARMORY_SUCH_CACHE_MAX || a.suchCacheZahl + ergebnis.treffer.length > ARMORY_SUCH_CACHE_INTS) {
         a.suchCache.clear();
         a.suchCacheZahl = 0;
       }
       a.suchCache.set(q, ergebnis);
-      a.suchCacheZahl += ergebnis.length;
+      a.suchCacheZahl += ergebnis.treffer.length;
     }
     return ergebnis;
   }
@@ -449,31 +468,36 @@ export class Armory {
       if ((i & ARMORY_MISCH_MASKE) === ARMORY_MISCH_MASKE) yield;
     }
     // Suchindex fester Groesse (CSR ueber ARMORY_EIMER Eimer), in zwei Durchgaengen in Haeppchen: zaehlen, dann fuellen.
+    const salze = randomBytes(8);
+    const salz1 = salze.readInt32LE(0);
+    const salz2 = salze.readInt32LE(4);
     const offsets = new Int32Array(ARMORY_EIMER + 1);
     const zuletzt = new Int32Array(ARMORY_EIMER).fill(-1);
     for (let i = 0; i < gefaltet.length; i++) {
       const g = gefaltet[i];
       for (let c = 0; c + 2 <= g.length; c++) {
-        const b = eimerVon(g.charCodeAt(c), g.charCodeAt(c + 1));
+        const b = eimerVon(g.charCodeAt(c), g.charCodeAt(c + 1), salz1, salz2);
         if (zuletzt[b] !== i) { zuletzt[b] = i; offsets[b + 1]++; }
       }
       if ((i & ARMORY_INDEX_MASKE) === ARMORY_INDEX_MASKE) yield;
     }
-    for (let b = 0; b < ARMORY_EIMER; b++) offsets[b + 1] += offsets[b];
-    yield;
+    for (let b = 0; b < ARMORY_EIMER; b++) {
+      offsets[b + 1] += offsets[b];
+      if ((b & 8191) === 8191) yield;
+    }
     const ids = new Int32Array(offsets[ARMORY_EIMER]);
     const fuell = offsets.slice(0, ARMORY_EIMER);
     zuletzt.fill(-1);
     for (let i = 0; i < gefaltet.length; i++) {
       const g = gefaltet[i];
       for (let c = 0; c + 2 <= g.length; c++) {
-        const b = eimerVon(g.charCodeAt(c), g.charCodeAt(c + 1));
+        const b = eimerVon(g.charCodeAt(c), g.charCodeAt(c + 1), salz1, salz2);
         if (zuletzt[b] !== i) { zuletzt[b] = i; ids[fuell[b]++] = i; }
       }
       if ((i & ARMORY_INDEX_MASKE) === ARMORY_INDEX_MASKE) yield;
     }
     this.statistik.indexBytes = offsets.byteLength + ids.byteLength;
-    const index = { offsets, ids };
+    const index = { offsets, ids, salz1, salz2 };
     return {
       zeilen, gefaltet, nachId, index, suchCache: new Map(), suchCacheZahl: 0, stempel, gebaut: jetzt, bis: jetzt + ARMORY_CACHE_MS,
     };
@@ -483,6 +507,14 @@ export class Armory {
 /** Anzeigereihenfolge: zuletzt gespielt absteigend (nie Gespielte zuletzt), dann neuere zuerst, dann Id. */
 function anzeigeReihenfolge(a: ArmoryZeile, b: ArmoryZeile): number {
   return (b.zuletztGespielt ?? 0) - (a.zuletztGespielt ?? 0) || b.erstellt - a.erstellt || b.id - a.id;
+}
+
+const GRAPHEME = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+/** Zahl der Zeichen (Grapheme) eines schon gefalteten Textes. */
+function zeichenZahl(text: string): number {
+  let n = 0;
+  for (const _ of GRAPHEME.segment(text)) n++;
+  return n;
 }
 
 /** Namensvergleich ohne Rücksicht auf Schreibung und Unicode-Form (NFC, klein). */

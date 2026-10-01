@@ -34,7 +34,7 @@ import { herkunftErmitteln } from '../src/net/Herkunft.js';
 import { Kontendatenbank } from '../src/konto/Kontendatenbank.js';
 import {
   ARMORY_CACHE_MAX, ARMORY_CACHE_MS, ARMORY_NEUBAU_MIN_MS, ARMORY_DROSSEL_FENSTER_MS, ARMORY_DROSSEL_MAX, ARMORY_SEITENGROESSE, ARMORY_SUCHE_MAX,
-  ARMORY_EIMER, Armory, bereinigeSuche,
+  ARMORY_EIMER, ARMORY_KANDIDATEN_MAX, Armory, bereinigeSuche,
 } from '../src/konto/Armory.js';
 import { geheimnisErzeugen } from '../src/net/Identitaet.js';
 import { passwortEinlagernSync } from '../src/konto/Passwort.js';
@@ -106,7 +106,7 @@ const STUECK: Form = { kennung: 'w', name: 'w', textKey: 'w', seltenheit: 'w', i
 const ASPEKT: Form = { figur: 'w', frisur: 'w', haarfarbe: 'w', augenfarbe: 'w' };
 const EINTRAG: Form = { id: 'w', name: 'w', klasse: 'w', aussehen: ASPEKT, erstellt: 'w', zuletztGespielt: 'w' };
 const SLOTS = ['kopf', 'halskette', 'hemd', 'hose', 'schuhe', 'armreif', 'ring1', 'ring2', 'schultern', 'unterarme', 'haende'];
-const FORM_LISTE: Form = { eintraege: [EINTRAG], seite: 'w', seitenGroesse: 'w', gesamt: 'w', seiten: 'w', suche: 'w' };
+const FORM_LISTE: Form = { eintraege: [EINTRAG], seite: 'w', seitenGroesse: 'w', gesamt: 'w', seiten: 'w', suche: 'w', suche_gekuerzt: 'w' };
 const FORM_PROFIL: Form = {
   ...(EINTRAG as Record<string, Form>),
   ausruestung: Object.fromEntries(SLOTS.map((k) => [k, STUECK])),
@@ -692,11 +692,36 @@ try {
           const soll = kurz ? alle : alle.filter((e) => e.name.normalize('NFC').toLowerCase().includes(eff));
           const ist = gross.liste('1', q)!;
           assert.equal(ist.suche, kurz ? '' : eff, `Suche ${JSON.stringify(q)}: angewandte Suche`);
+          if (ist.suche_gekuerzt) {
+            // Zu allgemein: nur die ersten Kandidaten (Anzeigereihenfolge) wurden geprueft; die Treffer sind ein Anfangsstueck der vollen Trefferliste.
+            assert.ok(ist.gesamt <= Math.min(soll.length, ARMORY_KANDIDATEN_MAX), `Suche ${JSON.stringify(q)}: gekuerzte Trefferzahl`);
+            assert.deepEqual(ist.eintraege.map((e) => e.id), soll.slice(0, Math.min(ARMORY_SEITENGROESSE, ist.gesamt)).map((e) => e.id), `Suche ${JSON.stringify(q)}: gekuerzte erste Seite`);
+            continue;
+          }
           assert.equal(ist.gesamt, soll.length, `Suche ${JSON.stringify(q)}: Trefferzahl`);
           assert.deepEqual(ist.eintraege.map((e) => e.id), soll.slice(0, ARMORY_SEITENGROESSE).map((e) => e.id), `Suche ${JSON.stringify(q)}: erste Seite in Anzeigereihenfolge`);
           if (ist.seiten > 1) {
             assert.deepEqual(gross.liste(String(ist.seiten), q)!.eintraege.map((e) => e.id), soll.slice((ist.seiten - 1) * ARMORY_SEITENGROESSE).map((e) => e.id), `Suche ${JSON.stringify(q)}: letzte Seite`);
           }
+        }
+        // Harte Obergrenze (F1): eine allgemeine Suche prueft hoechstens ARMORY_KANDIDATEN_MAX Kandidaten und sagt, dass sie gekuerzt ist.
+        {
+          const kk0 = gross.statistik.suchKandidaten;
+          const breit = gross.liste('1', 'gr')!;
+          assert.equal(breit.suche_gekuerzt, true, 'allgemeine Suche: gekuerzt');
+          assert.ok(gross.statistik.suchKandidaten - kk0 <= ARMORY_KANDIDATEN_MAX, `hoechstens ${ARMORY_KANDIDATEN_MAX} Kandidaten (${gross.statistik.suchKandidaten - kk0})`);
+          assert.ok(breit.gesamt > 0 && breit.gesamt <= ARMORY_KANDIDATEN_MAX);
+          assert.equal(gross.liste('1', 'gross 12345')!.suche_gekuerzt, false, 'selektive Suche: nicht gekuerzt');
+          assert.equal(gross.liste('1', '')!.suche_gekuerzt, false, 'ohne Suche: nie gekuerzt');
+        }
+        // Das Salz des Index wird bei jedem Aufbau neu gezogen (F1a): ein im Repo berechnetes Kollisionsset haelt nicht.
+        {
+          const salzVon = (): string => { const ix = (gross as unknown as { aufnahme: { index: { salz1: number; salz2: number } } }).aufnahme.index; return `${ix.salz1}:${ix.salz2}`; };
+          const vorher = salzVon();
+          t3 += ARMORY_CACHE_MS + 1;
+          gross.liste('1', '');
+          await gross.bereit();
+          assert.notEqual(salzVon(), vorher, 'neuer Aufbau, neues Salz');
         }
         // Selektive Suche prueft nur wenige Kandidaten; dieselbe Suche noch einmal kommt aus dem Ergebnis-Puffer.
         const k0 = gross.statistik.suchKandidaten;
@@ -813,6 +838,12 @@ try {
       assert.deepEqual({ ...eins }, { ...ohne }, 'ein Zeichen: dieselbe Antwort wie ohne Suche');
       assert.equal(cjk.liste('1', namen4[1].slice(0, 2))!.suche, namen4[1].slice(0, 2).toLowerCase(), 'zwei Zeichen sind eine Suche');
       assert.equal(cjk.liste('1', ' ' + namen4[1].slice(0, 1) + ' ')!.suche, '', 'auch mit Leerraum drumherum zaehlt nur das Zeichen');
+      // F3: gezaehlt wird nach der VOLLSTAENDIGEN Faltung, in Graphemen: `\u0130` faltet zu zwei Codepunkten (i + U+0307), ist aber ein Zeichen.
+      for (const eins1 of ['\u0130', 'i\u0307', 'e\u0301', '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}', '\u{1F1E9}\u{1F1EA}']) {
+        assert.equal(cjk.liste('1', eins1)!.suche, '', `${JSON.stringify(eins1)} ist ein Zeichen und damit keine Suche`);
+      }
+      assert.equal(cjk.liste('1', 'ab')!.suche, 'ab', 'zwei Zeichen sind eine Suche');
+      assert.equal(cjk.liste('1', '\u0130a')!.suche, 'i\u0307a', 'İ plus ein Zeichen sind zwei Zeichen');
       assert.equal(cjk.liste('1', '\u{1F600}')!.suche, '', 'ein Zeichen jenseits der BMP (zwei UTF-16-Einheiten) ist ebenfalls nur ein Zeichen');
       // R9: scheitert schon der ERSTE Aufbau, folgt ein Versuch erst nach ARMORY_NEUBAU_MIN_MS.
       const frisch = new Armory(db4, []);

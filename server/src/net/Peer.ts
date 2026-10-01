@@ -19,6 +19,7 @@ import { ZonenFenster } from '../zdo/ZonenFenster.js';
 import { Writer } from '../io/Writer.js';
 import { Reader } from '../io/Reader.js';
 import { neuerSchlagZustand, type SchlagZustand } from '../spiel/Treffer.js';
+import { Spielwerte } from '../spiel/Spielwerte.js';
 import { PacketType } from '@wov/shared';
 import type { WebSocket } from 'ws';
 import { randomBytes } from 'node:crypto';
@@ -76,6 +77,8 @@ export class Peer {
   augenfarbe: string = '';
   klasse: string = '';
   starterSetGranted: string = '';
+  /** Tode und Spielzeit dieses Charakters (Spielwerte.ts); laeuft ab dem Anmelden, endet beim Abmelden. */
+  readonly spielwerte = new Spielwerte();
   /**
    * Getragene Ruestung als "oberkoerperId|beineId" — ein leerer Teil
    * heisst "nichts angezogen". Zusammengefasst statt zweier Felder, damit

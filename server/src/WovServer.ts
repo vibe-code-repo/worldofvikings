@@ -2447,6 +2447,7 @@ export class WovServer {
       }
     }
     peer.starterSetGranted = grantStarterSet(peer.inventar, peer.klasse, peer.figur, peer.starterSetGranted);
+    peer.spielwerte.laden(saved); // Tode + Spielzeit: Spanne startet hier
     // Getragene Waffe (K2a): Spielstand, sonst ein als getragen markierter Stapel; inventarSync prueft sie.
     peer.waffe = typeof saved?.waffe === 'string'
       ? saved.waffe : peer.inventar.all.find((i) => i.equipped && !i.shared.ruestungsteil)?.shared.name ?? '';
@@ -2554,6 +2555,7 @@ export class WovServer {
     // Weltspeicher hat ihn ohnehin in savedPlayers).
     this.spielerSicherung?.sichere([stand], 'abmelden');
     this.spielerSicherung?.abgemeldet(peer.spielerId);
+    peer.spielwerte.beende();
     // Destroy player character ZDO
     if (!peer.characterID.isNone()) {
       this.zdosVon(peer).destroyZDO(peer.characterID);
@@ -4081,6 +4083,7 @@ export class WovServer {
       // Which side the blow comes from (attacker position vs. the victim's view yaw).
       const richtung = richtungZuAngreifer(peer.blickYaw ?? null, peer.position, pos);
       if (peer.health <= 0) {
+        peer.spielwerte.zaehleTod(); // BEFORE the 'tod' save of the revival, so the counter lands in the same row
         // Death: with a lying time the figure falls and stays down until belebeFaellige
         // revives it; without one (0 ms, tests of the old behaviour) it gets up at once.
         if (this.liegezeitMs > 0) this.stirb(peer, todClipFuer(richtung));
@@ -6353,6 +6356,7 @@ export class WovServer {
       augenfarbe: peer.augenfarbe,
       klasse: peer.klasse,
       starterSetGranted: peer.starterSetGranted,
+      ...peer.spielwerte.stand(),
       ruestung: peer.ruestung,
       waffe: peer.waffe || undefined,
       inventar: peer.inventar.serialize(),

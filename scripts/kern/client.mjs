@@ -723,6 +723,8 @@ export default [
   // Nachbesserung N2 (F2/F3): zwei gleichzeitige getMasters() ergeben dieselbe Skala
   // (gebündelt), eine vorher gehaltene localMatrix-Referenz sieht eine spätere Änderung.
   ['client', 'test/upload-grundskala-neu-anwenden.ts'],
+  // Baeume entfernen V1: Vergleich, enthaelt, Import und Speicherschutz F1 kennen vegetationEntfernt.
+  ['client', 'test/vegetation-entfernt-dokument.ts'],
   // Die Grafikoption begrenzt die gemeinsamen Bild-/Schattenmatrizen der
   // Vegetation. Der reine Kreisfilter sichert den unveraenderten Standard
   // (0 = voll), den eingeschlossenen Rand und die X/Z-Distanz ab.

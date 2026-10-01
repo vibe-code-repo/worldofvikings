@@ -75,7 +75,7 @@ import {
   type ClientWorldLike,
   type StreuFund,
 } from './bewuchsTypen';
-import type { ClearArea, PlacementDef } from '@wov/shared';
+import { streuArt, vegetationPruefer, type ClearArea, type PlacementDef, type VegetationEntferntKreis, type VegetationPruefer } from '@wov/shared';
 import { uploadedModelEntries } from '@wov/shared/src/uploadedModelRegistry.js';
 import type { ManifestModell } from '@wov/shared/src/weltbau/manifest.js';
 import type { EntityManager } from '../entities/EntityManager';
@@ -157,7 +157,12 @@ export class BewuchsVorschau {
      * Billige Änderungsmarke des Entwurfs (im Testflug der Rohtext aus dem
      * Speicher). Ohne sie rechnet der Abgleich jedes Mal alles neu.
      */
-    private readonly marke: (() => string | null) | null = null
+    private readonly marke: (() => string | null) | null = null,
+    /**
+     * Die AKTUELLEN Kreise der entfernten Vegetation (im Testflug der Entwurf, `vegetationEntfernt`); ohne sie
+     * gilt das Layout der Welt. Ändern sie sich, werden nur die Zonen neu gestreut, die ein geänderter Kreis berührt.
+     */
+    private readonly vegetationQuelle: (() => readonly VegetationEntferntKreis[] | null | undefined) | null = null
   ) {}
 
   /**
@@ -208,6 +213,7 @@ export class BewuchsVorschau {
     this.warteschlange = [];
     this.letzteZone = '';
     this.freiflaechenListe = null;
+    this.vegetationStand = null;
     this.ent.flush();
   }
 
@@ -283,6 +289,17 @@ export class BewuchsVorschau {
     return this.freiflaechenListe;
   }
 
+  /** Kreise der entfernten Vegetation samt Prüfer, so wie beim letzten Rechnen (Nachfilter in `zoneStreuen`). */
+  private vegetationStand: { kreise: readonly VegetationEntferntKreis[]; pruefer: VegetationPruefer } | null = null;
+  private vegetationLesen(): { kreise: readonly VegetationEntferntKreis[]; pruefer: VegetationPruefer } {
+    const kreise = this.vegetationQuelle?.() ?? this.welt.regionGeo?.layout.vegetationEntfernt ?? [];
+    return { kreise, pruefer: vegetationPruefer(kreise) };
+  }
+  private vegetation(): { kreise: readonly VegetationEntferntKreis[]; pruefer: VegetationPruefer } {
+    this.vegetationStand ??= this.vegetationLesen();
+    return this.vegetationStand;
+  }
+
   private freiflaechenBerechnen(): readonly ClearArea[] {
     if (!this.welt.regionGeo) return [];
     // Marke VOR dem Lesen des Entwurfs: ein Schreiber dazwischen wird beim nächsten Abgleich erkannt.
@@ -319,14 +336,29 @@ export class BewuchsVorschau {
       ...alt.filter((a) => !nachher.has(schl(a))),
       ...neu.filter((a) => !vorher.has(schl(a))),
     ];
-    if (geaendert.length === 0) return;
-    this.freiflaechenListe = neu;
+    // Entfernte Vegetation: Kreise, die hinzugekommen, weggefallen oder verändert sind (Schlüssel = ganzer Kreis).
+    const kreisSchl = (k: VegetationEntferntKreis): string => `${k.x},${k.z},${k.r},${k.nur ?? ''}`;
+    const vegAlt = this.vegetation().kreise;
+    const vegNeu = this.vegetationLesen();
+    const kreisVorher = new Set(vegAlt.map(kreisSchl));
+    const kreisNachher = new Set(vegNeu.kreise.map(kreisSchl));
+    const kreisGeaendert = [
+      ...vegAlt.filter((k) => !kreisNachher.has(kreisSchl(k))),
+      ...vegNeu.kreise.filter((k) => !kreisVorher.has(kreisSchl(k))),
+    ];
+    if (geaendert.length === 0 && kreisGeaendert.length === 0) return;
+    if (geaendert.length > 0) this.freiflaechenListe = neu;
+    if (kreisGeaendert.length > 0) this.vegetationStand = vegNeu;
     const rand = 16; // ein Pflanzenradius, wie freiflaechenFuerZone
-    for (const a of geaendert) {
-      const x0 = Math.floor((a.center.x - a.radius - rand) / 64 + 0.5);
-      const x1 = Math.floor((a.center.x + a.radius + rand) / 64 + 0.5);
-      const y0 = Math.floor((a.center.z - a.radius - rand) / 64 + 0.5);
-      const y1 = Math.floor((a.center.z + a.radius + rand) / 64 + 0.5);
+    const betroffen = [
+      ...geaendert.map((a) => ({ x: a.center.x, z: a.center.z, r: a.radius })),
+      ...kreisGeaendert.map((k) => ({ x: k.x, z: k.z, r: k.r })),
+    ];
+    for (const a of betroffen) {
+      const x0 = Math.floor((a.x - a.r - rand) / 64 + 0.5);
+      const x1 = Math.floor((a.x + a.r + rand) / 64 + 0.5);
+      const y0 = Math.floor((a.z - a.r - rand) / 64 + 0.5);
+      const y1 = Math.floor((a.z + a.r + rand) / 64 + 0.5);
       for (const k of [...this.fertig.keys()]) {
         const [zx, zy] = k.split(',').map(Number);
         if (zx >= x0 && zx <= x1 && zy >= y0 && zy <= y1) this.zoneAbbauen(k);
@@ -364,6 +396,7 @@ export class BewuchsVorschau {
     if (this.fertig.has(schluessel)) return;
     const keys: string[] = [];
     let i = 0;
+    const entfernt = this.vegetation().pruefer;
     try {
       streueZone(
         {
@@ -375,7 +408,11 @@ export class BewuchsVorschau {
         this.welt.heightmaps.getZone(zx, zy),
         freiflaechenFuerZone(this.freiflaechen(), zx, zy),
         (fund: StreuFund) => {
-          const key = `${SCHLUESSEL}-${schluessel}-${i++}`;
+          // Der Zähler läuft auch für entfernte Funde weiter: die Schlüssel der übrigen bleiben, wie sie ohne Kreis wären.
+          const nr = i++;
+          // Nachfilter NACH allen Zufallszügen (wie im ZoneManager): nichts anderes ändert sich.
+          if (!entfernt.leer && entfernt.istEntfernt(fund.position.x, fund.position.z, streuArt(fund.prefabName))) return;
+          const key = `${SCHLUESSEL}-${schluessel}-${nr}`;
           keys.push(key);
           this.ent.applyUpdate({
             key,

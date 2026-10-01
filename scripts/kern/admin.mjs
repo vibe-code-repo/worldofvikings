@@ -103,6 +103,8 @@ export default [
   // ... and PATCH /api/worldlayout/ops plus the 428 on a POST without a base,
   // against the real operations service on a copy of the world.
   ['admin', 'test/welt-ops.ts'],
+  // Baeume entfernen V1: ein beschaedigtes oder zu grosses vegetationEntfernt gibt 422 (nichts geschrieben), gueltige Kreise gehen durch.
+  ['admin', 'test/welt-vegetation-422.ts'],
   // Reset the world to zero (K4.0): POST /api/welt-zuruecksetzen against the real operations service with a
   // stand-in for systemctl (confirmation, live 403, nothing deleted, undo when a step fails, base for the next save) ...
   ['admin', 'test/welt-zuruecksetzen.ts'],

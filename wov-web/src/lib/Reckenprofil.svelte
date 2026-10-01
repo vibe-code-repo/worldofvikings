@@ -1,7 +1,9 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { datumKurz, vorWieLange } from './formate';
+  import ReckenVorschau from './ReckenVorschau.svelte';
   import type { Recke } from './recken';
+  import { type AusruestungsStueck, type FigurAussehen, planFuerRecke } from './reckenVorschauKern';
   import { type MessageKey, localeFrom, messages } from './i18n';
 
   /**
@@ -15,22 +17,29 @@
    *
    * Drei Stellen, an denen dem Entwurf bewusst NICHT gefolgt wird:
    *
-   *  1. Die Bühne bleibt ein Platzhalter. Der Entwurf setzt dort ein
-   *     <recke-vorschau>-Element; die echte Vorschau ist das Babylon-Bündel
-   *     unter /assets/js/vorschau.js und braucht Aussehensdaten (Figur,
-   *     Frisur, Kleidung) vom Gestade. /api/recken.json führt kein einziges
-   *     dieser Felder — eine 3D-Figur stünde hier also für jeden Recken
-   *     gleich und zeigte einen Fremden. Bis der Server ein Aussehen
-   *     liefert, steht die Silhouette in der neuen Bühne.
-   *  2. Deshalb steht unter der Bühne auch keine Beschriftung
-   *     "ziehen zum Drehen": Es gibt nichts zu drehen.
+   *  1. Die Bühne zeigt die 3D-Figur (`ReckenVorschau`, dasselbe Babylon-Bündel
+   *     wie die Charaktererstellung), sobald das Profil ein `aussehen` mitbringt.
+   *     Ohne Aussehen, ohne WebGL und ohne JavaScript bleibt die Silhouette.
+   *     /api/recken.json führt kein Aussehen; die Daten kommen aus dem
+   *     Rüstkammer-Endpunkt des Spielservers.
+   *  2. Unter der Bühne steht keine Beschriftung "ziehen zum Drehen": Die
+   *     Drehknöpfe der Figur tragen ihre eigene Beschriftung.
    *  3. Der Entwurf zeigt vier Wertekacheln und lässt "Bereiste Lande" weg.
    *     Beides sind Auslassungen einer Vorlage, keine Entscheidungen über
    *     Inhalt: Alle sechs Werte und die Lande bleiben stehen. Das Raster ist
    *     ohnehin fließend, sechs Kacheln passen so gut wie vier.
    */
 
-  let { recke }: { recke: Recke } = $props();
+  let {
+    recke,
+    aussehen,
+    ausruestung,
+  }: {
+    recke: Recke;
+    /** Aussehen und angelegte Stücke; ohne `aussehen` bleibt es bei der Silhouette. */
+    aussehen?: FigurAussehen;
+    ausruestung?: readonly AusruestungsStueck[];
+  } = $props();
 
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
@@ -55,6 +64,26 @@
   /* Die Fertigkeitsskala geht bis 100 — der Anteil ist deshalb die Stufe selbst. */
   const fertigkeiten = $derived([...recke.fertigkeiten].sort((a, b) => b.stufe - a.stufe));
 </script>
+
+{#snippet silhouette()}
+<!-- Schlichte Silhouette: Rückfall der 3D-Figur. -->
+<svg
+        viewBox="0 0 80 170"
+        width="110"
+        role="img"
+        aria-label={t['character_profile.figure.aria']}
+      >
+        <g fill="none" stroke="#8a6a34" stroke-width="2" stroke-linejoin="round">
+          <circle cx="40" cy="010" r="9" />
+          <path d="M31 6 L27 0 M49 6 L53 0" />
+          <path d="M40 19 L40 88" />
+          <path d="M22 30 L40 24 L58 30 L56 62 L24 62 Z" />
+          <path d="M24 32 L10 60 M56 32 L70 60" />
+          <path d="M32 88 L28 140 L26 165 M48 88 L52 140 L54 165" />
+          <path d="M26 62 L54 62 L52 90 L28 90 Z" />
+        </g>
+      </svg>
+{/snippet}
 
 {#snippet slot(schluessel: string, beschriftung: MessageKey)}
   {@const stueck = recke.ausruestung?.[schluessel]}
@@ -87,23 +116,13 @@
       Marken (--flaeche-hoch → --stage-radial-mid → --flaeche-tiefst).
     -->
     <div class="stage">
-      <!-- Schlichte Silhouette. Platzhalter, bis der Client ein Porträt liefern kann. -->
-      <svg
-        viewBox="0 0 80 170"
-        width="110"
-        role="img"
-        aria-label={t['character_profile.figure.aria']}
-      >
-        <g fill="none" stroke="#8a6a34" stroke-width="2" stroke-linejoin="round">
-          <circle cx="40" cy="010" r="9" />
-          <path d="M31 6 L27 0 M49 6 L53 0" />
-          <path d="M40 19 L40 88" />
-          <path d="M22 30 L40 24 L58 30 L56 62 L24 62 Z" />
-          <path d="M24 32 L10 60 M56 32 L70 60" />
-          <path d="M32 88 L28 140 L26 165 M48 88 L52 140 L54 165" />
-          <path d="M26 62 L54 62 L52 90 L28 90 Z" />
-        </g>
-      </svg>
+      {#if aussehen}
+        <ReckenVorschau lazy auto eng plan={(daten) => planFuerRecke(daten, aussehen, ausruestung)}>
+          {#snippet rueckfall()}{@render silhouette()}{/snippet}
+        </ReckenVorschau>
+      {:else}
+        {@render silhouette()}
+      {/if}
     </div>
 
     <h2 class="profile-name">{recke.name}</h2>

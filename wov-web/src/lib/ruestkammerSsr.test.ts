@@ -385,7 +385,9 @@ beschreibe('Ruhmeshalle ohne JavaScript (gebauter Stand)', () => {
     expect((await frage('/de/ruhmeshalle')).text).toContain('Noch niemand eingetragen');
     modus = () => listeAntwort(Array.from({ length: 1000 }, (_, i) => eintrag(i + 1, `R${i + 1}`)));
     const r = await frage('/de/ruhmeshalle');
-    expect((r.main.match(/<tr>/g) ?? []).length).toBeLessThanOrEqual(24 + 1);
+    const zeilen = (r.main.match(/<tr[\s>]/g) ?? []).length;
+    expect(zeilen).toBeGreaterThan(10);
+    expect(zeilen).toBeLessThanOrEqual(24 + 1);
   });
 });
 

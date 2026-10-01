@@ -297,6 +297,16 @@ describe('B2: leere und unvollständige Werte werden toleriert', () => {
 });
 
 describe('B7/B8: Grenzen und ganze Zahlen', () => {
+  it('Tafel: höchstens TAFEL_ZEILEN Zeilen', () => {
+    const viele = Array.from({ length: 100 }, (_, i) => ({
+      ...BASIS,
+      id: i + 1,
+      zuletztGespielt: i + 1,
+    }));
+    const z = tafelZeilen(TAFELN[0], viele);
+    expect(z).toHaveLength(24);
+    expect(z[0].eintrag.id).toBe(100);
+  });
   it('Liste: höchstens MAX_EINTRAEGE, doppelte Ids nur einmal', () => {
     const viele = Array.from({ length: 1000 }, (_, i) => ({ ...BASIS, id: i + 1, name: `R${i}` }));
     const l = normalisiereListe({

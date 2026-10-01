@@ -617,6 +617,16 @@ function erlaubnisFunde(programm: ts.Program, q: ts.SourceFile, o: { anzeige: bo
     return (i1 !== undefined && enthaelt(i1, gesehen, tiefe + 1)) || (i2 !== undefined && enthaelt(i2, gesehen, tiefe + 1));
   };
   const ausTyp = (t: ts.TypeNode): ts.Type => pruefer.getTypeFromTypeNode(t);
+  const markenTypenListe = markenTypen(programm);
+  /** `never` is assignable to every brand, so a cast to it (or to a type the checker reduces to it, or an array / generic of it) forges a mask text; so does any type assignable to a brand. */
+  const faelschtBoden = (ty: ts.Type, tiefe = 0): boolean => {
+    if (tiefe > 4) return false;
+    if (ty.flags & ts.TypeFlags.Never) return true;
+    if (ty.isUnionOrIntersection()) return ty.types.some((x) => faelschtBoden(x, tiefe + 1));
+    const args = [...(ty.aliasTypeArguments ?? []), ...((ty.flags & ts.TypeFlags.Object) && (ty as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference ? pruefer.getTypeArguments(ty as ts.TypeReference) : [])];
+    return args.some((x) => faelschtBoden(x, tiefe + 1));
+  };
+  const faelschtMarke = (ty: ts.Type): boolean => faelschtBoden(ty) || markenTypenListe.some((m) => pruefer.isTypeAssignableTo(ty, m));
   const istAufrufziel = (n: ts.Node): boolean => {
     let p = n.parent;
     let k: ts.Node = n;
@@ -700,6 +710,7 @@ function erlaubnisFunde(programm: ts.Program, q: ts.SourceFile, o: { anzeige: bo
     if ((ts.isAsExpression(n) || ts.isTypeAssertionExpression(n) || ts.isSatisfiesExpression(n)) && !ts.isConstTypeReference(n.type)) {
       const ziel = ausTyp(n.type);
       if (enthaelt(ziel)) funde.push(`Umwandlung auf einen Typ mit Marke ${ort(n)}`);
+      if (faelschtMarke(ziel)) funde.push(`Umwandlung auf never oder einen Typ, der einer Marke zuweisbar ist ${ort(n)}`);
       if (ziel.flags & ts.TypeFlags.TypeParameter) funde.push(`Umwandlung auf einen Typparameter ${ort(n)}`);
     }
     if ((ts.isCallExpression(n) || ts.isNewExpression(n)) && n.typeArguments?.some((t) => enthaelt(ausTyp(t)))) funde.push(`Typargument mit Marke ${ort(n)}`);
@@ -727,6 +738,16 @@ function markenWerte(programm: ts.Program): Set<string> {
     const ty = pruefer.getDeclaredTypeOfSymbol(sym);
     for (const t of ty.isUnion() ? ty.types : [ty]) if (t.isStringLiteral()) aus.add(t.value);
   }
+  return aus;
+}
+
+/** The exported types of `anzeige.ts` that carry a mask text (`Anzeigetext`, `Zierrat`, `Trenner`): what a cast must never be assignable to. */
+function markenTypen(programm: ts.Program): ts.Type[] {
+  const pruefer = programm.getTypeChecker();
+  const q = programm.getSourceFile(resolve(ORDNER, 'anzeige.ts'));
+  const modul = q ? pruefer.getSymbolAtLocation(q) : undefined;
+  const aus: ts.Type[] = [];
+  for (const sym of modul ? pruefer.getExportsOfModule(modul) : []) if (sym.flags & ts.SymbolFlags.TypeAlias) aus.push(pruefer.getDeclaredTypeOfSymbol(sym));
   return aus;
 }
 
@@ -979,6 +1000,16 @@ function baueProgramm(probe?: string): ts.Program {
     ['DOM mit berechnetem Schluessel (lesen)', 'const f = unten[kk];'],
     ['Typargument mit Marke: new Map', 'const m = new Map<string, Anzeigetext>();'],
     ['Typargument mit Marke: Promise.resolve', 'const m = Promise.resolve<Anzeigetext>(e.id as never);'],
+    // N7 (attack N6, A1): a cast to `never` or to anything assignable to a brand forges a mask text
+    ['never: as never', 'const x = e.id as never;'],
+    ['never: <never>x', 'const x = <never>e.id;'],
+    ['never: as (string & number)', 'const x = e.id as (string & number);'],
+    ['never: as Exclude<string, string>', 'const x = e.id as Exclude<string, string>;'],
+    ['never: Alias auf never', 'type N = never; const x = e.id as N;'],
+    ['never: bedingter Typ wird never', 'type Z<T> = T extends string ? never : T; const x = e.id as Z<string>;'],
+    ['never: ([] as never[])[0]', 'const x = ([] as never[])[0];'],
+    ['never: satisfies never', 'const x = (jj as string) satisfies never;'],
+    ['never: Zuweisbar-Kriterium: Literal der Marke', "const x = e.id as '(';"],
   ] as const) {
     check(`die Erlaubnisliste beisst: ${name}`, probe(code).length >= 1, code);
   }

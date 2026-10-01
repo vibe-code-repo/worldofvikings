@@ -258,8 +258,16 @@ async function main(): Promise<void> {
     toeten();
     await warte(2000);
     const animTot = jaeger.getString(ANIM_MEMBER);
+    const phaseTot = spawns.kiPhase(jaeger);
+    const abstandTot = Math.hypot(jaeger.position.x - anna.position.x, jaeger.position.z - anna.position.z);
     check('control (alive): the chaser runs or strikes', animLebend === 'run' || animLebend === 'attack', animLebend);
-    check('dead, alone: the chaser has let go (anim idle)', animTot === 'idle', `${animLebend} -> ${animTot}`);
+    // Gemeint ist: Der Verfolger hat losgelassen und jagt nicht mehr. Seit D4 kehrt der Wolf dann heim (Phase heimkehren, Clip walk)
+    // oder steht schon wieder (wandern, idle); weder run noch attack, und er ist nicht in Schlagreichweite des Toten.
+    check(
+      'dead, alone: the chaser has let go (no run/attack; idle, or walking home)',
+      (animTot === 'idle' || animTot === 'walk') && (phaseTot === 'heimkehren' || phaseTot === 'wandern') && abstandTot > 1.7,
+      `${animLebend} -> ${animTot}, phase ${phaseTot}, ${abstandTot.toFixed(1)} m from her`
+    );
     check('control (alive, 1.5 s): the world ticks', lebend >= 30, `${lebend} ticks`);
     check('dead, alone (2 s): the world ticks on', anna.totBis > 0 && ticks >= 40, `${ticks} ticks in 2 s`);
     welt.tick = echtTick;

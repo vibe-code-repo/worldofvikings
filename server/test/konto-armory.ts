@@ -864,6 +864,45 @@ try {
     } finally { rmSync(ordner4, { recursive: true, force: true }); }
   }
 
+  // ── 20. Genau an der Grenze der Kandidaten: 5 000 nicht gekuerzt, 5 001 gekuerzt (N6) ─
+  {
+    const ordner5 = mkdtempSync(join(tmpdir(), 'wov-konto-armory-e-'));
+    try {
+      const db5 = new Kontendatenbank(join(ordner5, 'konten.db'));
+      const k = db5.kontoAnlegen('Grenzkontofuenf', 'g5@example.org', passwortEinlagernSync('geheimespasswort1'));
+      assert.ok(k.ok);
+      // Namen 'qq' + 13 Stellen aus a/b: nur wenige verschiedene Buchstabenpaare, der Eimer von 'qq' enthaelt genau die Namen mit 'qq'.
+      const nameZu = (i: number): string => 'qq' + i.toString(2).padStart(13, '0').replace(/0/g, 'a').replace(/1/g, 'b');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw5 = (db5 as any).db as { exec(s: string): void };
+      raw5.exec('BEGIN');
+      for (let i = 0; i < ARMORY_KANDIDATEN_MAX; i++) assert.ok(db5.charakterAnlegen(k.konto.id, nameZu(i), { ...aussehen, klasse: 'krieger' }).ok);
+      raw5.exec('COMMIT');
+      let t5 = 11_000_000;
+      const grenze = new Armory(db5, []);
+      grenze.uhr = () => t5;
+      /** Sucht `qq` und liefert (Kandidaten, gekuerzt); ein Eimer-Zusammenstoss mit anderen Paaren (Salz zufaellig) wird mit neuem Salz wiederholt. */
+      const probe = async (erwartet: number): Promise<{ gekuerzt: boolean; gesamt: number }> => {
+        for (let versuch = 0; versuch < 8; versuch++) {
+          t5 += ARMORY_CACHE_MS + 1; // neuer Aufbau, neues Salz
+          grenze.liste('1', '');
+          await grenze.bereit();
+          const k0 = grenze.statistik.suchKandidaten;
+          const r = grenze.liste('1', 'qq')!;
+          if (grenze.statistik.suchKandidaten - k0 === Math.min(erwartet, ARMORY_KANDIDATEN_MAX)) return { gekuerzt: r.suche_gekuerzt, gesamt: r.gesamt };
+        }
+        throw new Error('Eimer-Zusammenstoesse in 8 Aufbauten hintereinander');
+      };
+      const bei5000 = await probe(ARMORY_KANDIDATEN_MAX);
+      assert.equal(bei5000.gekuerzt, false, 'genau 5 000 Kandidaten: nicht gekuerzt');
+      assert.equal(bei5000.gesamt, ARMORY_KANDIDATEN_MAX, 'alle 5 000 gefunden');
+      assert.ok(db5.charakterAnlegen(k.konto.id, nameZu(ARMORY_KANDIDATEN_MAX), { ...aussehen, klasse: 'krieger' }).ok);
+      const bei5001 = await probe(ARMORY_KANDIDATEN_MAX + 1);
+      assert.equal(bei5001.gekuerzt, true, '5 001 Kandidaten: gekuerzt');
+      assert.equal(bei5001.gesamt, ARMORY_KANDIDATEN_MAX, 'geprueft werden hoechstens 5 000');
+    } finally { rmSync(ordner5, { recursive: true, force: true }); }
+  }
+
   // ── 8. Puffer ─────────────────────────────────────────────────────
   zuletzt(ulf.id, 5_000);
   jetzt += ARMORY_CACHE_MS + 1;

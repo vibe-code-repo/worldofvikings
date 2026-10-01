@@ -789,7 +789,7 @@ describe('Nachbesserung N2: nachsichtige Rüstung und Lebenszyklus', () => {
   it('F5: im festen Rahmen sperrt die Leinwand das Wischen auch im Stylesheet nicht', () => {
     const q = quelle('ReckenVorschau.svelte');
     const eng = /\.eng canvas\s*\{[^}]*\}/.exec(q)?.[0] ?? '';
-    expect(eng).toContain('touch-action: pan-y');
+    expect(eng).toContain('touch-action: pan-y pinch-zoom'); // Zoomen der Seite mit zwei Fingern bleibt
     const allgemein = /\n\s*canvas\s*\{[^}]*\}/.exec(q)?.[0] ?? '';
     expect(allgemein).toContain('touch-action: none'); // die Erstellung bleibt, wie sie war
   });

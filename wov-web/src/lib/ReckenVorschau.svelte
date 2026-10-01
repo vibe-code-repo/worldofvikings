@@ -93,6 +93,10 @@
   let gestartet = $state(false);
   /** Das Bündel oder die Figur lädt gerade (für den Vorlese-Text). */
   let laedt = $state(false);
+  /** Die Figur stand schon einmal: Beim Nachladen bleiben die Knöpfe stehen. */
+  let gezeigt = $state(false);
+  /** Nummeriert Nachladevorgänge; nur der letzte beendet den „lädt“-Zustand. */
+  let nachladeNr = 0;
   /** Zählt Neustarts nach einem Fehler, bei dem die Engine entsorgt wurde. */
   let neustart = $state(0);
   let abgebrochen = $state(false);
@@ -151,7 +155,9 @@
       { ladeBuendel, hatWebGL: () => webGLVerfuegbar() },
       {
         beiFertig: (wert) => {
-          if (!beendet) fertig = wert;
+          if (beendet) return;
+          fertig = wert;
+          if (wert) gezeigt = true;
         },
         beiFehler: (fehler) => {
           if (beendet) return;
@@ -160,6 +166,7 @@
             return;
           }
           laedt = false;
+          gezeigt = false;
           if (fehler.art === 'laden' && rueckfall) {
             // Im Profil bleibt die Silhouette; die Engine hätte sonst unsichtbar
             // weitergerendert. Ändert sich der Plan, startet `auto` neu.
@@ -214,7 +221,7 @@
         const d = liste;
         if (!(await eigene.starte(flaeche)) || beendet) return;
         // Feste Rahmen (Profil): senkrechtes Wischen scrollt die Seite, waagerechtes dreht.
-        if (eng) flaeche.style.touchAction = 'pan-y';
+        if (eng) flaeche.style.touchAction = 'pan-y pinch-zoom';
         letzterPlan = planSchluessel(d);
         gestartet = true;
         await eigene.ladeAlles(() => plan(d));
@@ -232,6 +239,7 @@
       gestartet = false;
       abgebrochen = false;
       laedt = false;
+      gezeigt = false;
       fertig = false;
       kopfNah = false;
       kopfUeber = false;
@@ -258,7 +266,13 @@
     const d = daten;
     untrack(() => {
       if (abgebrochen) neustart += 1;
-      else void aktuell.ladeAlles(() => plan(d));
+      else {
+        const nr = ++nachladeNr;
+        laedt = true;
+        void aktuell.ladeAlles(() => plan(d)).finally(() => {
+          if (nr === nachladeNr && steuerung === aktuell) laedt = false;
+        });
+      }
     });
   });
 
@@ -311,7 +325,7 @@
     <svg viewBox="0 0 16 16" width="14" height="14" focusable="false"><circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M10 10l4.5 4.5M4.5 6.5h4M6.5 4.5v4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
   </div>
   <div class="buehne-hinweis nur-vorlesen" aria-live="polite" class:fertig>{hinweisText ?? (laedt || !rueckfall ? t['create.stage.hint.loading'] : '')}</div>
-  {#if werkzeug && (fertig || !rueckfall)}
+  {#if werkzeug && (fertig || gezeigt || !rueckfall)}
     <div class="buehne-werkzeug">
       <button type="button" title={t['create.stage.rotate_left']} aria-label={t['armory.figur.rotate_left']} onclick={() => steuerung?.drehe(-0.35)}>↺</button>
       <button type="button" title={t['create.stage.reset_view']} aria-label={t['create.stage.reset_view']} onclick={() => steuerung?.blickZurueck()}>⌂</button>
@@ -367,7 +381,7 @@
   @keyframes runenkern-leuchten { 50% { opacity: 0.58; transform: translate(-50%, -50%) scale(0.9); } }
   canvas { position: absolute; inset: -28px -10px -36px; width: calc(100% + 20px); height: calc(100% + 64px); outline: none; background: transparent; cursor: grab; touch-action: none; opacity: 0; transition: opacity 0.3s ease; }
   /* Im festen Rahmen scrollt senkrechtes Wischen die Seite, auch solange (oder falls) die Engine nicht läuft. */
-  .eng canvas { inset: 0; width: 100%; height: 100%; touch-action: pan-y; }
+  .eng canvas { inset: 0; width: 100%; height: 100%; touch-action: pan-y pinch-zoom; }
   canvas.bereit { opacity: 1; }
   canvas:active { cursor: grabbing; }
   .buehne-hinweis { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; color: #b8ad95; font-size: 12px; text-align: center; text-shadow: 0 2px 6px #000; pointer-events: none; }

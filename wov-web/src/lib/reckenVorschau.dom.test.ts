@@ -362,11 +362,11 @@ describe('Profil: Rückfall', () => {
 });
 
 describe('Bedienung im festen Rahmen', () => {
-  it('senkrechtes Wischen scrollt die Seite (touch-action pan-y), das Mausrad erreicht die Leinwand nicht', async () => {
+  it('senkrechtes Wischen scrollt die Seite (touch-action pan-y pinch-zoom), das Mausrad erreicht die Leinwand nicht', async () => {
     profil(mann);
     await ruhe(200);
     const flaeche = leinwand() as HTMLCanvasElement;
-    expect(flaeche.style.touchAction).toBe('pan-y');
+    expect(flaeche.style.touchAction).toBe('pan-y pinch-zoom');
     let erreicht = 0;
     flaeche.addEventListener('wheel', (e) => {
       erreicht += 1;
@@ -393,6 +393,38 @@ describe('Bedienung im festen Rahmen', () => {
     ]);
     k[0].click();
     expect(fake().instanzen[0].rufe.at(-1)).toBe('drehe:-0.35');
+  });
+});
+
+describe('Nachbesserung N3: Nachladen nach einem Profilwechsel', () => {
+  it('der Vorlese-Text sagt „wird geladen“ und die Knöpfe bleiben stehen, bis die neue Figur steht', async () => {
+    const s = profil(mann, ironward);
+    await ruhe(200);
+    expect(bereit()).toBe(true);
+    fake().verzoegerung = 40;
+    s.setze(frau, []);
+    flushSync();
+    await ruhe(60);
+    expect(bereit()).toBe(false);
+    expect(hinweis()).toContain('Figur wird geladen');
+    expect(knoepfe().length).toBe(4);
+    await ruhe(900);
+    expect(bereit()).toBe(true);
+    expect(hinweis()).toBe('');
+    expect(knoepfe().length).toBe(4);
+  });
+
+  it('nach einem Ladefehler beim Nachladen verschwinden die Knöpfe wieder', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const s = profil(mann, ironward);
+    await ruhe(200);
+    fake().wirftBei.add('wikingerin/WikingerinKoerper');
+    s.setze(frau, []);
+    flushSync();
+    await ruhe(300);
+    expect(knoepfe().length).toBe(0);
+    expect(rueckfallSichtbar()).toBe(true);
+    warn.mockRestore();
   });
 });
 

@@ -85,6 +85,8 @@ export const de = {
   'pages.main_nav.hall.short': 'Halle',
   'pages.main_nav.saga.title': 'Die Saga',
   'pages.main_nav.saga.short': 'Saga',
+  'pages.main_nav.devlog.title': 'Dev-Log',
+  'pages.main_nav.devlog.short': 'Dev-Log',
   'pages.main_nav.map.title': 'Die Karte',
   'pages.main_nav.map.short': 'Karte',
   'pages.main_nav.armory.title': 'Rüstkammer',
@@ -202,6 +204,17 @@ export const de = {
   'saga.error': 'Die Saga schweigt gerade.',
   'saga.loading': 'Die Saga wird aufgeschlagen …',
   'saga.empty': 'Noch kein Eintrag.',
+
+  /* ----------------------------------------------------------- devlog */
+  'devlog.meta.title': 'Dev-Log',
+  'devlog.meta.description': 'Was sich im Spiel geändert hat, Tag für Tag in einfachen Worten.',
+  'devlog.heading': 'Dev-Log',
+  'devlog.intro': 'Was sich im Spiel geändert hat, Tag für Tag in einfachen Worten.',
+  'devlog.error': 'Das Dev-Log lässt sich gerade nicht laden.',
+  'devlog.loading': 'Das Dev-Log wird geladen …',
+  'devlog.empty': 'Noch kein Eintrag.',
+  'devlog.fallback_note':
+    'Dieser Eintrag liegt noch nicht auf Deutsch vor und wird auf Englisch gezeigt.',
 
   /* -------------------------------------------------------------- map */
   'map.title': 'Die Karte',

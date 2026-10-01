@@ -70,6 +70,8 @@ NACHGELADEN = {
     # Eintraege kommen aus /api/saga.json (Altbestand). In beiden Sprachen
     # derselbe Slug, deshalb nur eine Zeile.
     'saga': 90,
+    # Eintraege kommen aus /api/devlog.json; vorgerendert steht nur der Rahmen.
+    'devlog': 90,
     # Tafeln werden im Browser umgeschaltet (Altbestand).
     'ruhmeshalle': 300,
     'hall-of-fame': 300,

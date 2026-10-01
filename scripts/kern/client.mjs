@@ -266,6 +266,9 @@ export default [
   // der frisch kompilierten Welt (Server-Weg), Tasten (deutsche Tastatur), Takt, Texte de/en. DOM-frei.
   // N1: Bauteil-Sperre (PIECE/sm-bld-), Wirkradius, Flug folgt dem Entwurf (fremder Tab), enthaelt() mit heightDeltas, Zonennaht, Wertgrenze.
   ['client', 'test/gelaende-pinsel.ts'],
+  // Gelaende T3: Ebnen mit Pipette, Zuruecksetzen, Rueckgaengig/Wiederholen je Strich (eigener Stapel), lose Objekte wandern mit dem Boden
+  // (Gebaeude und Sockel nicht), Bewuchs, storage-Hoerer nur bei offenem Reiter. DOM-frei, echte RegionGeo.
+  ['client', 'test/gelaende-t3.ts'],
   /*
     E7: Ein Modul mit `Gen_`-Praefix kommt aus `assets/generiert/`, alles
     andere aus `assets/models/` — und der Dev-Server liefert beides aus.

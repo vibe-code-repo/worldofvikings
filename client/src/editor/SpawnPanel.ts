@@ -48,6 +48,10 @@ import { SKALA_MAX, SKALA_MIN } from './testflug/vorschauZeichnen';
 import { ladeSerie, speichereSerie } from './testflug/greifen';
 import {
   klemmeRadius,
+  klemmeZiel,
+  zielAusText,
+  ZIEL_MAX,
+  ZIEL_MIN,
   RADIUS_MAX,
   RADIUS_MIN,
   RADIUS_START,
@@ -77,6 +81,8 @@ export interface GelaendeEinstellung {
   werkzeug: Werkzeug;
   radius: number;
   staerke: number;
+  /** Target ground height of the level tool in m (pipette or number field); `null` = not chosen yet. */
+  ziel: number | null;
 }
 
 export interface SpawnPanelCallbacks {
@@ -269,10 +275,14 @@ export class SpawnPanel {
   /** Called when the terrain tool turns on or off (tab change, panel closed, `beendeGelaendeModus`). */
   aufGelaende: (() => void) | null = null;
   /** Brush settings of the terrain tab. */
-  readonly gelaendeEinstellung: GelaendeEinstellung = { werkzeug: 'anheben', radius: RADIUS_START, staerke: STAERKE_START };
+  readonly gelaendeEinstellung: GelaendeEinstellung = { werkzeug: 'anheben', radius: RADIUS_START, staerke: STAERKE_START, ziel: null };
   private tab: 'objekte' | 'gelaende' = 'objekte';
   private objekteBlock!: HTMLDivElement;
   private gelaendeBlock!: HTMLDivElement;
+  private zielFeld: HTMLInputElement | null = null;
+  private pipetteKnopf: HTMLButtonElement | null = null;
+  /** The pipette button was pressed (the brush arms it; `setzePipetteBereit` only shows it). */
+  aufPipetteKnopf: (() => void) | null = null;
   private tabKnoepfe: Record<'objekte' | 'gelaende', HTMLButtonElement> | null = null;
   private werkzeugKnoepfe = new Map<Werkzeug, HTMLButtonElement>();
   private radiusRegler: HTMLInputElement | null = null;
@@ -597,9 +607,11 @@ export class SpawnPanel {
       ['anheben', 'testflug.gelaende.werkzeug.anheben'],
       ['absenken', 'testflug.gelaende.werkzeug.absenken'],
       ['glaetten', 'testflug.gelaende.werkzeug.glaetten'],
+      ['ebnen', 'testflug.gelaende.werkzeug.ebnen'],
+      ['zuruecksetzen', 'testflug.gelaende.werkzeug.zuruecksetzen'],
     ];
     const zeile = document.createElement('div');
-    zeile.style.cssText = 'display:flex;gap:6px;margin-bottom:4px;';
+    zeile.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px;';
     for (const [werkzeug, schluessel] of werkzeuge) {
       const k = this.knopf(t(schluessel), () => {
         this.gelaendeEinstellung.werkzeug = werkzeug;
@@ -636,6 +648,26 @@ export class SpawnPanel {
       this.schieber(t('testflug.gelaende.staerke_cm'), STAERKE_MIN, STAERKE_MAX, this.gelaendeEinstellung.staerke, 1, (v) => (this.gelaendeEinstellung.staerke = v))
     );
 
+    // Target height of the level tool: filled by the pipette (Ctrl/Cmd+click on the ground) or typed.
+    block.appendChild(this.label(t('testflug.gelaende.ziel_m')));
+    const ziel = document.createElement('input');
+    ziel.type = 'number';
+    ziel.step = '0.1';
+    ziel.min = String(ZIEL_MIN);
+    ziel.max = String(ZIEL_MAX);
+    ziel.style.cssText = this.feldStil();
+    // Bei jeder Eingabe übernehmen (nicht erst bei `change`): der erste Klick danach stempelt schon mit dem neuen Wert.
+    ziel.oninput = () => {
+      this.gelaendeEinstellung.ziel = zielAusText(ziel.value);
+    };
+    ziel.onchange = () => {
+      if (this.gelaendeEinstellung.ziel !== null) ziel.value = String(this.gelaendeEinstellung.ziel);
+    };
+    block.appendChild(ziel);
+    this.zielFeld = ziel;
+    this.pipetteKnopf = this.knopf(t('testflug.gelaende.pipette_knopf'), () => this.aufPipetteKnopf?.());
+    block.appendChild(this.pipetteKnopf);
+
     const speichern = document.createElement('div');
     speichern.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
     speichern.appendChild(this.knopf(t('testflug.gelaende.speichern'), () => this.cb.speichernGelaende?.()));
@@ -645,6 +677,10 @@ export class SpawnPanel {
     tip.style.cssText = 'font-size:10px;color:#9a8f6a;margin-top:6px;';
     tip.textContent = t('testflug.gelaende.tip');
     block.appendChild(tip);
+    const tip3 = document.createElement('div');
+    tip3.style.cssText = 'font-size:10px;color:#9a8f6a;margin-top:4px;';
+    tip3.textContent = t('testflug.gelaende.tip3');
+    block.appendChild(tip3);
     return block;
   }
 
@@ -685,6 +721,20 @@ export class SpawnPanel {
   beendeGelaendeModus(): void {
     if (this.tab === 'objekte') return;
     this.setzeTab('objekte');
+  }
+
+  setzePipetteBereit(an: boolean): void {
+    if (this.pipetteKnopf) {
+      this.pipetteKnopf.style.background = an ? '#243044' : '#1d2431';
+      this.pipetteKnopf.style.color = an ? '#e8d48a' : '#d8cfa8';
+    }
+  }
+
+  /** Target height in m (from the pipette), clamped to whole cm; keeps the field in step. */
+  setzeZiel(hoehe: number): void {
+    const h = klemmeZiel(hoehe);
+    this.gelaendeEinstellung.ziel = h;
+    if (this.zielFeld) this.zielFeld.value = String(h);
   }
 
   /** Radius in whole metres, clamped; keeps the slider in step. */

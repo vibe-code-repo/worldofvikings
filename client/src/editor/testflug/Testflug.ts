@@ -50,7 +50,8 @@ import { ENTWURF_KEY } from '../weltdokument';
 import { verdrahteGrundskalaLive } from './grundskalaLive';
 import { GelaendeAktionen } from './GelaendeAktionen';
 import { GelaendeSteuerung, type Kasten } from './GelaendeSteuerung';
-import { radiusSchritt } from './gelaendePinsel';
+import { pipetteEntscheid, radiusSchritt, verlaufEntscheid } from './gelaendePinsel';
+import { verdrahteEntwurfHoerer } from './gelaendeHoerer';
 import type { SperrKatalog } from './gelaendeSperre';
 
 /**
@@ -143,6 +144,19 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       const liste = persistenz.laden()?.placements ?? [];
       for (let i = 0; i < Math.max(angezeigt, liste.length); i++) ent.removeZDO(`edplace-${i}`);
       liste.forEach(zeige);
+      ent.flush();
+      panel.aktualisiere();
+    };
+    /** Zeichnet nur die angegebenen Platzierungen (Listenplätze) neu: lose Objekte nach einem Strich, Rückgängig, Wiederholen. */
+    const neuAufbauenLose = (indizes: readonly number[]): void => {
+      if (indizes.length === 0) return;
+      const liste = persistenz.laden()?.placements ?? [];
+      for (const i of indizes) {
+        const p = liste[i];
+        if (!p) continue;
+        ent.removeZDO(`edplace-${i}`);
+        zeige(p, i);
+      }
       ent.flush();
       panel.aktualisiere();
     };
@@ -829,8 +843,17 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         },
         verberge: () => kreisNetz?.setEnabled(false),
       },
-      // Der Boden unter losen Objekten hat sich bewegt: alle Platzierungen neu aufsetzen (Gebäude sind gesperrt).
-      nachStrich: () => neuAufbauenAlle(),
+      // Der Boden unter losen Objekten hat sich bewegt: nur diese neu aufsetzen (Gebäude und Sockel bleiben, wie sie sind).
+      pipetteAnzeige: (an) => panel.setzePipetteBereit(an),
+      nachStrich: (lose) => {
+        if (lose === 'alle') neuAufbauenAlle();
+        else neuAufbauenLose(lose);
+        // Die Bewuchs-Vorschau streut nach dem Boden, der beim Streuen galt (`streueZone`); ein Strich, Rückgängig
+        // oder Wiederholen lässt sie sonst auf der alten Höhe stehen. Einmal je Strichende, nicht je Stempel;
+        // der Ring wird danach eine Zone je Bild nachgestreut (wie nach Taste G).
+        bewuchs?.neuAufbauen();
+      },
+      setzeZiel: (h) => panel.setzeZiel(h),
       jetztMs: () => performance.now(),
       vorgangId: () => `gelaende-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     });
@@ -842,11 +865,19 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       anheben: 'testflug.gelaende.werkzeug.anheben',
       absenken: 'testflug.gelaende.werkzeug.absenken',
       glaetten: 'testflug.gelaende.werkzeug.glaetten',
+      ebnen: 'testflug.gelaende.werkzeug.ebnen',
+      zuruecksetzen: 'testflug.gelaende.werkzeug.zuruecksetzen',
     } as const;
     const gelaendeAus = (): void => {
       gelaendeUnten = false;
       gelaende.beenden();
     };
+    panel.aufPipetteKnopf = () => gelaende.pipetteScharf();
+    // Im Baumodus sinkt die Figur mit Strg; bei offenem Gelände-Reiter nicht (Strg+Z/Y gehören dem Verlauf).
+    scene.onBeforeRenderObservable.add(() => {
+      const p = kontext.player();
+      if (p) p.strgSinktNicht = () => panel.istGelaendeModus;
+    });
     panel.aufGelaende = () => {
       if (!panel.istGelaendeModus) {
         gelaendeAus();
@@ -859,11 +890,28 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       }
       routen.beendeZeichnen();
       geistWeg();
+      // Ein geschlossener Reiter hat keine Ereignisse übernommen: jetzt angleichen (Zone für Zone, nur Unterschiede).
+      gelaende.entwurfGeaendert();
       const e = panel.gelaendeEinstellung;
       hud.meldung(t('testflug.gelaende.pinsel_an', { werkzeug: t(WERKZEUG_TEXT[e.werkzeug]), r: e.radius }));
     };
     window.addEventListener('keydown', (e) => {
       gelaendeShift = e.shiftKey;
+      // Strg/Cmd+Z nimmt den letzten Strich zurück, Strg+Y / Strg+Umschalt+Z stellt ihn wieder her (nur Gelände-Striche,
+      // nur bei offenem Reiter, nicht im Textfeld, gehaltene Taste = ein Schritt).
+      const verlauf = verlaufEntscheid(e, panel.istGelaendeModus, tipptImFeld(e));
+      if (verlauf.verhindern) e.preventDefault();
+      if (verlauf.aktion) void (verlauf.aktion === 'rueckgaengig' ? gelaende.rueckgaengig() : gelaende.wiederholen());
+      if (verlauf.verhindern) return;
+      // Pipette: Taste H liest die Bodenhöhe unter dem Zeiger in das Zielfeld (H ist im Flug frei; Strg wäre im Baumodus die Sinktaste).
+      // Nur bei offenem Reiter und nicht im Textfeld (ein „h“ im Namensfeld bleibt ein „h“).
+      const pip = pipetteEntscheid(e, panel.istGelaendeModus, tipptImFeld(e));
+      if (pip.verhindern) e.preventDefault();
+      if (pip.lesen) {
+        const gp = gelaendeZeiger ? bodenPunkt(gelaendeZeiger.x, gelaendeZeiger.y) : null;
+        if (gp) gelaende.pipetteAn(gp);
+      }
+      if (pip.verhindern) return;
       if (tipptImFeld(e) || !panel.istGelaendeModus) return;
       if (e.code === 'Escape') {
         gelaendeAus();
@@ -884,9 +932,16 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     // Ändert ein anderer Tab (der Editor) den Entwurf, übernimmt der Flug dessen Geländeebene und baut neu
     // (ein laufender Strich wird nicht zerrissen, die Übernahme wartet auf sein Ende). `storage` feuert nur in
     // den ANDEREN Tabs, eigene Schreibungen des Flugs kommen hier nicht an.
-    window.addEventListener('storage', (e) => {
-      if (e.key === null || e.key === ENTWURF_KEY) gelaende.entwurfGeaendert();
-    });
+    // Nur bei offenem Gelände-Reiter (N1-1); `gelaendeHoerer.ts` ist der Hörer, ohne Browser getestet.
+    verdrahteEntwurfHoerer(
+      {
+        addEventListener: (art, f) => window.addEventListener(art, f),
+        removeEventListener: (art, f) => window.removeEventListener(art, f),
+      },
+      ENTWURF_KEY,
+      () => panel.istGelaendeModus,
+      () => gelaende.entwurfGeaendert()
+    );
     // Ein Bild lang stehende Maustaste: der Pinsel wiederholt seinen Stempel (StempelTakt bestimmt, wann).
     scene.onBeforeRenderObservable.add(() => {
       if (!gelaendeUnten || !gelaendeZeiger || !panel.istGelaendeModus) return;
@@ -947,6 +1002,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // Gelände-Reiter: der Linksklick formt das Gelände statt zu setzen oder zu greifen; Alt greift wie bisher.
       if (panel.istGelaendeModus && !e.altKey && !routen.istZeichenModus) {
         const gp = bodenPunkt(e.offsetX, e.offsetY);
+        // (Knopf „Pipette“ scharf: `druecken` liest dann die Höhe und beginnt keinen Strich.)
         if (gp) {
           gelaendeUnten = true;
           gelaendeZeiger = { x: e.offsetX, y: e.offsetY };

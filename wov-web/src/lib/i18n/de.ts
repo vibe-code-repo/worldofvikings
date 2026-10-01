@@ -85,6 +85,8 @@ export const de = {
   'pages.main_nav.hall.short': 'Halle',
   'pages.main_nav.saga.title': 'Die Saga',
   'pages.main_nav.saga.short': 'Saga',
+  'pages.main_nav.devlog.title': 'Dev-Log',
+  'pages.main_nav.devlog.short': 'Dev-Log',
   'pages.main_nav.map.title': 'Die Karte',
   'pages.main_nav.map.short': 'Karte',
   'pages.main_nav.armory.title': 'Rüstkammer',
@@ -176,14 +178,6 @@ export const de = {
   'hall.worlds.weather_label': 'Wetter:',
   'hall.worlds.seed_label': 'Saat:',
   'hall.worlds.map_link': 'Beide Welten auf der Karte ansehen ›',
-  'hall.hall_of_fame.title': 'Aus der Ruhmeshalle',
-  'hall.hall_of_fame.column.hash': '#',
-  'hall.hall_of_fame.column.character': 'Recke',
-  'hall.hall_of_fame.column.clan': 'Sippe',
-  'hall.hall_of_fame.column.rune_rank': 'Runenrang',
-  'hall.hall_of_fame.error': 'Die Tafel ist gerade verhängt.',
-  'hall.hall_of_fame.loading': 'wird geholt …',
-  'hall.hall_of_fame.link': 'Die ganze Tafel ansehen ›',
   'hall.thing.title': 'Das Thing wird einberufen',
   'hall.thing.text':
     'Beim Thing versammelten sich die Freien, um zu beraten und zu richten. Unseres wird das Forum: ein Ort für Bauwerke, Fundstücke, Streit über Ausrüstung und die Frage, wer als Nächstes gegen Moder zieht.',
@@ -202,6 +196,17 @@ export const de = {
   'saga.error': 'Die Saga schweigt gerade.',
   'saga.loading': 'Die Saga wird aufgeschlagen …',
   'saga.empty': 'Noch kein Eintrag.',
+
+  /* ----------------------------------------------------------- devlog */
+  'devlog.meta.title': 'Dev-Log',
+  'devlog.meta.description': 'Was sich im Spiel geändert hat, Tag für Tag in einfachen Worten.',
+  'devlog.heading': 'Dev-Log',
+  'devlog.intro': 'Was sich im Spiel geändert hat, Tag für Tag in einfachen Worten.',
+  'devlog.error': 'Das Dev-Log lässt sich gerade nicht laden.',
+  'devlog.loading': 'Das Dev-Log wird geladen …',
+  'devlog.empty': 'Noch kein Eintrag.',
+  'devlog.fallback_note':
+    'Dieser Eintrag liegt noch nicht auf Deutsch vor und wird auf Englisch gezeigt.',
 
   /* -------------------------------------------------------------- map */
   'map.title': 'Die Karte',
@@ -248,82 +253,124 @@ export const de = {
 
   /* ----------------------------------------------------------- armory */
   'armory.title': 'Rüstkammer',
-  'armory.description':
-    'Sieh dir Recken aus Midgard an: Ausrüstung, Fertigkeiten, bezwungene Wächter und Trophäen.',
+  'armory.description': 'Sieh dir Recken aus Midgard an: Ausrüstung, Werte und Aussehen.',
   'armory.heading': 'Rüstkammer',
   'armory.intro':
-    'Wer wie durch Midgard zieht: Ausrüstung, Fertigkeiten, bezwungene Wächter und Trophäen. Suche nach einem Recken, einer Sippe oder einem Beinamen.',
-  'armory.hint.bold': 'Noch Beispieldaten.',
-  'armory.hint.text':
-    'Das Spiel kennt bisher keine Konten — es gibt also noch keine echten Recken zu zeigen. Die Kammer steht aber fertig und füllt sich von selbst, sobald der Server Charaktere speichert.',
+    'Wer durch Midgard zieht, und was er trägt: Ausrüstung mit Symbolen, Werte und eine drehbare Figur. Die Kammer zeigt den Stand aus dem Spiel, mit Charakternamen — nie mit Kontonamen.',
   'armory.back': '‹ Zurück zur Suche',
   'armory.search.label': 'Recke suchen',
-  'armory.search.placeholder': 'Name, Beiname oder Sippe …',
-  'armory.search.button': 'Suchen',
+  'armory.search.placeholder': 'Charaktername …',
   'armory.state.error':
-    'Die Kammer ist gerade verschlossen — die Reckenliste liess sich nicht laden.',
-  'armory.state.loading': 'Die Kammer wird aufgeschlossen …',
-  'armory.state.empty': 'Kein Recke dieses Namens in der Kammer.',
-  'armory.card.rune_rank': 'Runenrang',
-  'armory.card.last_seen': 'zuletzt',
+    'Die Kammer ist gerade verschlossen — der Spielserver antwortet nicht. Bitte versuche es gleich noch einmal.',
+  'armory.state.warming':
+    'Die Kammer wird gerade vorbereitet. Bitte lade die Seite in einem Moment neu.',
+  'armory.state.limit':
+    'Zu viele Anfragen in kurzer Zeit. Bitte warte einen Augenblick und versuche es dann noch einmal.',
+  'armory.state.empty':
+    'In der Kammer steht noch niemand. Sobald jemand einen Recken anlegt, erscheint er hier.',
+
+  'armory.search.submit': 'Suchen',
+  'armory.search.too_short':
+    'Bitte gib mindestens 2 Zeichen ein, um zu suchen. Hier steht die ganze Liste.',
+  'armory.state.no_match': 'Kein Recke dieses Namens in der Kammer.',
+  'armory.zuletzt.now': 'in der letzten Stunde',
+  'armory.zuletzt.hour_one': 'vor {n} Stunde',
+  'armory.zuletzt.hour_other': 'vor {n} Stunden',
+  'armory.zuletzt.day_one': 'vor {n} Tag',
+  'armory.zuletzt.day_other': 'vor {n} Tagen',
+  'armory.card.never': 'noch nie gespielt',
+  'armory.pages.label': 'Seiten',
+  'armory.pages.prev': '‹ Zurück',
+  'armory.pages.next': 'Weiter ›',
+  'armory.pages.of': 'Seite {seite} von {seiten}',
+  'armory.stats.title': 'Werte',
+  'armory.profil.title': 'Über den Recken',
+  'armory.stueck.stufe': 'Stufe',
+  'armory.stueck.qualitaet': 'Güte',
+  'armory.rarity.common': 'Gewöhnlich',
+  'armory.rarity.uncommon': 'Ungewöhnlich',
+  'armory.rarity.rare': 'Selten',
+  'armory.rarity.epic': 'Episch',
+  'armory.rarity.legendary': 'Legendär',
+  'armory.slot.waffe': 'Waffe',
+  'armory.slot.kopf': 'Kopf',
+  'armory.slot.halskette': 'Halskette',
+  'armory.slot.schultern': 'Schultern',
+  'armory.slot.hemd': 'Brust',
+  'armory.slot.unterarme': 'Unterarme',
+  'armory.slot.haende': 'Hände',
+  'armory.slot.armreif': 'Armreif',
+  'armory.slot.ring1': 'Ring (links)',
+  'armory.slot.ring2': 'Ring (rechts)',
+  'armory.slot.hose': 'Beine',
+  'armory.slot.schuhe': 'Füße',
+  'armory.wert.leben': 'Leben',
+  'armory.wert.nahkampf': 'Nahkampfschaden',
+  'armory.wert.damage': 'Schaden',
+  'armory.wert.armor': 'Rüstung',
+  'armory.wert.strength': 'Stärke',
+  'armory.wert.vitality': 'Vitalität',
+  'armory.wert.agility': 'Gewandtheit',
+  'armory.feld.stufe': 'Stufe',
+  'armory.feld.erfahrung': 'Erfahrung',
+  'armory.feld.tode': 'Tode',
+  'armory.feld.spielzeit': 'Spielzeit',
+
+  'armory.search.too_general':
+    'Die Suche ist zu allgemein. Es werden nur die ersten Treffer gezeigt; bitte suche genauer.',
+  'armory.list.count_min': 'mindestens {n} Treffer',
+  'armory.list.count_one': '{n} Recke',
+  'armory.list.count_other': '{n} Recken',
+  'armory.error.title': 'Dieser Recke ist nicht in der Kammer.',
+  'armory.error.text':
+    'Die Adresse führt zu keinem Recken. Vielleicht wurde er gelöscht, oder der Link ist falsch.',
+  'armory.error.back': '‹ Zur Rüstkammer',
+  'armory.klasse.krieger': 'Krieger',
+  'armory.klasse.schildmaid': 'Schildmaid',
+  'armory.klasse.jaeger': 'Jäger',
+  'armory.klasse.skalde': 'Skalde',
+  'armory.klasse.seherin': 'Seherin',
+  'armory.klasse.berserker': 'Berserker',
+  'armory.klasse.runenmagier': 'Runenmagier',
+  'armory.klasse.hexer': 'Hexer',
+  'armory.klasse.druide': 'Druide',
 
   /* ---------------------------------------------------- hall_of_fame */
   'hall_of_fame.title': 'Ruhmeshalle',
-  'hall_of_fame.description':
-    'Die Bestenlisten aus Midgard: Runenrang, bezwungene Wächter, Zeit auf Fahrt.',
+  'hall_of_fame.description': 'Die Tafeln aus Midgard: wer zuletzt unterwegs war.',
   'hall_of_fame.heading': 'Ruhmeshalle',
   'hall_of_fame.intro':
-    'Wer sich in Midgard einen Namen gemacht hat. Die Tafeln werden neu berechnet, sobald die Welt gespeichert wird.',
-  'hall_of_fame.hint.bold': 'Noch Beispieldaten.',
-  'hall_of_fame.hint.text':
-    'Solange es keine Konten gibt, stehen hier erfundene Recken — die Tafeln selbst sind fertig.',
+    'Wer sich in Midgard zuletzt hat blicken lassen. Die Tafel liest den Stand aus dem Spiel, sie ist höchstens eine Minute alt.',
   'hall_of_fame.table.hash': '#',
   'hall_of_fame.table.character': 'Recke',
-  'hall_of_fame.table.clan': 'Sippe',
   'hall_of_fame.state.error': 'Die Tafeln sind gerade verhängt.',
-  'hall_of_fame.state.loading': 'wird geholt …',
-
-  /* ------------------------------------------ characters (recken.ts) */
-  'characters.board.rank.title': 'Runenrang',
-  'characters.board.rank.column': 'Rang',
-  'characters.board.guardian.title': 'Bezwungene Wächter',
-  'characters.board.guardian.column': 'Wächter',
-  'characters.board.voyage.title': 'Zeit auf Fahrt',
-  'characters.board.voyage.column': 'Stunden',
-  'characters.board.hel.title': 'Selten gefallen',
-  'characters.board.hel.column': 'Fahrten nach Hel',
+  'hall_of_fame.board.active.title': 'Zuletzt aktiv',
+  'hall_of_fame.board.active.column': 'zuletzt gespielt',
+  'hall_of_fame.state.warming':
+    'Die Tafeln werden gerade vorbereitet. Bitte lade die Seite in einem Moment neu.',
+  'hall_of_fame.state.limit':
+    'Zu viele Anfragen in kurzer Zeit. Bitte warte einen Augenblick und versuche es dann noch einmal.',
+  'hall_of_fame.state.empty': 'Noch niemand eingetragen.',
+  'hall_of_fame.soon.bold': 'Weitere Tafeln folgen.',
+  'hall_of_fame.soon.text':
+    'Runenrang, bezwungene Wächter, Zeit auf Fahrt und Fahrten nach Hel erscheinen hier, sobald das Spiel sie erfasst. Bis dahin stehen nur Tafeln da, für die es echte Zahlen gibt.',
 
   /* ------------------------ character_profile (Reckenprofil.svelte) */
-  'character_profile.slot.head': 'Kopf',
-  'character_profile.slot.chest': 'Brust',
-  'character_profile.slot.legs': 'Beine',
-  'character_profile.slot.cape': 'Umhang',
-  'character_profile.slot.weapon': 'Waffe',
-  'character_profile.slot.off_hand': 'Nebenhand',
-  'character_profile.slot.tool': 'Werkzeug',
-  'character_profile.slot.belt': 'Gürtel',
-  'character_profile.slot.quality': 'Güte',
   'character_profile.slot.empty': '— leer —',
-  'character_profile.rune_rank': 'Runenrang',
   'character_profile.last_seen': 'zuletzt gesehen',
-  'character_profile.value.health': 'Leben',
-  'character_profile.value.stamina': 'Ausdauer',
-  'character_profile.value.eitr': 'Eitr',
-  'character_profile.value.carry_weight': 'Traglast',
-  'character_profile.value.underway': 'auf Fahrt',
-  'character_profile.value.hel': 'Fahrten nach Hel',
   'character_profile.gear.title': 'Ausrüstung',
   'character_profile.figure.aria': 'Umriss eines Recken',
+  'armory.figur.loading': 'Der Recke wird gerufen …',
+  'armory.figur.unavailable': '3D-Vorschau nicht verfügbar',
+  'armory.figur.no_webgl': '3D-Vorschau braucht WebGL, das dieser Browser nicht bietet.',
+  'armory.figur.aria': 'Dreidimensionale Figur des Recken',
+  'armory.figur.rotate_left': 'Figur nach links drehen',
+  'armory.figur.rotate_right': 'Figur nach rechts drehen',
   'character_profile.skills.title': 'Fertigkeiten',
-  'character_profile.guardian.title': 'Bezwungene Wächter',
-  'character_profile.guardian.of': 'von',
-  'character_profile.lands.title': 'Bereiste Lande',
-  'character_profile.trophies.title': 'Trophäen',
   'character_profile.created': 'Erschaffen am',
 
   /* Sits under the character preview and says what can be done with it.
      The preview itself stays the existing Babylon bundle. */
-  'character_profile.preview.hint': 'Reckenvorschau · ziehen zum Drehen',
   /* ------------------------------------------------------------ thing */
   'thing.title': 'Das Thing',
   'thing.description':
@@ -445,24 +492,7 @@ export const de = {
   'thing.mod.resolve': 'Erledigt',
   'thing.mod.delete_post': 'Beitrag entfernen',
   'thing.mod.not_moderator': 'Nur für Moderatoren.',
-  'thing.connection.heading': 'Wie es angeschlossen wird',
-  'thing.connection.location.title': 'Eigener Ort, gleiche Hülle',
   /* Three blocks, because two <code> snippets sit inside the sentence. */
-  'thing.connection.location.text_1': 'Das Forum bekommt einen eigenen Dienst unter',
-  'thing.connection.location.text_2':
-    '. Der Nginx im Container hat den Ort bereits vorgesehen — es fehlt nur das',
-  'thing.connection.location.text_3': 'auf die Software. Kopf, Fuß und Palette kommen aus',
-  'thing.connection.location.text_4': ', damit das Forum nicht wie ein Fremdkörper aussieht.',
-  'thing.connection.account.title': 'Ein Konto für alles',
-  'thing.connection.account.text':
-    'Sobald das Spiel Konten kennt, meldet man sich einmal an — für Spiel, Rüstkammer und Thing. Bis dahin gibt es bewusst keine Anmeldung, denn ein Forumskonto, das später nicht zum Spielkonto passt, macht mehr Ärger als es wert ist.',
-  'thing.connection.character.title': 'Recke am Beitrag',
-  'thing.connection.character.text_1':
-    'Jeder Beitrag soll den Recken des Schreibers zeigen — Name, Sippe, Runenrang — verlinkt in die Rüstkammer. Die Daten dafür liegen schon im richtigen Format unter',
-  'thing.connection.character.text_2': '.',
-  'thing.connection.reading.title': 'Erst lesen, dann schreiben',
-  'thing.connection.reading.text':
-    'Das Thing wird ohne Anmeldung lesbar sein. Wer schreiben will, braucht ein Konto — das hält Suchmaschinen drin und Werbemüll draußen.',
   'thing.cta': 'Solange lieber auf Fahrt gehen',
 
   /* ------------------------------------------------------------- wiki */

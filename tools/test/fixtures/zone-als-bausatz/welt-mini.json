@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "name": "Mini World",
+  "regions": [
+    { "id": "dorf", "biome": "grassland", "shape": { "kind": "polygon", "points": [[-10, -10], [10, -10], [10, 10], [-10, 10]] } },
+    { "id": "kreis", "biome": "grassland", "shape": { "kind": "circle", "x": 100, "z": 100, "radius": 5 } }
+  ],
+  "placements": [
+    { "id": "u-haus_0_0", "prefab": "U_Haus", "x": 0, "z": 0, "yaw": 1, "scale": 1, "einebnen": 5 },
+    { "id": "u-fass_3_2", "prefab": "U_Fass", "x": 3.5, "z": 2.25, "yaw": 0.5, "scale": 2 },
+    { "id": "npc-1_1_1", "prefab": "NPC_1", "x": 1, "z": 1, "yaw": 0, "npc": { "name": "Test" } },
+    { "id": "baum_100", "prefab": "BirkeHoch1", "x": 100, "z": 100, "yaw": 2 },
+    { "id": "voelva_2", "prefab": "Voelva", "x": 2, "z": -2, "yaw": 0.3218 },
+    { "id": "u-zaun_4_5", "prefab": "U_Zaun", "x": -4.123, "z": 5, "yaw": 3.4208453 }
+  ],
+  "routes": []
+}

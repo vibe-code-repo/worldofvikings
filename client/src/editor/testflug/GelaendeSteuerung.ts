@@ -21,14 +21,20 @@ import {
   DeltaKarte,
   invertiere,
   klemmeRadius,
+  pipette,
+  punktWelt,
   Strich,
   wirkRadius,
   StempelTakt,
   wendeVorgang,
   type Aenderung,
+  type GelaendeVorgang,
   type Werkzeug,
 } from './gelaendePinsel';
-import { gesperrtDurch, sperrKreise, type SperrKatalog, type SperrKreis, type SperrPlatzierung } from './gelaendeSperre';
+import { GelaendeVerlauf } from './gelaendeVerlauf';
+import { loseIndizes, platzierungenNahe } from './gelaendeLose';
+import { rohHoehenQuelle } from './gelaendeRoh';
+import { gesperrtDurch, punktGesperrt, sperrKreise, type SperrKatalog, type SperrKreis, type SperrPlatzierung } from './gelaendeSperre';
 import { t } from '../i18n';
 
 /** Bounding box of changed vertices, in world coordinates. */
@@ -50,11 +56,18 @@ export interface GelaendeAbh {
   platzierungen(): readonly SperrPlatzierung[] | undefined;
   katalog: SperrKatalog;
   aktionen: GelaendeAktionen;
-  einstellung(): { werkzeug: Werkzeug; radius: number; staerke: number };
+  einstellung(): { werkzeug: Werkzeug; radius: number; staerke: number; ziel: number | null };
+  /** The pipette / a number in the target field: show the new target height in the panel. */
+  setzeZiel(hoehe: number): void;
+  /** The pipette button is armed / disarmed (panel highlight). */
+  pipetteAnzeige?(an: boolean): void;
   meldung(text: string): void;
   kreis: { zeige(x: number, z: number, r: number, gesperrt: boolean): void; verberge(): void };
-  /** After a stroke was written: put loose objects back on the new ground. */
-  nachStrich(): void;
+  /**
+   * After a stroke, an undo, a redo or a takeover: put the placements with these list positions (in `platzierungen()`)
+   * back on the ground, or ALL of them (`'alle'`: the other tab changed the list too, positions would not match).
+   */
+  nachStrich(lose: number[] | 'alle'): void;
   jetztMs(): number;
   vorgangId(): string;
 }
@@ -73,6 +86,12 @@ export class GelaendeSteuerung {
   private ausstehend = false;
   /** The draft's layer is unusable (message), the brush stays locked until a draft comes back that can be used. */
   private entwurfKaputt: string | null = null;
+  private readonly verlauf = new GelaendeVerlauf();
+  /** The placement list as the flight last showed it (to see whether a takeover changed it too). */
+  private platzSig: string | null = null;
+  /** The pipette button was pressed: the next click on the ground reads the height and starts no stroke. */
+  private pipetteScharfBei = false;
+  private rohQuelle: ((x: number, z: number) => number) | null = null;
 
   constructor(private readonly abh: GelaendeAbh) {}
 
@@ -101,7 +120,21 @@ export class GelaendeSteuerung {
       return false;
     }
     this.karte = karte;
+    this.platzSig = this.platzierungenSig();
     return true;
+  }
+
+  /**
+   * Ground height at a vertex WITHOUT plinths and WITHOUT the hand correction (`gelaendeRoh.ts`, built at the first
+   * level stroke): the level tool aims the correction at `Ziel − Rohhöhe`.
+   */
+  private rohHoehe(x: number, z: number): number {
+    this.rohQuelle ??= rohHoehenQuelle(this.abh.geo()) ?? ((px, pz) => this.abh.hoehe(px, pz));
+    return this.rohQuelle(x, z);
+  }
+
+  private platzierungenSig(): string {
+    return JSON.stringify(this.abh.platzierungen() ?? []);
   }
 
   /**
@@ -135,9 +168,37 @@ export class GelaendeSteuerung {
     this.entwurfKaputt = null;
     const geaendert = karte.abgleichenMit(geladen.karte);
     if (geaendert.length === 0) return;
+    // Somebody else changed the layer: the steps of this flight refer to a ground that is gone.
+    this.verlauf.leeren();
     this.neuBauenJeZone(geaendert);
-    this.abh.nachStrich();
+    // The draft is the truth (the server builds the ground from it), so the ground follows it in full, and every
+    // placement near a change is put on it again, buildings too: none may float or sink.
+    // If the other tab changed the placement list too (load a server state, import), list positions no longer match
+    // what the flight shows: the whole list is drawn again, as in T2. Only with the same list is "near the change" enough.
+    this.alleNachfuehren(geaendert);
     this.abh.meldung(t('testflug.gelaende.entwurf_uebernommen', { n: geaendert.length }));
+  }
+
+  /**
+   * Did the placement list change since the flight last looked (another tab, or the flight's own edit)? Then list
+   * positions no longer match what is shown and every step that redraws by position must redraw the WHOLE list, whether
+   * or not the ground changed too. Remembers the list it saw.
+   */
+  private listeGeaendert(): boolean {
+    const jetzt = this.platzierungenSig();
+    const geaendert = this.platzSig !== jetzt;
+    this.platzSig = jetzt;
+    return geaendert;
+  }
+
+  private alleNachfuehren(aenderungen: readonly Aenderung[]): void {
+    if (this.listeGeaendert()) this.abh.nachStrich('alle');
+    else this.abh.nachStrich(platzierungenNahe(this.abh.platzierungen(), aenderungen));
+  }
+
+  private loseNachfuehren(aenderungen: readonly Aenderung[]): void {
+    if (this.listeGeaendert()) this.abh.nachStrich('alle');
+    else this.abh.nachStrich(loseIndizes(this.abh.platzierungen(), this.abh.katalog, aenderungen));
   }
 
   get strichOffen(): boolean {
@@ -176,9 +237,21 @@ export class GelaendeSteuerung {
   /** Mouse down on the ground: starts a stroke with its first stamp. */
   druecken(p: { x: number; z: number }, shift: boolean): void {
     if (this.strich || !this.bereit() || !this.karte) return;
+    // The pipette button is armed: this click reads the height and starts no stroke.
+    if (this.pipetteScharfBei) {
+      this.pipetteScharfBei = false;
+      this.abh.pipetteAnzeige?.(false);
+      this.pipetteAn(p);
+      return;
+    }
     // The ground must show the draft before a stroke lands on it (also when the event was missed).
     this.abgleichen();
     if (this.entwurfKaputt) return;
+    // Levelling needs a target: say so instead of a stroke that does nothing.
+    if (this.abh.einstellung().werkzeug === 'ebnen' && this.abh.einstellung().ziel === null) {
+      this.abh.meldung(t('testflug.gelaende.ziel_fehlt'));
+      return;
+    }
     this.strich = new Strich(this.karte, this.abh.vorgangId());
     this.takt = new StempelTakt();
     this.gesperrtGemeldet = false;
@@ -207,12 +280,14 @@ export class GelaendeSteuerung {
       this.vorschau(p);
       return;
     }
-    const werkzeug: Werkzeug = e.werkzeug === 'glaetten' ? 'glaetten' : (e.werkzeug === 'anheben') !== shift ? 'anheben' : 'absenken';
+    // Shift turns raise into lower and back; it does nothing for the other tools.
+    const werkzeug: Werkzeug =
+      e.werkzeug === 'anheben' || e.werkzeug === 'absenken' ? ((e.werkzeug === 'anheben') !== shift ? 'anheben' : 'absenken') : e.werkzeug;
     // The circle and the lock use the radius the stamp really reaches (a weak stamp is narrower than the radius).
     const wirk = wirkRadius(werkzeug, radius, e.staerke);
     const sperre = gesperrtDurch(this.sperrkreiseHolen(), p.x, p.z, wirk);
     const r = strich.stempel(
-      { x: p.x, z: p.z, radius, staerke: e.staerke, werkzeug, hoehe: (ix, iz) => this.abh.hoehe(ix, iz) },
+      { x: p.x, z: p.z, radius, staerke: e.staerke, werkzeug, hoehe: (ix, iz) => this.abh.hoehe(ix, iz), ziel: e.ziel ?? undefined, roh: (ix, iz) => this.rohHoehe(ix, iz) },
       sperre !== null
     );
     this.abh.kreis.zeige(p.x, p.z, wirk, sperre !== null);
@@ -294,7 +369,8 @@ export class GelaendeSteuerung {
     if (r.ok) {
       this.abh.meldung(t('testflug.gelaende.strich_gespeichert', { n: v.aenderungen.length }));
       // The ground under loose objects moved: put them back on it (buildings are locked and did not move).
-      this.abh.nachStrich();
+      this.verlauf.neu(v);
+      this.loseNachfuehren(v.aenderungen);
       return;
     }
     // The draft refused: take the stroke back from the live ground too, so ground and draft agree.
@@ -305,8 +381,90 @@ export class GelaendeSteuerung {
     this.abh.meldung(t('testflug.gelaende.abgelehnt', { grund: r.message }));
   }
 
+  /**
+   * Pipette: takes the ground height at a point into the target field (whole cm). Also while a stroke is
+   * open it only reads; it never changes the ground.
+   */
+  pipetteAn(p: { x: number; z: number }): number {
+    const h = pipette((x, z) => this.abh.hoehe(x, z), p.x, p.z);
+    this.abh.setzeZiel(h);
+    this.abh.meldung(t('testflug.gelaende.pipette', { h: h.toFixed(2) }));
+    return h;
+  }
+
+  /** The button „Pipette“: the next click on the ground reads the height (and starts no stroke). */
+  pipetteScharf(): void {
+    this.pipetteScharfBei = true;
+    this.abh.pipetteAnzeige?.(true);
+    this.abh.meldung(t('testflug.gelaende.pipette_bereit'));
+  }
+
+  get pipetteBereit(): boolean {
+    return this.pipetteScharfBei;
+  }
+
+  /** Ctrl+Z: takes back the last stroke (draft, live ground and loose objects). `true` = a stroke was taken back. */
+  rueckgaengig(): boolean {
+    return this.schritt('rueckgaengig');
+  }
+
+  /** Ctrl+Y / Ctrl+Shift+Z: puts the last taken-back stroke in again, bit-equal to before. */
+  wiederholen(): boolean {
+    return this.schritt('wiederholen');
+  }
+
+  private schritt(art: 'rueckgaengig' | 'wiederholen'): boolean {
+    // A stroke that is open is finished first (the mouse is still down): undo never tears it.
+    if (this.strich || !this.karte) return false;
+    // Compare with the draft first: a foreign change empties the history (nothing to undo then).
+    this.abgleichen();
+    const karte = this.karte;
+    // Undo and redo obey the lock like a stroke, and they do it as a whole: if any point of the step lies under a
+    // plinth or building (placed after the stroke, maybe) the step is REFUSED, stays in the history and the HUD says so.
+    // Doing the rest would leave a pedestal of the old correction under the object, and a second Ctrl+Z would jump to the
+    // stroke before. The lock circles are read fresh, not from the cache.
+    this.kreiseZeit = -Infinity;
+    const kreise = this.sperrkreiseHolen();
+    const anwenden = (v: GelaendeVorgang): GelaendeVorgang | null => {
+      const gesperrt = v.aenderungen.filter((a) => {
+        const p = punktWelt(a);
+        return punktGesperrt(kreise, p.x, p.z);
+      }).length;
+      if (gesperrt > 0) {
+        this.abh.meldung(t('testflug.gelaende.verlauf_gesperrt', { n: gesperrt }));
+        return null;
+      }
+      const r = this.abh.aktionen.strichAbschliessen(v);
+      if (!r.ok) {
+        this.abh.meldung(r.message);
+        return null;
+      }
+      // The draft stands; the live layer follows (same values, so this cannot conflict; if it does, the draft wins).
+      if (!wendeVorgang(karte, v).ok) this.abgleichen();
+      return v;
+    };
+    const angewandt = art === 'rueckgaengig' ? this.verlauf.rueckgaengig(anwenden) : this.verlauf.wiederholen(anwenden);
+    if (!angewandt) {
+      // (a refused or conflicting step has already said why)
+      if (!this.verlauf.kannRueckgaengig && art === 'rueckgaengig') this.abh.meldung(t('testflug.gelaende.nichts_rueckgaengig'));
+      if (!this.verlauf.kannWiederholen && art === 'wiederholen') this.abh.meldung(t('testflug.gelaende.nichts_wiederholen'));
+      return false;
+    }
+    this.neuBauenJeZone(angewandt.aenderungen);
+    // Everything near the change is put on the ground again, buildings too: a placement has no height of its own and the
+    // server stands it on the ground, so none may keep showing the old one.
+    this.alleNachfuehren(angewandt.aenderungen);
+    this.abh.meldung(t(art === 'rueckgaengig' ? 'testflug.gelaende.rueckgaengig' : 'testflug.gelaende.wiederholt', { n: angewandt.aenderungen.length }));
+    return true;
+  }
+
   /** Tool ended while the mouse may still be down (Esc, right click, other tab): the open stroke is finished, not dropped. */
   beenden(): void {
+    // Tab change, Esc, closing the panel: an armed pipette does not wait for a later click.
+    if (this.pipetteScharfBei) {
+      this.pipetteScharfBei = false;
+      this.abh.pipetteAnzeige?.(false);
+    }
     this.loslassen();
     this.abh.kreis.verberge();
   }

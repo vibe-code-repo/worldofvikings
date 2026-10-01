@@ -250,6 +250,11 @@ const TURN_SPEED = (300 * Math.PI) / 180;
 const DOWN = new Vector3(0, -1, 0);
 const UP = new Vector3(0, 1, 0);
 
+/** Ob die Figur im Baumodus sinkt: X immer, Strg nur, wenn der Testflug Strg nicht für etwas anderes braucht (`strgSinktNicht`). */
+export function baumSinkt(x: boolean, strg: boolean, strgGesperrt: boolean): boolean {
+  return x || (strg && !strgGesperrt);
+}
+
 export class PlayerController {
   readonly camera: UniversalCamera;
   readonly position = new Vector3(0, 0, 0);
@@ -904,6 +909,12 @@ export class PlayerController {
 
   get bauModus(): boolean { return this._bauModus; }
 
+  /**
+   * Der Testflug sagt hier, wann Strg NICHT sinken lassen soll (Gelände-Reiter offen: Strg+Z/Y sind dort Rückgängig/
+   * Wiederholen, und Strg+Umschalt+Z ließe die Figur mit 45 m/s fallen). X sinkt weiter. Ohne Hook sinkt Strg wie immer.
+   */
+  strgSinktNicht: (() => boolean) | null = null;
+
   /** Baumodus an/aus — siehe Feldkommentar `_bauModus`. */
   setBauModus(an: boolean): void {
     this._bauModus = an;
@@ -1026,9 +1037,11 @@ export class PlayerController {
       // Browser: Strg+W schließt den Tab — beim Sinken also besser X halten,
       // wenn gleichzeitig vorwärts geflogen wird.
       if (
-        this.input.isDown('KeyX') ||
-        this.input.isDown('ControlLeft') ||
-        this.input.isDown('ControlRight')
+        baumSinkt(
+          this.input.isDown('KeyX'),
+          this.input.isDown('ControlLeft') || this.input.isDown('ControlRight'),
+          this.strgSinktNicht?.() === true
+        )
       ) {
         this.position.y -= tempo * dt;
       }

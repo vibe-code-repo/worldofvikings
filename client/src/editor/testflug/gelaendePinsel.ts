@@ -62,7 +62,13 @@ export const STEMPEL_MIN_MS = 60;
 /** A held, motionless brush repeats its stamp at this interval. */
 export const STEMPEL_HALTE_MS = 120;
 
-export type Werkzeug = 'anheben' | 'absenken' | 'glaetten';
+export type Werkzeug = 'anheben' | 'absenken' | 'glaetten' | 'ebnen' | 'zuruecksetzen';
+
+/** Target height range of the level tool (metres, absolute ground height); the layer itself is limited to ±100 m of correction. */
+export const ZIEL_MIN = -200;
+export const ZIEL_MAX = 2000;
+/** A correction is removed completely where the falloff is at least this (reset tool); the rim fades out. */
+const ZURUECK_VOLL = 0.5;
 
 export interface Aenderung {
   zx: number;
@@ -232,11 +238,11 @@ export function falloff(d: number, radius: number): number {
 /**
  * How far a stamp REALLY reaches: raise and lower move a vertex by `round(staerke · w)` cm, which is 0
  * where `w < 0.5/staerke`, so a weak stamp is narrower than its radius (strength 1: 54 % of it). The
- * preview circle and the lock use this radius, so the circle shows what the stroke changes. Smoothing
- * depends on the ground and keeps the full radius.
+ * preview circle and the lock use this radius, so the circle shows what the stroke changes. Smoothing,
+ * levelling and resetting depend on the ground / the layer and keep the full radius.
  */
 export function wirkRadius(werkzeug: Werkzeug, radius: number, staerke: number): number {
-  if (werkzeug === 'glaetten') return radius;
+  if (werkzeug !== 'anheben' && werkzeug !== 'absenken') return radius;
   const w = 0.5 / Math.max(staerke, 0.5);
   return radius * Math.sqrt(1 - Math.sqrt(w));
 }
@@ -248,8 +254,27 @@ export interface StempelEingabe {
   /** cm per stamp at the centre. */
   staerke: number;
   werkzeug: Werkzeug;
-  /** Current ground height at an integer vertex (only read by `glaetten`). */
+  /** Current ground height at an integer vertex (read by `glaetten` and `ebnen`). */
   hoehe: (wx: number, wz: number) => number;
+  /** Target ground height in metres (only `ebnen`; without a finite value a level stamp changes nothing). */
+  ziel?: number;
+  /**
+   * Level only: the ground height at a vertex WITHOUT plinths and WITHOUT the hand correction (`rohHoehe`). With it a
+   * level stamp aims the CORRECTION at `Ziel − Rohhöhe`, a number that does not depend on what the ground shows now.
+   * Without it (pure stamps in tests) the stamp reads the visible height and takes 1 cm of correction for 1 cm of height.
+   */
+  roh?: (wx: number, wz: number) => number;
+}
+
+/** The height the pipette takes from the ground at a point: metres, whole centimetres (what the target field shows). */
+export function pipette(hoehe: (x: number, z: number) => number, x: number, z: number): number {
+  return klemmeZiel(hoehe(x, z));
+}
+
+/** Target height clamped to the range of the tool, in whole centimetres; a non-number becomes 0. */
+export function klemmeZiel(h: number): number {
+  if (!Number.isFinite(h)) return 0;
+  return Math.round(Math.min(ZIEL_MAX, Math.max(ZIEL_MIN, h)) * 100) / 100;
 }
 
 /**
@@ -264,6 +289,8 @@ export function berechneStempel(karte: DeltaKarte, e: StempelEingabe): Aenderung
   const z1 = Math.floor(e.z + r);
   const aus: Aenderung[] = [];
   const glaetten = e.werkzeug === 'glaetten';
+  const ebnen = e.werkzeug === 'ebnen';
+  if (ebnen && !(typeof e.ziel === 'number' && Number.isFinite(e.ziel))) return [];
   // One block of heights (with a one-vertex border) so that the 3×3 mean reads each vertex once and
   // sees the state BEFORE this stamp for every vertex.
   const breite = x1 - x0 + 3;
@@ -280,7 +307,29 @@ export function berechneStempel(karte: DeltaKarte, e: StempelEingabe): Aenderung
       const w = falloff(Math.hypot(ix - e.x, iz - e.z), r);
       if (w <= 0) continue;
       let zuwachs: number;
-      if (hoehen) {
+      if (ebnen) {
+        // Pull the vertex towards the target by the falloff; in the middle (w = 1) it lands on the target.
+        if (e.roh) {
+          // The ground does not always follow 1 cm of correction with 1 cm of height (the slope of a plinth blends the
+          // corrected height against the slab and gets wider the further it is from it), so aiming at the VISIBLE height
+          // piles up correction without end, stroke after stroke. The correction that makes raw + correction = target is
+          // fixed: `Ziel − Rohhöhe`. The stamp moves the correction a fraction `w` of the way there, so it settles on that
+          // number, never passes it, and what is stored stays within |Ziel − Rohhöhe| however many strokes are made.
+          const { zx, zz, index } = punktVon(ix, iz);
+          const soll = Math.round((e.ziel! - e.roh(ix, iz)) * 100);
+          zuwachs = Math.round((soll - karte.delta(zx, zz, index)) * w);
+        } else {
+          zuwachs = Math.round((e.ziel! - e.hoehe(ix, iz)) * 100 * w);
+        }
+      } else if (e.werkzeug === 'zuruecksetzen') {
+        // Take the correction away; fully where the falloff is ≥ ZURUECK_VOLL, fading to the rim (no step at the edge).
+        // At least 1 cm per stamp, so a held brush finishes: rounding would otherwise stall at the rim (A6).
+        const { zx, zz, index } = punktVon(ix, iz);
+        const alt = karte.delta(zx, zz, index);
+        if (alt === 0) continue;
+        const weg = Math.min(Math.abs(alt), Math.max(1, Math.round(Math.abs(alt) * Math.min(1, w / ZURUECK_VOLL))));
+        zuwachs = -Math.sign(alt) * weg;
+      } else if (hoehen) {
         let summe = 0;
         for (let dz = -1; dz <= 1; dz++) {
           for (let dx = -1; dx <= 1; dx++) summe += hoehen[(iz - z0 + 1 + dz) * breite + (ix - x0 + 1 + dx)]!;
@@ -447,6 +496,64 @@ export function radiusSchritt(e: { key: string; code: string; metaKey: boolean; 
   if (e.key === '[' || e.key === '-' || e.code === 'NumpadSubtract') return -1;
   if (e.key === ']' || e.key === '+' || e.code === 'NumpadAdd') return 1;
   return 0;
+}
+
+/** World position of a changed vertex. */
+export function punktWelt(a: { zx: number; zz: number; index: number }): { x: number; z: number } {
+  return { x: a.zx * ZONE - ZONE / 2 + (a.index % ZONE), z: a.zz * ZONE - ZONE / 2 + Math.floor(a.index / ZONE) };
+}
+
+/** The text of the target field as a target height: `null` = empty or not a number (no target). */
+export function zielAusText(text: string): number | null {
+  const s = text.trim();
+  if (s === '') return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? klemmeZiel(n) : null;
+}
+
+/** The pipette key (H, „Höhe“): free in the flight; Ctrl/Alt/Meta make it a shortcut of something else. */
+export function istPipetteTaste(e: { code: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean }): boolean {
+  return e.code === 'KeyH' && !e.ctrlKey && !e.metaKey && !e.altKey;
+}
+
+/**
+ * What the pipette key means: read the height under the pointer (not on a held key), and stop the browser's own
+ * reaction. Only with the terrain tab open and not while typing in a field (an „h“ in a name field stays an „h“).
+ */
+export function pipetteEntscheid(
+  e: { code: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; repeat: boolean },
+  reiterOffen: boolean,
+  imFeld: boolean
+): { lesen: boolean; verhindern: boolean } {
+  if (!reiterOffen || imFeld || !istPipetteTaste(e)) return { lesen: false, verhindern: false };
+  return { lesen: !e.repeat, verhindern: true };
+}
+
+/**
+ * What a key press means for the history: the step, and whether the browser's own reaction is stopped.
+ * Only with the terrain tab open and not while typing in a field; a held key (repeat) is swallowed without a step.
+ */
+export function verlaufEntscheid(
+  e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean; repeat: boolean },
+  reiterOffen: boolean,
+  imFeld: boolean
+): { aktion: 'rueckgaengig' | 'wiederholen' | null; verhindern: boolean } {
+  if (!reiterOffen || imFeld) return { aktion: null, verhindern: false };
+  const a = verlaufTaste(e);
+  if (!a) return { aktion: null, verhindern: false };
+  return { aktion: e.repeat ? null : a, verhindern: true };
+}
+
+/**
+ * Ctrl/Cmd+Z takes the last stroke back, Ctrl/Cmd+Y and Ctrl/Cmd+Shift+Z put it in again. `e.key` (the
+ * character of the layout), never while Alt is held (AltGr on a German keyboard is Ctrl+Alt).
+ */
+export function verlaufTaste(e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }): 'rueckgaengig' | 'wiederholen' | null {
+  if ((!e.ctrlKey && !e.metaKey) || e.altKey) return null;
+  const k = e.key.toLowerCase();
+  if (k === 'z') return e.shiftKey ? 'wiederholen' : 'rueckgaengig';
+  if (k === 'y' && !e.shiftKey) return 'wiederholen';
+  return null;
 }
 
 export const klemmeRadius = (r: number): number => Math.min(RADIUS_MAX, Math.max(RADIUS_MIN, Math.round(r)));

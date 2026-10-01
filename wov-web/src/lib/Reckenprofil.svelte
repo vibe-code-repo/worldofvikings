@@ -1,94 +1,96 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { datumKurz, vorWieLange } from './formate';
+  import { repoText } from '@wov/shared';
+  import { datumKurz } from './formate';
+  import ReckenVorschau from './ReckenVorschau.svelte';
+  import {
+    SELTENHEIT_SCHLUESSEL,
+    SLOT_SCHLUESSEL,
+    ausruestungsZeilen,
+    fertigkeitenListe,
+    isoVon,
+    klassenName,
+    optionaleFelder,
+    seltenheitStufe,
+    stueckName,
+    stueckWerte,
+    symbolAnzeige,
+    zahlText,
+    zuletztText,
+  } from './reckenAnzeige';
   import type { Recke } from './recken';
+  import { type AusruestungsStueck, type FigurAussehen, planFuerRecke } from './reckenVorschauKern';
   import { type MessageKey, localeFrom, messages } from './i18n';
 
   /**
-   * Das Reckenprofil im Entwurf "Rune & Iron".
+   * Das Reckenprofil im Entwurf "Rune & Iron", gespeist aus der Rüstkammer des
+   * Spielservers.
    *
    * Zwei Spalten: links eine Tafel mit Bühne, Name, Werten und Ausrüstung,
-   * rechts zwei schmalere Tafeln (Fertigkeiten; Wächter, Lande, Trophäen).
-   * Die frühere Aufteilung — breite Wertetafel oben, "Puppe" mit zwei
-   * Slot-Spalten um eine Silhouette, darunter drei Tafeln nebeneinander —
-   * ist damit weg.
+   * rechts eine schmalere Tafel (Profiltext, Fertigkeiten, Angaben).
    *
-   * Drei Stellen, an denen dem Entwurf bewusst NICHT gefolgt wird:
+   * Bewusst NICHT dem Entwurf gefolgt:
    *
-   *  1. Die Bühne bleibt ein Platzhalter. Der Entwurf setzt dort ein
-   *     <recke-vorschau>-Element; die echte Vorschau ist das Babylon-Bündel
-   *     unter /assets/js/vorschau.js und braucht Aussehensdaten (Figur,
-   *     Frisur, Kleidung) vom Gestade. /api/recken.json führt kein einziges
-   *     dieser Felder — eine 3D-Figur stünde hier also für jeden Recken
-   *     gleich und zeigte einen Fremden. Bis der Server ein Aussehen
-   *     liefert, steht die Silhouette in der neuen Bühne.
-   *  2. Deshalb steht unter der Bühne auch keine Beschriftung
-   *     "ziehen zum Drehen": Es gibt nichts zu drehen.
-   *  3. Der Entwurf zeigt vier Wertekacheln und lässt "Bereiste Lande" weg.
-   *     Beides sind Auslassungen einer Vorlage, keine Entscheidungen über
-   *     Inhalt: Alle sechs Werte und die Lande bleiben stehen. Das Raster ist
-   *     ohnehin fließend, sechs Kacheln passen so gut wie vier.
+   *  1. Die Bühne zeigt die 3D-Figur (`ReckenVorschau`, dasselbe Babylon-Bündel
+   *     wie die Charaktererstellung) mit Aussehen und angelegter Rüstung, die die
+   *     Seite über die Props `aussehen` und `ausruestung` mitgibt. Ohne Aussehen,
+   *     ohne WebGL und ohne JavaScript bleibt die Silhouette.
+   *  2. Es gibt nur, was das Spiel kennt: Stufe, Erfahrung, Tode, Spielzeit und
+   *     Fertigkeiten erscheinen erst, wenn der Server sie liefert, und fehlen
+   *     sonst ganz (kein „0“, kein Strich). Beiname, Sippe, Wächter, Lande und
+   *     Trophäen waren erfunden und sind weg.
+   *  3. Ein Platz zeigt das Symbol des Gegenstands (`/assets/sprites/…`). Fehlt
+   *     es, steht die Glyphe des Platzes da; lässt es sich nicht laden, zeigt
+   *     der Browser den Ersatztext des Bildes, und der ist dieselbe Glyphe (ohne
+   *     JavaScript, ohne Inline-Handler).
    */
 
-  let { recke }: { recke: Recke } = $props();
+  let {
+    recke,
+    aussehen,
+    ausruestung,
+  }: {
+    recke: Recke;
+    /** Aussehen und angelegte Stücke; ohne `aussehen` bleibt es bei der Silhouette. */
+    aussehen?: FigurAussehen;
+    ausruestung?: readonly AusruestungsStueck[];
+  } = $props();
 
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
 
-  /**
-   * Die Ausrüstung als EINE Liste, in der Reihenfolge des Entwurfs: erst was
-   * am Körper sitzt, dann was in der Hand liegt.
-   */
-  const SLOTS: Array<[string, MessageKey]> = [
-    ['kopf', 'character_profile.slot.head'],
-    ['brust', 'character_profile.slot.chest'],
-    ['beine', 'character_profile.slot.legs'],
-    ['umhang', 'character_profile.slot.cape'],
-    ['waffe', 'character_profile.slot.weapon'],
-    ['nebenhand', 'character_profile.slot.off_hand'],
-    ['werkzeug', 'character_profile.slot.tool'],
-    ['guertel', 'character_profile.slot.belt'],
+  const zeilen = $derived(ausruestungsZeilen(recke));
+  const felder = $derived(optionaleFelder(recke, lang));
+  const fertigkeiten = $derived(fertigkeitenListe(recke));
+
+  const WERTE: Array<[keyof Recke['werte'], MessageKey]> = [
+    ['lebenMax', 'armory.wert.leben'],
+    ['nahkampfSchaden', 'armory.wert.nahkampf'],
+    ['armor', 'armory.wert.armor'],
+    ['strength', 'armory.wert.strength'],
+    ['vitality', 'armory.wert.vitality'],
+    ['agility', 'armory.wert.agility'],
   ];
 
-  const erlegt = $derived(recke.bosse.filter((b) => b.erlegt).length);
+  const STUECK_WERTE: Record<string, MessageKey> = {
+    damage: 'armory.wert.damage',
+    armor: 'armory.wert.armor',
+    strength: 'armory.wert.strength',
+    vitality: 'armory.wert.vitality',
+    agility: 'armory.wert.agility',
+  };
 
-  /* Die Fertigkeitsskala geht bis 100 — der Anteil ist deshalb die Stufe selbst. */
-  const fertigkeiten = $derived([...recke.fertigkeiten].sort((a, b) => b.stufe - a.stufe));
+  const FELD_SCHLUESSEL: Record<string, MessageKey> = {
+    stufe: 'armory.feld.stufe',
+    erfahrung: 'armory.feld.erfahrung',
+    tode: 'armory.feld.tode',
+    spielzeit: 'armory.feld.spielzeit',
+  };
 </script>
 
-{#snippet slot(schluessel: string, beschriftung: MessageKey)}
-  {@const stueck = recke.ausruestung?.[schluessel]}
-  {#if stueck}
-    <div class="slot guete-{Number(stueck.guete) || 1}">
-      <span class="slot-bild" aria-hidden="true">{stueck.bild}</span>
-      <span class="slot-text">
-        <span class="slot-name">{stueck.name}</span>
-        <span class="slot-rolle"
-          >{t[beschriftung]} · {t['character_profile.slot.quality']} {Number(stueck.guete) || 1}</span
-        >
-      </span>
-    </div>
-  {:else}
-    <div class="slot leer">
-      <span class="slot-bild" aria-hidden="true">·</span>
-      <span class="slot-text">
-        <span class="slot-name">{t['character_profile.slot.empty']}</span>
-        <span class="slot-rolle">{t[beschriftung]}</span>
-      </span>
-    </div>
-  {/if}
-{/snippet}
-
-<div class="gitter gitter-2 profile">
-  <div class="tafel main-panel">
-    <!--
-      Die Bühne des Entwurfs: gerandeter Kasten, radialer Verlauf, die Figur
-      mittig darin. Der Verlauf trifft die drei Stopps des Entwurfs über
-      Marken (--flaeche-hoch → --stage-radial-mid → --flaeche-tiefst).
-    -->
-    <div class="stage">
-      <!-- Schlichte Silhouette. Platzhalter, bis der Client ein Porträt liefern kann. -->
-      <svg
+{#snippet silhouette()}
+<!-- Schlichte Silhouette: Rückfall der 3D-Figur. -->
+<svg
         viewBox="0 0 80 170"
         width="110"
         role="img"
@@ -104,84 +106,128 @@
           <path d="M26 62 L54 62 L52 90 L28 90 Z" />
         </g>
       </svg>
+{/snippet}
+
+<div class="gitter gitter-2 profile">
+  <div class="tafel main-panel">
+    <div class="stage">
+      {#if aussehen}
+        <ReckenVorschau lazy auto eng plan={(daten) => planFuerRecke(daten, aussehen, ausruestung)}>
+          {#snippet rueckfall()}{@render silhouette()}{/snippet}
+        </ReckenVorschau>
+      {:else}
+        {@render silhouette()}
+      {/if}
     </div>
 
     <h2 class="profile-name">{recke.name}</h2>
-    <!--
-      `recke.sippe`, `recke.welt` und die Namen aus /api/recken.json bleiben,
-      wie sie in der Datei stehen — sie sind Inhalt, nicht Beschriftung.
-    -->
     <p class="profile-sub">
-      {recke.beiname} · {recke.sippe} · {recke.welt} · {t['character_profile.rune_rank']}
-      {recke.stufe} · {t['character_profile.last_seen']}
-      {vorWieLange(recke.zuletzt_gesehen, lang)}
+      {#if recke.zuletztGespielt !== null}
+        {t['character_profile.last_seen']}
+        {zuletztText(recke.zuletztGespielt, Date.now(), t, lang)}
+      {:else}
+        {t['armory.card.never']}
+      {/if}
     </p>
 
+    <h3 class="panel-eyebrow">{t['armory.stats.title']}</h3>
     <div class="werte">
-      <div class="wert"><b>{recke.werte.leben}</b><span>{t['character_profile.value.health']}</span></div>
-      <div class="wert">
-        <b>{recke.werte.ausdauer}</b><span>{t['character_profile.value.stamina']}</span>
-      </div>
-      <div class="wert"><b>{recke.werte.eitr}</b><span>{t['character_profile.value.eitr']}</span></div>
-      <div class="wert">
-        <b>{recke.werte.traglast}</b><span>{t['character_profile.value.carry_weight']}</span>
-      </div>
-      <div class="wert">
-        <b>{recke.spielzeit_stunden} h</b><span>{t['character_profile.value.underway']}</span>
-      </div>
-      <div class="wert"><b>{recke.tode}</b><span>{t['character_profile.value.hel']}</span></div>
+      {#each WERTE as [k, b] (k)}
+        <div class="wert"><b>{zahlText(recke.werte[k], lang)}</b><span>{t[b]}</span></div>
+      {/each}
     </div>
 
-    <!-- Der Entwurf trennt hier mit einem schlichten Strich, nicht mehr mit
-         der Runenzeile ᚱᚢᛊᛏᚢᚾᚷ. -->
     <div class="strich" aria-hidden="true"></div>
 
     <h3 class="panel-eyebrow">{t['character_profile.gear.title']}</h3>
     <div class="gear">
-      {#each SLOTS as [k, b] (k)}{@render slot(k, b)}{/each}
+      {#each zeilen as z (z.platz)}
+        {#if z.stueck}
+          {@const s = z.stueck}
+          {@const anzeige = symbolAnzeige(z.platz, s)}
+          <div class="slot guete-{seltenheitStufe(s.seltenheit)}">
+            <span class="slot-bild" aria-hidden="true">
+              {#if anzeige.art === 'bild'}
+                <img
+                  class="symbol"
+                  src={anzeige.src}
+                  alt={anzeige.alt}
+                  width="38"
+                  height="38"
+                  loading="lazy"
+                />
+              {:else}
+                {anzeige.zeichen}
+              {/if}
+            </span>
+            <span class="slot-text">
+              <span class="slot-name selten-{s.seltenheit}">{stueckName(s, (k) => repoText(k, lang))}</span>
+              <span class="slot-rolle"
+                >{t[SLOT_SCHLUESSEL[z.platz]]} · {t[SELTENHEIT_SCHLUESSEL[s.seltenheit]]} · {t[
+                  'armory.stueck.stufe'
+                ]}
+                {zahlText(s.itemStufe, lang)}{#if s.qualitaet > 0}
+                  · {t['armory.stueck.qualitaet']} {zahlText(s.qualitaet, lang)}{/if}</span
+              >
+              {#if stueckWerte(s).length > 0}
+                <span class="slot-werte">
+                  {#each stueckWerte(s) as [id, wert] (id)}
+                    <span>{t[STUECK_WERTE[id]]} {wert > 0 ? '+' : ''}{zahlText(wert, lang)}</span>
+                  {/each}
+                </span>
+              {/if}
+            </span>
+          </div>
+        {:else}
+          <div class="slot leer">
+            <span class="slot-bild" aria-hidden="true">·</span>
+            <span class="slot-text">
+              <span class="slot-name">{t['character_profile.slot.empty']}</span>
+              <span class="slot-rolle">{t[SLOT_SCHLUESSEL[z.platz]]}</span>
+            </span>
+          </div>
+        {/if}
+      {/each}
     </div>
   </div>
 
   <div class="side-column">
-    <section class="tafel-matt side-panel">
-      <h3 class="panel-eyebrow">{t['character_profile.skills.title']}</h3>
-      {#each fertigkeiten as f (f.name)}
-        <div class="balken-zeile">
-          <div class="balken-kopf"><span>{f.name}</span><b>{f.stufe}</b></div>
-          <div class="balken"><i style="--anteil:{f.stufe}"></i></div>
+    {#if recke.profil}
+      <section class="tafel-matt side-panel">
+        <h3 class="panel-eyebrow">{t['armory.profil.title']}</h3>
+        <p class="profil-text">{recke.profil}</p>
+      </section>
+    {/if}
+
+    {#if felder.length > 0}
+      <section class="tafel-matt side-panel">
+        <div class="werte">
+          {#each felder as f (f.schluessel)}
+            <div class="wert"><b>{f.wert}</b><span>{t[FELD_SCHLUESSEL[f.schluessel]]}</span></div>
+          {/each}
         </div>
-      {/each}
-    </section>
+      </section>
+    {/if}
 
-    <!--
-      Wächter, Lande und Trophäen teilen sich im Entwurf eine Tafel. Die
-      Lande stehen im Entwurf nicht — sie bleiben hier, weil sie in den Daten
-      stehen und ein Weglassen den Recken kleiner machen würde, als er ist.
-    -->
-    <section class="tafel-matt side-panel">
-      <h3 class="panel-eyebrow">
-        {t['character_profile.guardian.title']}
-        <span class="counter">{erlegt} {t['character_profile.guardian.of']} {recke.bosse.length}</span>
-      </h3>
-      <div class="marken">
-        {#each recke.bosse as b (b.name)}
-          <span class="made" class:made-erlegt={b.erlegt}>{b.erlegt ? '✦ ' : ''}{b.name}</span>
+    {#if fertigkeiten.length > 0}
+      <section class="tafel-matt side-panel">
+        <h3 class="panel-eyebrow">{t['character_profile.skills.title']}</h3>
+        {#each fertigkeiten as f, i (i)}
+          <div class="balken-zeile">
+            <div class="balken-kopf"><span>{f.name}</span><b>{f.stufe}</b></div>
+            <div class="balken"><i style="--anteil:{f.stufe}"></i></div>
+          </div>
         {/each}
-      </div>
+      </section>
+    {/if}
 
-      <h3 class="panel-eyebrow spaced">{t['character_profile.lands.title']}</h3>
-      <div class="marken">
-        {#each recke.biome as b (b)}<span class="made">{b}</span>{/each}
-      </div>
-
-      <h3 class="panel-eyebrow spaced">{t['character_profile.trophies.title']}</h3>
-      <div class="marken">
-        {#each recke.trophaeen as tr (tr)}<span class="made">{tr}</span>{/each}
-      </div>
-
+    <section class="tafel-matt side-panel">
+      {#if recke.klasse !== ''}
+        <h3 class="panel-eyebrow">{klassenName(recke.klasse, t)}</h3>
+      {/if}
       <p class="created">
         {t['character_profile.created']}
-        {datumKurz(recke.erschaffen, lang)}.
+        {datumKurz(isoVon(recke.erstellt), lang)}.
       </p>
     </section>
   </div>
@@ -284,8 +330,44 @@
   }
 
   .created {
-    margin: 1.2rem 0 0;
+    margin: 0;
     color: var(--text-matt);
     font-size: 13px;
+  }
+
+  /* ------------------------------------------------- Symbol und Seltenheit */
+
+  .symbol {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  .slot-werte {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.1rem 0.7rem;
+    font-size: 12px;
+    color: var(--text-matt);
+  }
+
+  .selten-uncommon {
+    color: #6fb26f;
+  }
+  .selten-rare {
+    color: #6f9bd8;
+  }
+  .selten-epic {
+    color: #b784d8;
+  }
+  .selten-legendary {
+    color: var(--runengold);
+  }
+
+  .profil-text {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 </style>

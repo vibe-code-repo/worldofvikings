@@ -144,6 +144,11 @@ export default [
   // kein Port, kein Socket. Haelt getGroundHeight(0,0) gegen den
   // D1-verifizierten Wert UND die Fallphysik-Konvergenz fest, damit ein
   // Rueckfall auf den alten Radial-Spawnpunkt sofort auffiele.
+  // D5 (Roadmap): Beute liegt bei der Leiche am Boden statt im Inventar des
+  // Toetenden — Besitzer = hoechster Schadensanteil, 2 min nur er, dann jeder,
+  // 5 min Lebensdauer, nach einem Neustart nicht doppelt; 1.000 Wuerfe +-3 %.
+  // Echter WebSocket, zwei Spieler, Zeit per Testhaken vorgespult. ~25 s.
+  ['server', 'test/d5-beute.ts'],
   ['server', 'test/d6-smoke.ts'],
   ['server', 'test/d6-zdo-delta.ts'],
   ['server', 'test/d8-save-async.ts'],
@@ -396,6 +401,9 @@ export default [
   ['server', 'test/gegenstaende-g2-n4.ts'],
   // G2: the start with a broken, gone or partly discarded working copy loads the LAST GOOD state; player and chest keep their data items over three restarts and saves.
   ['server', 'test/gegenstaende-g2-start.ts'],
+  // Terrain T4b: save (layoutSchreibenAsync with base) -> boot from the same work copy -> getGroundHeight = base + delta;
+  // damaged heightDeltas refused at save, work copy byte-identical. No network, no assets.
+  ['server', 'test/gelaende-speichern-neustart.ts'],
   // `createGenerated` mit Generator-Einstellungen (maxRooms/zoneSize): Dokument
   // trägt den WIRKLICH benutzten Wert, ein neuer Seed behält die Einstellungen.
   ['server', 'test/generieren-server.ts'],
@@ -528,6 +536,9 @@ export default [
   */
   ['server', 'test/kollision-formstufen.ts'],
   ['server', 'test/kollision-schritt.ts'],
+  // Ruestkammer-Lesewege (`/accounts/armory`): ohne Standardkonten, Positivliste der
+  // Schluessel, Suche/Seiten, Puffer mit Uhr. Echter node:http-Server, Sekunden.
+  ['server', 'test/konto-armory.ts'],
   // Herkunft.ts hinter einem Reverse-Proxy: Loopback-Peer + X-Forwarded-For/
   // X-Real-IP wird geglaubt, jede andere Peer-Adresse nicht; und zwei
   // Herkuenfte sperren sich in der Anmelde-Drossel nicht gegenseitig.

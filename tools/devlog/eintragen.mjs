@@ -108,8 +108,8 @@ export function normalisiert(text) {
 }
 
 /** Endungen, die nach Quelltext, Betriebs- oder Mediendatei riechen. */
-const ENDUNG =
-  "(?:ts|tsx|mjs|js|jsx|json|svelte|yml|yaml|md|py|sh|css|html|glb|blend|conf|png|jpg|jpeg|webp|svg|gif|txt|log|exe|dll|so|cpp|c|h|hpp|rs|go|rb|lua|sql|csv|xml|ini|toml|zip|gz|tar|gltf|fbx|wav|ogg|mp3|ktx2|bin|java)";
+export const ENDUNG_LISTE = ["ts", "tsx", "mjs", "js", "jsx", "json", "svelte", "yml", "yaml", "md", "py", "sh", "css", "html", "glb", "blend", "conf", "png", "jpg", "jpeg", "webp", "svg", "gif", "txt", "log", "exe", "dll", "so", "cpp", "c", "h", "hpp", "rs", "go", "rb", "lua", "sql", "csv", "xml", "ini", "toml", "zip", "gz", "tar", "gltf", "fbx", "wav", "ogg", "mp3", "ktx2", "bin", "java"];
+const ENDUNG = `(?:${ENDUNG_LISTE.join("|")})`;
 const ENDUNGEN = new RegExp(`([\\p{L}\\p{N}_./-]+)\\.(${ENDUNG})(?![\\p{L}\\p{N}_])`, "giu");
 /** Namen von Bibliotheken, die auf `.js` enden und im Spielertext vorkommen dürfen. */
 const JS_MARKEN = new Set([
@@ -171,7 +171,8 @@ function hashTreffer(n) {
 }
 
 /** Häufige Endungen von Domainnamen; „wort.de“ oder „wort . de“ ist eine Adresse. */
-const TLD = "(?:com|de|org|net|io|dev|app|gg|eu|info|xyz|me|co|uk|us|ru|cn|tv)";
+export const TLD_LISTE = ["com", "de", "org", "net", "io", "dev", "app", "gg", "eu", "info", "xyz", "me", "co", "uk", "us", "ru", "cn", "tv"];
+const TLD = `(?:${TLD_LISTE.join("|")})`;
 /** Ein IPv4-Teil: 1-3 Ziffern, Wert 0-255, führende Nullen erlaubt („001“). */
 const OKTETT = "(?:25[0-5]|2[0-4]\\d|[01]?\\d?\\d)";
 const IPV4 = new RegExp(`(?<!\\d)(?:${OKTETT}\\s*\\.\\s*){3}${OKTETT}(?!\\d)`);

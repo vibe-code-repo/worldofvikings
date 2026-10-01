@@ -27,7 +27,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as echt from "node:fs";
-import { findeSpuren, normalisiert, schreibeAtomar } from "../devlog/eintragen.mjs";
+import { ENDUNG_LISTE, findeSpuren, normalisiert, schreibeAtomar, TLD_LISTE } from "../devlog/eintragen.mjs";
 import { unerlaubteZeichen } from "../../wov-web/src/lib/devlog.ts";
 
 const WERKZEUG = resolve(import.meta.dirname, "../devlog/eintragen.mjs");
@@ -630,6 +630,9 @@ try {
       ["255.255.255.256", false],
       ["1.2.3.255", true],
       ["1.2.3.256", false],
+      ["0xabcdef", true], // N7: Hexzahl, 6 Zeichen
+      ["0xabcde", false], // 5 Zeichen
+      ["port 8", true], // einstellige Portnummer
       ["199.199.199.199", true],
       ["200.249.250.251", true],
       ["200.260.250.251", false],
@@ -697,7 +700,25 @@ try {
       for (const satz of ["`port` + number", "`wov` + any separator", "also inside a word", "IP:fe80::1", "year + word", "day + word"]) {
         pruefe(`Doku nennt „${satz}“`, text.includes(satz));
       }
-      pruefe("Verhalten „port“ + Zahl", gesp("port 12") && gesp("ports:8080") && !gesp("port"), "");
+      pruefe("Verhalten „port“ + Zahl", gesp("port 12") && gesp("ports:8080") && gesp("port 8") && !gesp("port"), "");
+      // N7: Hexzahl, TLD- und Endungsliste aus der Doku gegen den Code
+      const H = zahl(/`0x` followed by (\d+) or more hex characters/);
+      grenze("Hexzahl", `0x${"a".repeat(H)}`, `0x${"a".repeat(H - 1)}`);
+      const liste = (re: RegExp): string[] => (re.exec(text)?.[1] ?? "").trim().split(" ").sort();
+      pruefe("Doku-Liste TLDs = Code", JSON.stringify(liste(/TLDs: (.+?) \(others/)) === JSON.stringify([...TLD_LISTE].sort()), `doku=${liste(/TLDs: (.+?) \(others/).join()}`);
+      pruefe("Doku-Liste Dateiendungen = Code", JSON.stringify(liste(/File endings: ([a-z0-9 ]+)\./)) === JSON.stringify([...ENDUNG_LISTE].sort()), `doku=${liste(/File endings: ([a-z0-9 ]+)\./).join()}`);
+      pruefe("Doku: andere TLDs (.fr) werden nicht gefangen", !gesp("wort.fr") && gesp("wort.tv"), "");
+      // N7: Prosa der Doku und Verhalten je Aussage
+      const stichworte = /"([a-z| ]+)" followed by a number/.exec(text)?.[1]?.split("|") ?? [];
+      pruefe("Doku-Stichwortliste vor der Zahl = Verhalten", stichworte.length > 0 && ["pr", "pull request", "issue", "commit", "gh", "bug", "ticket"].every((k) => gesp(`${k} 123`) === stichworte.includes(k)), stichworte.join());
+      const beispiele: [string, boolean][] = [["192.168.001.001", true], ["Update 1.2.3.4", true], ["10.000.000.000 Gold", true], ["fe80::1", true], ["::1", true], ["IP:fe80::1", true], ["127.1", false], ["2130706433", false], ["0177.0.0.1", false], ["20:00:30", false], ["Bad::", false]];
+      for (const [b, soll] of beispiele) pruefe(`Doku-Beispiel ${JSON.stringify(b)}: genannt und ${soll ? "gesperrt" : "frei"}`, new RegExp(`${b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![:\\w])`).test(text) && gesp(b) === soll, `gesperrt=${gesp(b)}`);
+      pruefe("Doku: „hex group that has a digit“ und Verhalten (a::1 gesperrt, a::b frei)", text.includes("hex group that has a digit") && gesp("a::1") && !gesp("a::b"), "");
+      pruefe("Doku: kein ZWJ, Verhalten", text.includes("No zero-width joiner") && JSON.stringify(unerlaubteZeichen("a\u200db")) === JSON.stringify(["U+200D"]), "");
+      pruefe("Doku: keine kombinierenden Zeichen, Verhalten", text.includes("no combining marks") && unerlaubteZeichen("a\u0308").length === 1, "");
+      pruefe("Doku: NFKC und Akzente, Verhalten (Vollbreite und é falten)", text.includes("(NFKC, diacritics removed,") && normalisiert("ＡＢ") === "ab" && normalisiert("é") === "e", normalisiert("ＡＢ"));
+      pruefe("Doku: andere Striche als - – — abgelehnt, Verhalten", text.includes("other dashes and hyphens than - – —") && unerlaubteZeichen("\u2010\u2212").length === 2 && unerlaubteZeichen("-–—").length === 0, "");
+      pruefe("Doku: Erklärung der freien Hashformen, Verhalten", text.includes("These are word + year, day + word + year, year + word and day + word without a year") && !gesp("Facade2026") && !gesp("30Dec2026") && !gesp("2026Dec") && !gesp("6bcbdac"), "");
     }
     // N6/3 und 6: zweistellige Jahre, andere Datumsreihenfolgen und Name plus kurze Zahl sind bewusst abgelehnt.
     for (const t of ["30Dec26", "25Dec25", "2026Dec30", "2026Feb28", "Feb282026", "Dead1337", "Face1234", "Ace12345"]) {

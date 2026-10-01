@@ -125,8 +125,14 @@ export function istDatum(x: unknown): x is string {
  * least one hex group that has a digit, such as "fe80::1" or "::1", also
  * after a colon as in "IP:fe80::1"; or 6 to 8 hex groups of 1-4 characters;
  * times such as 20:00:30 and words such as "Bad::" stay free); server names
- * (`wov` + any separator + dev|host|lab|live); `port` + number; file endings;
- * and every line of the blocklist file kept outside the repository.
+ * (`wov` + any separator + dev|host|lab|live); `port` + number; hex numbers
+ * (`0x` followed by 6 or more hex characters, such as "0x7f000001"); and
+ * every line of the blocklist file kept outside the repository.
+ * TLDs: com de org net io dev app gg eu info xyz me co uk us ru cn tv (others
+ * such as ".fr" are not caught).
+ * File endings: ts tsx mjs js jsx json svelte yml yaml md py sh css html glb
+ * blend conf png jpg jpeg webp svg gif txt log exe dll so cpp c h hpp rs go rb
+ * lua sql csv xml ini toml zip gz tar gltf fbx wav ogg mp3 ktx2 bin java.
  */
 /** Last code point of the allowed Latin range (Latin Extended-A ends at U+017F). */
 export const LATEIN_BIS = 0x17f;

@@ -72,14 +72,15 @@ export const HEIMKEHR_FESTSITZEN_SEC = 5;
 
 /**
  * Bis zu diesem Tempo des Ziels (m/s, geglättet) läuft die Kreatur außen herum; schneller
- * ist das Ziel auf der Flucht und wird direkt verfolgt. Der Bogen (Tangente plus 30 % nach
- * innen) ist bis etwa 1,5-mal so lang wie der gerade Weg; der Wolf läuft 4,9 m/s und holt damit
- * ein Ziel bis rund 3 m/s ein. 1,5 m/s (ein Schlendern, ein Drehen auf der Stelle, ein
- * Stehenbleiben) ist die Hälfte davon als Reserve und liegt klar unter dem Gehtempo (4,5 m/s):
- * Wer geht oder läuft, wird nicht umlaufen. Sonst liefe jeder Wolf einem Weglaufenden im Bogen
- * hinterher, gäbe nach der Verfolgungsstrecke auf und heilte voll.
+ * wird es direkt verfolgt. 0,5 m/s ist ein Stehen mit Unruhe, ein Drehen auf der Stelle, ein
+ * Trippeln: Dort lohnt der Bogen (er kommt dem Spieler von vorn), und der Wolf holt das Ziel im
+ * Bogen sicher ein. Schon ab 0,75 m/s entkamen Spieler mit dem Rücken zum Wolf dem Bogen
+ * (Nachangriff N6: bei 8 m Start 0 von 6 gefangen bei 0,75 bis 1,5 m/s, auch im Zickzack mit
+ * 1,41 m/s; mit 0,5 m/s 6 von 6). Der Wolf läuft 4,9 m/s: Direkt holt er auch ein 3-m/s-Ziel ein.
+ * Wer geht oder läuft, wird nicht umlaufen; sonst gäbe der Wolf nach der Verfolgungsstrecke
+ * auf und heilte voll.
  */
-export const UMLAUF_ZIELTEMPO_MAX_MPS = 1.5;
+export const UMLAUF_ZIELTEMPO_MAX_MPS = 0.5;
 
 /**
  * Glättung des Ziel-Tempos in Sekunden (Zeitkonstante): Die Positionen der Spieler kommen im

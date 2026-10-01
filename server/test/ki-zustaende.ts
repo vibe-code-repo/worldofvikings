@@ -1296,6 +1296,47 @@ console.log('\n[26] Ein fliehendes Ziel wird direkt verfolgt, ein stehendes umla
     const lauftempo = lauf(7.5, nur);
     check(`${nur}: Ziel läuft mit 7,5 m/s (schneller als der Wolf, 4,9): er läuft gerade statt im Bogen (Seitenlage < 0,5 m); einholen kann er es nicht`, lauftempo.maxQuer < 0.5 && lauftempo.fangzeit < 0, `Seitenlage ${f(lauftempo.maxQuer, 2)} m, Lücke nach 3 s ${f(lauftempo.luecke3s, 1)} m`);
   }
+  // Untere Seite der Schwelle, mit den echten Werten des Wolfs (Leine 12 m, Strecke 15 m, 10 s): langsam Weggehende (1,0 m/s)
+  // und ein Zickzack mit 1,41 m/s (±1,0 seitlich, 1,0 weg, Wechsel jede Sekunde) mit dem Rücken zum Wolf werden gefangen
+  // (Schwelle 1,5 m/s: sie entkamen im Bogen, der Wolf gab nach der Strecke auf).
+  const zickzack = (vz: number, vx: number, nur: 'pure' | 'server'): number => {
+    const dt = 0.05;
+    let fang = -1;
+    const posZiel = (i: number, zz: number, xx: number): KiZiel => ({ key: 'p0', x: xx, z: zz, blick: 0 });
+    let zz = -8;
+    let xx = 0;
+    if (nur === 'pure') {
+      const z = neuerKiZustand();
+      const fig: Figur = { x: 0, z: 0, yaw: Math.PI, gelaufen: 0 };
+      kiLaerm(z, 'p0');
+      for (let i = 0; i < 400 && fang < 0; i++) {
+        zz -= vz * dt;
+        xx += (Math.floor(i * dt) % 2 === 0 ? vx : -vx) * dt;
+        const b = kiSchritt(z, WOLF_KI, welt(fig, [posZiel(i, zz, xx)], { x: 0, z: 0 }), dt, () => 0.5);
+        if (b.phase === 'kaempfen') fang = i * dt;
+        laufeUngekappt(fig, b, 4.9, dt);
+      }
+    } else {
+      const { zdos, spawns } = baue([ruhigerWolf()], 161);
+      const wolf = setzeWolf(zdos, 0, 0, Math.PI);
+      spawns.adoptPersisted();
+      spawns.treffer(wolf, { id: 'p0', schaden: 1 });
+      for (let i = 0; i < 400 && fang < 0; i++) {
+        zz -= vz * dt;
+        xx += (Math.floor(i * dt) % 2 === 0 ? vx : -vx) * dt;
+        const spieler: Vector3 = { x: xx, y: BODEN_Y, z: zz };
+        spawns.update(dt, [spieler], [spieler], [{ id: 'p0', blick: 0 }]);
+        if (spawns.kiPhase(wolf) === 'kaempfen') fang = i * dt;
+      }
+    }
+    return fang;
+  };
+  for (const nur of ['pure', 'server'] as const) {
+    const langsam = zickzack(1.0, 0, nur);
+    const zick = zickzack(1.0, 1.0, nur);
+    check(`${nur}: Rücken zum Wolf, Start bei 8 m: Weggehen mit 1,0 m/s wird gefangen (unter 10 s)`, langsam >= 0 && langsam < 10, `gefangen nach ${f(langsam, 2)} s`);
+    check(`${nur}: Rücken zum Wolf, Start bei 8 m: Zickzack mit 1,41 m/s wird gefangen (unter 10 s)`, zick >= 0 && zick < 10, `gefangen nach ${f(zick, 2)} s`);
+  }
   // Gegenprobe: ein stehendes Ziel wird weiter umlaufen (Seitenlage deutlich über 1,5 m).
   const z0 = neuerKiZustand();
   const fig0: Figur = { x: 0, z: 0, yaw: Math.PI, gelaufen: 0 };

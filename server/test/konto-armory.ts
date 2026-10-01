@@ -994,7 +994,10 @@ try {
     const rund = figur(rd, 'Rund Rolf');
     roh.prepare('UPDATE charaktere SET erstellt = ?, zuletzt_gespielt = ? WHERE id = ?').run(20_000 * TAG + 12_345, 7 * H + 123_456, rund.id);
     const oef = (await hole(`/accounts/characters/${rund.id}`)).daten.character;
-    assert.equal(oef.lastPlayed, 7 * H, 'oeffentlicher Weg: lastPlayed auf volle Stunden');
+    assert.equal(oef.lastPlayed, Math.floor((7 * H + 123_456) / TAG) * TAG, 'oeffentlicher Weg: lastPlayed auf volle TAGE (kein Puffer, keine Drossel)');
+    roh.prepare('UPDATE charaktere SET zuletzt_gespielt = ? WHERE id = ?').run(20_000 * TAG + 5 * H + 77, rund.id);
+    assert.equal((await hole(`/accounts/characters/${rund.id}`)).daten.character.lastPlayed, 20_000 * TAG, 'auch mit Stunden im Tag: nur der Tag');
+    roh.prepare('UPDATE charaktere SET zuletzt_gespielt = ? WHERE id = ?').run(7 * H + 123_456, rund.id);
     assert.equal(oef.created, 20_000 * TAG, 'oeffentlicher Weg: created auf volle Tage');
     assert.equal(db.charakterNachId(rund.id)!.zuletztGespielt, 7 * H + 123_456, 'die Datenbank behaelt den Rohwert');
     jetzt += ARMORY_CACHE_MS + 1;

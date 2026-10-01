@@ -177,6 +177,7 @@ export const FELDER = [
   'updateTimer',
   'worldTime',
   'zustandWeltId', // F8 (#146): f8n3-kennung-kill liest die Weltkennung des Servers
+  'gegenstandsWache', // G2: gegenstaende-g2-live liest den Zaehler interneFehler der Gegenstands-Wache
 ] as const;
 
 /**

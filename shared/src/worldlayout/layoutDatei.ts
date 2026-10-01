@@ -67,6 +67,8 @@ import {
   type HoehenkorrekturFehler,
   type PlatzierungsFehler,
 } from './sanitize.js';
+import { BAUSATZ_INSTANZEN_MAX } from '../bausatz/types.js';
+import { bausatzInstanzenFehler, bausatzInstanzenFehlerText, type BausatzInstanzFehler } from '../bausatz/sanitize.js';
 import type { WorldLayout } from './types.js';
 import { heightResponseMessage } from './heightMessages.js';
 
@@ -116,6 +118,33 @@ export class LayoutZuVielePlatzierungen extends LayoutUngueltig {
   ) {
     super(`${anzahl} Platzierungen — mehr als ${grenze} nimmt das Weltdokument nicht auf; nichts gespeichert`);
     this.name = 'LayoutZuVielePlatzierungen';
+  }
+}
+
+/**
+ * Das Dokument hat mehr als `BAUSATZ_INSTANZEN_MAX` Bausatz-Instanzen (gezählt am ROHEN Dokument). Wie bei den
+ * Platzierungen: benannte Meldung statt stillem Kappen; der Betriebsdienst antwortet 422.
+ */
+export class LayoutZuVieleBausaetze extends LayoutUngueltig {
+  constructor(
+    readonly anzahl: number,
+    readonly grenze: number = BAUSATZ_INSTANZEN_MAX
+  ) {
+    super(`${anzahl} Bausatz-Instanzen — mehr als ${grenze} nimmt das Weltdokument nicht auf; nichts gespeichert`);
+    this.name = 'LayoutZuVieleBausaetze';
+  }
+}
+
+/**
+ * Das Dokument enthält Bausatz-Instanzen, die der Sanitizer verwerfen oder ändern würde (kein Objekt, `id`/`bausatz`
+ * fehlt oder ist keine Kennung, `x`/`z` außerhalb des Weltrahmens, unbekannter Schlüssel, dieselbe id doppelt mit
+ * anderem Inhalt, `kennungen` kaputt, gleich einer Platzierungs-id oder doppelt vergeben). Ein UNBEKANNTER Bausatz
+ * gehört nicht dazu (Befund von `pruefeLayout`). Der Betriebsdienst antwortet 422 mit `fehlerhaft`.
+ */
+export class LayoutBausaetzeUngueltig extends LayoutUngueltig {
+  constructor(readonly fehlerhaft: readonly BausatzInstanzFehler[]) {
+    super(`${fehlerhaft.length} Fehler in Bausatz-Instanzen (${bausatzInstanzenFehlerText(fehlerhaft)}) — nichts gespeichert`);
+    this.name = 'LayoutBausaetzeUngueltig';
   }
 }
 
@@ -961,7 +990,7 @@ function tmpLeichenRaeumen(pfad: string, unentscheidbarMs: number): void {
 // dem Sanitizer, damit auch der häufigste Fall (die EINZIGE Zone ist ungültig) die volle
 // `fehlerhaft`-Liste bekommt, statt hier still auf die generische "keiner der N Einträge
 // gültig"-Meldung ohne Zone/Index/Wert zu treffen (Angriffsbefund N4).
-const LISTENFELDER = ['placements', 'continents', 'routes', 'rivers', 'lakes'] as const;
+const LISTENFELDER = ['placements', 'continents', 'routes', 'rivers', 'lakes', 'bausaetze'] as const;
 
 /**
  * Ein Listenfeld ist vorhanden, aber kein Array. Unterklasse von
@@ -1015,6 +1044,7 @@ const LISTEN = [
   { feld: 'routes', name: 'eine gültige Route', behalten: (l: WorldLayout): number => l.routes?.length ?? 0 },
   { feld: 'rivers', name: 'ein gültiger Fluss', behalten: (l: WorldLayout): number => l.rivers?.length ?? 0 },
   { feld: 'lakes', name: 'ein gültiger See', behalten: (l: WorldLayout): number => l.lakes?.length ?? 0 },
+  { feld: 'bausaetze', name: 'eine gültige Bausatz-Instanz', behalten: (l: WorldLayout): number => l.bausaetze?.length ?? 0 },
 ] as const;
 
 /** Alles, was vor der Sperre feststehen kann: Prüfung des Rohdokuments, Sanitizer, Text. */
@@ -1031,6 +1061,8 @@ function schreibenVorbereiten(eingabe: unknown, leereWelt = false, optionen: Sch
   listenPruefen(eingabe);
   const anzahl = platzierungenZaehlen(eingabe);
   if (anzahl > PLATZIERUNGEN_GRENZE) throw new LayoutZuVielePlatzierungen(anzahl);
+  const instanzen = listeZaehlen(eingabe, 'bausaetze');
+  if (instanzen > BAUSATZ_INSTANZEN_MAX) throw new LayoutZuVieleBausaetze(instanzen);
   const raw = typeof eingabe === 'object' && eingabe !== null && !Array.isArray(eingabe) ? eingabe as Record<string, unknown> : null;
   if (!optionen.heightDeltasUnberuehrt && raw) rejectHeight(raw);
   const bericht = sanitizeWorldLayoutMitBericht(optionen.heightDeltasUnberuehrt && raw ? { ...raw, heightDeltas: undefined } : eingabe);
@@ -1095,6 +1127,13 @@ function schreibenVorbereiten(eingabe: unknown, leereWelt = false, optionen: Sch
   if (typeof eingabe === 'object' && eingabe !== null && !Array.isArray(eingabe)) {
     const fehlerhaft = platzierungenFehler((eingabe as { placements?: unknown }).placements);
     if (fehlerhaft.length > 0) throw new LayoutPlatzierungenUngueltig(fehlerhaft);
+    // Bausatz-Instanzen: dieselbe Haltung. Als Platzierungs-ids gelten die des bereinigten Dokuments (die, unter denen
+    // der Spielserver die Objekte kennt).
+    const instanzFehler = bausatzInstanzenFehler(
+      (eingabe as { bausaetze?: unknown }).bausaetze,
+      new Set((layout.placements ?? []).flatMap((p) => (p.id === undefined ? [] : [p.id])))
+    );
+    if (instanzFehler.length > 0) throw new LayoutBausaetzeUngueltig(instanzFehler);
   }
   // Raw height is an opaque JSON value on PATCH, never a sanitized WorldLayout field.
   const document = optionen.heightDeltasUnberuehrt && raw && Object.hasOwn(raw, 'heightDeltas')

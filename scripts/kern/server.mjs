@@ -133,8 +133,13 @@ export default [
   ['server', 'test/besitz-grenzen.ts'],
   // A foreign peer never gets the builder's account id (`besitzer`) or the ZDO owner field of a character, full state or delta, real clients + strict wire reader.
   ['server', 'test/besitzer-sichtbar.ts'],
+  // Loot tables: the numbers of KREATUR_DROPS and TRUHEN frozen through the dice (scripted random), every pickable prefab of
+  // the spawn/scatter data gives its item (BlueberryBush -> Blueberries), wuerfleTruhe('') gives an empty loot. No server. ~2 s.
+  ['server', 'test/beute-daten.ts'],
   ['server', 'test/bewuchs-freiraum-huellen.ts'],
   ['server', 'test/bewuchs-freiraum.ts'],
+  // D2: server decides hits from geometry and time (hit sphere, swing window, combo ack, cooldown).
+  ['server', 'test/d2-treffer.ts'],
   // G1-Durchsicht (verwaiste Tests, 20.08.2026): init() ohne start() —
   // kein Port, kein Socket. Haelt getGroundHeight(0,0) gegen den
   // D1-verifizierten Wert UND die Fallphysik-Konvergenz fest, damit ein
@@ -165,6 +170,16 @@ export default [
   // der Inhalt uebersteht Speichern/Laden. Drei gestartete Server + ein
   // init()-only Reload, ~5s.
   ['server', 'test/f1-truhe.ts'],
+  // F10: Serverstopp kuendigt den Neustart an (Paket ServerNeustart, Grund
+  // "restart", <= 1 s vor dem Trennen), Anna verbindet mit dem Backoff des
+  // Client-Moduls neu und steht <= 1 m an der gesicherten Position; Befund:
+  // anderes Geheimnis = neue Figur. Drei echte Serverprozesse, rund 30 s.
+  ['server/test', 'f10-neustart-ansage.ts'],
+  // F12 (Roadmap): Zonenbudget je Spieler statt einer globalen Schlange nach
+  // Abstand: Spieler mit wenigen offenen Zonen kommt in <= 2 Ticks dran
+  // (simulierte Uhr), keine O(Q×P)-Sortierung, dieselbe Menge Zonen/ZDOs wie
+  // vorher (Golden), Abgang ohne Leck. Layoutwelt, ~20 s.
+  ['server', 'test/f12-zonenbudget.ts'],
   // F14 (Roadmap): Reichweiten-Auswahl der Chat-Empfänger (Whisper/
   // Normal/Shout, Herleitung s. Kopfkommentar von ChatReichweite.ts),
   // Grenzwert exakt auf der Reichweite, Absender immer dabei, sowie die
@@ -223,6 +238,13 @@ export default [
   // Original), und die einzige verdrahtete Anwendung: Eikthyr besiegen
   // setzt defeated_eikthyr, ein Reh NICHT (Regressionswache). ~2s.
   ['server', 'test/f5-weltmarken.ts'],
+  // F6: the far part of the sync window (beyond ring 1) is checked only every 2nd tick. Real client parser over the
+  // private syncZDOs (fake socket): ring 0 change arrives the next tick (100 runs), ring 3/4 changes within 2 ticks
+  // and at most every 2nd tick carries ring-3 records, destroys in ring 2 and 4 the next tick, idle checks between
+  // 45 % and 65 % of the full window (fixed numbers, so "far never" and "far every tick" both turn it red), the
+  // first transfer after zone/world change is full in all groups, per-peer byte counter equals the socket bytes;
+  // prints bytes per peer and tickSyncMs with 25 peers, 48,000 ZDOs. ~15 s.
+  ['server', 'test/f6-aoi-ringe.ts'],
   /*
     F8 N2 (2026-09-29): Truhen und Bauten im selben Schreibvorgang wie der
     Spielerzustand. Echte Serverprozesse mit SIGKILL, ein echter WebSocket-
@@ -363,6 +385,9 @@ export default [
   ['server', 'test/g9-editor-verbindung.ts'],
   // A guest keeps state and ownership only with their token; nobody inherits a saved state by typing its name, and guests cannot wear an account name.
   ['server', 'test/gaeste-besitz.ts'],
+  // Terrain T4b: save (layoutSchreibenAsync with base) -> boot from the same work copy -> getGroundHeight = base + delta;
+  // damaged heightDeltas refused at save, work copy byte-identical. No network, no assets.
+  ['server', 'test/gelaende-speichern-neustart.ts'],
   // `createGenerated` mit Generator-Einstellungen (maxRooms/zoneSize): Dokument
   // trägt den WIRKLICH benutzten Wert, ein neuer Seed behält die Einstellungen.
   ['server', 'test/generieren-server.ts'],
@@ -405,6 +430,18 @@ export default [
   ['server', 'test/height-correction-boot.ts'],
   // The client address is the trusted hop's (rightmost X-Forwarded-For), never a visitor-supplied prefix (F3).
   ['server', 'test/herkunft-xff.ts'],
+  /*
+    Refactoring I1, from step 2: the guard of Form k, the modules under server/src/spiel/ that hold methods of WovServer
+    as functions with a context (`k` is the server itself). Per module: loading does nothing, the functions and the
+    export list are the listed ones, the context type names exactly the members read as `k.<member>`, the value imports
+    are a fixed list (`import { type X }` counts as a value import), `k` is never cast, passed on or shadowed. In the
+    class: one forwarding per function with the frozen head and the one statement `return f(this, …);`, `onPacket`
+    still calls it, and the list of the non-private members is frozen (a relaxation must be listed). A fixed sequence of
+    calls (stand-in and real instance) gives the numbers measured before the move. Starts a server without binding a port.
+    Section [0] shows each check can turn red. Seconds.
+    Refactoring I1 ab Schritt 2: der Wächter der Form k für die Module unter spiel/.
+  */
+  ['server', 'test/i1-form-k.ts'],
   /*
     I1 step 0 (N1): the surface of WovServer that the cuts of steps 1-10 must not lose: the 20 `case PacketType` labels of
     `onPacket`, the 13 admin command names, the 33 private methods and 11 fields that tests reach by name, the 19
@@ -707,6 +744,9 @@ export default [
     curve. Pure arithmetic, ~0.3 s, no browser and no assets.
   */
   ['server', 'test/stufe2-licht.ts'],
+  // Death is saved at once: the revival calls the event save with the reason `tod`, the row is in the account database
+  // right after it (tick one hour away), measured over a real WebSocket player. ~6 s.
+  ['server', 'test/tod-sicherung.ts'],
   /*
     Tod und Treffer N1 (Nachbesserung zu #149): Der Tote bleibt in der Positionsliste (echte Woelfe bleiben, beissen im Tod 0x,
     danach wieder; allein tickt die Welt weiter), jeder TOT_GESPERRT-Eintrag ueber den echten WebSocket, Admin-Teleport im
@@ -718,6 +758,9 @@ export default [
     tot = kein Schaden/keine Eingabe, Beleben durch den Server, Kreaturen lassen ab). Wartet ~5 s Liegezeit ein paar Mal, ~40 s.
   */
   ['server', 'test/tod-treffer.ts'],
+  // A chest whose prefab has an empty name opens as an empty chest instead of throwing in the packet handler; a normal chest
+  // afterwards still works. Real WebSocket player. ~2 s.
+  ['server', 'test/truhe-leerer-name.ts'],
   // Truhe lesen: der Inhalt einer fremden Truhe reist nicht im ZDOSync mit
   // (Vollstand und Delta auf dem Draht mitgelesen, drei Runden), der Besitzer
   // mit offener Truhe sieht jede Aenderung, eigene/besitzerlose/Grab-Truhen
@@ -744,6 +787,10 @@ export default [
     Fake-Request für ForumApi, kein assets/, keine GPU.
   */
   ['server/test', 'website-urspruenge.ts'],
+  // F9 (Wetter serverautoritativ): Definitionsdatei, Würfel (bitgleich zum alten, Verteilung, Dauer, Tageszeit),
+  // Wetterdienst und Admin-Befehl rein; dann echter Server mit echten Clients: Fensterwechsel, zwei Biome,
+  // Biomwechsel, Override, Editor/Dungeonband ohne Paket. Zwei Server auf ephemeren Ports, ~25 s.
+  ['server', 'test/wetter-server.ts'],
   // Wiedereinstieg nach Neustart mit Layout-Abgleich: das Bett wandert mit dem Gelände (der
   // Punkt zieht mit), ein versetztes oder gelöschtes Bett wird gemeldet. Echte Clients.
   ['server', 'test/wiedereinstieg-bett-wandert.ts'],

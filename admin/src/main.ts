@@ -102,7 +102,7 @@ import {
   zuruecksetzenStatus,
   type ResetUmgebung,
 } from './routen/weltZuruecksetzen.js';
-import { serverStatusLesen, serverAktionBehandeln, type ServerSteuerungUmgebung } from './routen/serverSteuerung.js';
+import { serverStatusLesen, serverAktionBehandeln, spielerAusMetriken, type ServerSteuerungUmgebung } from './routen/serverSteuerung.js';
 import { sperreFreigeben, sperreVersuchen } from './routen/serverSperre.js';
 // Dungeon-Dokumente werden hier NUR gelesen, aber durch dieselbe Pruefung
 // geschickt wie beim Server. Der Editor soll sehen, was auch der
@@ -1233,6 +1233,13 @@ function serverSteuerungUmgebung(): ServerSteuerungUmgebung {
   return {
     instanz: INSTANZ,
     zustand: () => dienstZustand('wov-server'),
+    spieler: () => {
+      try {
+        return spielerAusMetriken(readFileSync(METRIKEN_DATEI, 'utf-8'), Date.now());
+      } catch {
+        return null;
+      }
+    },
     neustart: async () => {
       await ausfuehren(SYSTEMCTL, ['restart', 'wov-server'], { timeout: SYSTEMCTL_ZEITLIMIT_MS });
     },

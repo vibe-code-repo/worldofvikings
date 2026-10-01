@@ -245,6 +245,15 @@ export default [
   */
   ['tools/test', 'asset-paket-teile.ts'],
   /*
+    Dev-Log-Werkzeug (30.09.2026): tools/devlog/eintragen.mjs prueft einen Tageseintrag
+    gegen das Schema aus wov-web/src/lib/devlog.ts, lehnt interne Spuren ab (PR-Nummer,
+    Commit-Hash, Pfad, Endung, Sperrliste), fuegt ein/ersetzt/kuerzt auf 512 KB und
+    schreibt atomar. Kindprozesse auf Wegwerf-Ordnern unter /tmp, keine Ports, keine
+    Assets. ~8 s.
+    Dev-log insert tool: schema, every block rule, insert/replace/trim, atomic write.
+  */
+  ['tools/test', 'devlog-eintragen.ts'],
+  /*
     Die Rauschmaske auf dem Felsanteil (A11, 11.09.2026).
 
     `tools/test/fels-rauschen.ts` rechnet ueber 4 Millionen Proben nach,
@@ -281,15 +290,6 @@ export default [
     tools — same output, same bytes, clean `git status assets/`.
   */
   ['tools', 'test/generiert-getrennt.ts'],
-  /*
-    I1 step 0 (N1): the proof tool `tools/i1-verschiebung.mjs` proves itself with 151 fixtures: real moves and every
-    forgery of the attack on #155 (forwarding form, the whole rest of the source file, the whole target file, free
-    names bound with scopes, local `k`, `arguments`, replacement table, effect comments, `k: any`), for a class method
-    (`this.` -> `k.`), a free function (form a) and verbatim moves (form 0); plus the command line (exit 0, 1, 2).
-    Node only, ~2 s.
-    Der Verschiebebeweis probt sich selbst: echt, gefälscht, unvollständig, je Form.
-  */
-  ['tools', 'test/i1-verschiebung.ts'],
   /*
     Der Boden gegen das VORBILD (10.09.2026, `design/original-boden.md`).
     `tools/test/look-referenz.ts` ist dabei umgedreht worden, und das ist
@@ -515,6 +515,32 @@ export default [
   // einen. Fehlt einer davon GANZ, wird uebersprungen; fehlen EINZELNE
   // Dateien darin, wird der Test rot. Begruendung bei der Funktion.
   ['tools', 'test/terrain-schichten.ts', brauchtBodenQuellen()],
+  /*
+    Move proof (tools/verschiebung/), seven self-tests. Small source texts in memory, no assets,
+    no installed packages: they run in the CI checkout. ~10 s each, aufruf ~20 s.
+     - altbestand: the 151 fixtures of the earlier proof tool, transferred, each with the
+       expectation it had there and a reason where the result differs.
+     - aufruf: the command line and the two states, on a throwaway git repository under a temp
+       folder (needs `git`, nothing of the checkout's history).
+     - nachbesserung: the gaps of the third attack (V2-A1 to A13) and the nine mutants that survived
+       the earlier self-tests, one fixture each; also starts the command line self-test and
+       interrupts it (~40 s).
+     - klassen: the second fix round (V2N): default values as a free list, reads while loading by
+       names (conservative), assignment targets through casts and by binding, and the fixtures of the
+       14 surviving mutants.
+     - nachangriff: the forgeries of both attacks on the earlier tool, each in its smallest form.
+     - regeln: every rule bites. For each rule B1 to B13 at least one green and one red fixture,
+       and every red fixture names exactly the rules that must report.
+     - typen: `tsc -p tools/verschiebung/tsconfig.json`, because `npm run typecheck` covers the
+       four workspaces and not tools/.
+  */
+  ['tools/test', 'verschiebung-altbestand.ts'],
+  ['tools/test', 'verschiebung-aufruf.ts'],
+  ['tools/test', 'verschiebung-klassen.ts'],
+  ['tools/test', 'verschiebung-nachangriff.ts'],
+  ['tools/test', 'verschiebung-nachbesserung.ts'],
+  ['tools/test', 'verschiebung-regeln.ts'],
+  ['tools/test', 'verschiebung-typen.ts'],
   ['tools', 'test/vorschau-buendeln-typpruefung.ts'],
   // Preview bundle stays untracked; the update script's dirty-tree warning is run for real,
   // and the tracked appearance.json is checked against its generator.
@@ -538,6 +564,8 @@ export default [
   // World-map publisher: the small probe (256 px, ~20-35 s); `--gross` runs the full 4096 px probe by hand.
   ['tools', 'test/weltkarte-probe.mjs'],
   ['tools', 'test/wov-sicherung-welt.ts'],
+  // Zone-to-kit converter (C3): small fixtures only, every thinning rule, counting rule, byte-equal reruns, Euler per axis, start village.
+  ['tools/test', 'zone-als-bausatz.ts'],
   ['tools/worldlayout-mcp', 'height-correction-readers.ts'],
   ['tools/worldlayout-mcp', 'probe-kontext.ts'],
   // WorldLayout-MCP-Server (Aufgabe B8): echter Client-Handshake gegen den

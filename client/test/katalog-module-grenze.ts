@@ -45,7 +45,29 @@
  *     lines, list refreshes, timers, the map `vorhanden` at the end), gives the
  *     lines measured before the move: with the functions on a stub, and with
  *     the methods of the prototype on an object that has the prototype of the
- *     class (there the inner call reaches the forwarder).
+ *     class (there the inner call reaches the forwarder). Every line carries the
+ *     number of microtask ticks that have run beside the call, so an added or
+ *     dropped `await` moves the lines behind it (step G3, finding G2-A2). The
+ *     names of the sequence are prefabs whose model differs from their name, so
+ *     a function that mixes the two shows (finding G2-A3).
+ *  9. Step G3 (`infofeld.ts`, `kontext.ts`): the same rules for the two methods of
+ *     the info block. `infofeld.ts` only declares, imports exactly the listed
+ *     names, exports exactly the two plain functions; the two methods are
+ *     forwarders; the context names exactly the eleven members the functions use
+ *     through `kat` (the loop variable `k` of the bodies is why the context is not
+ *     called `k`). Behaviour: a fixed sequence against a stub of the context and
+ *     a small stand-in for the DOM (every element and every change recorded,
+ *     every button clicked, the tree written out) gives the scenes measured on the
+ *     methods of the class before the move.
+ * 10. Rules that hold for every module of the form k under `katalog/` (step G3,
+ *     K9 of the rules): (1) the head of each forwarder up to the `{` is a text fixed
+ *     here; (2) the value imports of each module are a fixed list; (3) the list of
+ *     the members of the class that are not private is fixed; (4) `import { type X }`
+ *     counts as a value edge, never as a type import; (5) objects of the stock come
+ *     back and go on as themselves: the base-scale row is the very node appended,
+ *     the map `vorhanden` the very map that is written.
+ * 11. The search for import cycles (step G2, finding G2-A1) is checked through the
+ *     same two functions that read the real modules.
  *
  * What counts as a value import: `import … from`, `import '…'`,
  * `export … from`, `import x = require('…')`, `import('…')`, `require('…')`,
@@ -81,6 +103,7 @@
  *
  * Run (from client/): npx tsx test/katalog-module-grenze.ts
  */
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -96,7 +119,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
-import { ITEM_DEFS, PREFABS_BY_NAME, PREFAB_DEFS, isRenderable } from '@wov/shared';
+import { ITEM_DEFS, PREFABS_BY_NAME, PREFAB_DEFS, isRenderable, istEigenesModell, uploadedModelRegistry } from '@wov/shared';
 import { SPEICHER_WURZEL, STORE_ARTEN } from '../src/editor/StoreKatalogDaten';
 import { t } from '../src/editor/i18n';
 import { modelUrl } from '../src/engine/AssetManager';
@@ -106,10 +129,11 @@ const CLIENT_ROOT = resolve(HERE, '..');
 const SRC = resolve(CLIENT_ROOT, 'src');
 const KATALOG_DIR = resolve(SRC, 'editor/katalog');
 const GEGENSTANDS_KATALOG = resolve(SRC, 'editor/GegenstandsKatalog.ts');
-const KATALOG_MODULES = ['format', 'kategorien', 'konstanten', 'pruefen', 'kontext'] as const;
+const KATALOG_MODULES = ['format', 'kategorien', 'konstanten', 'pruefen', 'kontext', 'infofeld'] as const;
 /** The modules the class imports itself, as values. `kontext.ts` holds only a type and is reached from `pruefen.ts`. */
-const IMPORTED_BY_CLASS = ['format', 'kategorien', 'konstanten', 'pruefen'] as const;
+const IMPORTED_BY_CLASS = ['format', 'kategorien', 'konstanten', 'pruefen', 'infofeld'] as const;
 const PRUEFEN_TS = resolve(KATALOG_DIR, 'pruefen.ts');
+const INFOFELD_TS = resolve(KATALOG_DIR, 'infofeld.ts');
 const KONTEXT_TS = resolve(KATALOG_DIR, 'kontext.ts');
 const ENGINE_DIR = resolve(SRC, 'engine');
 
@@ -610,13 +634,13 @@ console.log('\n── [1] Value imports of katalog/* only in GegenstandsKatalog.
       ),
     );
   }
-  // kontext.ts holds only a type: nobody imports it as a value, and the one type import comes from pruefen.ts.
+  // kontext.ts holds only a type: nobody imports it as a value, and the type imports come from the modules with a context.
   const ofKontext = references.filter(
     (r) => r.target === 'katalog' && resolveSpecifier(r.file, r.specifier)?.replace(SOURCE_EXT, '') === resolve(KATALOG_DIR, 'kontext'),
   );
   check(
-    'katalog/kontext.ts is imported only as a type, and only by katalog/pruefen.ts',
-    ofKontext.length === 1 && ofKontext[0]!.file === PRUEFEN_TS && ofKontext[0]!.typeOnly,
+    'katalog/kontext.ts is imported only as a type, and only by katalog/pruefen.ts and katalog/infofeld.ts (once each)',
+    ofKontext.length === 2 && ofKontext.every((r) => r.typeOnly) && ofKontext.map((r) => r.file).sort().join(',') === [INFOFELD_TS, PRUEFEN_TS].sort().join(','),
     list(ofKontext),
   );
   const found = violations.filter((v) => v.rule === 1);
@@ -784,6 +808,8 @@ if (kategorien) {
 await load('konstanten', () => import('../src/editor/katalog/konstanten'));
 // Step G2: pruefen.ts pulls the engine (Babylon) through modelUrl and still loads in Node; kontext.ts is empty at run time.
 const pruefen = await load('pruefen', () => import('../src/editor/katalog/pruefen'));
+// Step G3: infofeld.ts pulls the drawing helpers (design.ts) and the registries and still loads in Node; it does nothing while loading.
+const infofeld = await load('infofeld', () => import('../src/editor/katalog/infofeld'));
 await load('kontext', () => import('../src/editor/katalog/kontext'));
 
 // ── [5] Symbolic links ─────────────────────────────────────────────────
@@ -803,9 +829,9 @@ interface ImportSeen {
   readonly typeOnly: boolean;
 }
 
-/** Every `import … from` and `export … from` of a file, with its names, as the syntax tree has them. */
-function importsOf(file: string): ImportSeen[] {
-  const sourceFile = ts.createSourceFile(file, readFileSync(file, 'utf-8'), ts.ScriptTarget.Latest, true);
+/** Every `import … from` and `export … from` of a source text, with its names, as the syntax tree has them. */
+function importsOfText(file: string, text: string): ImportSeen[] {
+  const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   const out: ImportSeen[] = [];
   for (const statement of sourceFile.statements) {
     if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
@@ -825,6 +851,11 @@ function importsOf(file: string): ImportSeen[] {
   return out;
 }
 
+/** Every `import … from` and `export … from` of a file. */
+function importsOf(file: string): ImportSeen[] {
+  return importsOfText(file, readFileSync(file, 'utf-8'));
+}
+
 const describeImports = (imports: readonly ImportSeen[]): string =>
   imports.map((i) => `${i.typeOnly ? 'type ' : ''}${i.specifier} {${i.names.join(', ')}}`).join(' | ') || 'none';
 
@@ -832,10 +863,16 @@ const describeImports = (imports: readonly ImportSeen[]): string =>
  * Whether a module only declares: imports with names, type aliases, function declarations (at most `async`, no
  * `export` in front) and one export list at the end. Anything else runs when the module loads.
  */
-function declarationsOnly(file: string): { readonly offenders: readonly string[]; readonly functions: readonly string[]; readonly exportLists: number } {
+function declarationsOnly(file: string): {
+  readonly offenders: readonly string[];
+  readonly functions: readonly string[];
+  readonly asyncFunctions: readonly string[];
+  readonly exportLists: number;
+} {
   const sourceFile = ts.createSourceFile(file, readFileSync(file, 'utf-8'), ts.ScriptTarget.Latest, true);
   const offenders: string[] = [];
   const functions: string[] = [];
+  const asyncFunctions: string[] = [];
   let exportLists = 0;
   const at = (node: ts.Node): string => `line ${sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1}`;
   for (const statement of sourceFile.statements) {
@@ -850,14 +887,17 @@ function declarationsOnly(file: string): { readonly offenders: readonly string[]
       const kinds = (ts.getModifiers(statement) ?? []).map((m) => m.kind);
       if (!statement.name || !statement.body || kinds.some((k) => k !== ts.SyntaxKind.AsyncKeyword)) {
         offenders.push(`${at(statement)}: a function with a modifier other than async, or without a body`);
-      } else functions.push(statement.name.text);
+      } else {
+        functions.push(statement.name.text);
+        if (kinds.includes(ts.SyntaxKind.AsyncKeyword)) asyncFunctions.push(statement.name.text);
+      }
     } else if (ts.isExportDeclaration(statement) && !statement.moduleSpecifier && !statement.isTypeOnly && statement.exportClause && ts.isNamedExports(statement.exportClause)) {
       exportLists++;
     } else {
       offenders.push(`${at(statement)}: ${ts.SyntaxKind[statement.kind]}`);
     }
   }
-  return { offenders, functions, exportLists };
+  return { offenders, functions, asyncFunctions, exportLists };
 }
 
 /**
@@ -874,59 +914,147 @@ const PRUEFEN_VALUE_IMPORTS: ReadonlyArray<readonly [specifier: string, names: r
   ['./konstanten', ['PRUEF_PARALLEL']],
 ];
 
-console.log('\n── [6] Step G2: pruefen.ts and kontext.ts declare only, and import only what is listed ──');
-{
-  const pruefenShape = existsSync(PRUEFEN_TS) ? declarationsOnly(PRUEFEN_TS) : null;
-  const kontextShape = existsSync(KONTEXT_TS) ? declarationsOnly(KONTEXT_TS) : null;
-  check(
-    'pruefen.ts holds only imports with names, type aliases, function declarations (at most async) and one export list',
-    pruefenShape !== null && pruefenShape.offenders.length === 0 && pruefenShape.exportLists === 1,
-    pruefenShape ? pruefenShape.offenders.join(' | ') || `${pruefenShape.functions.length} functions, ${pruefenShape.exportLists} export list` : 'file missing',
-  );
-  check(
-    'kontext.ts holds only imports with names and type aliases: no function, no export list, nothing else',
-    kontextShape !== null && kontextShape.offenders.length === 0 && kontextShape.functions.length === 0 && kontextShape.exportLists === 0,
-    kontextShape ? kontextShape.offenders.join(' | ') || 'declarations only' : 'file missing',
-  );
-  const pruefenImports = existsSync(PRUEFEN_TS) ? importsOf(PRUEFEN_TS) : [];
-  check(
-    'pruefen.ts: value imports are exactly PREFABS_BY_NAME (@wov/shared), modelUrl (../../engine/AssetManager), SPEICHER_WURZEL (../StoreKatalogDaten), PRUEF_PARALLEL (./konstanten), in this order',
-    describeImports(pruefenImports.filter((i) => !i.typeOnly)) === PRUEFEN_VALUE_IMPORTS.map(([s, n]) => `${s} {${n.join(', ')}}`).join(' | '),
-    describeImports(pruefenImports),
-  );
-  check(
-    "pruefen.ts: the only type import is `import type { KatalogKontext } from './kontext'`",
-    describeImports(pruefenImports.filter((i) => i.typeOnly)) === 'type ./kontext {KatalogKontext}',
-    describeImports(pruefenImports.filter((i) => i.typeOnly)),
-  );
-  const kontextImports = existsSync(KONTEXT_TS) ? importsOf(KONTEXT_TS) : [];
-  check(
-    "kontext.ts: the one import is `import type { GegenstandsKatalog } from '../GegenstandsKatalog'`",
-    describeImports(kontextImports) === 'type ../GegenstandsKatalog {GegenstandsKatalog}',
-    describeImports(kontextImports),
-  );
-  // the engine boundary of the folder, and the cycle check among its modules
-  const edges: string[] = [];
-  for (const file of katalogFiles) {
-    const intoEngine = importsOf(file).filter((i) => {
-      const target = resolveSpecifier(file, i.specifier);
-      return target !== null && isInside(ENGINE_DIR, target);
-    });
-    const expected = file === PRUEFEN_TS ? '../../engine/AssetManager {modelUrl}' : 'none';
-    check(
-      `${rel(file)}: imports from client/src/engine/ are ${expected === 'none' ? 'none' : `exactly ${expected}`}`,
-      describeImports(intoEngine) === expected,
-      describeImports(intoEngine),
-    );
-    // Both ends of an edge are the stem of the file (path without extension): the importer as well as the
-    // target, so that the walk below finds the target's own edges again.
-    const stemOf = (path: string): string => rel(path.replace(SOURCE_EXT, ''));
-    for (const i of importsOf(file)) {
-      if (i.typeOnly) continue;
-      const target = resolveSpecifier(file, i.specifier)?.replace(SOURCE_EXT, '');
-      if (target && isInside(KATALOG_DIR, target)) edges.push(`${stemOf(file)} -> ${stemOf(target)}`);
-    }
+/**
+ * The modules with a context (rule form k, steps G2 and G3): the former methods of the class with their parameters in
+ * order, the members of the context, and what the module is. The forwarders in the class never carry `async` (rule 4.4);
+ * `async` stays on the functions of the module that were `async` methods.
+ */
+interface ForwardedModule {
+  /** File name under `katalog/`, for the messages. */
+  readonly label: string;
+  readonly file: string;
+  /** How `GegenstandsKatalog.ts` names the module. */
+  readonly specifier: string;
+  /** The former methods, in the order of the class. `keepsPrivate`: the method is not in the context, so `private` stays. */
+  readonly former: ReadonlyArray<{ readonly name: string; readonly params: readonly string[]; readonly keepsPrivate: boolean }>;
+  /** What the functions use of the class through their first parameter: three fields, one accessor, four methods (G2); seven fields and four methods (G3). */
+  readonly context: readonly string[];
+  readonly aliasName: string;
+  /** Name of the first parameter of every function: `k`, and `kat` where `k` is a loop variable in the bodies. */
+  readonly contextParam: string;
+  /** Whether the functions of the module are `async`. */
+  readonly async: boolean;
+}
+const PRUEFEN_MODULE: ForwardedModule = {
+  label: 'pruefen.ts',
+  file: PRUEFEN_TS,
+  specifier: './katalog/pruefen',
+  former: [
+    { name: 'pruefeSeite', params: [], keepsPrivate: true },
+    { name: 'pruefeSpeicherSeite', params: ['ids'], keepsPrivate: false },
+  ],
+  context: ['vorhanden', 'pruefKnopf', 'storeIndex', 'seitenNamen', 'speicherArt', 'pruefeSpeicherSeite', 'statusSetzen', 'listeFuellen'],
+  aliasName: 'PruefKontext',
+  contextParam: 'k',
+  async: true,
+};
+const INFOFELD_MODULE: ForwardedModule = {
+  label: 'infofeld.ts',
+  file: INFOFELD_TS,
+  specifier: './katalog/infofeld',
+  former: [
+    { name: 'infoSchreiben', params: ['name', 'def', 'masse', 'warnung'], keepsPrivate: true },
+    { name: 'speicherInfoSchreiben', params: ['eintrag', 'warnung'], keepsPrivate: true },
+  ],
+  context: [
+    'infoBlock',
+    'aufPlatzieren',
+    'rasterSchritt',
+    'schliesse',
+    'hochgeladenesModellEntfernen',
+    'grundskalaZeileBauen',
+    'letzteMasse',
+    'storeContainer',
+    'bildMasse',
+    'tonSpieler',
+    'statusSetzen',
+  ],
+  aliasName: 'InfofeldKontext',
+  contextParam: 'kat',
+  async: false,
+};
+const FORWARDED_MODULES: readonly ForwardedModule[] = [PRUEFEN_MODULE, INFOFELD_MODULE];
+/** The methods steps G2 and G3 turned into functions with a context. */
+const FORMER_METHODS = FORWARDED_MODULES.flatMap((m) => m.former);
+/**
+ * The head of every forwarder up to the `{`, exactly (K9 (1)): it catches a decorator, a lost `private`, a changed default
+ * value and changed types on a forwarder. The forwarders are the surface the rest of the code sees.
+ */
+const FORWARDER_HEADS: Readonly<Record<string, string>> = {
+  pruefeSeite: 'private pruefeSeite(): Promise<void>',
+  pruefeSpeicherSeite: 'pruefeSpeicherSeite(ids: readonly string[]): Promise<void>',
+  infoSchreiben:
+    'private infoSchreiben(\n    name: string,\n    def: PrefabDef | null,\n    masse: Kennzahlen | null,\n    warnung: string | null\n  ): void',
+  speicherInfoSchreiben: 'private speicherInfoSchreiben(eintrag: StoreEintrag, warnung: string | null): void',
+};
+/**
+ * The members of `GegenstandsKatalog` that are not `private` or `protected`, as fixed after step G3 (K9 (3)). Every
+ * loosening widens the public surface of the class for good, so a new entry needs a decision here.
+ */
+const PUBLIC_MEMBERS: readonly string[] = [
+  'infoBlock',
+  'pruefKnopf',
+  'tonSpieler',
+  'storeIndex',
+  'storeContainer',
+  'bildMasse',
+  'vorhanden',
+  'aufPlatzieren',
+  'Constructor',
+  'istOffen',
+  'umschalten',
+  'oeffne',
+  'schliesse',
+  'letzteMasse',
+  'rasterSchritt',
+  'hochgeladenesModellEntfernen',
+  'grundskalaZeileBauen',
+  'speicherArt',
+  'seitenNamen',
+  'listeFuellen',
+  'statusSetzen',
+  'pruefeSpeicherSeite',
+];
+
+/**
+ * Value imports of `infofeld.ts`, exactly (step G3): the registries and the drawing helpers the two moved methods used
+ * inside the class. Rule 1 lets only `GegenstandsKatalog.ts` load `infofeld.ts`, and the class imported every one of
+ * these modules before the step, so nothing is evaluated earlier than before. The list is exact so that one more import
+ * needs a decision here. Type imports are listed too: they must be `import type`, never `import { type X }`.
+ */
+const INFOFELD_VALUE_IMPORTS: ReadonlyArray<readonly [specifier: string, names: readonly string[]]> = [
+  ['@wov/shared', ['istEigenesModell', 'uploadedModelRegistry']],
+  ['../design', ['F', 'M', 'PFAD', 'SCHRIFT', 'beschriftungStil', 'el', 'knopf', 'luecke', 'stil']],
+  ['./format', ['fmt', 'fmtBytes']],
+  ['./kategorien', ['ITEMS_NACH_NAME', 'ITEM_TYP_TEXT']],
+];
+const INFOFELD_TYPE_IMPORTS: ReadonlyArray<readonly [specifier: string, names: readonly string[]]> = [
+  ['@wov/shared', ['PrefabDef']],
+  ['../StoreKatalogDaten', ['StoreEintrag']],
+  ['./konstanten', ['Kennzahlen']],
+  ['./kontext', ['KatalogKontext']],
+];
+const listedImports = (list: ReadonlyArray<readonly [specifier: string, names: readonly string[]]>, typeOnly: boolean): string =>
+  list.map(([specifier, names]) => `${typeOnly ? 'type ' : ''}${specifier} {${names.join(', ')}}`).join(' | ');
+
+/**
+ * The value-import edges `<stem> -> <stem>` of one file among the modules under `katalog/`. Both ends of an edge are the
+ * stem of the file (path without extension): the importer as well as the target, so that the walk finds the target's own
+ * edges again. `import { type X }` is a value import here (step G3, K9 (4)): only the declaration form `import type` is not.
+ */
+function katalogEdges(file: string, imports: readonly ImportSeen[]): string[] {
+  const stemOf = (path: string): string => rel(path.replace(SOURCE_EXT, ''));
+  const out: string[] = [];
+  for (const i of imports) {
+    if (i.typeOnly) continue;
+    const target = resolveSpecifier(file, i.specifier)?.replace(SOURCE_EXT, '');
+    if (target && isInside(KATALOG_DIR, target)) out.push(`${stemOf(file)} -> ${stemOf(target)}`);
   }
+  return out;
+}
+
+/** The nodes at which a depth-first walk over the edges meets a node it is still visiting: they lie on a cycle. */
+function cycleNodes(edges: readonly string[]): string[] {
   const adjacency = new Map<string, string[]>();
   for (const edge of edges) {
     const [from, to] = edge.split(' -> ') as [string, string];
@@ -946,40 +1074,138 @@ console.log('\n── [6] Step G2: pruefen.ts and kontext.ts declare only, and i
     visiting.delete(node);
     done.add(node);
   };
-  // The walk can turn red: a synthetic graph with one cycle among stems.
-  {
-    const probe = new Map<string, string[]>([['a', ['b']], ['b', ['c']], ['c', ['a']], ['d', ['a']]]);
-    const seen: string[] = [];
-    const walk = (node: string, trail: readonly string[]): void => {
-      if (trail.includes(node)) {
-        seen.push(node);
-        return;
-      }
-      for (const next of probe.get(node) ?? []) walk(next, [...trail, node]);
-    };
-    for (const node of probe.keys()) walk(node, []);
-    check('the cycle walk itself finds a synthetic cycle a -> b -> c -> a', seen.length > 0, `on a cycle: ${[...new Set(seen)].join(', ')}`);
-  }
   for (const node of adjacency.keys()) visit(node);
+  return onCycle;
+}
+
+console.log('\n── [6] Steps G2 and G3: pruefen.ts, infofeld.ts and kontext.ts declare only, and import only what is listed ──');
+{
+  const pruefenShape = existsSync(PRUEFEN_TS) ? declarationsOnly(PRUEFEN_TS) : null;
+  const infofeldShape = existsSync(INFOFELD_TS) ? declarationsOnly(INFOFELD_TS) : null;
+  const kontextShape = existsSync(KONTEXT_TS) ? declarationsOnly(KONTEXT_TS) : null;
+  check(
+    'pruefen.ts holds only imports with names, type aliases, function declarations (at most async) and one export list',
+    pruefenShape !== null && pruefenShape.offenders.length === 0 && pruefenShape.exportLists === 1,
+    pruefenShape ? pruefenShape.offenders.join(' | ') || `${pruefenShape.functions.length} functions, ${pruefenShape.exportLists} export list` : 'file missing',
+  );
+  check(
+    'infofeld.ts holds only imports with names, type aliases, function declarations (none async: the two methods were not) and one export list',
+    infofeldShape !== null &&
+      infofeldShape.offenders.length === 0 &&
+      infofeldShape.exportLists === 1 &&
+      infofeldShape.functions.join(',') === INFOFELD_MODULE.former.map((m) => m.name).join(',') &&
+      infofeldShape.asyncFunctions.length === 0,
+    infofeldShape
+      ? infofeldShape.offenders.join(' | ') || `${infofeldShape.functions.length} functions (${infofeldShape.asyncFunctions.length} async), ${infofeldShape.exportLists} export list`
+      : 'file missing',
+  );
+  check(
+    'kontext.ts holds only imports with names and type aliases: no function, no export list, nothing else',
+    kontextShape !== null && kontextShape.offenders.length === 0 && kontextShape.functions.length === 0 && kontextShape.exportLists === 0,
+    kontextShape ? kontextShape.offenders.join(' | ') || 'declarations only' : 'file missing',
+  );
+  const pruefenImports = existsSync(PRUEFEN_TS) ? importsOf(PRUEFEN_TS) : [];
+  check(
+    'pruefen.ts: value imports are exactly PREFABS_BY_NAME (@wov/shared), modelUrl (../../engine/AssetManager), SPEICHER_WURZEL (../StoreKatalogDaten), PRUEF_PARALLEL (./konstanten), in this order',
+    describeImports(pruefenImports.filter((i) => !i.typeOnly)) === PRUEFEN_VALUE_IMPORTS.map(([s, n]) => `${s} {${n.join(', ')}}`).join(' | '),
+    describeImports(pruefenImports),
+  );
+  check(
+    "pruefen.ts: the only type import is `import type { KatalogKontext } from './kontext'`",
+    describeImports(pruefenImports.filter((i) => i.typeOnly)) === 'type ./kontext {KatalogKontext}',
+    describeImports(pruefenImports.filter((i) => i.typeOnly)),
+  );
+  const infofeldImports = existsSync(INFOFELD_TS) ? importsOf(INFOFELD_TS) : [];
+  check(
+    'infofeld.ts: value imports are exactly istEigenesModell and uploadedModelRegistry (@wov/shared), the nine helpers of ../design, fmt and fmtBytes (./format), ITEMS_NACH_NAME and ITEM_TYP_TEXT (./kategorien), in this order',
+    describeImports(infofeldImports.filter((i) => !i.typeOnly)) === listedImports(INFOFELD_VALUE_IMPORTS, false),
+    describeImports(infofeldImports),
+  );
+  check(
+    'infofeld.ts: the type imports are exactly `import type` of PrefabDef (@wov/shared), StoreEintrag (../StoreKatalogDaten), Kennzahlen (./konstanten) and KatalogKontext (./kontext), in this order',
+    describeImports(infofeldImports.filter((i) => i.typeOnly)) === listedImports(INFOFELD_TYPE_IMPORTS, true),
+    describeImports(infofeldImports.filter((i) => i.typeOnly)),
+  );
+  const kontextImports = existsSync(KONTEXT_TS) ? importsOf(KONTEXT_TS) : [];
+  check(
+    "kontext.ts: the one import is `import type { GegenstandsKatalog } from '../GegenstandsKatalog'`",
+    describeImports(kontextImports) === 'type ../GegenstandsKatalog {GegenstandsKatalog}',
+    describeImports(kontextImports),
+  );
+  // Step G3, K9 (4): the reading itself can turn red. `import { type X }` is a value import for the lists above and for the
+  // cycle search below (whether the statement survives the build depends on compiler options), `import type` is not.
+  {
+    const inline = importsOfText('probe.ts', "import { type KatalogKontext } from './kontext';");
+    const declaration = importsOfText('probe.ts', "import type { KatalogKontext } from './kontext';");
+    check(
+      'an inline `import { type X }` is read as a value import (names carry the word type), the declaration `import type` as a type import',
+      inline.length === 1 && !inline[0]!.typeOnly && inline[0]!.names.join(',') === 'type KatalogKontext' && declaration.length === 1 && declaration[0]!.typeOnly && declaration[0]!.names.join(',') === 'KatalogKontext',
+      `${describeImports(inline)} / ${describeImports(declaration)}`,
+    );
+  }
+  // the engine boundary of the folder, and the cycle check among its modules
+  const edges: string[] = [];
+  for (const file of katalogFiles) {
+    const intoEngine = importsOf(file).filter((i) => {
+      const target = resolveSpecifier(file, i.specifier);
+      return target !== null && isInside(ENGINE_DIR, target);
+    });
+    const expected = file === PRUEFEN_TS ? '../../engine/AssetManager {modelUrl}' : 'none';
+    check(
+      `${rel(file)}: imports from client/src/engine/ are ${expected === 'none' ? 'none' : `exactly ${expected}`}`,
+      describeImports(intoEngine) === expected,
+      describeImports(intoEngine),
+    );
+    edges.push(...katalogEdges(file, importsOf(file)));
+  }
+  // The search can turn red (step G2, finding G2-A1): the SAME two functions that read the real modules read synthetic
+  // modules under katalog/ (source text in, edges and cycle out), so a broken edge or a broken walk shows here.
+  {
+    const at = (name: string): string => resolve(KATALOG_DIR, `kreis-${name}.ts`);
+    const edgesOf = (modules: ReadonlyArray<readonly [name: string, source: string]>): string[] =>
+      modules.flatMap(([name, source]) => katalogEdges(at(name), importsOfText(at(name), source)));
+    const cycle = edgesOf([
+      ['a', "import { x } from './kreis-b';"],
+      ['b', "import { x } from './kreis-c.ts';"],
+      ['c', "import { x } from './kreis-a';"],
+      ['d', "import { x } from './kreis-a';"],
+    ]);
+    const found = [...new Set(cycleNodes(cycle))];
+    check(
+      'the cycle search finds a synthetic cycle a -> b -> c -> a (with a module that only leads into it), through the functions that read the real modules',
+      found.length > 0 && cycle.length === 4,
+      `${cycle.length} edges: ${cycle.join(' | ')}; on a cycle: ${found.join(', ') || 'nothing'}`,
+    );
+    const chain = edgesOf([
+      ['a', "import { x } from './kreis-b';"],
+      ['b', "import { x } from './kreis-c';"],
+      ['c', 'export const x = 1;'],
+    ]);
+    check('the same search finds no cycle in a chain a -> b -> c', chain.length === 2 && cycleNodes(chain).length === 0, `${chain.length} edges`);
+    const viaType = edgesOf([
+      ['a', "import type { x } from './kreis-b';"],
+      ['b', "import { x } from './kreis-a';"],
+    ]);
+    check('a cycle that closes only through `import type` is no cycle: the edge of the type import is not counted', viaType.length === 1 && cycleNodes(viaType).length === 0, `${viaType.length} edges`);
+    const viaInline = edgesOf([
+      ['a', "import { type x } from './kreis-b';"],
+      ['b', "import { x } from './kreis-a';"],
+    ]);
+    check('a cycle that closes through `import { type x }` is one (K9 (4)): the inline modifier counts as a value edge', viaInline.length === 2 && cycleNodes(viaInline).length > 0, `${viaInline.length} edges`);
+  }
+  const onCycle = cycleNodes(edges);
   check(
     'no import cycle among the modules under katalog/ (value imports)',
     edges.length > 0 && onCycle.length === 0,
-    onCycle.length ? `on a cycle: ${onCycle.join(', ')}` : `${edges.length} edges: ${edges.join(' | ')}`,
+    onCycle.length ? `on a cycle: ${[...new Set(onCycle)].join(', ')}` : `${edges.length} edges: ${edges.join(' | ')}`,
   );
 }
 
-// ── [7] Step G2: the moved methods are forwarders, the context names what is used ──
+// ── [7] Steps G2 and G3: the moved methods are forwarders, the context names what is used ──
 
-/** The methods step G2 turned into functions with a context, with their parameters in order. */
-const FORMER_METHODS: ReadonlyArray<{ readonly name: string; readonly params: readonly string[]; readonly keepsPrivate: boolean }> = [
-  { name: 'pruefeSeite', params: [], keepsPrivate: true },
-  { name: 'pruefeSpeicherSeite', params: ['ids'], keepsPrivate: false },
-];
-/** What pruefen.ts uses of the class through `k`: three fields, one accessor, four methods. */
-const CONTEXT_MEMBERS = ['vorhanden', 'pruefKnopf', 'storeIndex', 'seitenNamen', 'speicherArt', 'pruefeSpeicherSeite', 'statusSetzen', 'listeFuellen'] as const;
 const sortedList = (names: Iterable<string>): string => [...names].sort().join(', ');
 
-console.log('\n── [7] Step G2: the moved methods are forwarders, the context names what is used ──');
+console.log('\n── [7] Steps G2 and G3: the moved methods are forwarders, the context names what is used ──');
 const classSource = ts.createSourceFile(GEGENSTANDS_KATALOG, readFileSync(GEGENSTANDS_KATALOG, 'utf-8'), ts.ScriptTarget.Latest, true);
 const classNode = classSource.statements.find((s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && s.name?.text === 'GegenstandsKatalog');
 check('GegenstandsKatalog.ts declares the class GegenstandsKatalog', classNode !== undefined);
@@ -987,103 +1213,7 @@ const membersNamed = (name: string): ts.ClassElement[] =>
   classNode ? classNode.members.filter((m) => m.name !== undefined && ts.isIdentifier(m.name) && m.name.text === name) : [];
 const modifierKinds = (node: ts.Node): ts.SyntaxKind[] => (ts.canHaveModifiers(node) ? (ts.getModifiers(node) ?? []).map((m) => m.kind) : []);
 const kindNames = (kinds: readonly ts.SyntaxKind[]): string => kinds.map((k) => ts.SyntaxKind[k]).join(' ') || 'no modifiers';
-{
-  const imports = classSource.statements.filter(
-    (s): s is ts.ImportDeclaration => ts.isImportDeclaration(s) && ts.isStringLiteral(s.moduleSpecifier) && s.moduleSpecifier.text === './katalog/pruefen',
-  );
-  const names = imports.flatMap((d) =>
-    d.importClause?.namedBindings && ts.isNamedImports(d.importClause.namedBindings) ? d.importClause.namedBindings.elements.map((e) => e.getText(classSource)) : [],
-  );
-  check(
-    "GegenstandsKatalog.ts imports the forwarded functions under their own names, as values, from './katalog/pruefen'",
-    imports.length === 1 && imports[0]!.importClause?.isTypeOnly !== true && names.join(',') === FORMER_METHODS.map((m) => m.name).join(','),
-    names.join(', ') || 'no such import',
-  );
-}
-for (const { name, params, keepsPrivate } of FORMER_METHODS) {
-  const members = membersNamed(name);
-  const member = members[0];
-  check(`${name}: exactly one member of the class, a method`, members.length === 1 && member !== undefined && ts.isMethodDeclaration(member), members.map((m) => ts.SyntaxKind[m.kind]).join(', ') || 'missing');
-  if (member === undefined || !ts.isMethodDeclaration(member)) continue;
-  const kinds = modifierKinds(member);
-  check(
-    `${name}: no async on the forwarder, ${keepsPrivate ? 'private kept' : 'private removed (the context names it)'}`,
-    !kinds.includes(ts.SyntaxKind.AsyncKeyword) && kinds.includes(ts.SyntaxKind.PrivateKeyword) === keepsPrivate,
-    kindNames(kinds),
-  );
-  const parameters = member.parameters.map((p) => p.name.getText(classSource));
-  check(`${name}: the parameters are (${params.join(', ')})`, parameters.join(',') === params.join(','), `(${parameters.join(', ')})`);
-  const statements = member.body?.statements ?? [];
-  const only = statements[0];
-  const call = only !== undefined && ts.isReturnStatement(only) && only.expression !== undefined && ts.isCallExpression(only.expression) ? only.expression : undefined;
-  const args = call ? call.arguments.map((a) => a.getText(classSource)) : [];
-  check(
-    `${name}: the body is the one statement return ${name}(this${params.map((p) => `, ${p}`).join('')})`,
-    statements.length === 1 && call !== undefined && ts.isIdentifier(call.expression) && call.expression.text === name && args.join(',') === ['this', ...params].join(','),
-    member.body ? member.body.getText(classSource).replace(/\s+/g, ' ').slice(0, 120) : 'no body',
-  );
-}
-for (const name of CONTEXT_MEMBERS) {
-  const members = membersNamed(name);
-  const kinds = members.length === 1 ? modifierKinds(members[0]!) : [];
-  check(
-    `${name}: one member of the class, not private (the context type reaches only public members)`,
-    members.length === 1 && !kinds.includes(ts.SyntaxKind.PrivateKeyword) && !kinds.includes(ts.SyntaxKind.ProtectedKeyword),
-    members.length === 1 ? kindNames(kinds) : `${members.length} members`,
-  );
-}
-{
-  const source = existsSync(PRUEFEN_TS) ? ts.createSourceFile(PRUEFEN_TS, readFileSync(PRUEFEN_TS, 'utf-8'), ts.ScriptTarget.Latest, true) : null;
-  const alias = source?.statements.find((s): s is ts.TypeAliasDeclaration => ts.isTypeAliasDeclaration(s) && s.name.text === 'PruefKontext');
-  const literals: string[] = [];
-  const collect = (node: ts.TypeNode): void => {
-    if (ts.isUnionTypeNode(node)) node.types.forEach(collect);
-    else if (ts.isParenthesizedTypeNode(node)) collect(node.type);
-    else if (ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal)) literals.push(node.literal.text);
-    else literals.push(`?${ts.SyntaxKind[node.kind]}`);
-  };
-  const argument =
-    source && alias && ts.isTypeReferenceNode(alias.type) && alias.type.typeName.getText(source) === 'KatalogKontext' && alias.type.typeArguments?.length === 1
-      ? alias.type.typeArguments[0]
-      : undefined;
-  if (argument) collect(argument);
-  check(
-    'pruefen.ts: type PruefKontext = KatalogKontext<…> names exactly the 8 members of the context',
-    argument !== undefined && sortedList(literals) === sortedList(CONTEXT_MEMBERS),
-    argument ? sortedList(literals) : 'alias missing or not KatalogKontext<…>',
-  );
-  const functions = source?.statements.filter(ts.isFunctionDeclaration) ?? [];
-  const used = new Set<string>();
-  let handedOn = 0;
-  let contextParameters = 0;
-  for (const fn of functions) {
-    const first = fn.parameters[0];
-    if (source && first && ts.isIdentifier(first.name) && first.name.text === 'k' && first.type?.getText(source) === 'PruefKontext') contextParameters++;
-    const walk = (node: ts.Node): void => {
-      if (ts.isIdentifier(node) && node.text === 'k' && node !== first?.name) {
-        if (ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node) used.add(node.parent.name.text);
-        else handedOn++;
-      }
-      ts.forEachChild(node, walk);
-    };
-    if (fn.body) walk(fn.body);
-  }
-  check('pruefen.ts: both functions take k: PruefKontext as their first parameter', functions.length === 2 && contextParameters === 2, `${functions.length} functions, ${contextParameters} with the context first`);
-  check(
-    'pruefen.ts: the functions use through k exactly the 8 members of the context, and never hand k on as a whole',
-    sortedList(used) === sortedList(CONTEXT_MEMBERS) && handedOn === 0,
-    `used: ${sortedList(used) || 'nothing'}; k handed on ${handedOn}×`,
-  );
-  const kontextSource = existsSync(KONTEXT_TS) ? ts.createSourceFile(KONTEXT_TS, readFileSync(KONTEXT_TS, 'utf-8'), ts.ScriptTarget.Latest, true) : null;
-  const kontextAlias = kontextSource?.statements.find((s): s is ts.TypeAliasDeclaration => ts.isTypeAliasDeclaration(s) && s.name.text === 'KatalogKontext');
-  const kontextText = kontextSource && kontextAlias ? kontextAlias.getText(kontextSource).replace(/\s+/g, ' ') : 'missing';
-  check(
-    'kontext.ts: export type KatalogKontext<K extends keyof GegenstandsKatalog> = Pick<GegenstandsKatalog, K>',
-    kontextText === 'export type KatalogKontext<K extends keyof GegenstandsKatalog> = Pick<GegenstandsKatalog, K>;',
-    kontextText,
-  );
-}
-// at run time: the prototype of the class and the exports of the module
+// at run time: the prototype of the class
 type Callable = (...args: unknown[]) => unknown;
 let klasse: { readonly prototype: object } | null = null;
 try {
@@ -1093,33 +1223,162 @@ try {
 } catch (error) {
   check('GegenstandsKatalog.ts loads without a browser (Node, no DOM)', false, error instanceof Error ? error.message.split('\n')[0] : String(error));
 }
-const exported = pruefen ? (pruefen as unknown as Record<string, unknown>) : null;
+
 check(
-  'pruefen.ts exports exactly pruefeSeite and pruefeSpeicherSeite',
-  exported !== null && Object.keys(exported).sort().join(',') === FORMER_METHODS.map((m) => m.name).sort().join(','),
-  exported ? Object.keys(exported).join(', ') || 'nothing' : 'not loaded',
+  'every former method has exactly one fixed head in this test, and the test fixes no head of a method that is not a former one',
+  FORMER_METHODS.every((m) => FORWARDER_HEADS[m.name] !== undefined) && Object.keys(FORWARDER_HEADS).length === FORMER_METHODS.length,
+  `${FORMER_METHODS.length} former methods, ${Object.keys(FORWARDER_HEADS).length} heads`,
 );
-for (const { name, params } of FORMER_METHODS) {
-  const descriptor = klasse ? Object.getOwnPropertyDescriptor(klasse.prototype, name) : undefined;
-  const method = descriptor?.value as Callable | undefined;
+
+for (const module of FORWARDED_MODULES) {
+  const { label, former, context, aliasName, contextParam } = module;
+  const count = context.length;
+  console.log(`\n── [7] ${label} ──`);
+  {
+    const imports = classSource.statements.filter(
+      (s): s is ts.ImportDeclaration => ts.isImportDeclaration(s) && ts.isStringLiteral(s.moduleSpecifier) && s.moduleSpecifier.text === module.specifier,
+    );
+    const names = imports.flatMap((d) =>
+      d.importClause?.namedBindings && ts.isNamedImports(d.importClause.namedBindings) ? d.importClause.namedBindings.elements.map((e) => e.getText(classSource)) : [],
+    );
+    check(
+      `GegenstandsKatalog.ts imports the forwarded functions under their own names, as values, from '${module.specifier}'`,
+      imports.length === 1 && imports[0]!.importClause?.isTypeOnly !== true && names.join(',') === former.map((m) => m.name).join(','),
+      names.join(', ') || 'no such import',
+    );
+  }
+  for (const { name, params, keepsPrivate } of former) {
+    const members = membersNamed(name);
+    const member = members[0];
+    check(`${name}: exactly one member of the class, a method`, members.length === 1 && member !== undefined && ts.isMethodDeclaration(member), members.map((m) => ts.SyntaxKind[m.kind]).join(', ') || 'missing');
+    if (member === undefined || !ts.isMethodDeclaration(member)) continue;
+    const kinds = modifierKinds(member);
+    check(
+      `${name}: no async on the forwarder, ${keepsPrivate ? 'private kept' : 'private removed (the context names it)'}`,
+      !kinds.includes(ts.SyntaxKind.AsyncKeyword) && kinds.includes(ts.SyntaxKind.PrivateKeyword) === keepsPrivate,
+      kindNames(kinds),
+    );
+    const parameters = member.parameters.map((p) => p.name.getText(classSource));
+    check(`${name}: the parameters are (${params.join(', ')})`, parameters.join(',') === params.join(','), `(${parameters.join(', ')})`);
+    // K9 (1): the head up to the `{`, exactly: decorator, modifiers, name, parameters with types and defaults, return type
+    const head = member.body ? classSource.text.slice(member.getStart(classSource), member.body.getStart(classSource)).trimEnd() : 'no body';
+    check(`${name}: the head of the forwarder up to the { is exactly the text fixed in this test (no decorator, no default, no changed type)`, head === FORWARDER_HEADS[name], JSON.stringify(head));
+    const statements = member.body?.statements ?? [];
+    const only = statements[0];
+    const call = only !== undefined && ts.isReturnStatement(only) && only.expression !== undefined && ts.isCallExpression(only.expression) ? only.expression : undefined;
+    const args = call ? call.arguments.map((a) => a.getText(classSource)) : [];
+    check(
+      `${name}: the body is the one statement return ${name}(this${params.map((p) => `, ${p}`).join('')})`,
+      statements.length === 1 && call !== undefined && ts.isIdentifier(call.expression) && call.expression.text === name && args.join(',') === ['this', ...params].join(','),
+      member.body ? member.body.getText(classSource).replace(/\s+/g, ' ').slice(0, 120) : 'no body',
+    );
+  }
+  for (const name of context) {
+    const members = membersNamed(name);
+    const kinds = members.length === 1 ? modifierKinds(members[0]!) : [];
+    check(
+      `${name}: one member of the class, not private (the context type reaches only public members)`,
+      members.length === 1 && !kinds.includes(ts.SyntaxKind.PrivateKeyword) && !kinds.includes(ts.SyntaxKind.ProtectedKeyword),
+      members.length === 1 ? kindNames(kinds) : `${members.length} members`,
+    );
+  }
+  {
+    const source = existsSync(module.file) ? ts.createSourceFile(module.file, readFileSync(module.file, 'utf-8'), ts.ScriptTarget.Latest, true) : null;
+    const alias = source?.statements.find((s): s is ts.TypeAliasDeclaration => ts.isTypeAliasDeclaration(s) && s.name.text === aliasName);
+    const literals: string[] = [];
+    const collect = (node: ts.TypeNode): void => {
+      if (ts.isUnionTypeNode(node)) node.types.forEach(collect);
+      else if (ts.isParenthesizedTypeNode(node)) collect(node.type);
+      else if (ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal)) literals.push(node.literal.text);
+      else literals.push(`?${ts.SyntaxKind[node.kind]}`);
+    };
+    const argument =
+      source && alias && ts.isTypeReferenceNode(alias.type) && alias.type.typeName.getText(source) === 'KatalogKontext' && alias.type.typeArguments?.length === 1
+        ? alias.type.typeArguments[0]
+        : undefined;
+    if (argument) collect(argument);
+    check(
+      `${label}: type ${aliasName} = KatalogKontext<…> names exactly the ${count} members of the context`,
+      argument !== undefined && sortedList(literals) === sortedList(context),
+      argument ? sortedList(literals) : 'alias missing or not KatalogKontext<…>',
+    );
+    const functions = source?.statements.filter(ts.isFunctionDeclaration) ?? [];
+    const used = new Set<string>();
+    let handedOn = 0;
+    let contextParameters = 0;
+    for (const fn of functions) {
+      const first = fn.parameters[0];
+      if (source && first && ts.isIdentifier(first.name) && first.name.text === contextParam && first.type?.getText(source) === aliasName) contextParameters++;
+      const walk = (node: ts.Node): void => {
+        if (ts.isIdentifier(node) && node.text === contextParam && node !== first?.name) {
+          if (ts.isPropertyAccessExpression(node.parent) && node.parent.expression === node) used.add(node.parent.name.text);
+          else handedOn++;
+        }
+        ts.forEachChild(node, walk);
+      };
+      if (fn.body) walk(fn.body);
+    }
+    check(`${label}: all functions take ${contextParam}: ${aliasName} as their first parameter`, functions.length === former.length && contextParameters === former.length, `${functions.length} functions, ${contextParameters} with the context first`);
+    check(
+      `${label}: the functions use through ${contextParam} exactly the ${count} members of the context, and never hand ${contextParam} on as a whole`,
+      sortedList(used) === sortedList(context) && handedOn === 0,
+      `used: ${sortedList(used) || 'nothing'}; ${contextParam} handed on ${handedOn}×`,
+    );
+  }
+  const exported = module === PRUEFEN_MODULE ? (pruefen as unknown as Record<string, unknown> | null) : (infofeld as unknown as Record<string, unknown> | null);
   check(
-    `${name}: a method of the prototype, a plain function (not async), length ${params.length}, name kept`,
-    typeof method === 'function' && method.constructor.name === 'Function' && method.length === params.length && method.name === name,
-    method ? `${method.constructor.name}, length ${method.length}, name ${method.name}` : 'missing on the prototype',
+    `${label} exports exactly ${former.map((m) => m.name).join(' and ')}`,
+    exported !== null && Object.keys(exported).sort().join(',') === former.map((m) => m.name).sort().join(','),
+    exported ? Object.keys(exported).join(', ') || 'nothing' : 'not loaded',
   );
-  const fn = exported ? (exported[name] as Callable | undefined) : undefined;
+  for (const { name, params } of former) {
+    const descriptor = klasse ? Object.getOwnPropertyDescriptor(klasse.prototype, name) : undefined;
+    const method = descriptor?.value as Callable | undefined;
+    check(
+      `${name}: a method of the prototype, a plain function (not async), length ${params.length}, name kept`,
+      typeof method === 'function' && method.constructor.name === 'Function' && method.length === params.length && method.name === name,
+      method ? `${method.constructor.name}, length ${method.length}, name ${method.name}` : 'missing on the prototype',
+    );
+    const fn = exported ? (exported[name] as Callable | undefined) : undefined;
+    const kind = module.async ? 'AsyncFunction' : 'Function';
+    check(
+      `${label}: ${name} is ${module.async ? 'an async' : 'a plain'} function of ${params.length + 1} parameters (the context first)`,
+      typeof fn === 'function' && fn.constructor.name === kind && fn.length === params.length + 1,
+      fn ? `${fn.constructor.name}, length ${fn.length}` : 'missing',
+    );
+  }
+}
+{
+  const kontextSource = existsSync(KONTEXT_TS) ? ts.createSourceFile(KONTEXT_TS, readFileSync(KONTEXT_TS, 'utf-8'), ts.ScriptTarget.Latest, true) : null;
+  const kontextAlias = kontextSource?.statements.find((s): s is ts.TypeAliasDeclaration => ts.isTypeAliasDeclaration(s) && s.name.text === 'KatalogKontext');
+  const kontextText = kontextSource && kontextAlias ? kontextAlias.getText(kontextSource).replace(/\s+/g, ' ') : 'missing';
   check(
-    `pruefen.ts: ${name} is an async function of ${params.length + 1} parameters (the context first)`,
-    typeof fn === 'function' && fn.constructor.name === 'AsyncFunction' && fn.length === params.length + 1,
-    fn ? `${fn.constructor.name}, length ${fn.length}` : 'missing',
+    'kontext.ts: export type KatalogKontext<K extends keyof GegenstandsKatalog> = Pick<GegenstandsKatalog, K>',
+    kontextText === 'export type KatalogKontext<K extends keyof GegenstandsKatalog> = Pick<GegenstandsKatalog, K>;',
+    kontextText,
+  );
+}
+// K9 (3): the public surface of the class, fixed
+{
+  const named = (m: ts.ClassElement): string => (m.name ? m.name.getText(classSource) : ts.SyntaxKind[m.kind]!.replace(/Declaration$/, ''));
+  const now = classNode
+    ? classNode.members.filter((m) => !modifierKinds(m).includes(ts.SyntaxKind.PrivateKeyword) && !modifierKinds(m).includes(ts.SyntaxKind.ProtectedKeyword) && !(m.name !== undefined && ts.isPrivateIdentifier(m.name))).map(named)
+    : [];
+  const extra = now.filter((n) => !PUBLIC_MEMBERS.includes(n));
+  const missing = PUBLIC_MEMBERS.filter((n) => !now.includes(n));
+  check(
+    `the members of GegenstandsKatalog that are not private or protected are exactly the ${PUBLIC_MEMBERS.length} fixed in this test (a further loosening turns this red)`,
+    extra.length === 0 && missing.length === 0 && now.length === PUBLIC_MEMBERS.length,
+    `${now.length} members; extra: ${extra.join(', ') || 'none'}; missing: ${missing.join(', ') || 'none'}`,
   );
 }
 
 // ── [8] Step G2: behaviour of pruefeSeite and pruefeSpeicherSeite, recorded ──
 //
 // The sequence between the markers is cut out and run on the old stand by the measuring script of the step
-// (Berichte/Nachweise/Refactoring-G2/skripte/sollwerte.mts), so the expected lines below come from the very same
-// text. It uses nothing of this file: everything comes in through its two parameters.
+// (Berichte/Nachweise/Refactoring-G3/skripte/sollwerte.mts: on the methods of the class as they were before step G2), so
+// the expected lines below come from the very same text. It uses nothing of this file: everything comes in through its
+// two parameters.
 
 // <pruef-sequence>
 /** How the two functions are reached: as functions of the module (new stand), or as methods of the prototype (old). */
@@ -1131,7 +1390,7 @@ interface PruefCalls {
 interface PruefDeps {
   modelUrl(datei: string): string;
   speicherWurzel: string;
-  /** Names of prefabs with a model, at least 8, and the model file of each. */
+  /** Names of prefabs with a model that differs from the name, at least 8, and the model file of each (finding G2-A3). */
   namesWithModel: readonly string[];
   nameWithoutModel: string;
   modelOf(name: string): string;
@@ -1147,8 +1406,9 @@ type AnswerKind = 'ok' | 'missing' | 'html' | 'network' | 'noType' | 'missingHtm
 async function runPruefSequence(calls: PruefCalls, deps: PruefDeps): Promise<string[]> {
   const lines: string[] = [];
   let scene = '';
+  let ticks = 0;
   const log = (text: string): void => {
-    lines.push(`[${scene}] ${text}`);
+    lines.push(`[${scene}] @${ticks} ${text}`);
   };
   const show = (value: unknown): string => (typeof value === 'string' ? JSON.stringify(value) : String(value));
   const labels = new Map<string, string>();
@@ -1238,6 +1498,11 @@ async function runPruefSequence(calls: PruefCalls, deps: PruefDeps): Promise<str
     scene = name;
     timers.length = 0;
     fetchNo = 0;
+    // A chain of 40 microtasks started before the call: every line carries the number of ticks that have run, so an added
+    // or dropped `await` in the code under test (one microtask step more or less) moves every line behind it (G2-A2).
+    ticks = 0;
+    let chain = Promise.resolve();
+    for (let i = 0; i < 40; i++) chain = chain.then(() => void ticks++);
     let result: unknown;
     try {
       result = body();
@@ -1251,6 +1516,7 @@ async function runPruefSequence(calls: PruefCalls, deps: PruefDeps): Promise<str
     } catch (error) {
       log(`REJECTED ${(error as Error).constructor.name}: ${(error as Error).message}`);
     }
+    await chain;
     timers.forEach((timer, i) => {
       log(`timer ${i + 1} fires`);
       timer();
@@ -1319,354 +1585,341 @@ async function runPruefSequence(calls: PruefCalls, deps: PruefDeps): Promise<str
 }
 // </pruef-sequence>
 
-/** Measured before the move, on the methods of the class (report of step G2, section 5.14): the same text as above. */
+/** Measured before step G2, on the methods of the class as they were then (report of step G3): the same text as above, run by the measuring script. */
 const EXPECTED_SEQUENCE: readonly string[] = [
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] k.seitenNamen read",
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] seitenNamen() -> [N0.glb, N1.glb, OHNE, Probe_UnknownName]",
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] k.speicherArt read",
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] speicherArt -> null",
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] k.vorhanden read",
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] k.vorhanden read",
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] k.statusSetzen read",
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] statusSetzen(\"Seite bereits geprüft.\", \"neutral\")",
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] window.setTimeout(2000)",
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] returns a Promise",
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] resolved with undefined",
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] timer 1 fires",
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] k.statusSetzen read",
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] statusSetzen(\"\", \"neutral\")",
-  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] vorhanden at the end: {N0.glb: true, N1.glb: false}",
-  "[R1 registry page, 1 open (ok), 1 without model] k.seitenNamen read",
-  "[R1 registry page, 1 open (ok), 1 without model] seitenNamen() -> [N0.glb, OHNE]",
-  "[R1 registry page, 1 open (ok), 1 without model] k.speicherArt read",
-  "[R1 registry page, 1 open (ok), 1 without model] speicherArt -> null",
-  "[R1 registry page, 1 open (ok), 1 without model] k.vorhanden read",
-  "[R1 registry page, 1 open (ok), 1 without model] k.pruefKnopf read",
-  "[R1 registry page, 1 open (ok), 1 without model] pruefKnopf.disabled = true",
-  "[R1 registry page, 1 open (ok), 1 without model] k.pruefKnopf read",
-  "[R1 registry page, 1 open (ok), 1 without model] pruefKnopf.textContent = \"prüfe 1 Modelle …\"",
-  "[R1 registry page, 1 open (ok), 1 without model] fetch#1 HEAD url(N0) -> ok",
-  "[R1 registry page, 1 open (ok), 1 without model] returns a Promise",
-  "[R1 registry page, 1 open (ok), 1 without model] headers.get(\"content-type\") -> \"model/gltf-binary\"",
-  "[R1 registry page, 1 open (ok), 1 without model] k.vorhanden read",
-  "[R1 registry page, 1 open (ok), 1 without model] k.pruefKnopf read",
-  "[R1 registry page, 1 open (ok), 1 without model] pruefKnopf.textContent = \"Verfügbarkeit dieser Seite prüfen\"",
-  "[R1 registry page, 1 open (ok), 1 without model] k.pruefKnopf read",
-  "[R1 registry page, 1 open (ok), 1 without model] pruefKnopf.disabled = false",
-  "[R1 registry page, 1 open (ok), 1 without model] k.listeFuellen read",
-  "[R1 registry page, 1 open (ok), 1 without model] listeFuellen()",
-  "[R1 registry page, 1 open (ok), 1 without model] k.vorhanden read",
-  "[R1 registry page, 1 open (ok), 1 without model] k.statusSetzen read",
-  "[R1 registry page, 1 open (ok), 1 without model] statusSetzen(\"1 von 2 Modellen dieser Seite liegen vor.\", \"da\")",
-  "[R1 registry page, 1 open (ok), 1 without model] resolved with undefined",
-  "[R1 registry page, 1 open (ok), 1 without model] vorhanden at the end: {N0.glb: true}",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] k.seitenNamen read",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] seitenNamen() -> [N0.glb, OHNE]",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] k.speicherArt read",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] speicherArt -> null",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] k.vorhanden read",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] k.pruefKnopf read",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] pruefKnopf.disabled = true",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] k.pruefKnopf read",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] pruefKnopf.textContent = \"prüfe 1 Modelle …\"",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] fetch#1 HEAD url(N0) -> missing",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] returns a Promise",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] headers.get(\"content-type\") -> \"text/plain\"",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] k.vorhanden read",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] k.pruefKnopf read",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] pruefKnopf.textContent = \"Verfügbarkeit dieser Seite prüfen\"",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] k.pruefKnopf read",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] pruefKnopf.disabled = false",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] k.listeFuellen read",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] listeFuellen()",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] k.vorhanden read",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] k.statusSetzen read",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] statusSetzen(\"0 von 2 Modellen dieser Seite liegen vor.\", \"fehlt\")",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] resolved with undefined",
-  "[R1b registry page, 1 open (missing): nothing of the page is there] vorhanden at the end: {N0.glb: false}",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.seitenNamen read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] seitenNamen() -> [N0.glb, N1.glb, N2.glb, N3.glb, N4.glb, N5.glb, N6.glb, N7.glb, OHNE, Probe_UnknownName]",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.speicherArt read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] speicherArt -> null",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.pruefKnopf read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] pruefKnopf.disabled = true",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.pruefKnopf read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] pruefKnopf.textContent = \"prüfe 7 Modelle …\"",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] fetch#1 HEAD url(N0) -> ok",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] fetch#2 HEAD url(N1) -> missing",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] fetch#3 HEAD url(N2) -> html",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] fetch#4 HEAD url(N3) -> network",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] fetch#5 HEAD url(N4) -> ok",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] fetch#6 HEAD url(N5) -> missingHtml",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] returns a Promise",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] headers.get(\"content-type\") -> \"model/gltf-binary\"",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] fetch#7 HEAD url(N6) -> noType",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] headers.get(\"content-type\") -> \"text/plain\"",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] headers.get(\"content-type\") -> \"text/html; charset=utf-8\"",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] headers.get(\"content-type\") -> \"model/gltf-binary\"",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] headers.get(\"content-type\") -> \"text/html; charset=utf-8\"",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] headers.get(\"content-type\") -> null",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.pruefKnopf read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] pruefKnopf.textContent = \"Verfügbarkeit dieser Seite prüfen\"",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.pruefKnopf read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] pruefKnopf.disabled = false",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.listeFuellen read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] listeFuellen()",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.vorhanden read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] k.statusSetzen read",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] statusSetzen(\"4 von 10 Modellen dieser Seite liegen vor.\", \"da\")",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] resolved with undefined",
-  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] vorhanden at the end: {N7.glb: true, N0.glb: true, N1.glb: false, N2.glb: false, N4.glb: true, N5.glb: false, N6.glb: true}",
-  "[R7b the same page again: only the network error is still open, now ok] k.seitenNamen read",
-  "[R7b the same page again: only the network error is still open, now ok] seitenNamen() -> [N0.glb, N1.glb, N2.glb, N3.glb, N4.glb, N5.glb, N6.glb, N7.glb]",
-  "[R7b the same page again: only the network error is still open, now ok] k.speicherArt read",
-  "[R7b the same page again: only the network error is still open, now ok] speicherArt -> null",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.pruefKnopf read",
-  "[R7b the same page again: only the network error is still open, now ok] pruefKnopf.disabled = true",
-  "[R7b the same page again: only the network error is still open, now ok] k.pruefKnopf read",
-  "[R7b the same page again: only the network error is still open, now ok] pruefKnopf.textContent = \"prüfe 1 Modelle …\"",
-  "[R7b the same page again: only the network error is still open, now ok] fetch#1 HEAD url(N3) -> ok",
-  "[R7b the same page again: only the network error is still open, now ok] returns a Promise",
-  "[R7b the same page again: only the network error is still open, now ok] headers.get(\"content-type\") -> \"model/gltf-binary\"",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.pruefKnopf read",
-  "[R7b the same page again: only the network error is still open, now ok] pruefKnopf.textContent = \"Verfügbarkeit dieser Seite prüfen\"",
-  "[R7b the same page again: only the network error is still open, now ok] k.pruefKnopf read",
-  "[R7b the same page again: only the network error is still open, now ok] pruefKnopf.disabled = false",
-  "[R7b the same page again: only the network error is still open, now ok] k.listeFuellen read",
-  "[R7b the same page again: only the network error is still open, now ok] listeFuellen()",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.vorhanden read",
-  "[R7b the same page again: only the network error is still open, now ok] k.statusSetzen read",
-  "[R7b the same page again: only the network error is still open, now ok] statusSetzen(\"5 von 8 Modellen dieser Seite liegen vor.\", \"da\")",
-  "[R7b the same page again: only the network error is still open, now ok] resolved with undefined",
-  "[R7b the same page again: only the network error is still open, now ok] vorhanden at the end: {N0.glb: true, N1.glb: false, N2.glb: false, N4.glb: true, N5.glb: false, N6.glb: true, N7.glb: true, N3.glb: true}",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.seitenNamen read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] seitenNamen() -> [m/a, m/b, m/c, m/d, m/unknown]",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.speicherArt read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] speicherArt -> \"Modelle\"",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.pruefeSpeicherSeite read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.storeIndex read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.storeIndex read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.storeIndex read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.storeIndex read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.storeIndex read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.vorhanden read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.vorhanden read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.vorhanden read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.vorhanden read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.pruefKnopf read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] pruefKnopf.disabled = true",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.pruefKnopf read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] pruefKnopf.textContent = \"prüfe 3 Dateien …\"",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] fetch#1 HEAD <WURZEL>modelle/a.glb -> ok",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] fetch#2 HEAD <WURZEL>modelle/b.glb -> missing",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] fetch#3 HEAD <WURZEL>modelle/c.glb -> html",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] returns a Promise",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] headers.get(\"content-type\") -> \"model/gltf-binary\"",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.vorhanden read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] headers.get(\"content-type\") -> \"text/plain\"",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.vorhanden read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] headers.get(\"content-type\") -> \"text/html; charset=utf-8\"",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.vorhanden read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.pruefKnopf read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] pruefKnopf.textContent = \"Verfügbarkeit dieser Seite prüfen\"",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.pruefKnopf read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] pruefKnopf.disabled = false",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.listeFuellen read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] listeFuellen()",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.storeIndex read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.vorhanden read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.storeIndex read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.vorhanden read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.storeIndex read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.vorhanden read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.storeIndex read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.vorhanden read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.storeIndex read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] k.statusSetzen read",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] statusSetzen(\"2 von 5 Dateien dieser Seite liegen vor.\", \"da\")",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] resolved with undefined",
-  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] vorhanden at the end: {modelle/d.glb: true, modelle/a.glb: true, modelle/b.glb: false, modelle/c.glb: false}",
-  "[S0 store page, 0 open] k.seitenNamen read",
-  "[S0 store page, 0 open] seitenNamen() -> [m/a, m/unknown]",
-  "[S0 store page, 0 open] k.speicherArt read",
-  "[S0 store page, 0 open] speicherArt -> \"Toene\"",
-  "[S0 store page, 0 open] k.pruefeSpeicherSeite read",
-  "[S0 store page, 0 open] k.storeIndex read",
-  "[S0 store page, 0 open] k.storeIndex read",
-  "[S0 store page, 0 open] k.vorhanden read",
-  "[S0 store page, 0 open] k.statusSetzen read",
-  "[S0 store page, 0 open] statusSetzen(\"Seite bereits geprüft.\", \"neutral\")",
-  "[S0 store page, 0 open] window.setTimeout(2000)",
-  "[S0 store page, 0 open] returns a Promise",
-  "[S0 store page, 0 open] resolved with undefined",
-  "[S0 store page, 0 open] timer 1 fires",
-  "[S0 store page, 0 open] k.statusSetzen read",
-  "[S0 store page, 0 open] statusSetzen(\"\", \"neutral\")",
-  "[S0 store page, 0 open] vorhanden at the end: {modelle/a.glb: false}",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.pruefKnopf read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] pruefKnopf.disabled = true",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.pruefKnopf read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] pruefKnopf.textContent = \"prüfe 9 Dateien …\"",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] fetch#1 HEAD <WURZEL>toene/0.ogg -> ok",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] fetch#2 HEAD <WURZEL>toene/1.ogg -> missing",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] fetch#3 HEAD <WURZEL>toene/2.ogg -> html",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] fetch#4 HEAD <WURZEL>toene/3.ogg -> network",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] fetch#5 HEAD <WURZEL>toene/4.ogg -> ok",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] fetch#6 HEAD <WURZEL>toene/5.ogg -> missingHtml",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] returns a Promise",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] headers.get(\"content-type\") -> \"model/gltf-binary\"",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] fetch#7 HEAD <WURZEL>toene/6.ogg -> noType",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] headers.get(\"content-type\") -> \"text/plain\"",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] fetch#8 HEAD <WURZEL>toene/7.ogg -> ok",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] headers.get(\"content-type\") -> \"text/html; charset=utf-8\"",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] fetch#9 HEAD <WURZEL>toene/8.ogg -> missing",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] headers.get(\"content-type\") -> \"model/gltf-binary\"",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] headers.get(\"content-type\") -> \"text/html; charset=utf-8\"",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] headers.get(\"content-type\") -> null",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] headers.get(\"content-type\") -> \"model/gltf-binary\"",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] headers.get(\"content-type\") -> \"text/plain\"",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.pruefKnopf read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] pruefKnopf.textContent = \"Verfügbarkeit dieser Seite prüfen\"",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.pruefKnopf read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] pruefKnopf.disabled = false",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.listeFuellen read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] listeFuellen()",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.storeIndex read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.vorhanden read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] k.statusSetzen read",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] statusSetzen(\"4 von 9 Dateien dieser Seite liegen vor.\", \"da\")",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] resolved with undefined",
-  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] vorhanden at the end: {toene/0.ogg: true, toene/1.ogg: false, toene/2.ogg: false, toene/4.ogg: true, toene/5.ogg: false, toene/6.ogg: true, toene/7.ogg: true, toene/8.ogg: false}",
-  "[D0 pruefeSpeicherSeite directly, no ids] k.statusSetzen read",
-  "[D0 pruefeSpeicherSeite directly, no ids] statusSetzen(\"Seite bereits geprüft.\", \"neutral\")",
-  "[D0 pruefeSpeicherSeite directly, no ids] window.setTimeout(2000)",
-  "[D0 pruefeSpeicherSeite directly, no ids] returns a Promise",
-  "[D0 pruefeSpeicherSeite directly, no ids] resolved with undefined",
-  "[D0 pruefeSpeicherSeite directly, no ids] timer 1 fires",
-  "[D0 pruefeSpeicherSeite directly, no ids] k.statusSetzen read",
-  "[D0 pruefeSpeicherSeite directly, no ids] statusSetzen(\"\", \"neutral\")",
-  "[D0 pruefeSpeicherSeite directly, no ids] vorhanden at the end: {toene/0.ogg: true, toene/1.ogg: false, toene/2.ogg: false, toene/4.ogg: true, toene/5.ogg: false, toene/6.ogg: true, toene/7.ogg: true, toene/8.ogg: false}",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.storeIndex read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.storeIndex read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.vorhanden read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.vorhanden read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.pruefKnopf read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] pruefKnopf.disabled = true",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.pruefKnopf read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] pruefKnopf.textContent = \"prüfe 2 Dateien …\"",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] fetch#1 HEAD <WURZEL>toene/0.ogg -> missing",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] fetch#2 HEAD <WURZEL>toene/1.ogg -> network",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] returns a Promise",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] headers.get(\"content-type\") -> \"text/plain\"",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.vorhanden read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.pruefKnopf read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] pruefKnopf.textContent = \"Verfügbarkeit dieser Seite prüfen\"",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.pruefKnopf read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] pruefKnopf.disabled = false",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.listeFuellen read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] listeFuellen()",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.storeIndex read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.vorhanden read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.storeIndex read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.vorhanden read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] k.statusSetzen read",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] statusSetzen(\"0 von 2 Dateien dieser Seite liegen vor.\", \"fehlt\")",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] resolved with undefined",
-  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] vorhanden at the end: {toene/0.ogg: false}",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @0 k.seitenNamen read",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @0 seitenNamen() -> [N0, N1, OHNE, Probe_UnknownName]",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @0 k.speicherArt read",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @0 speicherArt -> null",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @0 k.vorhanden read",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @0 k.vorhanden read",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @0 k.statusSetzen read",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @0 statusSetzen(\"Seite bereits geprüft.\", \"neutral\")",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @0 window.setTimeout(2000)",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @0 returns a Promise",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @1 resolved with undefined",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @40 timer 1 fires",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @40 k.statusSetzen read",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @40 statusSetzen(\"\", \"neutral\")",
+  "[R0 registry page, 0 open (2 known, 1 without model, 1 unknown name)] @40 vorhanden at the end: {N0.glb: true, N1.glb: false}",
+  "[R1 registry page, 1 open (ok), 1 without model] @0 k.seitenNamen read",
+  "[R1 registry page, 1 open (ok), 1 without model] @0 seitenNamen() -> [N0, OHNE]",
+  "[R1 registry page, 1 open (ok), 1 without model] @0 k.speicherArt read",
+  "[R1 registry page, 1 open (ok), 1 without model] @0 speicherArt -> null",
+  "[R1 registry page, 1 open (ok), 1 without model] @0 k.vorhanden read",
+  "[R1 registry page, 1 open (ok), 1 without model] @0 k.pruefKnopf read",
+  "[R1 registry page, 1 open (ok), 1 without model] @0 pruefKnopf.disabled = true",
+  "[R1 registry page, 1 open (ok), 1 without model] @0 k.pruefKnopf read",
+  "[R1 registry page, 1 open (ok), 1 without model] @0 pruefKnopf.textContent = \"prüfe 1 Modelle …\"",
+  "[R1 registry page, 1 open (ok), 1 without model] @0 fetch#1 HEAD url(N0) -> ok",
+  "[R1 registry page, 1 open (ok), 1 without model] @0 returns a Promise",
+  "[R1 registry page, 1 open (ok), 1 without model] @1 headers.get(\"content-type\") -> \"model/gltf-binary\"",
+  "[R1 registry page, 1 open (ok), 1 without model] @1 k.vorhanden read",
+  "[R1 registry page, 1 open (ok), 1 without model] @3 k.pruefKnopf read",
+  "[R1 registry page, 1 open (ok), 1 without model] @3 pruefKnopf.textContent = \"Verfügbarkeit dieser Seite prüfen\"",
+  "[R1 registry page, 1 open (ok), 1 without model] @3 k.pruefKnopf read",
+  "[R1 registry page, 1 open (ok), 1 without model] @3 pruefKnopf.disabled = false",
+  "[R1 registry page, 1 open (ok), 1 without model] @3 k.listeFuellen read",
+  "[R1 registry page, 1 open (ok), 1 without model] @3 listeFuellen()",
+  "[R1 registry page, 1 open (ok), 1 without model] @3 k.vorhanden read",
+  "[R1 registry page, 1 open (ok), 1 without model] @3 k.statusSetzen read",
+  "[R1 registry page, 1 open (ok), 1 without model] @3 statusSetzen(\"1 von 2 Modellen dieser Seite liegen vor.\", \"da\")",
+  "[R1 registry page, 1 open (ok), 1 without model] @4 resolved with undefined",
+  "[R1 registry page, 1 open (ok), 1 without model] @40 vorhanden at the end: {N0.glb: true}",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @0 k.seitenNamen read",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @0 seitenNamen() -> [N0, OHNE]",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @0 k.speicherArt read",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @0 speicherArt -> null",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @0 k.vorhanden read",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @0 k.pruefKnopf read",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @0 pruefKnopf.disabled = true",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @0 k.pruefKnopf read",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @0 pruefKnopf.textContent = \"prüfe 1 Modelle …\"",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @0 fetch#1 HEAD url(N0) -> missing",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @0 returns a Promise",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @1 headers.get(\"content-type\") -> \"text/plain\"",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @1 k.vorhanden read",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @3 k.pruefKnopf read",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @3 pruefKnopf.textContent = \"Verfügbarkeit dieser Seite prüfen\"",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @3 k.pruefKnopf read",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @3 pruefKnopf.disabled = false",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @3 k.listeFuellen read",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @3 listeFuellen()",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @3 k.vorhanden read",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @3 k.statusSetzen read",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @3 statusSetzen(\"0 von 2 Modellen dieser Seite liegen vor.\", \"fehlt\")",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @4 resolved with undefined",
+  "[R1b registry page, 1 open (missing): nothing of the page is there] @40 vorhanden at the end: {N0.glb: false}",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 k.seitenNamen read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 seitenNamen() -> [N0, N1, N2, N3, N4, N5, N6, N7, OHNE, Probe_UnknownName]",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 k.speicherArt read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 speicherArt -> null",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 k.pruefKnopf read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 pruefKnopf.disabled = true",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 k.pruefKnopf read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 pruefKnopf.textContent = \"prüfe 7 Modelle …\"",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 fetch#1 HEAD url(N0) -> ok",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 fetch#2 HEAD url(N1) -> missing",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 fetch#3 HEAD url(N2) -> html",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 fetch#4 HEAD url(N4) -> ok",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 fetch#5 HEAD url(N4) -> ok",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 fetch#6 HEAD url(N5) -> missingHtml",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @0 returns a Promise",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @1 headers.get(\"content-type\") -> \"model/gltf-binary\"",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @1 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @1 fetch#7 HEAD url(N6) -> noType",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @1 headers.get(\"content-type\") -> \"text/plain\"",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @1 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @1 headers.get(\"content-type\") -> \"text/html; charset=utf-8\"",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @1 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @1 headers.get(\"content-type\") -> \"model/gltf-binary\"",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @1 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @1 headers.get(\"content-type\") -> \"model/gltf-binary\"",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @1 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @1 headers.get(\"content-type\") -> \"text/html; charset=utf-8\"",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @1 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @2 headers.get(\"content-type\") -> null",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @2 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 k.pruefKnopf read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 pruefKnopf.textContent = \"Verfügbarkeit dieser Seite prüfen\"",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 k.pruefKnopf read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 pruefKnopf.disabled = false",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 k.listeFuellen read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 listeFuellen()",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 k.vorhanden read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 k.statusSetzen read",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @4 statusSetzen(\"5 von 10 Modellen dieser Seite liegen vor.\", \"da\")",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @5 resolved with undefined",
+  "[R7 registry page, 7 open (ok, missing, html, network, ok, missingHtml, noType), 1 known, 1 without model, 1 unknown name] @40 vorhanden at the end: {N7.glb: true, N0.glb: true, N1.glb: false, N2.glb: false, N4.glb: true, N5.glb: false, N6.glb: true}",
+  "[R7b the same page again: only the network error is still open, now ok] @0 k.seitenNamen read",
+  "[R7b the same page again: only the network error is still open, now ok] @0 seitenNamen() -> [N0, N1, N2, N3, N4, N5, N6, N7]",
+  "[R7b the same page again: only the network error is still open, now ok] @0 k.speicherArt read",
+  "[R7b the same page again: only the network error is still open, now ok] @0 speicherArt -> null",
+  "[R7b the same page again: only the network error is still open, now ok] @0 k.vorhanden read",
+  "[R7b the same page again: only the network error is still open, now ok] @0 k.vorhanden read",
+  "[R7b the same page again: only the network error is still open, now ok] @0 k.vorhanden read",
+  "[R7b the same page again: only the network error is still open, now ok] @0 k.vorhanden read",
+  "[R7b the same page again: only the network error is still open, now ok] @0 k.vorhanden read",
+  "[R7b the same page again: only the network error is still open, now ok] @0 k.vorhanden read",
+  "[R7b the same page again: only the network error is still open, now ok] @0 k.vorhanden read",
+  "[R7b the same page again: only the network error is still open, now ok] @0 k.vorhanden read",
+  "[R7b the same page again: only the network error is still open, now ok] @0 k.statusSetzen read",
+  "[R7b the same page again: only the network error is still open, now ok] @0 statusSetzen(\"Seite bereits geprüft.\", \"neutral\")",
+  "[R7b the same page again: only the network error is still open, now ok] @0 window.setTimeout(2000)",
+  "[R7b the same page again: only the network error is still open, now ok] @0 returns a Promise",
+  "[R7b the same page again: only the network error is still open, now ok] @1 resolved with undefined",
+  "[R7b the same page again: only the network error is still open, now ok] @40 timer 1 fires",
+  "[R7b the same page again: only the network error is still open, now ok] @40 k.statusSetzen read",
+  "[R7b the same page again: only the network error is still open, now ok] @40 statusSetzen(\"\", \"neutral\")",
+  "[R7b the same page again: only the network error is still open, now ok] @40 vorhanden at the end: {N0.glb: true, N1.glb: false, N2.glb: false, N4.glb: true, N5.glb: false, N6.glb: true, N7.glb: true}",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 k.seitenNamen read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 seitenNamen() -> [m/a, m/b, m/c, m/d, m/unknown]",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 k.speicherArt read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 speicherArt -> \"Modelle\"",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 k.pruefeSpeicherSeite read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 k.storeIndex read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 k.storeIndex read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 k.storeIndex read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 k.storeIndex read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 k.storeIndex read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 k.vorhanden read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 k.vorhanden read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 k.vorhanden read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 k.vorhanden read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 k.pruefKnopf read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 pruefKnopf.disabled = true",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 k.pruefKnopf read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 pruefKnopf.textContent = \"prüfe 3 Dateien …\"",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 fetch#1 HEAD <WURZEL>modelle/a.glb -> ok",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 fetch#2 HEAD <WURZEL>modelle/b.glb -> missing",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 fetch#3 HEAD <WURZEL>modelle/c.glb -> html",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @0 returns a Promise",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @1 headers.get(\"content-type\") -> \"model/gltf-binary\"",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @1 k.vorhanden read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @1 headers.get(\"content-type\") -> \"text/plain\"",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @1 k.vorhanden read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @1 headers.get(\"content-type\") -> \"text/html; charset=utf-8\"",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @1 k.vorhanden read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 k.pruefKnopf read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 pruefKnopf.textContent = \"Verfügbarkeit dieser Seite prüfen\"",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 k.pruefKnopf read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 pruefKnopf.disabled = false",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 k.listeFuellen read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 listeFuellen()",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 k.storeIndex read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 k.vorhanden read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 k.storeIndex read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 k.vorhanden read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 k.storeIndex read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 k.vorhanden read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 k.storeIndex read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 k.vorhanden read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 k.storeIndex read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 k.statusSetzen read",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @3 statusSetzen(\"2 von 5 Dateien dieser Seite liegen vor.\", \"da\")",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @5 resolved with undefined",
+  "[S store page through pruefeSeite: 3 open (ok, missing, html), 1 unknown id, 1 known] @40 vorhanden at the end: {modelle/d.glb: true, modelle/a.glb: true, modelle/b.glb: false, modelle/c.glb: false}",
+  "[S0 store page, 0 open] @0 k.seitenNamen read",
+  "[S0 store page, 0 open] @0 seitenNamen() -> [m/a, m/unknown]",
+  "[S0 store page, 0 open] @0 k.speicherArt read",
+  "[S0 store page, 0 open] @0 speicherArt -> \"Toene\"",
+  "[S0 store page, 0 open] @0 k.pruefeSpeicherSeite read",
+  "[S0 store page, 0 open] @0 k.storeIndex read",
+  "[S0 store page, 0 open] @0 k.storeIndex read",
+  "[S0 store page, 0 open] @0 k.vorhanden read",
+  "[S0 store page, 0 open] @0 k.statusSetzen read",
+  "[S0 store page, 0 open] @0 statusSetzen(\"Seite bereits geprüft.\", \"neutral\")",
+  "[S0 store page, 0 open] @0 window.setTimeout(2000)",
+  "[S0 store page, 0 open] @0 returns a Promise",
+  "[S0 store page, 0 open] @2 resolved with undefined",
+  "[S0 store page, 0 open] @40 timer 1 fires",
+  "[S0 store page, 0 open] @40 k.statusSetzen read",
+  "[S0 store page, 0 open] @40 statusSetzen(\"\", \"neutral\")",
+  "[S0 store page, 0 open] @40 vorhanden at the end: {modelle/a.glb: false}",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.pruefKnopf read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 pruefKnopf.disabled = true",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 k.pruefKnopf read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 pruefKnopf.textContent = \"prüfe 9 Dateien …\"",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 fetch#1 HEAD <WURZEL>toene/0.ogg -> ok",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 fetch#2 HEAD <WURZEL>toene/1.ogg -> missing",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 fetch#3 HEAD <WURZEL>toene/2.ogg -> html",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 fetch#4 HEAD <WURZEL>toene/3.ogg -> network",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 fetch#5 HEAD <WURZEL>toene/4.ogg -> ok",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 fetch#6 HEAD <WURZEL>toene/5.ogg -> missingHtml",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @0 returns a Promise",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @1 headers.get(\"content-type\") -> \"model/gltf-binary\"",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @1 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @1 fetch#7 HEAD <WURZEL>toene/6.ogg -> noType",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @1 headers.get(\"content-type\") -> \"text/plain\"",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @1 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @1 fetch#8 HEAD <WURZEL>toene/7.ogg -> ok",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @1 headers.get(\"content-type\") -> \"text/html; charset=utf-8\"",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @1 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @1 fetch#9 HEAD <WURZEL>toene/8.ogg -> missing",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @1 headers.get(\"content-type\") -> \"model/gltf-binary\"",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @1 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @1 headers.get(\"content-type\") -> \"text/html; charset=utf-8\"",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @1 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @2 headers.get(\"content-type\") -> null",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @2 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @2 headers.get(\"content-type\") -> \"model/gltf-binary\"",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @2 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @2 headers.get(\"content-type\") -> \"text/plain\"",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @2 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.pruefKnopf read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 pruefKnopf.textContent = \"Verfügbarkeit dieser Seite prüfen\"",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.pruefKnopf read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 pruefKnopf.disabled = false",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.listeFuellen read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 listeFuellen()",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.storeIndex read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.vorhanden read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 k.statusSetzen read",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @4 statusSetzen(\"4 von 9 Dateien dieser Seite liegen vor.\", \"da\")",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @5 resolved with undefined",
+  "[D9 pruefeSpeicherSeite directly, 9 ids (more than PRUEF_PARALLEL)] @40 vorhanden at the end: {toene/0.ogg: true, toene/1.ogg: false, toene/2.ogg: false, toene/4.ogg: true, toene/5.ogg: false, toene/6.ogg: true, toene/7.ogg: true, toene/8.ogg: false}",
+  "[D0 pruefeSpeicherSeite directly, no ids] @0 k.statusSetzen read",
+  "[D0 pruefeSpeicherSeite directly, no ids] @0 statusSetzen(\"Seite bereits geprüft.\", \"neutral\")",
+  "[D0 pruefeSpeicherSeite directly, no ids] @0 window.setTimeout(2000)",
+  "[D0 pruefeSpeicherSeite directly, no ids] @0 returns a Promise",
+  "[D0 pruefeSpeicherSeite directly, no ids] @1 resolved with undefined",
+  "[D0 pruefeSpeicherSeite directly, no ids] @40 timer 1 fires",
+  "[D0 pruefeSpeicherSeite directly, no ids] @40 k.statusSetzen read",
+  "[D0 pruefeSpeicherSeite directly, no ids] @40 statusSetzen(\"\", \"neutral\")",
+  "[D0 pruefeSpeicherSeite directly, no ids] @40 vorhanden at the end: {toene/0.ogg: true, toene/1.ogg: false, toene/2.ogg: false, toene/4.ogg: true, toene/5.ogg: false, toene/6.ogg: true, toene/7.ogg: true, toene/8.ogg: false}",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @0 k.storeIndex read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @0 k.storeIndex read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @0 k.vorhanden read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @0 k.vorhanden read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @0 k.pruefKnopf read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @0 pruefKnopf.disabled = true",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @0 k.pruefKnopf read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @0 pruefKnopf.textContent = \"prüfe 2 Dateien …\"",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @0 fetch#1 HEAD <WURZEL>toene/0.ogg -> missing",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @0 fetch#2 HEAD <WURZEL>toene/1.ogg -> network",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @0 returns a Promise",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @1 headers.get(\"content-type\") -> \"text/plain\"",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @1 k.vorhanden read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @3 k.pruefKnopf read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @3 pruefKnopf.textContent = \"Verfügbarkeit dieser Seite prüfen\"",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @3 k.pruefKnopf read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @3 pruefKnopf.disabled = false",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @3 k.listeFuellen read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @3 listeFuellen()",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @3 k.storeIndex read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @3 k.vorhanden read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @3 k.storeIndex read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @3 k.vorhanden read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @3 k.statusSetzen read",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @3 statusSetzen(\"0 von 2 Dateien dieser Seite liegen vor.\", \"fehlt\")",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @4 resolved with undefined",
+  "[D2 pruefeSpeicherSeite directly, 2 ids (missing, network): nothing is there] @40 vorhanden at the end: {toene/0.ogg: false}",
 ];
 
 console.log('\n── [8] Step G2: behaviour of pruefeSeite and pruefeSpeicherSeite, recorded ──');
 {
-  const namesWithModel = [...PREFABS_BY_NAME.entries()].filter(([, d]) => d.model !== null).map(([n]) => n).sort();
+  const pruefenExports = pruefen ? (pruefen as unknown as Record<string, unknown>) : null;
+  // The model differs from the name: a function that hands the name where the model file belongs shows in the requests (G2-A3).
+  const namesWithModel = [...PREFABS_BY_NAME.entries()].filter(([n, d]) => d.model !== null && d.model !== n).map(([n]) => n).sort();
   const nameWithoutModel = [...PREFABS_BY_NAME.entries()].find(([, d]) => d.model === null)?.[0];
-  check('the registry offers at least 8 prefabs with a model and one without', namesWithModel.length >= 8 && nameWithoutModel !== undefined, `${namesWithModel.length} with a model`);
+  check('the registry offers at least 8 prefabs with a model that differs from their name, and one without a model', namesWithModel.length >= 8 && nameWithoutModel !== undefined, `${namesWithModel.length} with a model`);
   const firstDifference = (got: readonly string[], expected: readonly string[]): string => {
     for (let i = 0; i < Math.max(got.length, expected.length); i++) {
       if (got[i] !== expected[i]) return `line ${i + 1}: got ${JSON.stringify(got[i])}, expected ${JSON.stringify(expected[i])}`;
     }
     return `${got.length} lines, equal`;
   };
-  if (exported !== null && klasse !== null && namesWithModel.length >= 8 && nameWithoutModel !== undefined) {
-    const fns = exported as unknown as PruefCalls;
+  if (pruefenExports !== null && klasse !== null && namesWithModel.length >= 8 && nameWithoutModel !== undefined) {
+    const fns = pruefenExports as unknown as PruefCalls;
     const deps = {
       modelUrl,
       speicherWurzel: SPEICHER_WURZEL,
@@ -1702,6 +1955,431 @@ console.log('\n── [8] Step G2: behaviour of pruefeSeite and pruefeSpeicherSe
     check('the methods of the prototype on an object with the prototype of the class (the inner call reaches the forwarder): the same lines', viaForwarders.join('\n') === EXPECTED_SEQUENCE.join('\n'), firstDifference(viaForwarders, EXPECTED_SEQUENCE));
   } else {
     check('behaviour: the module, the class and the registry are available', false, 'see above');
+  }
+}
+
+
+// ── [9] Step G3: behaviour of infoSchreiben and speicherInfoSchreiben, recorded ──
+//
+// The sequence between the markers is cut out and run on the old stand by the measuring script of the step
+// (Berichte/Nachweise/Refactoring-G3/skripte/sollwerte-infofeld.mts), so the expected values below come from the very same
+// text, measured on the methods of the class before the move. It uses nothing of this file: everything comes in through
+// its two parameters. A small stand-in for the DOM (`document.createElement`, `style`, `appendChild`, `append`, `remove`,
+// `innerHTML`, `dataset`, events) records every element and every change; a context stub records every read. After each
+// call the tree under `infoBlock` is written out, every button is clicked, and a chain of microtasks runs beside it: every
+// line carries the number of ticks that have run.
+
+// <infofeld-sequence>
+/** How the two functions are reached: as functions of the module (new stand), or as methods of the prototype (old). */
+interface InfofeldCalls {
+  infoSchreiben(kat: object, name: string, def: unknown, masse: unknown, warnung: string | null): unknown;
+  speicherInfoSchreiben(kat: object, eintrag: unknown, warnung: string | null): unknown;
+}
+/** What the sequence needs from the tree, handed in so that the same text runs on the old stand too. */
+interface InfofeldDeps {
+  /** Builds the context from the stub fields: a plain object, or one that has the prototype of the class. */
+  makeContext(fields: PropertyDescriptorMap): object;
+  /** A prefab name the whitelist of own models knows, one it does not know, a registered upload, and two registered items. */
+  names: { eigen: string; fremd: string; upload: string; itemMitTafel: string; itemOhneTafel: string };
+  /** The text `ITEM_TYP_TEXT` has for the type of both items: it stands in the log as <TYP> (translation changes it). */
+  typText: string;
+}
+/**
+ * Runs a fixed sequence of calls against a stub of the context with a stand-in for `document` and `navigator`, and records
+ * every effect in its order. Names of the registry appear as labels, so the lines do not depend on which prefabs it holds.
+ */
+async function runInfofeldSequence(calls: InfofeldCalls, deps: InfofeldDeps): Promise<string[]> {
+  const lines: string[] = [];
+  let scene = '';
+  let nextId = 0;
+  let ticks = 0;
+  const swaps: ReadonlyArray<readonly [string, string]> = [
+    [deps.names.itemMitTafel, '<ITEM_MIT_TAFEL>'],
+    [deps.names.itemOhneTafel, '<ITEM_OHNE_TAFEL>'],
+    [deps.names.upload, '<UPLOAD>'],
+    [deps.names.eigen, '<EIGEN>'],
+    [deps.names.fremd, '<FREMD>'],
+    [deps.typText, '<TYP>'],
+  ];
+  const log = (text: string): void => {
+    let shown = text;
+    for (const [from, to] of swaps) if (from !== '') shown = shown.split(from).join(to);
+    lines.push(`[${scene}] @${ticks} ${shown}`);
+  };
+  const show = (value: unknown): string =>
+    value === undefined ? 'undefined' : typeof value === 'string' ? JSON.stringify(value) : typeof value === 'function' ? 'function' : typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value);
+  /** The one known difference of the move (rule 6a): V8 writes the text of the expression, `this.x` became `kat.x`. */
+  const oneLine = (error: unknown): string => `${(error as Error).constructor.name}: ${(error as Error).message.replace(/^(this|kat)\./, 'ctx.')}`;
+
+  // ── the stand-in for the DOM ──
+  class FakeStyle {
+    private readonly parts: Record<string, string> = {};
+    constructor(private readonly id: string) {}
+    set cssText(value: string) {
+      log(`    ${this.id}.style.cssText = ${JSON.stringify(value)}`);
+      this.parts['cssText'] = value;
+    }
+    get cssText(): string {
+      return this.parts['cssText'] ?? '';
+    }
+    set flex(value: string) {
+      log(`    ${this.id}.style.flex = ${JSON.stringify(value)}`);
+      this.parts['flex'] = value;
+    }
+    getPropertyValue(name: string): string {
+      log(`    ${this.id}.style.getPropertyValue(${JSON.stringify(name)})`);
+      return this.parts[name] ?? '';
+    }
+    setProperty(name: string, value: string): void {
+      log(`    ${this.id}.style.setProperty(${JSON.stringify(name)}, ${JSON.stringify(value)})`);
+      this.parts[name] = value;
+    }
+  }
+  const WATCHED_PROPERTIES = ['textContent', 'innerHTML', 'src', 'title', 'onclick', 'onerror', 'disabled', 'value'];
+  class FakeElement {
+    readonly id: string;
+    readonly tag: string;
+    readonly style: FakeStyle;
+    readonly children: (FakeElement | string)[] = [];
+    readonly attrs: Record<string, string> = {};
+    readonly events: { kind: string; fn: () => void }[] = [];
+    readonly values: Record<string, unknown> = {};
+    readonly dataset: Record<string, string>;
+    constructor(tag: string) {
+      this.id = `#${++nextId}`;
+      this.tag = tag;
+      this.style = new FakeStyle(this.id);
+      this.dataset = new Proxy({} as Record<string, string>, {
+        set: (target, property, value: string) => {
+          log(`    ${this.id}.dataset.${String(property)} = ${JSON.stringify(value)}`);
+          target[String(property)] = value;
+          return true;
+        },
+      });
+      log(`    create ${tag} ${this.id}`);
+      return new Proxy(this, {
+        get: (target, property, receiver) => (typeof property === 'string' && WATCHED_PROPERTIES.includes(property) ? target.values[property] : Reflect.get(target, property, receiver)),
+        set: (target, property, value: unknown, receiver) => {
+          if (typeof property === 'string' && WATCHED_PROPERTIES.includes(property)) {
+            log(`    ${target.id}.${property} = ${typeof value === 'function' ? 'function' : JSON.stringify(value)}`);
+            target.values[property] = value;
+            if (property === 'innerHTML') target.children.length = 0;
+            return true;
+          }
+          return Reflect.set(target, property, value, receiver);
+        },
+      });
+    }
+    appendChild(child: FakeElement): FakeElement {
+      log(`    ${this.id}.appendChild(${child.id})`);
+      this.children.push(child);
+      return child;
+    }
+    append(...items: (FakeElement | string)[]): void {
+      log(`    ${this.id}.append(${items.map((item) => (typeof item === 'string' ? JSON.stringify(item) : item.id)).join(', ')})`);
+      this.children.push(...items);
+    }
+    remove(): void {
+      log(`    ${this.id}.remove()`);
+    }
+    setAttribute(name: string, value: string): void {
+      log(`    ${this.id}.setAttribute(${JSON.stringify(name)}, ${JSON.stringify(value)})`);
+      this.attrs[name] = value;
+    }
+    addEventListener(kind: string, fn: () => void): void {
+      log(`    ${this.id}.addEventListener(${JSON.stringify(kind)})`);
+      this.events.push({ kind, fn });
+    }
+  }
+  const treeOf = (node: FakeElement | string, depth = 0): string[] => {
+    const pad = '  '.repeat(depth);
+    if (typeof node === 'string') return [`${pad}${JSON.stringify(node)}`];
+    const parts = [`${node.tag}${node.id}`, `css=${JSON.stringify(node.style.cssText)}`];
+    for (const property of ['textContent', 'innerHTML', 'src', 'title', 'disabled', 'value']) if (node.values[property] !== undefined) parts.push(`${property}=${JSON.stringify(node.values[property])}`);
+    for (const property of ['onclick', 'onerror']) if (node.values[property] !== undefined) parts.push(`${property}=yes`);
+    if (Object.keys(node.attrs).length > 0) parts.push(`attrs=${JSON.stringify(node.attrs)}`);
+    if (Object.keys(node.dataset).length > 0) parts.push(`dataset=${JSON.stringify({ ...node.dataset })}`);
+    if (node.events.length > 0) parts.push(`events=${node.events.map((event) => event.kind).join(',')}`);
+    return [`${pad}${parts.join(' ')}`, ...node.children.flatMap((child) => treeOf(child, depth + 1))];
+  };
+  const collect = (node: FakeElement | string, wanted: (element: FakeElement) => boolean, into: FakeElement[] = []): FakeElement[] => {
+    if (typeof node === 'string') return into;
+    if (wanted(node)) into.push(node);
+    for (const child of node.children) collect(child, wanted, into);
+    return into;
+  };
+
+  // ── stand-ins for document, navigator and the unhandled-rejection event ──
+  type Clipboard = 'ok' | 'rejected' | 'missing';
+  let clipboard: Clipboard = 'ok';
+  const g = globalThis as unknown as Record<string, unknown>;
+  const hadDocument = 'document' in g;
+  const realDocument = g.document;
+  const realNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  g.document = { createElement: (tag: string) => new FakeElement(tag), createElementNS: (_namespace: string, tag: string) => new FakeElement(tag) };
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    get() {
+      if (clipboard === 'missing') return {};
+      return {
+        clipboard: {
+          writeText: (text: string): Promise<void> => {
+            log(`  navigator.clipboard.writeText(${JSON.stringify(text)}) [${clipboard}]`);
+            return clipboard === 'ok' ? Promise.resolve() : Promise.reject(new Error('clipboard blocked (probe)'));
+          },
+        },
+      };
+    },
+  });
+  const onUnhandled = (error: unknown): void => log(`  UNHANDLED REJECTION ${oneLine(error)}`);
+  process.on('unhandledRejection', onUnhandled);
+
+  // ── the context stub ──
+  const WATCHED = ['infoBlock', 'aufPlatzieren', 'rasterSchritt', 'schliesse', 'hochgeladenesModellEntfernen', 'grundskalaZeileBauen', 'letzteMasse', 'storeContainer', 'bildMasse', 'tonSpieler', 'statusSetzen'];
+  interface Setup {
+    placer?: 'function' | 'null';
+    gridStep?: number;
+    measured?: unknown;
+    container?: unknown;
+    imageSize?: unknown;
+    duration?: number;
+    without?: readonly string[];
+  }
+  let lastRow: FakeElement | null = null;
+  const context = (setup: Setup): { readonly k: object; readonly block: FakeElement } => {
+    const block = new FakeElement('div');
+    const own = (value: unknown): PropertyDescriptor => ({ value, enumerable: true, writable: true, configurable: true });
+    let instance: object = {};
+    const fields: PropertyDescriptorMap = {
+      infoBlock: own(block),
+      aufPlatzieren: own(setup.placer === 'function' ? (prefab: string): void => log(`  aufPlatzieren(${show(prefab)})`) : null),
+      rasterSchritt: own(setup.gridStep ?? 1),
+      letzteMasse: own(setup.measured ?? null),
+      storeContainer: own(setup.container ?? null),
+      bildMasse: own(setup.imageSize ?? null),
+      tonSpieler: own({ duration: setup.duration ?? Number.NaN }),
+      schliesse: own(function (this: unknown): void {
+        log(`  schliesse() this is the context: ${this === instance}`);
+      }),
+      hochgeladenesModellEntfernen: own(function (this: unknown, name: string): Promise<void> {
+        log(`  hochgeladenesModellEntfernen(${show(name)}) this is the context: ${this === instance}`);
+        return Promise.resolve();
+      }),
+      grundskalaZeileBauen: own(function (this: unknown, entry: { name: string }): FakeElement {
+        log(`  grundskalaZeileBauen(${show(entry.name)}) this is the context: ${this === instance}`);
+        const row = new FakeElement('div');
+        row.style.cssText = 'grundskala-row';
+        lastRow = row;
+        return row;
+      }),
+      statusSetzen: own(function (this: unknown, text: string, kind: string): void {
+        log(`  statusSetzen(${show(text)}, ${show(kind)}) this is the context: ${this === instance}`);
+      }),
+    };
+    for (const name of setup.without ?? []) fields[name] = own(undefined);
+    instance = new Proxy(deps.makeContext(fields), {
+      get(target, property, receiver) {
+        if (typeof property === 'string' && WATCHED.includes(property)) log(`  ctx.${property} read`);
+        return Reflect.get(target, property, receiver);
+      },
+      set(target, property, value: unknown, receiver) {
+        log(`  ctx.${String(property)} WRITTEN`);
+        return Reflect.set(target, property, value, receiver);
+      },
+    });
+    return { k: instance, block };
+  };
+
+  // ── one scene: the call, the tree, a click on every button, the microtasks ──
+  const run = async (name: string, setup: Setup, call: (k: object) => unknown, clickAll = true): Promise<void> => {
+    scene = name;
+    nextId = 0;
+    ticks = 0;
+    lastRow = null;
+    let chain = Promise.resolve();
+    for (let i = 0; i < 40; i++) chain = chain.then(() => void ticks++);
+    const { k, block } = context(setup);
+    try {
+      const result = call(k);
+      log(`  returns ${result instanceof Promise ? 'a Promise' : show(result)}`);
+    } catch (error) {
+      log(`  THROWN ${oneLine(error)}`);
+    }
+    log('  tree under infoBlock:');
+    for (const line of treeOf(block)) log(`  ${line}`);
+    if (lastRow !== null) log(`  the row from grundskalaZeileBauen is the very node appended to infoBlock: ${block.children.includes(lastRow)}`);
+    if (clickAll) {
+      for (const button of collect(block, (element) => element.tag === 'button')) {
+        const handler = button.values.onclick as (() => unknown) | undefined;
+        log(`  click ${button.id} ${JSON.stringify(button.values.title ?? '')}`);
+        if (typeof handler !== 'function') {
+          log('    (no onclick)');
+          continue;
+        }
+        try {
+          const result = handler.call(button);
+          log(`    returns ${result instanceof Promise ? 'a Promise' : show(result)}`);
+        } catch (error) {
+          log(`    THROWN ${oneLine(error)}`);
+        }
+        for (const event of button.events) {
+          log(`    event ${event.kind}`);
+          event.fn();
+        }
+      }
+      for (const image of collect(block, (element) => typeof element.values.onerror === 'function')) {
+        log(`  onerror of ${image.id}`);
+        (image.values.onerror as () => void)();
+      }
+    }
+    await chain;
+    await new Promise<void>((done) => setImmediate(done));
+  };
+
+  // ── data ──
+  const prefabDef = (extra: Record<string, unknown> = {}): unknown => ({
+    name: 'probe', model: 'Probe_Modell', sprite: 'probe_sprite', animation: null, light: null, localScale: { x: 1, y: 1, z: 1 }, renderScale: { w: 1.5, h: 2.25 }, ...extra,
+  });
+  const measure = { breite: 1.234, hoehe: 2.5, tiefe: 0.75, dreiecke: 12345, meshes: 3, materialien: 2 };
+  const container = { materials: [1, 2, 3], textures: [1, 2] };
+  const entry = (extra: Record<string, unknown>): Record<string, unknown> => ({
+    name: 'environment/sm-probe', id: 'environment/sm-probe', art: 'Modelle', gruppe: 'Umgebung', untergruppe: 'Haeuser', kennzeichen: [], pfad: 'modelle/environment/sm-probe.glb', bytes: 20560,
+    bounds: { min: [-1, 0, -2], max: [1, 3, 2] }, kollisionsdatei: null, kollision: null, herkunft: null, lizenzstatus: 'frei', prefabName: null, ...extra,
+  });
+  const N = deps.names;
+  const tooLong = 'Zeitüberschreitung nach 20 s — Server antwortet nicht.';
+  try {
+    await run('I1 prefab with a model, animation, sprite, placer function', { placer: 'function', gridStep: 0.5 }, (k) => calls.infoSchreiben(k, N.eigen, prefabDef({ animation: 'idle' }), measure, null));
+    await run('I2 prefab with a light, no placer, with a warning', { placer: 'null', gridStep: 2 }, (k) => calls.infoSchreiben(k, N.eigen, prefabDef({ light: { range: 7 } }), null, 'Kein Modell hinterlegt (model = null).'));
+    await run('I3 prefab with a local scale other than 1', { placer: 'function' }, (k) => calls.infoSchreiben(k, N.eigen, prefabDef({ localScale: { x: 1, y: 2, z: 3 } }), measure, null));
+    await run('I4 uploaded model (remove button, base-scale row)', { placer: 'function' }, (k) => calls.infoSchreiben(k, N.upload, prefabDef(), measure, null));
+    await run('I5 item with a piece table, no def', { placer: 'function' }, (k) => calls.infoSchreiben(k, N.itemMitTafel, null, null, null));
+    await run('I6 item without a piece table, with def and warning', { placer: 'null' }, (k) => calls.infoSchreiben(k, N.itemOhneTafel, prefabDef({ model: null, sprite: null }), null, tooLong));
+    await run('I7 prefab without a model', { placer: 'function' }, (k) => calls.infoSchreiben(k, N.fremd, prefabDef({ model: null }), null, null));
+    await run('I8 prefab the whitelist does not know', { placer: 'function' }, (k) => calls.infoSchreiben(k, N.fremd, prefabDef(), measure, null));
+    await run('I9 unknown name, nothing else', { placer: 'function' }, (k) => calls.infoSchreiben(k, 'Probe_UnknownName', null, null, null));
+    clipboard = 'ok';
+    await run(
+      'S1 model, orphaned collision mesh, bounds below the origin, measured, clipboard ok',
+      { measured: measure, container },
+      (k) => calls.speicherInfoSchreiben(k, entry({ kennzeichen: ['Kollisionsnetz', 'Torbogen'], kollisionsdatei: 'kollision/sm-probe.glb', kollision: 'box', bounds: { min: [-1, -0.5, -2], max: [1, 3, 2] } }), 'Die Datei ist im Manifest verzeichnet, der Server liefert sie nicht aus.'),
+    );
+    clipboard = 'rejected';
+    await run('S2 model with a prefab, mesh collision, clipboard rejected', { measured: measure, container }, (k) => calls.speicherInfoSchreiben(k, entry({ kennzeichen: ['Kollisionsnetz'], prefabName: 'Probe_Prefab', kollision: 'mesh' }), null));
+    clipboard = 'missing';
+    await run('S3 model without a measurement and without bounds, no clipboard', {}, (k) => calls.speicherInfoSchreiben(k, entry({ bounds: null, kollision: 'other', kennzeichen: [] }), null));
+    clipboard = 'ok';
+    await run('S4 ground texture with an image size', { imageSize: { breite: 512, hoehe: 256 } }, (k) => calls.speicherInfoSchreiben(k, entry({ art: 'Texturen', gruppe: 'Boden-Texturen', bounds: null }), null));
+    await run('S5 symbol without an image size', {}, (k) => calls.speicherInfoSchreiben(k, entry({ art: 'Symbole', gruppe: 'Symbole', bounds: null }), 'x'));
+    await run('S6 sound with a duration and an origin', { duration: 1.18 }, (k) => calls.speicherInfoSchreiben(k, entry({ art: 'Ton', gruppe: 'Toene', bounds: null, herkunft: '1.18 s, mono, 48 kHz, 16 bit, wav, tool chain a, b' }), null));
+    await run('S7 sound without a duration and without an origin', { duration: Number.NaN }, (k) => calls.speicherInfoSchreiben(k, entry({ art: 'Ton', gruppe: 'Toene', bounds: null, herkunft: null, prefabName: 'Probe_Sound' }), null));
+    await run('S8 bounds exactly at the limit: min y = -0.001 shows no lower-edge line', {}, (k) => calls.speicherInfoSchreiben(k, entry({ bounds: { min: [0, -0.001, 0], max: [1, 1, 1] } }), null));
+    // the context lacks a member: the TypeError names the expression (rule 6a: `this.x` became `kat.x`, normalized above)
+    await run('E1 context without schliesse: click on the placer', { placer: 'function', without: ['schliesse'] }, (k) => calls.infoSchreiben(k, N.eigen, prefabDef(), null, null));
+    await run('E2 context without grundskalaZeileBauen', { placer: 'function', without: ['grundskalaZeileBauen'] }, (k) => calls.infoSchreiben(k, N.upload, prefabDef(), null, null));
+    await run('E3 context without hochgeladenesModellEntfernen: click on remove', { without: ['hochgeladenesModellEntfernen'] }, (k) => calls.infoSchreiben(k, N.upload, prefabDef(), null, null));
+    clipboard = 'ok';
+    await run('E4 context without statusSetzen: clipboard ok', { without: ['statusSetzen'] }, (k) => calls.speicherInfoSchreiben(k, entry({}), null));
+    await run('E5 context without infoBlock', { without: ['infoBlock'] }, (k) => calls.infoSchreiben(k, N.eigen, prefabDef(), null, null), false);
+    await run('E6 context without tonSpieler (sound)', { without: ['tonSpieler'] }, (k) => calls.speicherInfoSchreiben(k, entry({ art: 'Ton', bounds: null }), null), false);
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+    if (hadDocument) g.document = realDocument;
+    else delete g.document;
+    if (realNavigator) Object.defineProperty(globalThis, 'navigator', realNavigator);
+    else delete g.navigator;
+  }
+  return lines;
+}
+// </infofeld-sequence>
+
+/** Measured before the move, on the methods of the class (report of step G3): per scene the number of lines and the sha256 (first 16 hex digits) of the lines, joined with newlines. */
+const EXPECTED_INFOFELD: ReadonlyArray<readonly [scene: string, lines: number, sha: string]> = [
+  ["I1 prefab with a model, animation, sprite, placer function", 174, 'b8450dc46b4c387a'],
+  ["I2 prefab with a light, no placer, with a warning", 89, 'f93d4427e36a3087'],
+  ["I3 prefab with a local scale other than 1", 174, 'aa45a7128bcec44c'],
+  ["I4 uploaded model (remove button, base-scale row)", 208, 'd451dae9dfc27c51'],
+  ["I5 item with a piece table, no def", 110, '67599770b40f63b1'],
+  ["I6 item without a piece table, with def and warning", 107, 'b44f6f5f7661330c'],
+  ["I7 prefab without a model", 71, 'e6c1c4605e5ad986'],
+  ["I8 prefab the whitelist does not know", 123, '9748f357fdbaefd0'],
+  ["I9 unknown name, nothing else", 50, 'ed104968db43d86f'],
+  ["S1 model, orphaned collision mesh, bounds below the origin, measured, clipboard ok", 244, '8f92ea6c5ac35b53'],
+  ["S2 model with a prefab, mesh collision, clipboard rejected", 216, '9c3797d218e9da7b'],
+  ["S3 model without a measurement and without bounds, no clipboard", 126, '0dc15d59931e8a78'],
+  ["S4 ground texture with an image size", 145, 'dbbb35d60c257a9e'],
+  ["S5 symbol without an image size", 135, 'c2c71fe9db26cc8d'],
+  ["S6 sound with a duration and an origin", 144, 'a02e60b57305cb13'],
+  ["S7 sound without a duration and without an origin", 143, '5fc66bde2ba2b95f'],
+  ["S8 bounds exactly at the limit: min y = -0.001 shows no lower-edge line", 129, 'c279a9228c0e5fc8'],
+  ["E1 context without schliesse: click on the placer", 108, 'e2c6494ae4d12e88'],
+  ["E2 context without grundskalaZeileBauen", 118, '578f01ed7bf69f72'],
+  ["E3 context without hochgeladenesModellEntfernen: click on remove", 117, '299f89d6f8b1aa70'],
+  ["E4 context without statusSetzen: clipboard ok", 130, '54756f28aa380772'],
+  ["E5 context without infoBlock", 5, '4ba1616f8f0f64ef'],
+  ["E6 context without tonSpieler (sound)", 62, '4fa1a0377a0895ca'],
+];
+
+console.log('\n── [9] Step G3: behaviour of infoSchreiben and speicherInfoSchreiben, recorded ──');
+{
+  const infofeldFns = infofeld as unknown as InfofeldCalls | null;
+  const prototype = klasse ? (klasse.prototype as { infoSchreiben(this: object, name: string, def: unknown, masse: unknown, warnung: string | null): unknown; speicherInfoSchreiben(this: object, eintrag: unknown, warnung: string | null): unknown }) : null;
+  if (kategorien !== null && infofeldFns !== null && prototype !== null) {
+    const { ITEMS_NACH_NAME, ITEM_TYP_TEXT } = kategorien;
+    const typeCode = Number(Object.keys(ITEM_TYP_TEXT)[0]);
+    const typText = ITEM_TYP_TEXT[typeCode] ?? '';
+    const itemMitTafel = 'G3_ProbeItemMitTafel';
+    const itemOhneTafel = 'G3_ProbeItemOhneTafel';
+    const upload = {
+      name: 'U_G3Probe', anzeigename: "Probe 'Ü' <b>", bytes: 12345, dreiecke: 99, meshes: 2, materialien: 1, bilder: 1, fehlendeTexturen: false, breite: 1.5, hoehe: 2.5, tiefe: 0.5,
+      kollisionsart: 'fest', hatKollisionsnetz: false, kollisionsnetzAbgelehnt: false, hochgeladenVon: 'probe', zeitpunkt: '2026-09-30T00:00:00Z', grundskala: 1,
+    } as uploadedModelRegistry.UploadedModelEntry;
+    // synthetic items and one synthetic upload: the lines do not depend on the tuning of the real registries
+    (ITEMS_NACH_NAME as Map<string, unknown>).set(itemMitTafel, { name: itemMitTafel, label: 'Probe-Werkzeug', icon: 'probe_icon', itemType: typeCode, weight: 2.5, maxStackSize: 20, pieceTable: 'Werkbank' });
+    (ITEMS_NACH_NAME as Map<string, unknown>).set(itemOhneTafel, { name: itemOhneTafel, itemType: typeCode, weight: 0.25, maxStackSize: 1 });
+    uploadedModelRegistry.registerUploadedPrefab(upload);
+    const registryNames = [...PREFABS_BY_NAME.keys()].filter((n) => !ITEMS_NACH_NAME.has(n) && uploadedModelRegistry.uploadedModelEntry(n) === undefined).sort();
+    const eigen = registryNames.find((n) => istEigenesModell(n));
+    const fremd = registryNames.find((n) => !istEigenesModell(n));
+    check('the registry offers a prefab name the whitelist of own models knows and one it does not know (neither an item nor an upload)', eigen !== undefined && fremd !== undefined, `${eigen ?? '-'} / ${fremd ?? '-'}`);
+    if (eigen !== undefined && fremd !== undefined) {
+      const deps = { names: { eigen, fremd, upload: upload.name, itemMitTafel, itemOhneTafel }, typText };
+      /** Per scene the number of lines and the first 16 hex digits of the sha256 of the lines joined with newlines. */
+      const summarize = (lines: readonly string[]): Array<readonly [string, number, string]> => {
+        const byScene = new Map<string, string[]>();
+        for (const line of lines) {
+          const scene = line.slice(1, line.indexOf('] '));
+          byScene.set(scene, [...(byScene.get(scene) ?? []), line]);
+        }
+        return [...byScene].map(([scene, list]) => [scene, list.length, createHash('sha256').update(list.join('\n')).digest('hex').slice(0, 16)] as const);
+      };
+      const firstDifference = (got: ReadonlyArray<readonly [string, number, string]>): string => {
+        for (let i = 0; i < Math.max(got.length, EXPECTED_INFOFELD.length); i++) {
+          const a = got[i];
+          const b = EXPECTED_INFOFELD[i];
+          if (a === undefined || b === undefined || a[0] !== b[0] || a[1] !== b[1] || a[2] !== b[2]) return `scene ${i + 1}: got ${a ? `${a[0]} ${a[1]} lines ${a[2]}` : 'nothing'}, expected ${b ? `${b[0]} ${b[1]} lines ${b[2]}` : 'nothing'}`;
+        }
+        return `${got.length} scenes, equal`;
+      };
+      // (a) the functions of the module on a plain stub of the context
+      const onStub = summarize(await runInfofeldSequence(infofeldFns, { ...deps, makeContext: (fields) => Object.defineProperties({}, fields) }));
+      // (b) the methods of the prototype (the forwarders) on an object that has the prototype of the class
+      const viaForwarders = summarize(
+        await runInfofeldSequence(
+          {
+            infoSchreiben: (k, name, def, masse, warnung) => prototype.infoSchreiben.call(k, name, def, masse, warnung),
+            speicherInfoSchreiben: (k, entryArg, warnung) => prototype.speicherInfoSchreiben.call(k, entryArg, warnung),
+          },
+          { ...deps, makeContext: (fields) => Object.defineProperties(Object.create(prototype) as object, fields) },
+        ),
+      );
+      check(`the functions on a stub give the ${EXPECTED_INFOFELD.length} scenes measured before the move (lines and sha256 per scene)`, firstDifference(onStub) === `${onStub.length} scenes, equal` && onStub.length === EXPECTED_INFOFELD.length, firstDifference(onStub));
+      check('the methods of the prototype on an object with the prototype of the class (the forwarders): the same scenes', firstDifference(viaForwarders) === `${viaForwarders.length} scenes, equal` && viaForwarders.length === EXPECTED_INFOFELD.length, firstDifference(viaForwarders));
+    }
+    (ITEMS_NACH_NAME as Map<string, unknown>).delete(itemMitTafel);
+    (ITEMS_NACH_NAME as Map<string, unknown>).delete(itemOhneTafel);
+  } else {
+    check('behaviour: the module, the class and the item registry are available', false, 'see above');
   }
 }
 

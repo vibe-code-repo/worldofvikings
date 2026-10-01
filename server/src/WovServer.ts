@@ -20,6 +20,8 @@ import {
   SAVE_INTERVAL_MS,
   WETTER_VORGABE_AUS,
   type WetterVorgabe,
+  WetterWuerfel,
+  type WetterDefinitionen,
   ZDO_SEND_INTERVAL_MS,
   ZDO_MAX_SEND_THRESHOLD,
   ZDO_MIN_SEND_THRESHOLD,
@@ -59,6 +61,7 @@ import {
   AUGENFARBE_VORGABE,
 } from '@wov/shared';
 import type { Vector3, ZoneID } from '@wov/shared';
+import { NEUSTART_RETRY_SEC } from '@wov/shared';
 import {
   BAU_PREFABS,
   ESSEN,
@@ -89,10 +92,6 @@ import { SYNC_PRUEFUNGEN_MAX } from './zdo/ZonenFenster.js';
 import { DungeonManager } from './world/dungeon/DungeonManager.js';
 import {
   GENERIERT_DIR,
-  baueModul,
-  deleteModule,
-  registryChecksum,
-  registryPruefsumme,
 } from './world/dungeon/ModuleBuild.js';
 import { ZDO } from './zdo/ZDO.js';
 import { ZDOID } from './zdo/ZDOID.js';
@@ -108,6 +107,7 @@ import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/Worl
 import { SpielerSicherung, SPIELER_SICHERUNG_INTERVALL_MS, neuerAls } from './spiel/SpielerSicherung.js';
 import { WeltZdoSicherung, ueberlagern as weltZdoUeberlagern } from './spiel/WeltZdoSicherung.js';
 import { Stempel } from './spiel/Stempel.js';
+import { WetterDienst, fuehreWetterBefehlAus, pruefeGeladeneWeltzeit } from './spiel/Wetter.js';
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
@@ -171,8 +171,11 @@ import {
 } from '@wov/shared/src/bewegung/ausdauer.js';
 import { pickableItem, ZWEIT_DROPS, wuerfleDrop, wuerfleTruhe } from './spiel/Beute.js';
 import { waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
+import { liesSchlagMeldung, pruefeSchlag, verbucheSchlag, trefferAbstand, schreibeQuittung, SchlagErgebnis, TOLERANZ_MAX_M, type SchlagErgebnisWert } from './spiel/Treffer.js';
 import { EIKTHYR_HASH, BOSS_ENTRY, NPC_ENTRY } from './spiel/Sondereintraege.js';
 import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
+import { handleDungeonEditRequest, handleDungeonEditSave, handleDungeonModulBau, handleDungeonModulLoeschen } from './spiel/DungeonEditPakete.js';
+import { handleAdminCommand, handleSetTimeOfDay } from './spiel/AdminPakete.js';
 // Tests import the weapon helpers from this file, so it keeps exporting them.
 export { gepruefteWaffe, waffeTragbar, WAFFE_PAKETNAME_OHNE_EQUIP, wirksameWaffe } from './spiel/Waffe.js';
 
@@ -287,6 +290,12 @@ export interface ServerConfig {
    * Spieler dieselbe Stimmung sehen. Siehe shared/wetterVorgabe.ts.
    */
   wetterVorgabe: WetterVorgabe;
+  /**
+   * Wetterdefinitionen je Biom (server.yml `wetter: definitionen:` = Pfad zu einer
+   * JSON-Datei im Format von shared/data/wetter/biome.json). Fehlt das Feld, gelten
+   * die mitgelieferten (STANDARD_WETTER_DEFINITIONEN = die bisherigen Tabellen).
+   */
+  wetterDefinitionen?: WetterDefinitionen;
   /**
    * Ausprobieren ohne Registrierung (server.yml `standard-konto:`).
    * Leer oder `undefined` = kein Standardkonto — der Betreiber hat den
@@ -597,7 +606,7 @@ export class WovServer {
   // ── Time (world time, start time, etc.) ───────────────────────
   private startTime: number;
   private prevUpdateTime: number;
-  private worldTime: number; // seconds
+  worldTime: number; // seconds
   private worldTimeMultiplier: number;
 
   // ── Run state ──────────────────────────────────────────────────
@@ -704,6 +713,7 @@ export class WovServer {
     this.registerAdminListeCommands();
     this.registerBannCommands();
     this.registerMarkeCommand();
+    this.registerWetterCommand();
     // Karten-Marker: Eingangs-Änderungen an alle Peers verteilen.
     this.dungeons.onEntrancesChanged = () => {
       for (const peer of this.net.getPeers()) this.sendDungeonEntrances(peer);
@@ -1770,6 +1780,19 @@ export class WovServer {
       strukturLog('world_save_failed_on_stop', { fehler: String(err) });
     }
 
+    // F10: Ansage NACH dem Speichern und nur, wenn der Endstand auf der Platte liegt: Sie
+    // verspricht "du wirst wieder verbunden" und der Client macht weiter, wo der Server ihn
+    // gesichert hat. Ist das Speichern gescheitert, stammt der Stand aus der letzten
+    // periodischen Sicherung; dann bleibt die Ansage aus (der Trenngrund `restart` und das
+    // Wiederverbinden bleiben, der Spieler sieht nur den neutralen Verbindungszaehler).
+    if (gespeichert) {
+      try {
+        this.net.kuendigeNeustartAn(NEUSTART_RETRY_SEC);
+      } catch (err) {
+        console.error(`[WoV] Neustart-Ansage fehlgeschlagen: ${err}`);
+      }
+    }
+
     try {
       this.net.stop();
     } catch (err) {
@@ -1831,6 +1854,7 @@ export class WovServer {
       // am Umkreis der Spieler. Eine leerstehende Instanz kostet nichts.
       const positionenJeWelt = new Map<string, Vector3[]>();
       const zieleJeWelt = new Map<string, Vector3[]>();
+      const kennungenJeWelt = new Map<string, string[]>();
       for (const p of peers) {
         // A dead player stays in the position list (zones, spawns and routes keep
         // running around him, creatures do not despawn because he lies) but is no
@@ -1838,6 +1862,9 @@ export class WovServer {
         const liste = positionenJeWelt.get(p.worldId);
         if (liste) liste.push(p.position);
         else positionenJeWelt.set(p.worldId, [p.position]);
+        const kennungen = kennungenJeWelt.get(p.worldId);
+        if (kennungen) kennungen.push(p.verbindungsId);
+        else kennungenJeWelt.set(p.worldId, [p.verbindungsId]);
         if (p.totBis > 0) continue;
         const ziele = zieleJeWelt.get(p.worldId);
         if (ziele) ziele.push(p.position);
@@ -1847,7 +1874,12 @@ export class WovServer {
       for (const welt of this.welten.values()) {
         const positionen = positionenJeWelt.get(welt.id);
         if (!positionen?.length) continue;
-        const { neueZonen } = welt.tick(deltaSec, positionen, zieleJeWelt.get(welt.id) ?? []);
+        const { neueZonen } = welt.tick(
+          deltaSec,
+          positionen,
+          zieleJeWelt.get(welt.id) ?? [],
+          kennungenJeWelt.get(welt.id)
+        );
         if (neueZonen > 0) {
           console.log(
             `[WoV] Vegetation (${welt.id}): +${neueZonen} zone(s) ` +
@@ -1896,6 +1928,8 @@ export class WovServer {
       // getaktet und nicht nur beim Befehl: s. gleicheAdminrechteAb().
       this.gleicheAdminrechteAb();
       this.layoutWache?.tick();
+      // F9: Wetter je Spieler nachfuehren (Fenster-, Biom-, Admin-Wechsel).
+      this.wetterDienst().takt(peers, this.worldTime);
       // Dungeon-Regeneration: leere Instanzen nach Ablauf abreißen.
       this.dungeons.tick(now);
       this.eventTick(now);
@@ -1931,7 +1965,7 @@ export class WovServer {
   }
 
   /** The world clock is sent periodically; see update() for why. */
-  private sendTimeSync(peer: Peer): void {
+  sendTimeSync(peer: Peer): void {
     peer.sendPacketWith(PacketType.TimeSync, (w) => {
       w.writeFloat64(this.worldTime);
       w.writeFloat64(this.getTimeOfDay());
@@ -2039,7 +2073,10 @@ export class WovServer {
       const nahEnde = Math.min(peer.fenster.nahEnde, fenster.length);
       let ferneStart = nahEnde + peer.fenster.cursor;
       if (ferneStart >= fenster.length) ferneStart = nahEnde;
-      const ende = Math.min(fenster.length, ferneStart + SYNC_PRUEFUNGEN_MAX);
+      // F6: Der ferne Teil läuft nur in jedem 2. Tick (s. ZonenFenster.ferneDran).
+      const ferne = peer.fenster.ferneDran();
+      const ende = ferne ? Math.min(fenster.length, ferneStart + SYNC_PRUEFUNGEN_MAX) : nahEnde;
+      let budgetGebrochen = false;
       // Cursor für den nächsten Tick: Deckel (ende) oder Fensterende (0).
       let naechsterCursor = ende >= fenster.length ? 0 : ende - nahEnde;
       for (let i = 0; i < ende; i++) {
@@ -2062,6 +2099,7 @@ export class WovServer {
         // vor F2 — die Pakete sind byte-gleich; die Stelle steht hier, weil
         // der Cursor den Index des ersten ungeschriebenen ZDOs braucht.)
         if (anzahl > 0 && writer.geschrieben >= budget) {
+          budgetGebrochen = true;
           // Im nahen Teil bleibt der Cursor stehen (der nahe Teil wird ohnehin
           // nächsten Tick wieder von vorn geprüft). Im fernen Teil: steht das
           // ZDO noch im vorderen Teil, lieber von vorn (nah zuerst); liegt es
@@ -2076,6 +2114,7 @@ export class WovServer {
         gesendet.push(zdo);
       }
       peer.fenster.cursor = naechsterCursor;
+      if (ferne) peer.fenster.ferneAktiv = budgetGebrochen;
 
       if (anzahl === 0 && zerstoerungen.length === 0) continue;
       writer.patchInt32(zaehlerStelle, anzahl);
@@ -2361,6 +2400,8 @@ export class WovServer {
     characterZDO.setOwner(new ZDOID(peer.userId, 0));
     peer.characterID = characterZDO.zdoid;
     peer.position = spawnPos;
+    // F9: das Wetter des Bioms, in dem der Spieler steht — nach der Vorgabe (WeltWetter) oben.
+    this.wetterDienst().sendeAn(peer, this.worldTime);
 
     // Gewaehlte Figur aus dem Spielstand wiederherstellen und an das
     // Charakter-ZDO haengen. Ueber den ZDO-Member sehen ALLE anderen
@@ -2647,177 +2688,16 @@ export class WovServer {
     }
   }
 
-  /** Editor: aktuelles Dungeon-Dokument als JSON ausliefern (admin-gated). */
   private handleDungeonEditRequest(peer: Peer, reader: Reader): void {
-    const requested = reader.readString();
-    const sendData = (ok: boolean, message: string, json = '') => {
-      peer.sendPacketWith(PacketType.DungeonEditData, (w) => {
-        w.writeBool(ok);
-        w.writeString(message);
-        w.writeString(json);
-      });
-    };
-    if (!peer.isAdmin) return sendData(false, 'Keine Berechtigung');
-    const id = requested || peer.dungeonId || '';
-    // AP13: Beide Formate reisen als JSON durch DASSELBE Paket. Der Editor
-    // erkennt an `version >= 10`, welches er vor sich hat — dieselbe Weiche
-    // wie im Sanitizer, und deshalb braucht es kein zweites Paket.
-    // AP13: both formats travel as JSON through THE SAME packet.
-    const doc2 = id ? this.dungeons.getDokument2(id) : undefined;
-    if (doc2) return sendData(true, doc2.id, JSON.stringify(doc2));
-    const doc = id ? this.dungeons.getDocument(id) : undefined;
-    if (!doc) return sendData(false, `Unbekannter Dungeon: ${id || '(keiner)'}`);
-    sendData(true, doc.id, JSON.stringify(doc));
+    return handleDungeonEditRequest(this, peer, reader);
   }
 
-  /**
-   * Editor: hochgeladenes Dokument sanitisieren, speichern und — wenn der
-   * Peer gerade in diesem Dungeon steht — die Instanz neu materialisieren
-   * und ihn wieder hineinteleportieren, damit die Änderung sofort sichtbar
-   * ist (upsertDocument reisst die alte Instanz ab).
-   */
   private handleDungeonEditSave(peer: Peer, reader: Reader): void {
-    const json = reader.readString();
-    // E6: Die Registry-Prüfsumme reist HINTER dem Dokument — ein Feld, das
-    // ein Client von vor E6 gar nicht schickt. `isValidOffset(1)` fragt
-    // deshalb erst, ob überhaupt noch Bytes da sind (dasselbe Muster wie
-    // beim nachträglich angehängten `seq` in PlayerState); ein blindes
-    // `readString()` liefe über das Ende des Puffers und beendete die
-    // Verbindung mit einer RangeError-Meldung, die nichts erklärt.
-    const gesendeteSumme = reader.isValidOffset(1) ? reader.readString() : '';
-    const sendData = (ok: boolean, message: string, docJson = '') => {
-      peer.sendPacketWith(PacketType.DungeonEditData, (w) => {
-        w.writeBool(ok);
-        w.writeString(message);
-        w.writeString(docJson);
-      });
-    };
-    if (!peer.isAdmin) return sendData(false, 'Keine Berechtigung');
-    if (json.length > 2_000_000) return sendData(false, 'Dokument zu groß (max 2 MB)');
-
-    // ── E6: Kennen beide Seiten dieselben Module? ──────────────────────
-    //
-    // Diese Frage MUSS vor `sanitizeDungeonDocument` stehen, denn dieser
-    // verwirft unbekannte Räume STILL (`shared/src/dungeons.ts`, Kopf:
-    // „Unknown rooms are dropped"). Für eine Datei von der Platte ist das
-    // richtig; für ein Dokument aus dem Editor ist es der teuerste aller
-    // Fehler — der Nutzer bekommt ein Häkchen und ein Grab mit einem
-    // Loch, und das Loch fällt erst beim Betreten auf.
-    //
-    // Ein FEHLENDES Feld ist kein Sonderfall, sondern die wörtliche
-    // Wahrheit über den Absender: Ein Bündel von vor E6 registriert keine
-    // generierten Module, seine Registry IST leer. Kennt der Server auch
-    // keine, sind sich beide einig und das Speichern geht durch; kennt er
-    // welche, ist die Seite im Browser älter als er — und genau dann darf
-    // sie nicht speichern.
-    const eigeneSumme = registryChecksum();
-    const clientSumme = gesendeteSumme || registryPruefsumme([]);
-    if (clientSumme !== eigeneSumme) {
-      console.warn(
-        `[Dungeon] '${peer.name}' hat eine veraltete Modulregistry ` +
-          `(Client ${clientSumme}, Server ${eigeneSumme}) — Speichern abgelehnt.`
-      );
-      return sendData(
-        false,
-        `Registry veraltet — Seite neu laden (Client ${clientSumme}, Server ${eigeneSumme})`
-      );
-    }
-
-    let raw: unknown;
-    try {
-      raw = JSON.parse(json);
-    } catch {
-      return sendData(false, 'Ungültiges JSON');
-    }
-    // Die Weiche, ein zweites Mal (AP13). Sie steht hier und nicht in
-    // `upsertDocument`, weil die beiden Rückgabetypen verschieden sind —
-    // und weil ein 2.0-Dokument im Alt-Sanitizer als „ungültig" gemeldet
-    // würde statt als „falscher Weg".
-    // The switch, a second time.
-    if (dungeon2.istDokument2(raw)) {
-      const erg2 = this.dungeons.upsertDokument2(raw);
-      if (!erg2) return sendData(false, 'Dokument 2.0 abgelehnt (Thema/ID/Seeds ungültig)');
-      const { doc: d2, instanzErhalten: erhalten2 } = erg2;
-      if (peer.dungeonId === d2.id && !erhalten2) this.enterDungeon(peer, d2.id);
-      sendData(
-        true,
-        `Gespeichert: ${d2.id} (2.0, Thema ${d2.thema}, Prüfsumme ${d2.pruefsumme})`,
-        JSON.stringify(d2)
-      );
-      console.log(
-        `[Dungeon] '${peer.name}' saved 2.0 document '${d2.id}' ` +
-          `(${d2.thema}, ${d2.pruefsumme}${erhalten2 ? ', instance kept' : ''})`
-      );
-      return;
-    }
-    const ergebnis = this.dungeons.upsertDocument(raw);
-    if (!ergebnis) return sendData(false, 'Dokument abgelehnt (Basis/ID/Räume ungültig)');
-    const { doc, instanzErhalten } = ergebnis;
-
-    // Zurückteleportieren NUR, wenn die Instanz abgerissen wurde. Hat sich
-    // bloss die Deko geändert, steht sie noch — und der Spieler soll dort
-    // bleiben, wo er gerade eine Fackel gesetzt hat, statt am Eingang
-    // aufzuwachen. Genau das machte das Setzen vorher unbenutzbar.
-    if (peer.dungeonId === doc.id && !instanzErhalten) {
-      this.enterDungeon(peer, doc.id);
-    }
-    sendData(
-      true,
-      `Gespeichert: ${doc.id} (${doc.layout.rooms.length} Räume, ${doc.layout.props.length} Deko)`,
-      JSON.stringify(doc)
-    );
-    console.log(
-      `[Dungeon] '${peer.name}' saved document '${doc.id}' ` +
-        `(${doc.layout.rooms.length} rooms, ${doc.layout.props.length} props` +
-        `${instanzErhalten ? ', instance kept' : ''})`
-    );
+    return handleDungeonEditSave(this, peer, reader);
   }
 
-  /**
-   * Editor: einen Saal bauen (E5). Der Client schickt VIER ZAHLEN —
-   * Breite, Tiefe, Pfeilerraster, Gewicht —, sonst nichts. Namen,
-   * Pfade und jede Klemme liegen in `ModuleBuild.baueModul`; dieser
-   * Handler übersetzt nur zwischen Paket und Funktion.
-   *
-   * Warum hier KEINE zweite Prüfung steht: Zwei Klemmenlisten für
-   * dieselbe Sache laufen auseinander, sobald eine von beiden angefasst
-   * wird — und die im Socket-Handler wäre die, die kein Test fährt.
-   */
   private handleDungeonModulBau(peer: Peer, reader: Reader): void {
-    const cellsX = reader.readInt32();
-    const cellsZ = reader.readInt32();
-    const raster = reader.readInt32();
-    const weight = reader.readFloat32();
-
-    const antwort = baueModul(
-      {
-        istAdmin: peer.isAdmin,
-        modulbauErlaubt: this.config.dungeonsModulbau,
-        verzeichnis: this.config.generiertDir,
-      },
-      { cellsX, cellsZ, raster, weight }
-    );
-
-    peer.sendPacketWith(PacketType.DungeonModulBauErgebnis, (w) => {
-      w.writeBool(antwort.ok);
-      w.writeString(
-        antwort.ok
-          ? `Gebaut: ${antwort.ergebnis.name} — ${antwort.ergebnis.tris} Dreiecke, ` +
-              `${antwort.ergebnis.sizeX} x ${antwort.ergebnis.sizeZ} m`
-          : antwort.meldung
-      );
-      // Die Zahlen als JSON und nicht als Einzelfelder: Das Formular
-      // zeigt sie an, und ein zusaetzliches Feld spaeter verschoebe
-      // sonst den Aufbau eines Pakets, das ein offener Tab noch kennt.
-      w.writeString(antwort.ok ? JSON.stringify(antwort.ergebnis) : '');
-    });
-
-    console.log(
-      antwort.ok
-        ? `[Dungeon] '${peer.name}' built module '${antwort.ergebnis.name}' ` +
-            `(${antwort.ergebnis.tris} tris, registry ${antwort.ergebnis.pruefsumme})`
-        : `[Dungeon] '${peer.name}' — Modulbau abgelehnt: ${antwort.meldung}`
-    );
+    return handleDungeonModulBau(this, peer, reader);
   }
 
 
@@ -2831,116 +2711,20 @@ export class WovServer {
    * Welten teilen. Ein Server auf `dev`, der nur `dev` durchsähe, löschte
    * ein Modell weg, das `world` benutzt — und erführe davon nie.
    */
-  private dungeonsWurzel(): string {
+  dungeonsWurzel(): string {
     return resolve(this.config.worldsDir, '..', 'dungeons');
   }
 
-  /**
-   * Editor: einen gebauten Saal wieder entfernen (E9).
-   *
-   * Wie beim Bauen steht hier KEINE eigene Prüfung: Tore, Namensform,
-   * Bestandsfrage und Reihenfolge des Entfernens liegen vollständig in
-   * `ModuleBuild.deleteModule`. Der Handler übersetzt zwischen Paket und
-   * Funktion und reicht die Dokumentwurzel herein — das Einzige, was der
-   * Bauweg nicht schon kennt.
-   */
   private handleDungeonModulLoeschen(peer: Peer, reader: Reader): void {
-    const name = reader.readString();
-
-    const antwort = deleteModule(
-      {
-        istAdmin: peer.isAdmin,
-        modulbauErlaubt: this.config.dungeonsModulbau,
-        verzeichnis: this.config.generiertDir,
-        dungeonsWurzel: this.dungeonsWurzel(),
-      },
-      name
-    );
-
-    peer.sendPacketWith(PacketType.DungeonModulLoeschErgebnis, (w) => {
-      w.writeBool(antwort.ok);
-      w.writeString(
-        antwort.ok
-          ? `Entfernt: ${antwort.ergebnis.name}` +
-              `${antwort.ergebnis.dateiEntfernt ? '' : ' (die GLB-Datei fehlte bereits)'} — ` +
-              `${antwort.ergebnis.verbleibend} Modul(e) verbleiben`
-          : antwort.meldung
-      );
-      // Die Zahlen als JSON, aus demselben Grund wie beim Bauergebnis: ein
-      // spaeteres Feld verschoebe sonst den Aufbau eines Pakets, das ein
-      // offener Tab noch kennt.
-      w.writeString(antwort.ok ? JSON.stringify(antwort.ergebnis) : '');
-    });
-
-    console.log(
-      antwort.ok
-        ? `[Dungeon] '${peer.name}' deleted module '${antwort.ergebnis.name}' ` +
-            `(registry ${antwort.ergebnis.pruefsumme}, ${antwort.ergebnis.verbleibend} left)`
-        : `[Dungeon] '${peer.name}' — Modul löschen abgelehnt: ${antwort.meldung}`
-    );
+    return handleDungeonModulLoeschen(this, peer, reader);
   }
 
-  /**
-   * Client sent an admin command line (e.g. "fly"). Dispatched to the
-   * AdminCommandRegistry; the result goes back to the requesting peer as
-   * AdminEvent (command / active / message) so the client HUD mirrors the
-   * server state. Permission gate lives in AdminCommands.canUseAdminCommands.
-   */
   private handleAdminCommand(peer: Peer, reader: Reader): void {
-    const line = reader.readString();
-    const result = this.adminCommands.execute(peer, line);
-
-    const command = line.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
-    peer.sendPacketWith(PacketType.AdminEvent, (w) => {
-      w.writeString(command);
-      w.writeBool(result.active);
-      w.writeString(result.message);
-    });
-
-    console.log(`[Admin] "${peer.name}" ran "${line}" → ${result.message}`);
+    return handleAdminCommand(this, peer, reader);
   }
 
-  /**
-   * Client requested a new time of day (angeboten auf dem Verbindungsbildschirm,
-   * client/src/main.ts — dort für JEDEN Spieler, nicht nur Admins). Ändert
-   * die Zeit für ALLE Peers, deshalb wie die anderen Admin-Pfade gegated
-   * (Zeile 1142/1164 DungeonEdit*, Zeile 1200 AdminCommand). Anders als bei
-   * denen gibt es hier noch kein eigenes Antwortpaket — der Client kennt
-   * InteractResult bereits (nur message wird angezeigt, s. main.ts), das
-   * reicht für die Ablehnung, ohne ein neues Paket einzuführen.
-   *
-   * Kein Sonderfall beim ERSTEN Verbinden: Der Client schickt dieses Paket
-   * nur, wenn auf dem Verbindungsbildschirm aktiv eine Uhrzeit gewählt wurde
-   * (main.ts `zeitWunsch`) — bei "Serverzeit übernehmen" (Default) bleibt es
-   * ganz aus. Die Sperre kann den normalen Verbindungsaufbau also nicht
-   * brechen.
-   */
   private handleSetTimeOfDay(peer: Peer, reader: Reader): void {
-    let timeOfDay = reader.readFloat64();
-    if (!Number.isFinite(timeOfDay)) return;
-
-    if (!peer.isAdmin) {
-      console.log(`[Admin] "${peer.name}" — SetTimeOfDay abgelehnt: keine Berechtigung`);
-      peer.sendPacketWith(PacketType.InteractResult, (w) => {
-        w.writeBool(false);
-        w.writeString('Keine Berechtigung, die Weltzeit zu ändern');
-        w.writeString('');
-        w.writeInt32(0);
-      });
-      return;
-    }
-
-    // Wrap into [0, WORLD_TIME_LENGTH)
-    timeOfDay = ((timeOfDay % WORLD_TIME_LENGTH) + WORLD_TIME_LENGTH) % WORLD_TIME_LENGTH;
-
-    this.worldTime += timeOfDay - this.getTimeOfDay();
-
-    console.log(`[WoV] "${peer.name}" set time of day to ${timeOfDay.toFixed(0)}s (day ${this.getDay()})`);
-
-    // Broadcast the new time to all peers
-    for (const p of this.net.getPeers()) {
-      this.sendTimeSync(p);
-    }
+    return handleSetTimeOfDay(this, peer, reader);
   }
 
   private handlePlayerInput(peer: Peer, reader: Reader): void {
@@ -3923,6 +3707,8 @@ export class WovServer {
   }
 
   private handleAttack(peer: Peer, reader: Reader): void {
+    // A packet shorter than position + yaw (16 bytes) is dropped silently; reading it would throw and cut the peer off.
+    if (reader.remaining() < 16) return;
     const pos = reader.readVector3();
     if (!this.schlagErlaubt(peer, pos)) return;
     /*
@@ -3963,12 +3749,22 @@ export class WovServer {
     // Paketname; der gilt nur fuer Clients, die noch nie ein Equip geschickt
     // haben (wirksameWaffe). handleHarvest bekommt dieselbe Waffe weitergereicht.
     waffe = this.waffeFuerSchlag(peer, waffe);
+    // D2: Zeitstempel, Abklingzeit und Kombo (spiel/Treffer.ts) VOR der Ausdauer — ein verworfener
+    // Schlag kostet nichts. Ein aktueller Client bekommt fuer jeden Schlag eine Quittung.
+    const meldung = liesSchlagMeldung(reader.remaining(), reader);
+    const quittiere = (schritt: number, ergebnis: SchlagErgebnisWert): void => {
+      if (meldung) peer.sendPacketWith(PacketType.AttackAck, (w) => schreibeQuittung(w, meldung.seq, schritt, ergebnis));
+    };
+    const jetzt = Date.now();
+    const entscheid = pruefeSchlag(peer.schlag, meldung, jetzt, waffe);
+    if (!entscheid.ok) return quittiere(0, entscheid.ergebnis);
     const nachSchlag = ausdauerAbzug(
       { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
       schlagKosten(this.werteVon(peer).agility),
-      Date.now()
+      jetzt
     );
-    if (!nachSchlag) return;
+    if (!nachSchlag) return quittiere(0, SchlagErgebnis.Ausdauer);
+    verbucheSchlag(peer.schlag, jetzt, entscheid.schritt, waffe);
     peer.stamina = nachSchlag.wert;
     peer.staminaZuletztVerbraucht = nachSchlag.zuletztVerbraucht;
     this.sendPlayerState(peer);
@@ -3991,8 +3787,9 @@ export class WovServer {
     */
     const von = peer.position;
     let ziel: import('./zdo/ZDO.js').ZDO | null = null;
-    let best = WovServer.NAHKAMPF_REICHWEITE ** 2;
-    for (const zdo of this.zdosVon(peer).getZDOsInRadius(von, WovServer.NAHKAMPF_REICHWEITE)) {
+    // D2: Trefferkugel (0;1;1) um die Serverposition; der naechste Kandidat zur Kugelmitte gewinnt.
+    let best = Number.POSITIVE_INFINITY;
+    for (const zdo of this.zdosVon(peer).getZDOsInRadius(von, WovServer.NAHKAMPF_REICHWEITE + TOLERANZ_MAX_M)) {
       const def = this.prefabs.getByHash(zdo.prefabHash);
       const flags = def?.flags ?? 0n;
       // ANGREIFBAR: die eigenen NPCs mit Kampfwerten (shared/npc.ts). Sie
@@ -4001,23 +3798,26 @@ export class WovServer {
       // Ein sterbendes Wesen (Todesclip laeuft) ist nicht mehr zu treffen:
       // sein Leben steht auf 0, und der Schlag risse es als „frisch" hoch.
       if (this.spawns?.stirbt(zdo)) continue;
-      const d = (zdo.position.x - von.x) ** 2 + (zdo.position.z - von.z) ** 2;
-      if (d >= best) continue;
-      // Der Kegel steht NACH dem Abstand, nicht davor: Er kostet einen
-      // Wurzelzug je Kandidat, der Abstand nur zwei Multiplikationen.
+      // Der Kegel steht VOR der Kugel: er ist billiger (kein 3D-Abstand) und hat den Mindestabstand.
       if (!this.imTrefferkegel(von, yaw, zdo.position)) continue;
+      const d = trefferAbstand(von, yaw, zdo.position, this.spawns?.tempo(zdo) ?? 0);
+      if (d === null || d >= best) continue;
       best = d;
       ziel = zdo;
     }
     /*
-      Kein Wesen im Kegel → Ernte. Auch die faellt jetzt um die
-      Serverposition aus, aus demselben Grund wie oben.
+      Kein Wesen in der Kugel → Ernte. Auch die faellt um die Serverposition aus,
+      aus demselben Grund wie oben.
 
       OHNE Kegel, absichtlich: Ein Baum steht still, er umkreist niemanden,
       und ein Fehlschlag beim Faellen ist kein Kampfgefuehl, sondern nur
       Aerger. Die Ernte hat ihre eigenen, engeren Reichweiten (3,2 m).
     */
-    if (!ziel) return this.handleHarvest(peer, von, waffe);
+    if (!ziel) {
+      quittiere(entscheid.schritt, SchlagErgebnis.Fehl);
+      return this.handleHarvest(peer, von, waffe);
+    }
+    quittiere(entscheid.schritt, SchlagErgebnis.Treffer);
     const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
     this.sendeTrefferEffekt({ x: ziel.position.x, y: ziel.position.y + 1.0, z: ziel.position.z }, 1, peer.worldId, peer);
     // Startwert aus shared/leben.ts statt aus einem Literal. Der
@@ -4341,7 +4141,9 @@ export class WovServer {
   /** Revives every dead player whose lying time is over. */
   private belebeFaellige(now: number): void {
     for (const peer of this.net.getPeers()) {
-      if (peer.totBis > 0 && now >= peer.totBis) this.belebeNeu(peer, false);
+      if (peer.totBis > 0 && now >= peer.totBis) {
+        try { this.belebeNeu(peer, false); } catch (e) { console.error(`[WoV] Wiederbelebung von ${peer.name} fehlgeschlagen: ${e}`); }
+      }
     }
   }
 
@@ -4385,6 +4187,7 @@ export class WovServer {
     }
     // Immediate revival is followed by the caller's own PlayerState (one packet, as before).
     if (!sofort) this.sendPlayerState(peer);
+    this.sichereSpielerSofort(peer, 'tod'); // F8: the revived state goes to disk now, not with the next 30 s tick
   }
 
   /**
@@ -5641,6 +5444,23 @@ export class WovServer {
     });
   }
 
+  /** F9: Wetterdienst, beim ersten Gebrauch gebaut (Tests bauen den Server oft ohne Konstruktor). */
+  private wetterInst?: WetterDienst;
+  private wetterDienst(): WetterDienst {
+    this.wetterInst ??= new WetterDienst(
+      new WetterWuerfel(this.config.wetterDefinitionen),
+      this.config.wetterVorgabe,
+      (p) => this.welten.get(p.worldId)?.geo.getBiome(p.position.x, p.position.z) ?? null,
+      HAUPTWELT_ID
+    );
+    return this.wetterInst;
+  }
+
+  /** `wetter <Zustand|auto> [Biom]` — Wetter setzen, s. spiel/Wetter.ts. */
+  private registerWetterCommand(): void {
+    this.adminCommands.register('wetter', (_peer, args) => fuehreWetterBefehlAus(this.wetterDienst(), args));
+  }
+
   /**
    * `abbau <prefab> [radius]` — gespawnte Prefabs wieder entfernen.
    *
@@ -6659,7 +6479,9 @@ export class WovServer {
       return;
     }
 
-    this.worldTime = data.worldTime;
+    const weltzeit = pruefeGeladeneWeltzeit(data.worldTime, TIME_DAY);
+    if (weltzeit.warnung) console.warn(`[WoV] ${weltzeit.warnung}`);
+    this.worldTime = weltzeit.wert;
     this.zones.restoreGeneratedZones(data.zones);
     // Spieler-Terraforming VOR den ZDOs herstellen (Vegetations-Nachsetzen
     // unten misst gegen den fertigen Boden).

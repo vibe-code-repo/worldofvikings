@@ -120,6 +120,7 @@ export * from './gravethorn.js';
 export * from './crowshade.js';
 export * from './legacyFemaleRegions.js';
 export * from './wetterVorgabe.js';
+export * from './wetterDefinition.js';
 export * from './lookProfil.js';
 // Die Himmelsfelder aus A5/A12. Eigene Datei, solange `lookProfil.ts`
 // dem Integrator gehört — s. den Kopf von `lookHimmel.ts`.
@@ -128,6 +129,9 @@ export * from './serverConfigFlags.js';
 export * from './worldgen/index.js';
 export * from './items/index.js';
 export * from './worldlayout/index.js';
+export * from './bausatz/types.js';
+export * from './bausatz/sanitize.js';
+export * from './bausatz/aufloesen.js';
 
 /**
  * Dungeon Generator 2.0 als NAMENSRAUM, nicht flach.

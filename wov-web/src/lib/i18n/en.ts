@@ -69,6 +69,8 @@ export const en: Messages = {
   'pages.main_nav.hall.short': 'Hall',
   'pages.main_nav.saga.title': 'The Saga',
   'pages.main_nav.saga.short': 'Saga',
+  'pages.main_nav.devlog.title': 'Dev log',
+  'pages.main_nav.devlog.short': 'Dev log',
   'pages.main_nav.map.title': 'The Map',
   'pages.main_nav.map.short': 'Map',
   'pages.main_nav.armory.title': 'Armory',
@@ -177,6 +179,16 @@ export const en: Messages = {
   'saga.error': 'The saga falls silent for now.',
   'saga.loading': 'Opening the saga …',
   'saga.empty': 'No entries yet.',
+
+  /* ----------------------------------------------------------- devlog */
+  'devlog.meta.title': 'Dev log',
+  'devlog.meta.description': 'What has changed in the game, day by day, in plain words.',
+  'devlog.heading': 'Dev log',
+  'devlog.intro': 'What has changed in the game, day by day, in plain words.',
+  'devlog.error': 'The dev log cannot be loaded right now.',
+  'devlog.loading': 'Loading the dev log …',
+  'devlog.empty': 'No entries yet.',
+  'devlog.fallback_note': 'This entry is not available in English yet and is shown in German.',
 
   /* -------------------------------------------------------------- map */
   'map.title': 'The Map',

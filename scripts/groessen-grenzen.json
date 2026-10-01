@@ -1,6 +1,6 @@
 {
   "admin/src/main.ts": {"frei": true, "hoechstens": 2900},
-  "client/src/editor/GegenstandsKatalog.ts": 3800,
+  "client/src/editor/GegenstandsKatalog.ts": 3400,
   "client/src/editor/editorMain.ts": 5150,
   "client/src/engine/AssetManager.ts": 2000,
   "client/src/engine/GrassClutter.ts": 1900,
@@ -8,7 +8,7 @@
   "client/src/engine/Shadows.ts": 2350,
   "client/src/engine/Terrain.ts": 2450,
   "client/src/engine/TerrainSplat.ts": 3200,
-  "client/src/entities/EntityManager.ts": 2900,
+  "client/src/entities/EntityManager.ts": 2750,
   "client/src/main.ts": {"frei": true, "hoechstens": 3700},
   "client/src/player/AvatarRig.ts": 2650,
   "server/src/WovServer.ts": 7400,

@@ -99,6 +99,8 @@ export default [
   // Namen, die andere Dateien per Zeichenkette suchen (Himmelskuppel, Refraktion,
   // Dungeon-Atmosphäre): Erzeuger und Verbraucher nennen denselben Namen.
   ['client', 'test/bild-namen.ts'],
+  // D2: swing fields, AttackAck, combo follow-up and round trip on the client.
+  ['client', 'test/d2-quittung.ts'],
   // Account hand-off from wov-web: the legacy connection panel must be
   // absent from the static HTML, online entry requires a session, and
   // failures return to the one remaining login on the public website.
@@ -241,6 +243,9 @@ export default [
   ['client', 'test/entity-module-oberflaeche.ts'],
   // Draft store: two tabs, one localStorage key; undo stack, evicted ring.
   ['client', 'test/entwurfs-speicher.ts'],
+  // F10: Wiederverbinden nach Serverneustart (client/src/net/Wiederverbinden.ts):
+  // Wartezeiten 1..60 s, Kick gibt auf, Zeitlimit, Zaehler. DOM-frei, Sekunden.
+  ['client', 'test/f10-wiederverbinden.ts'],
   // F6 (Roadmap): seq-Verwerfungsregel für Client-Vorhersage-
   // Reconciliation (client/src/net/Eingabeverwerfung.ts) — reine
   // Funktion. Seit dem Abgleich per Eingabesequenz nicht mehr tot:
@@ -280,11 +285,19 @@ export default [
     stehen als Konstanten im Test. NullEngine, Sekundenbruchteile.
   */
   ['client', 'test/figur-toenung.ts'],
+  // Gelaende T4a N2: das ECHTE SpawnPanel im DOM-Nachbau, verdrahtet wie im Testflug (Frage, Ja, Sperre beider Knoepfe, einfaches Speichern im Lauf).
+  ['client', 'test/gelaende-neustart-panel.ts'],
+  // Gelaende T4a: Speichern & neu starten im Testflug (Entwurf speichern, nur bei Erfolg Neustart, Warten, Zeitlimit, F1-Schutz, Doppelklick,
+  // Z3). DOM-frei mit Attrappen fuer fetch und Uhr.
+  ['client', 'test/gelaende-neustart.ts'],
   // Gelaende T2: Pinsel im Testflug (Reiter Gelaende) - Kern (Stempel, Randabfall, Glaetten), Sperre unter Sockel/Gebaeude, Grenzen
   // (Strich wird abgelehnt statt gekuerzt), ein Strich = ein Vorgang, Umkehr, Anbindung an eine echte RegionGeo und Bitgleichheit mit
   // der frisch kompilierten Welt (Server-Weg), Tasten (deutsche Tastatur), Takt, Texte de/en. DOM-frei.
   // N1: Bauteil-Sperre (PIECE/sm-bld-), Wirkradius, Flug folgt dem Entwurf (fremder Tab), enthaelt() mit heightDeltas, Zonennaht, Wertgrenze.
   ['client', 'test/gelaende-pinsel.ts'],
+  // Gelaende T3: Ebnen mit Pipette, Zuruecksetzen, Rueckgaengig/Wiederholen je Strich (eigener Stapel), lose Objekte wandern mit dem Boden
+  // (Gebaeude und Sockel nicht), Bewuchs, storage-Hoerer nur bei offenem Reiter. DOM-frei, echte RegionGeo.
+  ['client', 'test/gelaende-t3.ts'],
   /*
     E7: Ein Modul mit `Gen_`-Praefix kommt aus `assets/generiert/`, alles
     andere aus `assets/models/` — und der Dev-Server liefert beides aus.
@@ -772,6 +785,8 @@ export default [
   // operations, zone reset.
   // Tool registry: the editor's tools behind one interface (start, abort, keys, bar).
   ['client', 'test/werkzeug-registry.ts'],
+  // F9: Wetter vom Server im Client (DOM-frei): Paket lesen, Übergabe an den WeatherManager, Verdrahtung in main.ts.
+  ['client', 'test/wetter-annahme.ts'],
   // Wildwarden clientseitig: Slot-Vertrag, Speicher-Rundlauf, Inventarersatz,
   // Körper-Wiederherstellung. NullEngine.
   ['client', 'test/wildwarden.ts'],

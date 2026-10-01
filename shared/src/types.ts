@@ -460,7 +460,46 @@ export enum PacketType {
    * see the same event on the victim's character ZDO (`animEinmal`).
    */
   PlayerTreffer = 85,
+  /**
+   * Server → all connected clients, right before a planned stop (F10): the server is going
+   * away and will be back. Payload: String textKey (client catalogue key of the announcement),
+   * Int32 retryAfterSec (first reconnect attempt no sooner than this). The following
+   * `Disconnect` carries the reason `DISCONNECT_NEUSTART`. Old clients ignore the packet.
+   */
+  ServerNeustart = 86,
+  /**
+   * Server → Client: das Wetter, das DER SERVER für das Biom dieses Spielers
+   * gezogen hat (F9). Payload: String umgebung (Name der Umgebung, die der
+   * Client darstellt), String zustand (Id des Wetterzustands, Schlüssel für
+   * den Anzeigenamen), Int32 fenster (Wetterfenster der Weltzeit). Kommt beim
+   * Anmelden, bei jedem Fensterwechsel und wenn der Spieler das Biom wechselt
+   * oder ein Admin das Wetter setzt; Editor-Verbindungen und Spieler in
+   * Dungeons bekommen es nicht. EIGENES Paket statt Felder an `WeltWetter`
+   * (Begründung dort): Ein alter Client verwirft den unbekannten Typ still und
+   * würfelt weiter selbst. Siehe shared/wetterDefinition.ts, server/spiel/Wetter.ts.
+   */
+  WetterZustand = 87,
+  /**
+   * Server → the attacker only, one per `Attack` that carried the D2 fields: Int32 seq (echo of
+   * the client's), Int32 schritt (combo step the server counted, 0 = refused), Int32 ergebnis
+   * (0 hit, 1 miss, 2 combo refused, 3 cooldown, 4 stamp out of window, 5 stamina).
+   * `Attack` carries them appended after the weapon: Int32 seq, Int32 schritt, Float32 alterMs,
+   * Float32 spitzeMs. An old client sends none and gets no ack; an old server ignores the tail.
+   */
+  AttackAck = 88,
 }
+
+/**
+ * `Disconnect` reason of a planned server stop (F10). A client treats it like a dropped
+ * connection (reconnect with back-off); any other non-empty reason is a kick and ends the game.
+ */
+export const DISCONNECT_NEUSTART = 'restart';
+
+/** Client catalogue key of the restart announcement (`ServerNeustart` payload). */
+export const NEUSTART_TEXT_SCHLUESSEL = 'netz.neustart.ansage';
+
+/** Seconds a client waits before its first reconnect attempt after the announcement. */
+export const NEUSTART_RETRY_SEC = 3;
 
 // === Vector3 ===
 export interface Vector3 {

@@ -48,6 +48,10 @@ import { SKALA_MAX, SKALA_MIN } from './testflug/vorschauZeichnen';
 import { ladeSerie, speichereSerie } from './testflug/greifen';
 import {
   klemmeRadius,
+  klemmeZiel,
+  zielAusText,
+  ZIEL_MAX,
+  ZIEL_MIN,
   RADIUS_MAX,
   RADIUS_MIN,
   RADIUS_START,
@@ -56,6 +60,8 @@ import {
   STAERKE_START,
   type Werkzeug,
 } from './testflug/gelaendePinsel';
+import type { NeustartPhase } from './testflug/neustart';
+import type { NeustartOberflaeche } from './testflug/neustartSteuerung';
 import { t } from './i18n';
 import type { TranslationKey } from '../i18n';
 
@@ -77,6 +83,8 @@ export interface GelaendeEinstellung {
   werkzeug: Werkzeug;
   radius: number;
   staerke: number;
+  /** Target ground height of the level tool in m (pipette or number field); `null` = not chosen yet. */
+  ziel: number | null;
 }
 
 export interface SpawnPanelCallbacks {
@@ -110,6 +118,12 @@ export interface SpawnPanelCallbacks {
   setzeNpc?: (npc: NpcDef | undefined) => void;
   /** Button „In Welt speichern“ of the terrain tab: publish the draft (same way as the route editor). */
   speichernGelaende?: () => void;
+  /** Click on „Speichern & neu starten“: only asks (`neustartSteuerung.ts`). */
+  neustartKlick?: () => void;
+  /** Click on „Ja“ in the confirmation: the run starts. */
+  neustartJa?: () => void;
+  /** Click on „Abbrechen“ in the confirmation. */
+  neustartAbbruch?: () => void;
 }
 
 /** Anzeigetexte der Listen aus shared/npc.ts (unbekanntes zeigt sich roh). */
@@ -263,16 +277,20 @@ function vorauswahl(): string {
   return gemerkt !== null && istEigenesModell(gemerkt) ? gemerkt : VORGABE_PREFAB;
 }
 
-export class SpawnPanel {
+export class SpawnPanel implements NeustartOberflaeche {
   /** Wird bei jeder Änderung von Wahl/Modus gerufen — main.ts gleicht den Geist ab. */
   aufWahl: (() => void) | null = null;
   /** Called when the terrain tool turns on or off (tab change, panel closed, `beendeGelaendeModus`). */
   aufGelaende: (() => void) | null = null;
   /** Brush settings of the terrain tab. */
-  readonly gelaendeEinstellung: GelaendeEinstellung = { werkzeug: 'anheben', radius: RADIUS_START, staerke: STAERKE_START };
+  readonly gelaendeEinstellung: GelaendeEinstellung = { werkzeug: 'anheben', radius: RADIUS_START, staerke: STAERKE_START, ziel: null };
   private tab: 'objekte' | 'gelaende' = 'objekte';
   private objekteBlock!: HTMLDivElement;
   private gelaendeBlock!: HTMLDivElement;
+  private zielFeld: HTMLInputElement | null = null;
+  private pipetteKnopf: HTMLButtonElement | null = null;
+  /** The pipette button was pressed (the brush arms it; `setzePipetteBereit` only shows it). */
+  aufPipetteKnopf: (() => void) | null = null;
   private tabKnoepfe: Record<'objekte' | 'gelaende', HTMLButtonElement> | null = null;
   private werkzeugKnoepfe = new Map<Werkzeug, HTMLButtonElement>();
   private radiusRegler: HTMLInputElement | null = null;
@@ -597,9 +615,11 @@ export class SpawnPanel {
       ['anheben', 'testflug.gelaende.werkzeug.anheben'],
       ['absenken', 'testflug.gelaende.werkzeug.absenken'],
       ['glaetten', 'testflug.gelaende.werkzeug.glaetten'],
+      ['ebnen', 'testflug.gelaende.werkzeug.ebnen'],
+      ['zuruecksetzen', 'testflug.gelaende.werkzeug.zuruecksetzen'],
     ];
     const zeile = document.createElement('div');
-    zeile.style.cssText = 'display:flex;gap:6px;margin-bottom:4px;';
+    zeile.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px;';
     for (const [werkzeug, schluessel] of werkzeuge) {
       const k = this.knopf(t(schluessel), () => {
         this.gelaendeEinstellung.werkzeug = werkzeug;
@@ -636,16 +656,107 @@ export class SpawnPanel {
       this.schieber(t('testflug.gelaende.staerke_cm'), STAERKE_MIN, STAERKE_MAX, this.gelaendeEinstellung.staerke, 1, (v) => (this.gelaendeEinstellung.staerke = v))
     );
 
+    // Target height of the level tool: filled by the pipette (Ctrl/Cmd+click on the ground) or typed.
+    block.appendChild(this.label(t('testflug.gelaende.ziel_m')));
+    const ziel = document.createElement('input');
+    ziel.type = 'number';
+    ziel.step = '0.1';
+    ziel.min = String(ZIEL_MIN);
+    ziel.max = String(ZIEL_MAX);
+    ziel.style.cssText = this.feldStil();
+    // Bei jeder Eingabe übernehmen (nicht erst bei `change`): der erste Klick danach stempelt schon mit dem neuen Wert.
+    ziel.oninput = () => {
+      this.gelaendeEinstellung.ziel = zielAusText(ziel.value);
+    };
+    ziel.onchange = () => {
+      if (this.gelaendeEinstellung.ziel !== null) ziel.value = String(this.gelaendeEinstellung.ziel);
+    };
+    block.appendChild(ziel);
+    this.zielFeld = ziel;
+    this.pipetteKnopf = this.knopf(t('testflug.gelaende.pipette_knopf'), () => this.aufPipetteKnopf?.());
+    block.appendChild(this.pipetteKnopf);
+
     const speichern = document.createElement('div');
     speichern.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
-    speichern.appendChild(this.knopf(t('testflug.gelaende.speichern'), () => this.cb.speichernGelaende?.()));
+    this.speichernKnopf = this.knopf(t('testflug.gelaende.speichern'), () => this.cb.speichernGelaende?.());
+    speichern.appendChild(this.speichernKnopf);
+    this.neustartKnopf = this.knopf(t('testflug.gelaende.speichern_neustart'), () => this.cb.neustartKlick?.());
+    speichern.appendChild(this.neustartKnopf);
     block.appendChild(speichern);
+    block.appendChild(this.baueNeustartFrage());
+    this.neustartZeile = document.createElement('div');
+    this.neustartZeile.style.cssText = 'font-size:11px;margin-top:6px;display:none;';
+    block.appendChild(this.neustartZeile);
 
     const tip = document.createElement('div');
     tip.style.cssText = 'font-size:10px;color:#9a8f6a;margin-top:6px;';
     tip.textContent = t('testflug.gelaende.tip');
     block.appendChild(tip);
+    const tip3 = document.createElement('div');
+    tip3.style.cssText = 'font-size:10px;color:#9a8f6a;margin-top:4px;';
+    tip3.textContent = t('testflug.gelaende.tip3');
+    block.appendChild(tip3);
     return block;
+  }
+
+  private speichernKnopf: HTMLButtonElement | null = null;
+  private neustartKnopf: HTMLButtonElement | null = null;
+  private neustartFrage: HTMLDivElement | null = null;
+  private neustartFrageSpieler: HTMLDivElement | null = null;
+  private neustartZeile: HTMLDivElement | null = null;
+
+  /** Second confirmation under the buttons: says honestly what the restart does. */
+  private baueNeustartFrage(): HTMLDivElement {
+    const box = document.createElement('div');
+    box.style.cssText = 'display:none;margin-top:6px;padding:6px;border:1px solid #8a5a3a;border-radius:4px;background:#2a2018;font-size:11px;';
+    const titel = document.createElement('div');
+    titel.style.cssText = 'font-weight:bold;margin-bottom:4px;';
+    titel.textContent = t('testflug.neustart.titel');
+    const text = document.createElement('div');
+    text.textContent = t('testflug.neustart.text');
+    const spieler = document.createElement('div');
+    spieler.style.cssText = 'margin-top:4px;display:none;';
+    this.neustartFrageSpieler = spieler;
+    const knoepfe = document.createElement('div');
+    knoepfe.style.cssText = 'display:flex;gap:6px;margin-top:6px;';
+    knoepfe.appendChild(
+      this.knopf(t('testflug.neustart.ja'), () => this.cb.neustartJa?.())
+    );
+    knoepfe.appendChild(this.knopf(t('testflug.neustart.abbrechen'), () => this.cb.neustartAbbruch?.()));
+    box.append(titel, text, spieler, knoepfe);
+    this.neustartFrage = box;
+    return box;
+  }
+
+  zeigeNeustartFrage(spieler: number | null): void {
+    if (!this.neustartFrage) return;
+    if (this.neustartFrageSpieler) {
+      this.neustartFrageSpieler.style.display = spieler === null ? 'none' : 'block';
+      this.neustartFrageSpieler.textContent = spieler === null ? '' : t('testflug.neustart.spieler', { count: spieler });
+    }
+    this.neustartFrage.style.display = 'block';
+  }
+
+  schliesseNeustartFrage(): void {
+    if (this.neustartFrage) this.neustartFrage.style.display = 'none';
+  }
+
+  /** Status line of the save-and-restart run. */
+  zeigeNeustartStatus(text: string, phase: NeustartPhase): void {
+    if (this.neustartZeile) {
+      this.neustartZeile.style.display = 'block';
+      this.neustartZeile.style.color = phase === 'fehler' ? '#e08a7a' : phase === 'laeuft-wieder' ? '#8fd18f' : '#e8d48a';
+      this.neustartZeile.textContent = text;
+    }
+  }
+
+  /** Both save buttons are locked while a save-and-restart run goes on. */
+  sperreSpeichern(an: boolean): void {
+    for (const k of [this.speichernKnopf, this.neustartKnopf]) {
+      if (!k) continue;
+      k.disabled = an;
+      k.style.opacity = an ? '0.5' : '1';
+    }
   }
 
   private werkzeugMarkieren(): void {
@@ -685,6 +796,20 @@ export class SpawnPanel {
   beendeGelaendeModus(): void {
     if (this.tab === 'objekte') return;
     this.setzeTab('objekte');
+  }
+
+  setzePipetteBereit(an: boolean): void {
+    if (this.pipetteKnopf) {
+      this.pipetteKnopf.style.background = an ? '#243044' : '#1d2431';
+      this.pipetteKnopf.style.color = an ? '#e8d48a' : '#d8cfa8';
+    }
+  }
+
+  /** Target height in m (from the pipette), clamped to whole cm; keeps the field in step. */
+  setzeZiel(hoehe: number): void {
+    const h = klemmeZiel(hoehe);
+    this.gelaendeEinstellung.ziel = h;
+    if (this.zielFeld) this.zielFeld.value = String(h);
   }
 
   /** Radius in whole metres, clamped; keeps the slider in step. */

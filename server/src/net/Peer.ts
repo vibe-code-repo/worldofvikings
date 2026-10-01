@@ -18,6 +18,7 @@ import { ZDORevision } from '../zdo/ZDO.js';
 import { ZonenFenster } from '../zdo/ZonenFenster.js';
 import { Writer } from '../io/Writer.js';
 import { Reader } from '../io/Reader.js';
+import { neuerSchlagZustand, type SchlagZustand } from '../spiel/Treffer.js';
 import { PacketType } from '@wov/shared';
 import type { WebSocket } from 'ws';
 import { randomBytes } from 'node:crypto';
@@ -266,6 +267,9 @@ export class Peer {
   /** Zeitstempel (ms) der Meldung, aus der `blickYaw` stammt. */
   blickYawZeit = 0;
 
+  /** Combo chain and cooldown of the melee swings (D2, spiel/Treffer.ts). */
+  schlag: SchlagZustand = neuerSchlagZustand();
+
   constructor(socket: WebSocket, name: string, userId: bigint) {
     this.socket = socket;
     this.name = name;
@@ -423,7 +427,7 @@ export class Peer {
     packet.writeUInt8(type, 0);
     payload.copy(packet, 1);
     this.socket.send(packet);
-    erfasseSyncBytes(packet.length);
+    erfasseSyncBytes(packet.length, this.verbindungsId);
   }
 
   /** Send a packet built from a Writer callback. */
@@ -437,7 +441,7 @@ export class Peer {
   sendRaw(data: Buffer): void {
     if (this.socket.readyState !== 1) return;
     this.socket.send(data);
-    erfasseSyncBytes(data.length);
+    erfasseSyncBytes(data.length, this.verbindungsId);
   }
 
   /** Disconnect this peer. */

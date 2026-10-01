@@ -711,6 +711,7 @@ export default [
     Ephemerer Port, ~60 s.
   */
   ['server', 'test/spielerzustand-writebehind.ts'],
+  ['server', 'test/spielwerte.ts'],
   // Standardkonto: Ausprobieren ohne Registrierung (server.yml
   // `standard-konto:`) -- Konto+Charakter entstehen einmal, ein zweiter
   // Start legt nichts doppelt an und laesst das Passwort unveraendert,

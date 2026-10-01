@@ -117,6 +117,7 @@ export const BEFEHLE = [
 /** Private methods that tests reach by name (21 of step 0, 11 found by the broadened scan of N1: `tod-treffer-n1.ts` replaces the 11 packet handlers, and `zaehleEigeneBauten` of #153; step 2 adds 5: the forwardings of the moved handlers that `i1-form-k.ts` calls by name, `handleAdminCommand` was on the list already; #146 added `sichereSpielerSofort`; step 3 adds 2: `handleSetFigur` and `handleTruheOeffnen`, forwardings that `i1-form-k.ts` calls by name). Each stays a prototype method of `WovServer`. */
 export const METHODEN = [
   'applyCreatureAttack',
+  'belebeNeu', // Spielwerte: spielwerte.ts ruft den Tod ohne Liegezeit direkt
   'darfBenutzen',
   'ermittleGespeichertenStand',
   'gebeItem',
@@ -149,6 +150,7 @@ export const METHODEN = [
   'sendPlayerState',
   'sendeTrefferEffekt',
   'sichereSpielerSofort', // F8 (#146): f8n3-kennung-kill ruft die Ereignis-Sicherung im Kindprozess
+  'stirb', // Spielwerte: spielwerte.ts ruft den Tod mit Liegezeit direkt
   'syncZDOs',
   'teleportPeer',
   'update',

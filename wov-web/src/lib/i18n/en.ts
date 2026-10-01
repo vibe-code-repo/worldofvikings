@@ -286,6 +286,7 @@ export const en: Messages = {
   'armory.feld.stufe': 'Level',
   'armory.feld.erfahrung': 'Experience',
   'armory.feld.tode': 'Deaths',
+  'armory.fertigkeit.unbekannt': 'unknown skill',
   'armory.feld.spielzeit': 'Play time',
 
   'armory.search.too_general':

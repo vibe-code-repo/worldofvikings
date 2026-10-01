@@ -2457,6 +2457,7 @@ export class WovServer {
       }
     }
     peer.starterSetGranted = grantStarterSet(peer.inventar, peer.klasse, peer.figur, peer.starterSetGranted);
+    peer.spielwerte.laden(saved); // Tode + Spielzeit: Spanne startet hier
     // Getragene Waffe (K2a): Spielstand, sonst ein als getragen markierter Stapel; inventarSync prueft sie.
     peer.waffe = typeof saved?.waffe === 'string'
       ? saved.waffe : peer.inventar.all.find((i) => i.equipped && !i.shared.ruestungsteil)?.shared.name ?? '';
@@ -2558,12 +2559,13 @@ export class WovServer {
     // and the next world save writes it to the players[] section.
     // F3 (Security-Review): geschluesselt ueber die stabile spielerId,
     // nicht mehr ueber den Namen — siehe Kopfkommentar von savedPlayers.
-    const stand = this.spielerStand(peer);
+    const stand = this.spielerStand(peer, true);
     this.savedPlayers.set(peer.spielerId, stand);
     // F8: der Abschlussstand geht sofort in die SQLite (Fehler laut, der
     // Weltspeicher hat ihn ohnehin in savedPlayers).
     this.spielerSicherung?.sichere([stand], 'abmelden');
     this.spielerSicherung?.abgemeldet(peer.spielerId);
+    peer.spielwerte.beende();
     // Destroy player character ZDO
     if (!peer.characterID.isNone()) {
       this.zdosVon(peer).destroyZDO(peer.characterID);
@@ -4117,6 +4119,7 @@ export class WovServer {
    * belebeFaellige revives him afterwards at the bed / start point.
    */
   private stirb(peer: Peer, clip: TodClip): void {
+    peer.spielwerte.zaehleTod(); // every death passes here or `belebeNeu(.., true)`; BEFORE the 'tod' save of the revival, so the counter lands in the same row
     peer.totBis = Date.now() + this.liegezeitMs;
     peer.paradeBis = 0;
     peer.health = 0;
@@ -4149,6 +4152,7 @@ export class WovServer {
    */
   private belebeNeu(peer: Peer, sofort: boolean): void {
     const warTot = peer.totBis > 0;
+    if (sofort) peer.spielwerte.zaehleTod(); // immediate revival = a death without lying time (`stirb` was skipped)
     peer.totBis = 0;
     // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.
     peer.health = lebensmaximum(this.werteVon(peer).vitality, 0);
@@ -6201,7 +6205,7 @@ export class WovServer {
    * Phase G: fuer Peers in einem Dungeon zaehlt der Rueckkehrpunkt der
    * Oberwelt — Instanzen ueberleben keinen Neustart.
    */
-  private spielerStand(peer: Peer): SavedPlayer {
+  private spielerStand(peer: Peer, exakt = false): SavedPlayer {
     return {
       name: peer.name,
       spielerId: peer.spielerId,
@@ -6216,6 +6220,7 @@ export class WovServer {
       augenfarbe: peer.augenfarbe,
       klasse: peer.klasse,
       starterSetGranted: peer.starterSetGranted,
+      ...peer.spielwerte.stand(exakt),
       ruestung: peer.ruestung,
       waffe: peer.waffe || undefined,
       inventar: peer.inventar.serialize(),
@@ -6231,7 +6236,7 @@ export class WovServer {
    */
   private sichereSpieler(peers: readonly Peer[], grund: string, welt: 'alle' | readonly ZDO[] | null = null): void {
     if (!this.spielerSicherung) return;
-    const staende = peers.filter((p) => p.authenticated && !p.nurEditor && p.spielerId).map((p) => this.spielerStand(p));
+    const staende = peers.filter((p) => p.authenticated && !p.nurEditor && p.spielerId).map((p) => this.spielerStand(p, grund === 'tod' || grund === 'stopp'));
     // F8 N2: die geaenderten Behaelter-/Bau-ZDOs kommen in DERSELBEN Transaktion
     // mit auf die Platte ('alle' = Vollabtastung im Takt, sonst nur die
     // beruehrten ZDOs eines Ereignisses).
@@ -6604,7 +6609,7 @@ export class WovServer {
       // Schluessel); der bleibt unbenutzt liegen. Was tatsaechlich auf die Platte geht, sind nur die WERTE
       // (players[] ist ein Array) — der Map-Schluessel selbst ist reiner
       // Laufzeitzustand.
-      players.set(peer.spielerId, this.spielerStand(peer));
+      players.set(peer.spielerId, this.spielerStand(peer, true));
     }
 
     return {

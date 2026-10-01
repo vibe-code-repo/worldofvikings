@@ -254,6 +254,27 @@ if (QUITTUNG_AUS && process.env.NODE_ENV !== 'test') {
 }
 // `vorherHash`: der Hash der Datei VOR dem Schreiben. Ist er gleich dem neuen, hat das Speichern nichts geaendert, und die
 // Quittung dieses Hashs ist die alte (N4-F): Die Zaehler kaemen sonst ein zweites Mal.
+// Entfernte Vegetation (Baeume-entfernen V1): ein beschaedigtes oder zu grosses `vegetationEntfernt` lehnt der Dienst wie die
+// Handkorrektur mit 422 ab (nichts gespeichert), mit dem Befund in `fehlerhaftVegetation`.
+function vegetationErrorAnswer(error: LayoutUngueltig): { code: number; daten: Record<string, unknown> } | null {
+  const problem = error.vegetationProblem;
+  if (!problem) return null;
+  const fehlerhaft = problem.fehlerhaft.slice(0, 200);
+  return {
+    code: 422,
+    daten: {
+      ok: false,
+      art: 'vegetation',
+      fehler: problem.reason === 'limit' ? 'zu-viele-vegetationskreise' : 'ungueltig',
+      grund: 'ungueltig',
+      message: error.message,
+      fehlerhaftVegetation: fehlerhaft,
+      anzahlFehlerhaftVegetation: problem.fehlerhaft.length,
+      ...(problem.reason === 'limit' ? { anzahl: problem.anzahl, grenze: problem.grenze } : {}),
+    },
+  };
+}
+
 function heightErrorAnswer(error: LayoutUngueltig): { code: number; daten: Record<string, unknown> } | null {
   const problem = error.heightProblem;
   if (!problem) return null;
@@ -1480,7 +1501,7 @@ async function behandeln(
       read = layoutLesenMitHash(LAYOUT_DATEI);
     } catch (error) {
       if (error instanceof LayoutUngueltig) {
-        const answer = heightErrorAnswer(error);
+        const answer = heightErrorAnswer(error) ?? vegetationErrorAnswer(error);
         if (answer) return answer;
       }
       throw error;
@@ -2014,7 +2035,7 @@ async function behandeln(
         };
       }
       if (fehler instanceof LayoutUngueltig) {
-        const answer = heightErrorAnswer(fehler);
+        const answer = heightErrorAnswer(fehler) ?? vegetationErrorAnswer(fehler);
         if (answer) return answer;
       }
       if (fehler instanceof LayoutPlatzierungenUngueltig) {

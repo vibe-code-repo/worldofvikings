@@ -453,6 +453,19 @@ export interface ZoneHeightDelta {
   r: readonly string[];
 }
 
+/**
+ * Ein Kreis, in dem die Streuung nichts ablegt (`WorldLayout.vegetationEntfernt`). Meter, Weltkoordinaten.
+ * Grenzen und Begründung: `vegetationEntfernt.ts`. `nur` hat genau zwei Zustände: fehlt es, gilt der Kreis für alles
+ * Gestreute (Bäume, Büsche, Kraut, Steine); `'baeume'` beschränkt ihn auf Bäume.
+ */
+export interface VegetationEntferntKreis {
+  x: number;
+  z: number;
+  /** 0,5…50 m. */
+  r: number;
+  nur?: 'baeume';
+}
+
 export interface WorldLayout {
   version: typeof WORLD_LAYOUT_VERSION;
   name: string;
@@ -484,6 +497,11 @@ export interface WorldLayout {
    * Missing or empty = the document behaves exactly as before the field.
    */
   bausaetze?: readonly BausatzInstanzDef[];
+  /**
+   * Kreise, in denen die Streuung keine Pflanze ablegt (Nachfilter, die übrigen Funde bleiben bitgleich). Fehlt das
+   * Feld oder ist es leer, verhält sich die Welt exakt wie ohne dieses Feld.
+   */
+  vegetationEntfernt?: readonly VegetationEntferntKreis[];
 }
 
 /**

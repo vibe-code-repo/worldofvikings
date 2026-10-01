@@ -345,6 +345,7 @@
   "testflug.gelaende.verworfen.art.regions": "regions",
   "testflug.gelaende.verworfen.art.rivers": "rivers",
   "testflug.gelaende.verworfen.art.routes": "routes",
+  "testflug.gelaende.verworfen.art.vegetationEntfernt": "vegetation-removal circles",
   "testflug.gelaende.verworfen.beschaedigt": "Not saved, no restart: the draft contains damaged parts that cleaning would drop ({liste}). Nothing was sent.",
   "testflug.gelaende.verworfen.keine_liste": "not a list",
   "testflug.gelaende.werkzeug.absenken": "Lower",

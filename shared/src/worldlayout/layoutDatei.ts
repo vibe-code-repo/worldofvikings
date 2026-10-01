@@ -70,6 +70,7 @@ import {
 import { BAUSATZ_INSTANZEN_MAX } from '../bausatz/types.js';
 import { bausatzInstanzenFehler, bausatzInstanzenFehlerText, type BausatzInstanzFehler } from '../bausatz/sanitize.js';
 import type { WorldLayout } from './types.js';
+import { vegetationProblem, type VegetationProblem } from './vegetationEntfernt.js';
 import { heightResponseMessage } from './heightMessages.js';
 
 /**
@@ -88,6 +89,8 @@ export const SICHERUNGEN_BEHALTEN = 10;
  */
 export class LayoutUngueltig extends Error {
   heightProblem?: HeightProblem;
+  /** Gesetzt bei `LayoutVegetationUngueltig`: der Befund für die 422-Antwort des Betriebsdienstes. */
+  vegetationProblem?: VegetationProblem;
   placementErrors?: readonly PlatzierungsFehler[];
   constructor(meldung: string) {
     super(meldung);
@@ -174,6 +177,34 @@ export class LayoutHoehenkorrekturUngueltig extends LayoutUngueltig {
     super(`${fehlerhaft.length} Fehler in heightDeltas — nichts gespeichert`);
     this.name = 'LayoutHoehenkorrekturUngueltig';
   }
+}
+
+/**
+ * Das Dokument enthält in `vegetationEntfernt` fehlerhafte Einträge (Kreis mit Radius außerhalb 0,5…50 m, Koordinate
+ * außerhalb des Weltrahmens oder nicht endlich, unbekannter Schlüssel, `nur` ungleich `'baeume'`, kein Objekt, kein Array)
+ * oder mehr als `VEGETATION_KREISE_MAX` Kreise. Wie bei Höhenkorrektur und Platzierungen: Der Betriebsdienst antwortet
+ * 422 mit dem Befund und schreibt nichts. Ein stilles Bereinigen ließe einen Kreis fehlen, ohne dass es jemand merkt,
+ * und die Bäume wüchsen dort wieder.
+ */
+export class LayoutVegetationUngueltig extends LayoutUngueltig {
+  constructor(readonly problem: VegetationProblem) {
+    super(
+      problem.reason === 'limit'
+        ? `${problem.anzahl} Kreise in vegetationEntfernt — mehr als ${problem.grenze} nimmt das Weltdokument nicht auf; nichts gespeichert`
+        : `${problem.fehlerhaft.length} Fehler in vegetationEntfernt (${problem.fehlerhaft
+            .slice(0, 20)
+            .map((f) => `${f.eintrag} ${f.feld}=${JSON.stringify(f.wert)}`)
+            .join(', ')}${problem.fehlerhaft.length > 20 ? ` … (+${problem.fehlerhaft.length - 20})` : ''}) — nichts gespeichert`
+    );
+    this.name = 'LayoutVegetationUngueltig';
+    this.vegetationProblem = problem;
+  }
+}
+
+/** Wirft `LayoutVegetationUngueltig`, wenn `vegetationEntfernt` im ROHEN Dokument beschädigt oder zu groß ist. */
+function rejectVegetation(input: Record<string, unknown>): void {
+  const problem = vegetationProblem(input.vegetationEntfernt);
+  if (problem) throw new LayoutVegetationUngueltig(problem);
 }
 
 /**
@@ -295,7 +326,10 @@ export function layoutLesenMitHash(pfad: string, optionen: { preserveRawHeight?:
     throw new LayoutUngueltig(`${basename(pfad)} nicht lesbar: ${(fehler as Error).message}`);
   }
   const object = roh && typeof roh === 'object' && !Array.isArray(roh) ? roh as Record<string, unknown> : null;
-  if (!optionen.preserveRawHeight && object) rejectHeight(object);
+  if (!optionen.preserveRawHeight && object) {
+    rejectHeight(object);
+    rejectVegetation(object);
+  }
   // PATCH never consumes the correction: exclude it before sanitizing unrelated fields.
   const sauber = sanitizeWorldLayout(optionen.preserveRawHeight && object ? { ...object, heightDeltas: undefined } : roh);
   if (!sauber) throw new LayoutUngueltig(`${basename(pfad)} ist kein gültiges WorldLayout`);
@@ -1065,6 +1099,8 @@ function schreibenVorbereiten(eingabe: unknown, leereWelt = false, optionen: Sch
   if (instanzen > BAUSATZ_INSTANZEN_MAX) throw new LayoutZuVieleBausaetze(instanzen);
   const raw = typeof eingabe === 'object' && eingabe !== null && !Array.isArray(eingabe) ? eingabe as Record<string, unknown> : null;
   if (!optionen.heightDeltasUnberuehrt && raw) rejectHeight(raw);
+  // Auch auf dem PATCH-Weg: Die Kreise sind ein gewöhnliches Feld des bereinigten Dokuments, kein rohes Durchreichen.
+  if (raw) rejectVegetation(raw);
   const bericht = sanitizeWorldLayoutMitBericht(optionen.heightDeltasUnberuehrt && raw ? { ...raw, heightDeltas: undefined } : eingabe);
   if (!bericht) throw new LayoutUngueltig('Kein gültiges WorldLayout — verworfen');
   const layout = bericht.layout;

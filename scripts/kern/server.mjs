@@ -780,6 +780,8 @@ export default [
   ['server', 'test/upload-grundskala-kollision.ts'],
   // Upload placements keep their ZDO (id, state) across a boot with an unreadable registry.
   ['server', 'test/upload-zdos-behalten.ts'],
+  // Baeume entfernen V1: Nachfilter im Ablegen der Streuung (Server-Zone + Testflug-Vorschau), bitgleich ausserhalb.
+  ['server', 'test/vegetation-entfernt-zone.ts'],
   // A5 (Schlusskontrolle Paket 2): Deckel fuer offene, nie authentifizierte
   // Verbindungen (MAX_PENDING_CONNECTIONS in NetManager.ts). Vorher zaehlte
   // die "Server voll"-Pruefung nur onlinePeers — der Pre-Auth-Timeout liess

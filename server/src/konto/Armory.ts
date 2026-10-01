@@ -55,10 +55,10 @@ export const ARMORY_DROSSEL_MAX = 300;
 export const ARMORY_DROSSEL_FENSTER_MS = 10_000;
 const DROSSEL_KARTE_MAX = 4096;
 /** Hoechstdauer eines Arbeitsstuecks des Neubaus, danach gibt der Faden frei (Ziel: Takt des Spiels unter 20 ms). */
-export const ARMORY_SCHRITT_MS = 3;
+export const ARMORY_SCHRITT_MS = 2;
 const ARMORY_SEITE_ZEILEN = 500;
 const ARMORY_LAUF = 2048;
-const ARMORY_MISCH_MASKE = 4095;
+const ARMORY_MISCH_MASKE = 2047;
 /** Immer ausgeschlossen, auch wenn die Konfiguration keinen `standard-konto`-Block hat. */
 const FESTE_STANDARDKONTEN = ['gast', 'guest', 'admin'];
 /** Laengste `ruestung`-Zeichenkette, die wir dekodieren (echte Werte sind unter 500 Zeichen). */

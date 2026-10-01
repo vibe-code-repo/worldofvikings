@@ -32,8 +32,8 @@
  *     nach der Fuellzeit (350 ms) zaehlt wieder normal — legitimes,
  *     langsameres Spielen wird NICHT abgewuergt.
  *  5. Tod und Beute: eine Kreatur mit garantiertem Drop (Boar → RawMeat,
- *     Chance 1) stirbt nach genug Treffern, das Item landet im
- *     Server-Inventar, und die letzte InteractResult traegt die Beute.
+ *     Chance 1) stirbt nach genug Treffern, das Item liegt danach am
+ *     Boden (D5), und die letzte InteractResult meldet den Tod.
  *
  * Run: npx tsx server/test/g7-kampf.ts   (from the repo root)
  */
@@ -504,7 +504,10 @@ async function main(): Promise<void> {
     mitte = await neuerPlatz(800, 800);
     const boar = server.zdos.createZDO(boarHash, vorn(mitte, YAW_MINUS_Z, 2));
     const boarZdoid = boar.zdoid;
-    const rawMeatVorher = peer.inventar.countOf('RawMeat');
+    // D5: the loot lies on the ground at the corpse (owner = the killer), not in the inventory.
+    const inventarVorher = peer.inventar.countOf('RawMeat');
+    const bodenFleisch = (): number => server.zdos.getAllZDOs().filter((z) => server.beuteAmBoden.istBeute(z) && z.getString('beute_item') === 'RawMeat').reduce((a, z) => a + z.getInt('beute_menge'), 0);
+    const rawMeatVorher = bodenFleisch();
     let tot = false;
     for (let i = 0; i < 8 && !tot; i++) {
       await warte(400);
@@ -514,16 +517,16 @@ async function main(): Promise<void> {
       tot = server.zdos.getZDO(boarZdoid) === undefined;
     }
     check('Boar stirbt nach genug Treffern', tot);
-    const rawMeatNachher = peer.inventar.countOf('RawMeat');
+    const rawMeatNachher = bodenFleisch();
     check(
-      'RawMeat im Server-Inventar gelandet',
-      rawMeatNachher > rawMeatVorher,
-      `${rawMeatVorher} → ${rawMeatNachher}`
+      'RawMeat liegt am Boden, nicht im Inventar',
+      rawMeatNachher > rawMeatVorher && peer.inventar.countOf('RawMeat') === inventarVorher,
+      `Boden ${rawMeatVorher} → ${rawMeatNachher}, Inventar ${inventarVorher} → ${peer.inventar.countOf('RawMeat')}`
     );
     const beuteMsg = interactLog.at(-1);
     check(
-      'letzte InteractResult meldet die Beute',
-      !!beuteMsg && beuteMsg.ok && beuteMsg.itemName === 'RawMeat' && beuteMsg.amount > 0,
+      'letzte InteractResult meldet den Tod (ohne Item: die Beute liegt am Boden)',
+      !!beuteMsg && beuteMsg.ok && beuteMsg.message === '@beute.besiegt|{"kreatur":"Boar"}' && beuteMsg.itemName === '' && beuteMsg.amount === 0,
       JSON.stringify(beuteMsg)
     );
 

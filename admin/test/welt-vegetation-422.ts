@@ -202,6 +202,27 @@ try {
       fehlerObjekt = e;
     }
     check('9 Lesen einer beschädigten Datei: der Fehler trägt den Hash der gelesenen Bytes', fehlerObjekt instanceof LayoutVegetationUngueltig && fehlerObjekt.hash === sha, String((fehlerObjekt as { hash?: string } | null)?.hash).slice(0, 16));
+    // N5: genau EINE Lesung der Datei beim Lesen eines beschädigten Dokuments (kein zweites Lesen für den Hash in layoutDatei.ts)
+    {
+      const fs = (await import('node:fs')).default;
+      const { syncBuiltinESMExports } = await import('node:module');
+      const echtLesen = fs.readFileSync;
+      let lesungen = 0;
+      fs.readFileSync = ((pfad: unknown, ...rest: unknown[]) => {
+        if (String(pfad) === WELT_DATEI) lesungen++;
+        return (echtLesen as (...a: unknown[]) => unknown)(pfad, ...rest);
+      }) as typeof fs.readFileSync;
+      syncBuiltinESMExports();
+      try {
+        layoutLesenMitHash(WELT_DATEI);
+      } catch {
+        /* erwartet: beschädigt */
+      } finally {
+        fs.readFileSync = echtLesen;
+        syncBuiltinESMExports();
+      }
+      check('9 N5: layoutLesenMitHash liest die beschädigte Datei genau einmal (Hash aus denselben Bytes)', lesungen === 1, `${lesungen} Lesung(en)`);
+    }
     const quelle = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf-8');
     const stelle = quelle.indexOf('error instanceof LayoutVegetationUngueltig');
     check('9 admin/src/main.ts: die 422-Antwort liest die Datei nicht ein zweites Mal (kein layoutDateiHash in der Fehlerbehandlung)', stelle > 0 && !quelle.slice(stelle - 600, stelle + 600).includes('layoutDateiHash('), '');

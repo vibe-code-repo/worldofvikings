@@ -19,13 +19,16 @@
  * (ohne `layoutId`) zu unterscheiden. Sie werden NICHT geräumt: `ungemarkt` zählt die Kandidaten (Streu-Flora im
  * Kreis, ohne Marke, ohne `layoutId`, ohne `spieler`), `zonenOhneMarke` die Zonen, in denen sie stehen.
  *
- * ── Obergrenze live ────────────────────────────────────────────────────────────────────────────────────────
+ * ── Obergrenze live (je Kreis) ─────────────────────────────────────────────────────────────────────────────
  * `VEGETATION_LIVE_MAX` = 20 000 Objekte je Abgleich. Gemessen an der Dichte der Streuung (rund 95 Objekte je Zone
  * von 64 × 64 m, kuratierte Probewelt) räumen 20 000 etwa 210 volle Zonen, also ein Gebiet von 14 × 14 Zonen
  * (900 × 900 m), und ein einzelner Kreis (50 m) trifft höchstens 200. Das Löschen selbst kostet Mikrosekunden je
  * ZDO; teuer ist die Löschliste, die als ein Paket an alle Clients geht: 20 000 Kennungen sind rund 400 KB.
- * Darüber wird abgelehnt (`zuViele`), nichts teilweise gelöscht: ein halb geräumter Streifen wäre nicht zu erklären,
- * und die Kreise wirken beim nächsten Neustart ohnehin (Boot, ohne Obergrenze).
+ * Die Grenze gilt je Abgleich, entschieden wird JE KREIS: Ein Kreis, dessen (noch nicht beanspruchte) Treffer nicht
+ * mehr in das Restbudget passen, wird ganz abgelehnt und nie teilweise gelöscht (ein halb geräumter Kreis wäre nicht
+ * zu erklären); die übrigen Kreise laufen. Ein allein zu großer Kreis blockiert so keinen späteren kleinen. Der
+ * abgelehnte Kreis gilt nicht als geräumt; die Quittung nennt die Zahl. Beim nächsten Neustart räumt der Boot (ohne
+ * Obergrenze) alles.
  *
  * ── Live: nur hinzugekommene Kreise ────────────────────────────────────────────────────────────────────────
  * Ein entfernter Kreis (Rückgängig) bringt in schon erzeugten Zonen nichts zurück: Die ZDOs sind weg, und die
@@ -62,18 +65,20 @@ const LAYOUT_ID_HASH = getStableHash(LAYOUT_ID_MEMBER);
 const ART_JE_HASH: ReadonlyMap<number, StreuArt> = new Map(FOLIAGE.map((f) => [f.prefabHash, streuArt(f.prefabName)]));
 
 export interface BereinigungsOptionen {
-  /** Höchstens so viele ZDOs löschen; darüber `zuViele` und nichts gelöscht. Ohne Angabe: keine Grenze (Boot). */
+  /**
+   * Obergrenze gelöschter ZDOs je Aufruf, entschieden JE KREIS: Ein Kreis, dessen (noch nicht beanspruchte) Treffer
+   * nicht mehr in das Restbudget passen, wird ganz abgelehnt, nie teilweise gelöscht; alle übrigen Kreise laufen.
+   * Ohne Angabe: keine Grenze (Boot).
+   */
   readonly grenze?: number;
   /** Nur zählen, nichts löschen. */
   readonly trocken?: boolean;
 }
 
 export interface BereinigungsErgebnis {
-  /** `zuViele`: mehr Treffer als `grenze`, nichts gelöscht (`geloescht` = 0, `anzahl` = die Trefferzahl). */
-  readonly art: 'ok' | 'zuViele';
-  /** Gelöschte ZDOs (bei `trocken` und bei `zuViele`: 0). */
+  /** Gelöschte ZDOs (bei `trocken`: 0). */
   readonly geloescht: number;
-  /** Treffer, die gelöscht würden bzw. wurden. */
+  /** Treffer, die gelöscht würden bzw. wurden (nur die der angenommenen Kreise). */
   readonly anzahl: number;
   /** Erzeugungszonen mit mindestens einem Treffer. */
   readonly zonen: number;
@@ -83,14 +88,27 @@ export interface BereinigungsErgebnis {
   readonly zonenOhneMarke: number;
   /** Zahl der Kreise, die geprüft wurden. */
   readonly kreise: number;
+  /** Kreise, die wegen der Obergrenze ganz abgelehnt wurden (nichts aus ihnen gelöscht). */
+  readonly abgelehnteKreise: readonly VegetationEntferntKreis[];
+  /** Treffer der abgelehnten Kreise (so viele Objekte blieben stehen), ohne Überschneidungen zu doppeln. */
+  readonly abgelehntObjekte: number;
   readonly ms: number;
 }
 
 const zonenKey = (zdo: ZDO): string => `${HeightmapProvider.worldToZone(zdo.position.x)},${HeightmapProvider.worldToZone(zdo.position.z)}`;
 
+/** Rasterzelle für die Zuordnung der Treffer zu den Kreisen (je Kreis nur die Zellen seiner Umgebung). */
+const ZELLE = 32;
+const zellenKey = (ix: number, iz: number): string => `${ix},${iz}`;
+
+interface Treffer {
+  readonly zdo: ZDO;
+  readonly art: StreuArt;
+}
+
 /**
  * Löscht die gespeicherten Streu-ZDOs in den Kreisen (Regeln im Kopf). Die Kreise werden hier nicht geprüft:
- * `vegetationPruefer` nimmt nur gültige auf.
+ * `vegetationPruefer` nimmt nur gültige auf; ungültige Kreise (die der Sanitizer nie durchlässt) wirken nicht.
  */
 export function bereinigeVegetation(
   zdos: ZDOManager,
@@ -99,20 +117,27 @@ export function bereinigeVegetation(
 ): BereinigungsErgebnis {
   const t0 = performance.now();
   const pruefer = vegetationPruefer(kreise);
-  const leer = (art: BereinigungsErgebnis['art'] = 'ok'): BereinigungsErgebnis => ({
-    art,
-    geloescht: 0,
-    anzahl: 0,
-    zonen: 0,
-    ungemarkt: 0,
-    zonenOhneMarke: 0,
+  const fertig = (
+    geloescht: number,
+    gewaehlt: readonly Treffer[],
+    ungemarkt: number,
+    zonenOhneMarke: Set<string>,
+    abgelehnteKreise: readonly VegetationEntferntKreis[],
+    abgelehntObjekte: number
+  ): BereinigungsErgebnis => ({
+    geloescht,
+    anzahl: gewaehlt.length,
+    zonen: new Set(gewaehlt.map((t) => zonenKey(t.zdo))).size,
+    ungemarkt,
+    zonenOhneMarke: zonenOhneMarke.size,
     kreise: kreise.length,
+    abgelehnteKreise,
+    abgelehntObjekte,
     ms: performance.now() - t0,
   });
-  if (pruefer.leer) return leer();
-  const treffer: ZDO[] = [];
+  if (pruefer.leer) return fertig(0, [], 0, new Set(), [], 0);
+  const treffer: Treffer[] = [];
   let ungemarkt = 0;
-  const zonenGetroffen = new Set<string>();
   const zonenOhneMarke = new Set<string>();
   for (const [hash, art] of ART_JE_HASH) {
     for (const zdo of zdos.getZDOByPrefab(hash)) {
@@ -124,31 +149,54 @@ export function bereinigeVegetation(
         zonenOhneMarke.add(zonenKey(zdo));
         continue;
       }
-      treffer.push(zdo);
-      zonenGetroffen.add(zonenKey(zdo));
+      treffer.push({ zdo, art });
     }
   }
   const grenze = optionen.grenze;
-  const ergebnis = (art: BereinigungsErgebnis['art'], geloescht: number): BereinigungsErgebnis => ({
-    art,
-    geloescht,
-    anzahl: treffer.length,
-    zonen: zonenGetroffen.size,
-    ungemarkt,
-    zonenOhneMarke: zonenOhneMarke.size,
-    kreise: kreise.length,
-    ms: performance.now() - t0,
-  });
-  if (grenze !== undefined && treffer.length > grenze) return ergebnis('zuViele', 0);
-  if (optionen.trocken) return ergebnis('ok', 0);
+  let gewaehlt: Treffer[] = treffer;
+  const abgelehnteKreise: VegetationEntferntKreis[] = [];
+  let abgelehntObjekte = 0;
+  if (grenze !== undefined) {
+    // Je Kreis ganz oder gar nicht, in der Reihenfolge des Dokuments: Die Treffer eines Kreises, die nicht mehr in das
+    // Restbudget passen, lehnen den ganzen Kreis ab. Ein allein zu großer Kreis blockiert so keinen späteren kleinen.
+    const raster = new Map<string, Treffer[]>();
+    for (const t of treffer) {
+      const key = zellenKey(Math.floor(t.zdo.position.x / ZELLE), Math.floor(t.zdo.position.z / ZELLE));
+      const zelle = raster.get(key);
+      if (zelle) zelle.push(t);
+      else raster.set(key, [t]);
+    }
+    const genommen = new Set<Treffer>();
+    for (const k of kreise) {
+      if (vegetationPruefer([k]).leer) continue;
+      const hier: Treffer[] = [];
+      for (let ix = Math.floor((k.x - k.r) / ZELLE); ix <= Math.floor((k.x + k.r) / ZELLE); ix++) {
+        for (let iz = Math.floor((k.z - k.r) / ZELLE); iz <= Math.floor((k.z + k.r) / ZELLE); iz++) {
+          for (const t of raster.get(zellenKey(ix, iz)) ?? []) {
+            if (genommen.has(t) || (k.nur === 'baeume' && t.art !== 'baum')) continue;
+            const dx = t.zdo.position.x - k.x;
+            const dz = t.zdo.position.z - k.z;
+            if (dx * dx + dz * dz <= k.r * k.r) hier.push(t);
+          }
+        }
+      }
+      if (genommen.size + hier.length > grenze) {
+        abgelehnteKreise.push(k);
+        abgelehntObjekte += hier.length;
+      } else for (const t of hier) genommen.add(t);
+    }
+    gewaehlt = treffer.filter((t) => genommen.has(t));
+  }
+  if (optionen.trocken) return fertig(0, gewaehlt, ungemarkt, zonenOhneMarke, abgelehnteKreise, abgelehntObjekte);
   let geloescht = 0;
-  for (const zdo of treffer) if (zdos.destroyZDO(zdo.zdoid)) geloescht++;
-  return ergebnis('ok', geloescht);
+  for (const t of gewaehlt) if (zdos.destroyZDO(t.zdo.zdoid)) geloescht++;
+  return fertig(geloescht, gewaehlt, ungemarkt, zonenOhneMarke, abgelehnteKreise, abgelehntObjekte);
 }
 
 /** Eine Logzeile mit den Zählern (Boot und live, gleiches Format). */
 export function bereinigungsZeile(wo: string, e: BereinigungsErgebnis): string {
   const teile = [`${e.geloescht} gelöscht in ${e.zonen} Zone(n)`, `${e.kreise} Kreis(e)`, `${e.ms.toFixed(1)} ms`];
+  if (e.abgelehnteKreise.length > 0) teile.push(`${e.abgelehnteKreise.length} Kreis(e) mit ${e.abgelehntObjekte} Objekten über der Obergrenze NICHT geräumt`);
   if (e.ungemarkt > 0) teile.push(`${e.ungemarkt} ungemarkte Kandidaten in ${e.zonenOhneMarke} Zone(n) ohne Marke NICHT gelöscht`);
   return `[WoV] Vegetation (${wo}): ${teile.join(', ')}`;
 }
@@ -224,20 +272,27 @@ export function kreiseGeaendert(alt: WorldLayout, neu: WorldLayout): boolean {
 
 export type VegetationLive =
   | { art: 'unveraendert' }
-  /** `trocken`: so viele ZDOs würden gelöscht. Sonst: so viele wurden gelöscht. */
-  | { art: 'ok'; ergebnis: BereinigungsErgebnis }
-  | { art: 'zuViele'; anzahl: number };
+  /** `ergebnis.abgelehnteKreise`: Kreise über der Obergrenze, ganz abgelehnt und nicht als geräumt vermerkt. */
+  | { art: 'ok'; ergebnis: BereinigungsErgebnis };
+
+/** `liste` ohne die `entfernen` (als Mehrfachmenge, gleicher Schlüssel wie `hinzugekommeneKreise`). */
+function ohneKreise(liste: readonly VegetationEntferntKreis[], entfernen: readonly VegetationEntferntKreis[]): VegetationEntferntKreis[] {
+  const rest = hinzugekommeneKreise(entfernen, liste); // liste \ entfernen
+  return rest;
+}
 
 /**
  * Der Live-Ast (eigener Ast der Layout-Wache, KEINE Geo-Änderung und nicht gegen `AENDERUNGEN_MAX`):
  * räumt die Kreise von `neu`, die gegenüber dem Stand „zuletzt geräumt“ (`geraeumt`, Vorgabe ohne Boot: das
- * Dokument `alt` beim ersten Aufruf) hinzugekommen sind, und setzt den Prüfer des `ZoneManager` auf den neuen Stand (auch wenn nur ein
- * Kreis entfernt wurde: neue Zonen gelten nach dem neuen Stand).
+ * Dokument `alt` beim ersten Aufruf) hinzugekommen sind, und setzt den Prüfer des `ZoneManager` auf den neuen Stand
+ * (auch wenn nur ein Kreis entfernt wurde: neue Zonen gelten nach dem neuen Stand).
  *
- * Über der Obergrenze (`zuViele`) wird NICHTS gelöscht, der Prüfer neuer Zonen aber trotzdem gesetzt, und der Stand
- * „zuletzt geräumt“ bleibt: Der Aufrufer muss davon den übrigen Abgleich nicht abhängig machen (Platzierungen laufen
- * weiter), nur die Vegetation bleibt ungeräumt, bis der Kreis kleiner wird oder der Neustart sie räumt.
- * `trocken`: nur zählen, nichts ändern.
+ * Die Obergrenze gilt je Abgleich, entschieden wird je Kreis (`bereinigeVegetation`): Ein zu großer Kreis wird ganz
+ * abgelehnt und NICHT als geräumt vermerkt, die übrigen Kreise laufen. Der Aufrufer macht davon den übrigen Abgleich
+ * nicht abhängig (Platzierungen laufen weiter). `trocken`: nur zählen, nichts ändern.
+ *
+ * Der Aufrufer fragt auch dann, wenn sich das Dokument sonst nicht geändert hat: Weicht „zuletzt geräumt“ von den
+ * gültigen Kreisen des Dokuments ab (Boot mit beschädigtem Eintrag, der danach gestrichen wurde), wird geräumt.
  */
 export function vegetationLive(
   kontext: { zdos: ZDOManager; zones: Pick<ZoneManager, 'setzeVegetationEntfernt'> },
@@ -255,8 +310,9 @@ export function vegetationLive(
   if (JSON.stringify(stand) === JSON.stringify(jetzt)) return { art: 'unveraendert' };
   const neue = hinzugekommeneKreise(stand, jetzt);
   const e = bereinigeVegetation(kontext.zdos, neue, { grenze: VEGETATION_LIVE_MAX, trocken });
-  if (!trocken) kontext.zones.setzeVegetationEntfernt(neu.vegetationEntfernt);
-  if (e.art === 'zuViele') return { art: 'zuViele', anzahl: e.anzahl };
-  if (!trocken) geraeumt.set(kontext.zdos, jetzt);
+  if (!trocken) {
+    kontext.zones.setzeVegetationEntfernt(neu.vegetationEntfernt);
+    geraeumt.set(kontext.zdos, ohneKreise(jetzt, e.abgelehnteKreise));
+  }
   return { art: 'ok', ergebnis: e };
 }

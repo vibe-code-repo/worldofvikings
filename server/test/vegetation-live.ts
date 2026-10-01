@@ -220,7 +220,7 @@ try {
   await warteAuf(() => quittungLesen(QUITTUNG)?.hash === hash6);
   const q6 = quittungLesen(QUITTUNG);
   laut();
-  check(`Obergrenze: ${VEGETATION_LIVE_MAX + 1} Treffer ⇒ nichts gelöscht, Quittung nennt es`, q6?.ergebnis === 'angewendet' && /Vegetation nicht geräumt: 20001/.test(q6.detail ?? '') && streuZdos(b).length === vorher6, `${q6?.ergebnis} ${q6?.grund} ${q6?.detail}`);
+  check(`Obergrenze: ${VEGETATION_LIVE_MAX + 1} Treffer ⇒ nichts gelöscht, Quittung nennt es`, q6?.ergebnis === 'angewendet' && /Vegetation nicht geräumt: 1 Kreis\(e\) mit 20001 Objekten/.test(q6.detail ?? '') && streuZdos(b).length === vorher6, `${q6?.ergebnis} ${q6?.grund} ${q6?.detail}`);
   check('B6: die Platzierung im selben Speichern ist angekommen', b.zdos.getAllZDOs().some((z) => z.getString('layoutId') === 'pl1'));
   b.stop();
   await warte(300);

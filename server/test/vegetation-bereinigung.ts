@@ -101,7 +101,7 @@ console.log('\n[A] Bereinigung:');
   check('ungemarkter Baum bleibt', lebt(zdos, baumUngemarkt.zdoid));
   check('ungemarkter Busch bleibt', lebt(zdos, buschUngemarkt.zdoid));
   check('Prefab außerhalb der Streu-Flora bleibt, auch mit Marke', lebt(zdos, fremd.zdoid));
-  check('Zähler: 3 gelöscht, 3 Treffer, 2 ungemarkte Kandidaten, 1 Zone ohne Marke', e.art === 'ok' && e.geloescht === 3 && e.anzahl === 3 && e.ungemarkt === 2 && e.zonenOhneMarke === 1, JSON.stringify(e));
+  check('Zähler: 3 gelöscht, 3 Treffer, 2 ungemarkte Kandidaten, 1 Zone ohne Marke', e.geloescht === 3 && e.anzahl === 3 && e.ungemarkt === 2 && e.zonenOhneMarke === 1, JSON.stringify(e));
   const liste = new Set(zdos.consumeDestroyList().map((i) => i.toString()));
   check(
     'Löschliste an die Clients nennt genau die drei',
@@ -119,11 +119,11 @@ console.log('\n[A] Bereinigung:');
   const zdos = new ZDOManager(1n);
   for (let i = 0; i < 5; i++) setze(zdos, BAUM.prefabHash, 100 + i, 50);
   const e = bereinigeVegetation(zdos, [KREIS], { grenze: 4 });
-  check('Obergrenze: abgelehnt, nichts gelöscht (auch nicht teilweise)', e.art === 'zuViele' && e.geloescht === 0 && e.anzahl === 5 && zdos.getAllZDOs().length === 5, JSON.stringify(e));
+  check('Obergrenze: der Kreis wird ganz abgelehnt, nichts gelöscht (auch nicht teilweise)', e.abgelehnteKreise.length === 1 && e.abgelehntObjekte === 5 && e.geloescht === 0 && e.anzahl === 0 && zdos.getAllZDOs().length === 5, JSON.stringify(e));
   const t = bereinigeVegetation(zdos, [KREIS], { trocken: true });
-  check('trocken zählt nur', t.art === 'ok' && t.geloescht === 0 && t.anzahl === 5 && zdos.getAllZDOs().length === 5);
+  check('trocken zählt nur', t.geloescht === 0 && t.anzahl === 5 && zdos.getAllZDOs().length === 5);
   const genau = bereinigeVegetation(zdos, [KREIS], { grenze: 5 });
-  check('genau an der Grenze wird gelöscht', genau.art === 'ok' && genau.geloescht === 5 && zdos.getAllZDOs().length === 0);
+  check('genau an der Grenze wird gelöscht', genau.abgelehnteKreise.length === 0 && genau.geloescht === 5 && zdos.getAllZDOs().length === 0);
 }
 {
   const zdos = new ZDOManager(1n);
@@ -269,27 +269,40 @@ const logStumm = <T>(f: () => T): T => {
   check('100 Kreise in einem Vorgang: angewendet (kein AENDERUNGEN_MAX, kein geo)', q?.ergebnis === 'angewendet' && q.grund === null && !lebt(t.zdos, baumIn.zdoid), `${q?.ergebnis} ${q?.grund}`);
 }
 {
-  // Obergrenze (B6): nur die Vegetation wird abgelehnt, der übrige Abgleich läuft weiter
+  // Obergrenze: je Kreis ganz oder gar nicht; ein zu großer Kreis blockiert weder Platzierungen noch kleine Kreise
   const t = live(basis());
   for (let i = 0; i < VEGETATION_LIVE_MAX + 1; i++) setze(t.zdos, BAUM.prefabHash, 100 + (i % 200) * 0.1, 50 + Math.floor(i / 200) * 0.01);
-  const klein: VegetationEntferntKreis = { x: 500, z: 500, r: 5 };
-  const nebenan = setze(t.zdos, BAUM.prefabHash, 500, 500);
-  const q = logStumm(() => t.tick(basis({ vegetationEntfernt: [KREIS] })));
+  const C: VegetationEntferntKreis = { x: 500, z: 500, r: 5 };
+  const D: VegetationEntferntKreis = { x: 600, z: 600, r: 5 };
+  const inC = setze(t.zdos, BAUM.prefabHash, 500, 500);
+  const inD = setze(t.zdos, BAUM.prefabHash, 600, 600);
+  const q = logStumm(() => t.tick(basis({ vegetationEntfernt: [KREIS, C] })));
   check(
-    `Obergrenze (${VEGETATION_LIVE_MAX + 1} Treffer): Vegetation nichts gelöscht, Dokument trotzdem angewendet (Quittung nennt es)`,
-    q?.ergebnis === 'angewendet' && t.zdos.getAllZDOs().length === VEGETATION_LIVE_MAX + 2 && t.stand().angewendet === 1 && /Vegetation nicht geräumt: 20001/.test(q.detail ?? '') && q.zaehler?.vegetationAbgelehnt === VEGETATION_LIVE_MAX + 1,
-    `${q?.ergebnis} ${q?.grund} ${q?.detail}`
+    `Obergrenze: großer Kreis A (${VEGETATION_LIVE_MAX + 1} Treffer) abgelehnt und nichts daraus gelöscht, kleiner Kreis C geräumt`,
+    q?.ergebnis === 'angewendet' && !lebt(t.zdos, inC.zdoid) && t.zdos.getAllZDOs().length === VEGETATION_LIVE_MAX + 2 && t.stand().angewendet === 1,
+    `${q?.ergebnis} ${q?.grund} ${q?.detail} ${t.zdos.getAllZDOs().length}`
   );
-  check('B6: Prüfer neuer Zonen trotzdem gesetzt (gilt in neuen Zonen)', t.gesetzt.length === 1 && t.gesetzt[0]?.length === 1);
-  // B6: eine Platzierungsänderung im Folgespeichern kommt an, obwohl der große Kreis noch drin steht
-  const q2 = logStumm(() => t.tick(basis({ vegetationEntfernt: [KREIS], placements: [{ id: 'pl1', prefab: 'Beech1', x: 10, z: 10 }] })));
-  check('B6: Platzierungsänderung im Folgespeichern wird angewendet (große Vegetation blockiert nicht)', q2?.ergebnis === 'angewendet' && t.stand().angewendet === 2, `${q2?.ergebnis} ${q2?.grund} ${q2?.detail} ${t.stand().angewendet}`);
-  // B1: der abgelehnte Kreis steht NICHT im Stand „zuletzt geräumt“: mit einem kleinen dazu zählt er wieder mit und lehnt erneut ab
-  const q3 = logStumm(() => t.tick(basis({ vegetationEntfernt: [KREIS, klein] })));
-  check('B1: abgelehnter Kreis gilt nicht als geräumt (mit kleinem Kreis dazu wieder abgelehnt, nebenan bleibt stehen)', q3?.ergebnis === 'angewendet' && lebt(t.zdos, nebenan.zdoid) && /Vegetation nicht geräumt/.test(q3.detail ?? ''), q3?.detail);
-  // der große Kreis fällt weg, der kleine bleibt: jetzt wird der kleine geräumt
-  const q4 = logStumm(() => t.tick(basis({ vegetationEntfernt: [klein] })));
-  check('B1: Kreis entfernt, nur der kleine ist neu: er räumt (und nur er)', q4?.ergebnis === 'angewendet' && !lebt(t.zdos, nebenan.zdoid) && t.zdos.getAllZDOs().length === VEGETATION_LIVE_MAX + 1, `${q4?.detail} ${t.zdos.getAllZDOs().length}`);
+  check('Quittung nennt die Zahl der abgelehnten Kreise (1) und der Objekte', q?.zaehler?.vegetationAbgelehnt === 1 && q.zaehler.vegetationAbgelehntObjekte === VEGETATION_LIVE_MAX + 1 && /Vegetation nicht geräumt: 1 Kreis\(e\) mit 20001 Objekten/.test(q.detail ?? ''), `${JSON.stringify(q?.zaehler)} ${q?.detail}`);
+  check('Prüfer neuer Zonen trotzdem gesetzt (alle Kreise)', t.gesetzt.length === 1 && t.gesetzt[0]?.length === 2);
+  // später kleiner Kreis D: geräumt, obwohl A noch im Dokument steht
+  const q2 = logStumm(() => t.tick(basis({ vegetationEntfernt: [KREIS, C, D], placements: [{ id: 'pl1', prefab: 'Beech1', x: 10, z: 10 }] })));
+  check('später kleiner Kreis D wird geräumt (A blockiert nicht), die Platzierung kommt an', q2?.ergebnis === 'angewendet' && !lebt(t.zdos, inD.zdoid) && t.stand().angewendet === 2 && q2.zaehler?.vegetationAbgelehnt === 1, `${q2?.ergebnis} ${q2?.detail}`);
+  check('nie Teil-Löschen innerhalb von A: alle 20 001 stehen noch', t.zdos.getAllZDOs().length === VEGETATION_LIVE_MAX + 1);
+  // fällt A weg und kommt später kleiner: der abgelehnte Kreis war nie als geräumt vermerkt, steht A wieder drin, wird er neu bewertet
+  const q3 = logStumm(() => t.tick(basis({ vegetationEntfernt: [C, D] })));
+  check('A gestrichen: nichts weiter zu tun, nichts gelöscht', q3?.ergebnis === 'angewendet' && t.zdos.getAllZDOs().length === VEGETATION_LIVE_MAX + 1);
+  const q4 = logStumm(() => t.tick(basis({ vegetationEntfernt: [KREIS, C, D] })));
+  check('A erneut hinzu: gilt wieder als neu (nicht als geräumt vermerkt) und wird wieder abgelehnt', q4?.zaehler?.vegetationAbgelehnt === 1 && t.zdos.getAllZDOs().length === VEGETATION_LIVE_MAX + 1, JSON.stringify(q4?.zaehler));
+}
+{
+  // Restbudget: zwei Kreise mit je 12 000 Treffern: der erste passt, der zweite nicht mehr (je Kreis ganz oder gar nicht)
+  const zdos = new ZDOManager(1n);
+  const E1: VegetationEntferntKreis = { x: 100, z: 50, r: 20 };
+  const E2: VegetationEntferntKreis = { x: 300, z: 50, r: 20 };
+  for (let i = 0; i < 12_000; i++) setze(zdos, BAUM.prefabHash, 100 + (i % 120) * 0.1, 50 + Math.floor(i / 120) * 0.01);
+  for (let i = 0; i < 12_000; i++) setze(zdos, BAUM.prefabHash, 300 + (i % 120) * 0.1, 50 + Math.floor(i / 120) * 0.01);
+  const e = bereinigeVegetation(zdos, [E1, E2], { grenze: VEGETATION_LIVE_MAX });
+  check('Restbudget: erster Kreis (12 000) geräumt, zweiter (12 000) ganz abgelehnt', e.geloescht === 12_000 && e.abgelehnteKreise.length === 1 && e.abgelehnteKreise[0]!.x === 300 && zdos.getAllZDOs().length === 12_000, `${e.geloescht} ${e.abgelehnteKreise.length}`);
 }
 {
   // B1: Boot mit [A gültig, B kaputt], danach live repariert ⇒ A UND B geräumt (nicht nur das reparierte B)
@@ -304,6 +317,33 @@ const logStumm = <T>(f: () => T): T => {
   check('B1 Boot mit beschädigtem Feld: nichts geräumt (auch A nicht)', lebt(t.zdos, inA.zdoid) && lebt(t.zdos, inB.zdoid));
   const q = logStumm(() => t.tick(basis({ vegetationEntfernt: [A, B] })));
   check('B1 live repariert: A UND B geräumt', q?.ergebnis === 'angewendet' && !lebt(t.zdos, inA.zdoid) && !lebt(t.zdos, inB.zdoid), `${q?.detail} ${JSON.stringify(q?.zaehler)}`);
+}
+{
+  // N1-B1a: Boot mit [A, B kaputt], danach live [A] (B gestrichen): das Dokument ist kanonisch gleich, A wird trotzdem geräumt
+  const A: VegetationEntferntKreis = { x: 100, z: 50, r: 10 };
+  const kaputt = basis({ vegetationEntfernt: [A, { x: 200, z: 50, r: -1 }] });
+  const t = live(kaputt);
+  const inA = setze(t.zdos, BAUM.prefabHash, 100, 50);
+  const s = stumm();
+  bereinigeBeimBoot(t.zdos, kaputt, s.log);
+  check('B1a Boot mit beschädigtem Feld: nichts geräumt', lebt(t.zdos, inA.zdoid));
+  const q = logStumm(() => t.tick(basis({ vegetationEntfernt: [A] })));
+  check('B1a live [A] (B gestrichen): A wird geräumt, obwohl das bereinigte Dokument gleich ist', q?.ergebnis === 'angewendet' && !lebt(t.zdos, inA.zdoid) && q.zaehler?.vegetationGeloescht === 1, `${q?.ergebnis} ${JSON.stringify(q?.zaehler)}`);
+  const q2 = logStumm(() => t.tick(basis({ vegetationEntfernt: [A], name: 'umbenannt' })));
+  check('danach nichts mehr zu tun (kein erneutes Räumen)', q2?.ergebnis === 'angewendet' && !(q2.zaehler?.vegetationGeloescht));
+}
+{
+  // N6: „zuletzt geräumt“ wird nach Erfolg gesetzt: Rückgängig, Zwischenspawn, erneut hinzu ⇒ der Zwischenspawn wird geräumt;
+  // gleicher Stand mit anderer Änderung ⇒ NICHT erneut geräumt
+  const t = live(basis());
+  const eins = setze(t.zdos, BAUM.prefabHash, 100, 50);
+  logStumm(() => t.tick(basis({ vegetationEntfernt: [KREIS] })));
+  const zwischen = setze(t.zdos, BAUM.prefabHash, 101, 50);
+  logStumm(() => t.tick(basis({ vegetationEntfernt: [KREIS], name: 'nur anders benannt' })));
+  check('N6 gleicher Kreis, andere Änderung: der Zwischenspawn bleibt (nicht erneut geräumt)', !lebt(t.zdos, eins.zdoid) && lebt(t.zdos, zwischen.zdoid));
+  logStumm(() => t.tick(basis({ vegetationEntfernt: [] })));
+  logStumm(() => t.tick(basis({ vegetationEntfernt: [KREIS] })));
+  check('N6 Rückgängig, dann erneut hinzu: der Zwischenspawn wird jetzt geräumt', !lebt(t.zdos, zwischen.zdoid));
 }
 {
   // B2 live: gleiche Lage, `nur` vorhanden, dann ohne `nur` dazu: der Busch wird jetzt geräumt

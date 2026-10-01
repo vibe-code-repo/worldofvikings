@@ -725,6 +725,8 @@ export default [
   ['client', 'test/upload-grundskala-neu-anwenden.ts'],
   // Baeume entfernen V1: Vergleich, enthaelt, Import und Speicherschutz F1 kennen vegetationEntfernt.
   ['client', 'test/vegetation-entfernt-dokument.ts'],
+  // Baeume entfernen V2 N2: bei `angewendet` zeigt der Editor den Vegetationshinweis der Quittung (abgelehnte Kreise, Zonen ohne Marke), de/en.
+  ['client', 'test/vegetation-quittung-anzeige.ts'],
   // Die Grafikoption begrenzt die gemeinsamen Bild-/Schattenmatrizen der
   // Vegetation. Der reine Kreisfilter sichert den unveraenderten Standard
   // (0 = voll), den eingeschlossenen Rand und die X/Z-Distanz ab.

@@ -465,7 +465,10 @@ export class LayoutWache {
     if (neuKanonisch === this.kanonisch) {
       // Wirklich nichts zu tun (etwa neu formatiert): nichts anwenden. Eine offene Sperre lebt allein in
       // der Sperrdatei; die Quittung nennt sie trotzdem (`quittiere` liest sie).
-      this.quittiere(hash, 'angewendet', null, null, undefined, { bestaetigung });
+      // Ausnahme Vegetation: Weicht „zuletzt geräumt“ von den gültigen Kreisen ab (der Sanitizer hat einen kaputten
+      // Eintrag schon beim Boot verworfen, der danach gestrichen wurde), räumt der Vegetationsast trotzdem.
+      const veg = this.angewendet ? this.vegetationAnwenden(neuBericht.layout) : { zaehler: {}, detail: undefined };
+      this.quittiere(hash, 'angewendet', null, Object.keys(veg.zaehler).length > 0 ? veg.zaehler : null, veg.detail, { bestaetigung });
       return;
     }
     if (this.angewendet) {
@@ -506,33 +509,43 @@ export class LayoutWache {
     }
     // Vegetation (nach den Objekten, vor dem Übernehmen): löscht die gespeicherten Streu-Objekte in den seit dem
     // letzten Räumen hinzugekommenen Kreisen und tauscht den Prüfer neuer Zonen aus. Gleicher Takt: kein Spielzustand
-    // dazwischen. Eine Ablehnung (Obergrenze) betrifft nur die Vegetation.
-    let zaehler = ergebnis.zaehler;
-    let detail = ergebnis.detail;
-    if (this.angewendet && this.d.vegetationLive) {
-      const v = this.d.vegetationLive(this.angewendet, neuBericht.layout, false);
-      if (v.art === 'ok') {
-        const e = v.ergebnis;
-        console.log(bereinigungsZeile('live', e));
-        zaehler = { ...zaehler, vegetationGeloescht: e.geloescht, vegetationUngemarkt: e.ungemarkt };
-        if (e.ungemarkt > 0) {
-          const hinweis = `Vegetation: ${e.ungemarkt} Kandidaten in ${e.zonenOhneMarke} Zone(n) ohne Marke nicht gelöscht`;
-          detail = detail ? `${detail}; ${hinweis}` : hinweis;
-        }
-      } else if (v.art === 'zuViele') {
-        // Die Vegetation allein wird abgelehnt (nichts teilweise gelöscht), die Platzierungen sind angewendet: Eine
-        // Ablehnung hier blockiert den übrigen Abgleich nicht. Der Editor sieht es im Detail der Quittung.
-        const hinweis = `Vegetation nicht geräumt: ${v.anzahl} Objekte würden gelöscht (Grenze ${VEGETATION_LIVE_MAX}); gilt ab dem nächsten Neustart`;
-        console.warn(`[WoV] Layout-Wache: ${hinweis}`);
-        zaehler = { ...zaehler, vegetationAbgelehnt: v.anzahl };
-        detail = detail ? `${detail}; ${hinweis}` : hinweis;
-      }
-    }
+    // dazwischen. Eine Ablehnung (Obergrenze, je Kreis) betrifft nur die Vegetation.
+    const veg = this.vegetationAnwenden(neuBericht.layout);
+    const zaehler = { ...ergebnis.zaehler, ...veg.zaehler };
+    const detail = [ergebnis.detail, veg.detail].filter((t): t is string => !!t).join('; ') || undefined;
     this.d.uebernehmen(roh);
     this.kanonisch = neuKanonisch;
     this.angewendet = neuBericht.layout;
     console.log(`[WoV] Layout-Wache: angewendet in ${(performance.now() - t0).toFixed(1)} ms (ganzer Takt)`);
     this.quittiere(hash, 'angewendet', null, zaehler, detail, { bestaetigung });
+  }
+
+  /**
+   * Der Vegetationsast für ein Dokument, das als Ganzes angenommen ist (Zähler und Hinweis für die Quittung; leer, wenn
+   * nichts zu tun war oder es den Ast nicht gibt).
+   */
+  private vegetationAnwenden(neu: WorldLayout): { zaehler: Record<string, number>; detail: string | undefined } {
+    const leer = { zaehler: {}, detail: undefined };
+    if (!this.angewendet || !this.d.vegetationLive) return leer;
+    const v = this.d.vegetationLive(this.angewendet, neu, false);
+    if (v.art !== 'ok') return leer;
+    const e = v.ergebnis;
+    console.log(bereinigungsZeile('live', e));
+    const zaehler: Record<string, number> = { vegetationGeloescht: e.geloescht, vegetationUngemarkt: e.ungemarkt };
+    const teile: string[] = [];
+    if (e.ungemarkt > 0) {
+      zaehler.vegetationUngemarktZonen = e.zonenOhneMarke;
+      teile.push(`Vegetation: ${e.ungemarkt} Kandidaten in ${e.zonenOhneMarke} Zone(n) ohne Marke nicht gelöscht`);
+    }
+    if (e.abgelehnteKreise.length > 0) {
+      // Die Vegetation allein wird abgelehnt (je Kreis, nichts teilweise gelöscht), die Platzierungen sind angewendet.
+      zaehler.vegetationAbgelehnt = e.abgelehnteKreise.length;
+      zaehler.vegetationAbgelehntObjekte = e.abgelehntObjekte;
+      const hinweis = `Vegetation nicht geräumt: ${e.abgelehnteKreise.length} Kreis(e) mit ${e.abgelehntObjekte} Objekten über der Grenze ${VEGETATION_LIVE_MAX}; gilt ab dem nächsten Neustart`;
+      console.warn(`[WoV] Layout-Wache: ${hinweis}`);
+      teile.push(hinweis);
+    }
+    return { zaehler, detail: teile.length > 0 ? teile.join('; ') : undefined };
   }
 
   private quittiere(

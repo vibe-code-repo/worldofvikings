@@ -28,7 +28,7 @@
 <Kopfdaten
   titel={t['hall_of_fame.title']}
   beschreibung={t['hall_of_fame.description']}
-  noindex={data.fehler === 'start' || data.fehler === 'limit'}
+  noindex={Boolean(data.fehler)}
 />
 
 <main class="mitte seite hall-page">

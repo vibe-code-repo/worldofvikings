@@ -357,6 +357,8 @@ beschreibe('Rüstkammer ohne JavaScript (gebauter Stand)', () => {
         const r = await frage(pfad);
         expect(r.status, pfad).toBe(200);
         expect(r.text).toMatch(/verschlossen|verhängt/);
+        // Auch der Ausfall zeigt nur einen Hinweis und gehört nicht in den Index.
+        expect(r.html, pfad).toMatch(/<meta name="robots" content="noindex"/);
       }
     }
   });

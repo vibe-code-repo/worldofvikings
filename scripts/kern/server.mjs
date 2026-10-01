@@ -523,7 +523,6 @@ export default [
   // Ruestkammer-Lesewege (`/accounts/armory`): ohne Standardkonten, Positivliste der
   // Schluessel, Suche/Seiten, Puffer mit Uhr. Echter node:http-Server, Sekunden.
   ['server', 'test/konto-armory.ts'],
-  ['server', 'test/spielwerte.ts'],
   // Herkunft.ts hinter einem Reverse-Proxy: Loopback-Peer + X-Forwarded-For/
   // X-Real-IP wird geglaubt, jede andere Peer-Adresse nicht; und zwei
   // Herkuenfte sperren sich in der Anmelde-Drossel nicht gegenseitig.
@@ -707,6 +706,7 @@ export default [
     Ephemerer Port, ~60 s.
   */
   ['server', 'test/spielerzustand-writebehind.ts'],
+  ['server', 'test/spielwerte.ts'],
   // Standardkonto: Ausprobieren ohne Registrierung (server.yml
   // `standard-konto:`) -- Konto+Charakter entstehen einmal, ein zweiter
   // Start legt nichts doppelt an und laesst das Passwort unveraendert,

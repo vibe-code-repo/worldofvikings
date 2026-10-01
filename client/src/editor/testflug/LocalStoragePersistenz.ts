@@ -37,6 +37,7 @@ import { t } from '../i18n';
 
 const OHNE_BASIS = (): string => t('testflug.persistenz.local.ohne_basis');
 const VERLANGT = (): string => t('testflug.persistenz.local.verlangt');
+const UNBESTAETIGT = (): string => t('testflug.persistenz.local.unbestaetigt');
 const VERALTET = (): string => t('testflug.persistenz.local.veraltet');
 
 /** Basis aus dem Begleitzettel; `null` bei fehlendem oder nicht lesbarem Zettel bzw. Speicher. */
@@ -78,6 +79,9 @@ export function localStoragePersistenz(): TestflugPersistenz {
       if (!basis) return { ok: false, message: OHNE_BASIS() } satisfies SpeicherAntwort;
       const antwort = await schreibeWeltdokument(dokument as WorldLayout, basis);
       if (antwort.art === 'ok') {
+        // M1: Only an answer with a valid new hash confirms the save. HTML, an empty or cut-off body, `{}` or a 204 do
+        // not: then the base stays as it is (the next save is answered by the service's 409, not by a lost base).
+        if (!antwort.hash) return { ok: false, message: UNBESTAETIGT() } satisfies SpeicherAntwort;
         // Der Server hat jetzt unseren Stand: Er ist die Basis des nächsten Speicherns.
         basisNachziehen(antwort.hash);
         return { ok: true, message: antwort.sperrAnzahl ? (antwort.messageOhneSperre ?? antwort.message) : antwort.message, ...(antwort.sperrAnzahl ? { loeschsperre: antwort.sperrAnzahl } : {}) } satisfies SpeicherAntwort;

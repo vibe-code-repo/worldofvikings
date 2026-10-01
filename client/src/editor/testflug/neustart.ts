@@ -17,12 +17,14 @@
  * Karteneditor stehen bleiben.
  */
 import { serverStatusAnzeige, type DienstZustand } from '../serverSteuerung';
-import { entwurfSpeichern, hoehenGrund, type EntwurfDienste, type HoehenProblem } from './entwurfSpeichern';
+import { entwurfSpeichern, hoehenGrund, verworfenText, type EntwurfDienste, type HoehenProblem, type VerworfenTeil } from './entwurfSpeichern';
 import { t } from '../i18n';
 
 /** Same limits as the map editor's `dienstAbwarten`: stable for 6 s, give up after 60 s. */
 export const STABIL_MS = 6_000;
 export const LIMIT_MS = 60_000;
+/** Hard cap on the polls, so a clock that jumps cannot keep the button locked (N2). */
+export const MAX_ABFRAGEN = Math.ceil(LIMIT_MS / 1_500) * 2;
 export const TAKT_MS = 1_500;
 
 export type NeustartPhase = 'speichert' | 'startet-neu' | 'laeuft-wieder' | 'fehler';
@@ -31,6 +33,8 @@ export type NeustartFehler =
   | { grund: 'kein-entwurf' }
   | { grund: 'unbrauchbar' }
   | { grund: 'hoehe'; problem: HoehenProblem }
+  | { grund: 'verworfen'; teile: VerworfenTeil[] }
+  | { grund: 'entwurf'; fehler: string }
   | { grund: 'speichern'; message: string }
   | { grund: 'aktion-laeuft' }
   | { grund: 'neustart'; message: string }
@@ -39,8 +43,19 @@ export type NeustartFehler =
 
 export type NeustartStatus =
   | { phase: 'speichert' }
-  | { phase: 'startet-neu'; sekunden: number }
-  | { phase: 'laeuft-wieder'; sekunden: number; loeschsperre: number }
+  /** `unklar`: the answer to the restart request is missing (network, 504); the state is being checked. */
+  | { phase: 'startet-neu'; sekunden: number; unklar?: boolean }
+  | {
+      phase: 'laeuft-wieder';
+      sekunden: number;
+      loeschsperre: number;
+      /** The text of the service's save answer (a warning like 202 `abgelehnt` is in it). */
+      meldung: string;
+      /** The restart itself was never confirmed; the service merely runs. */
+      unklar: boolean;
+      /** The draft changed while the run went on: those changes are not on the server. */
+      striche: boolean;
+    }
   | ({ phase: 'fehler' } & NeustartFehler);
 
 /** What of `fetch` is used (a real `Response` fits). */
@@ -51,6 +66,9 @@ export type Holen = (
 
 /** The real `fetch` (kept here so the flight module itself never calls `fetch`, see `testflug-modul.ts`). */
 export const echtesHolen: Holen = (url, init) => fetch(url, init);
+
+/** A monotone clock in ms: a jump of the wall clock must not lock the button or give negative seconds. */
+export const monotoneUhr = (): number => performance.now();
 
 export interface NeustartDienste {
   entwurf: EntwurfDienste;
@@ -112,16 +130,21 @@ export function neustartLauf(d: NeustartDienste): NeustartLauf {
 
   async function ablauf(): Promise<NeustartStatus> {
     melde({ phase: 'speichert' });
+    const rohVorher = d.entwurf.rohtext?.() ?? null;
     const e = await entwurfSpeichern(d.entwurf);
     if (e.art === 'kein-entwurf') return fehler({ grund: 'kein-entwurf' });
     if (e.art === 'unbrauchbar') return fehler({ grund: 'unbrauchbar' });
+    if (e.art === 'unlesbar') return fehler({ grund: 'entwurf', fehler: e.fehler });
     if (e.art === 'hoehe') return fehler({ grund: 'hoehe', problem: e.problem });
+    if (e.art === 'verworfen') return fehler({ grund: 'verworfen', teile: e.teile });
     if (e.art === 'ausnahme') return fehler({ grund: 'netz', fehler: e.fehler });
     if (!e.antwort.ok) return fehler({ grund: 'speichern', message: e.antwort.message });
     const loeschsperre = e.antwort.loeschsperre ?? 0;
+    const meldung = e.antwort.message;
 
     melde({ phase: 'startet-neu', sekunden: 0 });
-    const start = d.jetzt();
+    // No answer (network, gateway timeout) does not mean "no restart": the service answers only after `systemctl`.
+    let unklar = false;
     try {
       const r = await d.holen('/api/server', {
         method: 'POST',
@@ -129,29 +152,38 @@ export function neustartLauf(d: NeustartDienste): NeustartLauf {
         body: JSON.stringify({ aktion: 'neustart' }),
       });
       if (r.status === 409) return fehler({ grund: 'aktion-laeuft' });
-      if (!r.ok) {
+      if (r.status === 502 || r.status === 504) unklar = true;
+      else if (!r.ok) {
         const j = await jsonOderLeer(r);
         const grund = typeof j.message === 'string' ? j.message : typeof j.fehler === 'string' ? j.fehler : `HTTP ${r.status}`;
         return fehler({ grund: 'neustart', message: grund });
       }
-    } catch (err) {
-      return fehler({ grund: 'netz', fehler: String(err) });
+    } catch {
+      unklar = true;
     }
 
+    // The time limit starts AFTER the answer to the restart request (as in the map editor).
+    const start = d.jetzt();
     let stabilSeit: number | null = null;
-    for (;;) {
+    for (let abfragen = 0; ; abfragen++) {
       const jetzt = d.jetzt();
       const anzeige = serverStatusAnzeige(await dienstZustand(d.holen));
-      const sek = Math.round((jetzt - start) / 1000);
+      const sek = Math.max(0, Math.round((jetzt - start) / 1000));
       if (anzeige.art === 'laeuft') {
         stabilSeit ??= jetzt;
         // `systemctl restart` returns before the world stands: hold on a moment.
-        if (d.jetzt() - stabilSeit > STABIL_MS) return melde({ phase: 'laeuft-wieder', sekunden: sek, loeschsperre });
+        if (d.jetzt() - stabilSeit > STABIL_MS) {
+          const rohNachher = d.entwurf.rohtext?.() ?? null;
+          const striche = rohVorher !== null && rohNachher !== rohVorher;
+          return melde({ phase: 'laeuft-wieder', sekunden: sek, loeschsperre, meldung, unklar, striche });
+        }
       } else {
         stabilSeit = null;
       }
-      if (d.jetzt() - start > LIMIT_MS) return fehler({ grund: 'zeitlimit', sekunden: Math.round((d.jetzt() - start) / 1000) });
-      melde({ phase: 'startet-neu', sekunden: sek });
+      if (d.jetzt() - start > LIMIT_MS || abfragen >= MAX_ABFRAGEN) {
+        return fehler({ grund: 'zeitlimit', sekunden: Math.max(0, Math.round((d.jetzt() - start) / 1000)) });
+      }
+      melde({ phase: 'startet-neu', sekunden: sek, ...(unklar ? { unklar: true } : {}) });
       await d.schlafe(TAKT_MS);
     }
   }
@@ -176,10 +208,17 @@ export function neustartText(s: NeustartStatus): string {
     case 'speichert':
       return t('testflug.neustart.status.speichert');
     case 'startet-neu':
-      return t('testflug.neustart.status.startet_neu', { sekunden: s.sekunden });
+      return s.unklar
+        ? t('testflug.neustart.status.startet_neu_unklar', { sekunden: s.sekunden })
+        : t('testflug.neustart.status.startet_neu', { sekunden: s.sekunden });
     case 'laeuft-wieder': {
-      const basis = t('testflug.neustart.status.laeuft_wieder', { sekunden: s.sekunden });
-      return s.loeschsperre > 0 ? `${basis} ${t('testflug.neustart.status.loeschsperre', { count: s.loeschsperre })}` : basis;
+      const teile = [
+        s.unklar ? t('testflug.neustart.status.laeuft_unklar', { sekunden: s.sekunden }) : t('testflug.neustart.status.laeuft_wieder', { sekunden: s.sekunden }),
+        t('testflug.neustart.status.meldung', { message: s.meldung }),
+      ];
+      if (s.loeschsperre > 0) teile.push(t('testflug.neustart.status.loeschsperre', { count: s.loeschsperre }));
+      if (s.striche) teile.push(t('testflug.neustart.status.striche'));
+      return teile.join(' ');
     }
     case 'fehler':
       switch (s.grund) {
@@ -189,6 +228,10 @@ export function neustartText(s: NeustartStatus): string {
           return t('testflug.entwurf_unbrauchbar');
         case 'hoehe':
           return t('testflug.gelaende.hoehe.beschaedigt', { grund: hoehenGrund(s.problem) });
+        case 'verworfen':
+          return t('testflug.gelaende.verworfen.beschaedigt', { liste: verworfenText(s.teile) });
+        case 'entwurf':
+          return t('testflug.neustart.fehler.entwurf_unlesbar', { fehler: s.fehler });
         case 'speichern':
           return t('testflug.neustart.fehler.speichern', { message: s.message });
         case 'aktion-laeuft':

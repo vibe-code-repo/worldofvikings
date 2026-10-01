@@ -175,19 +175,30 @@ export class GelaendeSteuerung {
     // placement near a change is put on it again, buildings too: none may float or sink.
     // If the other tab changed the placement list too (load a server state, import), list positions no longer match
     // what the flight shows: the whole list is drawn again, as in T2. Only with the same list is "near the change" enough.
-    const listeGleich = this.platzSig === this.platzierungenSig();
-    this.platzSig = this.platzierungenSig();
-    if (listeGleich) this.alleNachfuehren(geaendert);
-    else this.abh.nachStrich('alle');
+    this.alleNachfuehren(geaendert);
     this.abh.meldung(t('testflug.gelaende.entwurf_uebernommen', { n: geaendert.length }));
   }
 
+  /**
+   * Did the placement list change since the flight last looked (another tab, or the flight's own edit)? Then list
+   * positions no longer match what is shown and every step that redraws by position must redraw the WHOLE list, whether
+   * or not the ground changed too. Remembers the list it saw.
+   */
+  private listeGeaendert(): boolean {
+    const jetzt = this.platzierungenSig();
+    const geaendert = this.platzSig !== jetzt;
+    this.platzSig = jetzt;
+    return geaendert;
+  }
+
   private alleNachfuehren(aenderungen: readonly Aenderung[]): void {
-    this.abh.nachStrich(platzierungenNahe(this.abh.platzierungen(), aenderungen));
+    if (this.listeGeaendert()) this.abh.nachStrich('alle');
+    else this.abh.nachStrich(platzierungenNahe(this.abh.platzierungen(), aenderungen));
   }
 
   private loseNachfuehren(aenderungen: readonly Aenderung[]): void {
-    this.abh.nachStrich(loseIndizes(this.abh.platzierungen(), this.abh.katalog, aenderungen));
+    if (this.listeGeaendert()) this.abh.nachStrich('alle');
+    else this.abh.nachStrich(loseIndizes(this.abh.platzierungen(), this.abh.katalog, aenderungen));
   }
 
   get strichOffen(): boolean {

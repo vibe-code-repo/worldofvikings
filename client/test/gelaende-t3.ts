@@ -799,6 +799,46 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   pruefe(vorn.nachListen.at(-1) === 'alle', '11: … die ganze Liste wurde neu aufgebaut');
   const weg = bauListe(false);
   pruefe(gezeigt(weg) === '0=B 1=C', `11: erstes Objekt gelöscht: das gelöschte steht nicht mehr im Flug (${gezeigt(weg)})`);
+
+  // N3/N2-2: the list is compared as a whole (same length with other content, same ids in another order)
+  const listenTausch = (neu: Array<Record<string, unknown>>): Aufbau => {
+    const ab = aufbau({ ...LAYOUT, placements: [lis('A', 10), lis('B', 20), lis('C', 30)] });
+    ab.steuerung.bereit();
+    const f = new DeltaKarte();
+    for (let x = 6; x <= 14; x++) {
+      const p = punktVon(x, 0);
+      f.setze(p.zx, p.zz, p.index, 150);
+    }
+    ab.entwurf.setze({ ...LAYOUT, placements: neu, heightDeltas: f.alsZonen() });
+    ab.steuerung.entwurfGeaendert();
+    return ab;
+  };
+  const gleichLang = listenTausch([lis('A', 10), lis('X', 20), lis('C', 30)]);
+  pruefe(gezeigt(gleichLang) === '0=A 1=X 2=C' && gleichLang.nachListen.at(-1) === 'alle', `11: gleiche Länge, anderer Inhalt: die ganze Liste wird neu aufgebaut (${gezeigt(gleichLang)})`);
+  const umgestellt = listenTausch([lis('C', 30), lis('B', 20), lis('A', 10)]);
+  pruefe(gezeigt(umgestellt) === '0=C 1=B 2=A' && umgestellt.nachListen.at(-1) === 'alle', `11: gleiche ids, andere Reihenfolge: die ganze Liste wird neu aufgebaut (${gezeigt(umgestellt)})`);
+
+  // N3/N2-1: the other tab changed ONLY the list; the next step of the flight must not redraw by positions of the new list
+  const nurListe = (schritt: 'strich' | 'rueckgaengig' | 'wiederholen'): Aufbau => {
+    const ab = aufbau({ ...LAYOUT, placements: [lis('A', 10), lis('B', 20), lis('C', 30)] });
+    ab.ein.werkzeug = 'anheben';
+    strich(ab, [50, 0], [50, 0], 4); // an earlier stroke far away, for undo/redo
+    ab.entwurf.setze({ ...ab.entwurf.doc(), placements: [lis('N', 5), lis('A', 10), lis('B', 20), lis('C', 30)] });
+    if (schritt === 'strich') strich(ab, [10, 0], [10, 0], 4);
+    else {
+      ab.steuerung.rueckgaengig();
+      if (schritt === 'wiederholen') {
+        ab.entwurf.setze({ ...ab.entwurf.doc(), placements: [lis('M', 1), lis('N', 5), lis('A', 10), lis('B', 20), lis('C', 30)] });
+        ab.steuerung.wiederholen();
+      }
+    }
+    return ab;
+  };
+  for (const schritt of ['strich', 'rueckgaengig', 'wiederholen'] as const) {
+    const ab = nurListe(schritt);
+    const erwartet = [...platz(ab.entwurf)].map((p, i) => `${i}=${(p as { id?: string }).id}`).join(' ');
+    pruefe(gezeigt(ab) === erwartet, `11: nur die Liste im anderen Tab geändert, danach ${schritt}: der Flug zeigt genau den Entwurf (${gezeigt(ab)})`);
+  }
 }
 
 // ── 12. N1/A3–A8: Pipette-Taste, Strg im Baumodus, Zahlenfeld, Zurücksetzen mit gehaltenem Pinsel, Hilfetext, Tasten ──
@@ -865,6 +905,7 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   pruefe(!de['testflug.gelaende.tip3']!.includes('Kisten') && /Sockel/.test(de['testflug.gelaende.tip3']!) && /Gebäude/.test(de['testflug.gelaende.tip3']!) && /Bauteil/.test(de['testflug.gelaende.tip3']!), '12: der Hilfetext nennt das Kriterium (kein Sockel, kein Gebäude, kein Bauteil) statt „Kisten“');
   pruefe(!/crates/i.test(en['testflug.gelaende.tip3']!) && /plinth/.test(en['testflug.gelaende.tip3']!) && !/„|“/.test(en['testflug.gelaende.ziel_fehlt']!), '12: englischer Text gleich, ohne deutsche Anführungszeichen');
   pruefe(!/Strg\+Klick|Ctrl\/Cmd\+click|Strg\/Cmd/.test(de['testflug.gelaende.tip3']! + de['testflug.gelaende.ziel_m']! + de['testflug.gelaende.ziel_fehlt']!), '12: keine Texte mehr für Strg+Klick');
+  pruefe(/abgelehnt/.test(de['testflug.gelaende.tip3']!) && /älteren Striche/.test(de['testflug.gelaende.tip3']!) && !/bleiben dabei, wie sie sind/.test(de['testflug.gelaende.tip3']!) && /refused/.test(en['testflug.gelaende.tip3']!) && /older strokes/.test(en['testflug.gelaende.tip3']!) && !/stay as they are/.test(en['testflug.gelaende.tip3']!), '12: der Hilfetext sagt, dass Rückgängig bei Gebäude/Sockel auf dem Strich abgelehnt wird, auch für die älteren Striche (N2-3)');
   // the rule in the text is the rule of `istLose`
   pruefe(istLose({ prefab: 'U_Fass', x: 0, z: 0 }, katalog) && !istLose({ prefab: 'U_Wohnhaus', x: 0, z: 0 }, katalog) && !istLose({ prefab: 'U_Fass', x: 0, z: 0, einebnen: 2 }, katalog), '12: istLose = kein Sockel und kein Gebäude/Bauteil');
 

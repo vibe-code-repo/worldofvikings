@@ -1,9 +1,20 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import Kopfdaten from '$lib/Kopfdaten.svelte';
-  import { holeJson } from '$lib/formate';
+  import ReckenVorschau from '$lib/ReckenVorschau.svelte';
+  import {
+    type AussehenDaten as Aussehen,
+    type Eintrag,
+    type FigurSteuerung,
+    KOPFZOOM_SPEICHER,
+    baueLadePlan,
+    brauenVorgabe as brauenVorgabeFuer,
+    frisurenFuer,
+    augenbrauenFuer,
+    waffeFuerKlasse,
+  } from '$lib/reckenVorschauKern';
   import { type MessageKey, localeFrom, localizedPath, messages } from '$lib/i18n';
   import {
     ApiError,
@@ -61,92 +72,17 @@
    * sie ist eine 3D-Vorschau.
    */
 
-  /**
-   * Ein Eintrag aus `assets/appearance.json`.
-   *
-   * Die FELDNAMEN sind englisch, weil sie Drahtformat sind — dieselbe
-   * Datei liest auch /konto. Die WERTE (`id`, `slot`) bleiben, wie
-   * `shared/aussehen.ts` sie fuehrt: `wikingerin` und `H_01` stehen im
-   * Weltspeicher und in der Kontendatenbank; sie zu uebersetzen waere
-   * eine Datenwanderung.
-   */
-  interface Eintrag {
-    /** sRGB-Hex, nur bei Haarfarben belegt. */
-    hex?: string; id: string; name: string; nameEn?: string; file?: string; model?: string; slot?: string; figure?: string }
-  interface Aussehen {
-    folder: string;
-    body: string;
-    figures: Eintrag[];
-    hairstyles: Eintrag[];
-    beards: Eintrag[];
-    eyebrows: Eintrag[];
-    hairColors: Eintrag[];
-    eyeColors: Eintrag[];
-    equipment: Eintrag[];
-    equipmentSets?: EquipmentSetCatalog['sets'];
-    defaultFigure?: string;
-    defaultHairstyle?: string;
-    defaultBeard?: string;
-    defaultEyebrows?: Record<string, string>;
-    defaultHairColor?: string;
-    defaultEyeColor?: string;
-    /**
-     * Stunde → Beschriftung, z. B. { "3": "Sonnenaufgang" }.
-     *
-     * Kommt aus der erzeugten Datei und steht hier bewusst NICHT fest:
-     * Der Sonnenaufgang liegt bei 0,1333 des Tages, also gegen 03:00
-     * und nicht bei 06:00. Eine hier getippte Beschriftung wäre eine
-     * zweite Wahrheit neben dem Umgebungsmodell des Spiels.
-     */
-    timeOfDay?: { marks: Record<string, string> };
-  }
-
-  /** Was vom Vorschau-Bündel benutzt wird — gemessen an `vorschau.js`. */
-  interface Vorschau {
-    setzeWurzel(url: string): Promise<void>;
-    ladeKoerper(pfad: string): Promise<boolean>;
-    setzeWaffe(art: 'schwert' | 'stab' | null): Promise<void>;
-    setze(slot: string, datei: string | null): Promise<void>;
-    /** sRGB-Hex; leer laesst die Farbe des Modells stehen. */
-    setzeHaarfarbe(hex: string): void;
-    setzeAugenfarbe(id: string): void;
-    drehe(winkel: number): void;
-    blickZurueck(): void;
-    /**
-     * Kopf-Zoom. Optional: Ein noch gecachtes älteres Bündel kennt ihn nicht,
-     * und die Seite muss damit weiter funktionieren.
-     */
-    zoomeKopf?(nah?: boolean): void;
-    beiKopfZustand?: ((zustand: { nah: boolean; ueber: boolean; gueltig?: boolean }) => void) | null;
-    dispose(): void;
-  }
-
   const SPEICHER = 'wov-erstellung';
 
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
 
-  /**
-   * Setzt `{name}`-Platzhalter aus dem Katalog.
-   *
-   * Der Katalog verbietet Zahlen IM Text; die wenigen Ausnahmen sind
-   * Fehlermeldungen der Bühne, in denen ein Statuscode oder eine
-   * Systemmeldung mitten im Satz landet und sich nicht sinnvoll in zwei
-   * Bausteine zerlegen lässt. Was nicht besetzt ist, bleibt unverändert
-   * stehen — das ist sichtbar und damit reparierbar, ein stilles
-   * „undefined“ wäre es nicht.
-   */
-  function fuelle(vorlage: string, werte: Record<string, string | number>): string {
-    return vorlage.replace(/\{(\w+)\}/g, (ganz: string, name: string) =>
-      name in werte ? String(werte[name]) : ganz,
-    );
-  }
-
   /* ------------------------------------------------------------ Zustand */
 
-  let leinwand = $state<HTMLCanvasElement | null>(null);
   let daten = $state<Aussehen | null>(null);
-  let vorschau: Vorschau | null = null;
+  let steuerung = $state<FigurSteuerung | null>(null);
+  /** Aus, sobald die Sperre zufällt: dann räumt die Figur ihre Engine ab. */
+  let buehneAktiv = $state(true);
 
   /** Der Vorgabezustand ist „nicht angemeldet“ — er ist der einzig sichere. */
   let angemeldet = $state(false);
@@ -171,15 +107,8 @@
   let kopfZoomBereit = $state(false);
   /** Nach dem ersten Kopf-Zoom der Sitzung wird die Markierung nur noch beim Überfahren gezeigt. */
   let kopfZoomGesehen = $state(false);
-  const KOPFZOOM_SPEICHER = 'wov-kopfzoom';
-  /** Verhindert, dass ein älterer Komplett-Ladevorgang eine neuere Wahl überschreibt. */
-  let ladeLauf = 0;
-  /** Auch schnelle Klicks auf den Rüstungsschalter folgen „letzte Auswahl gewinnt“. */
-  let ruestungsLauf = 0;
 
   const HINTERGRUND_VIDEO = '/assets/video/schwarzwald.webm';
-  /** Cache-Kennung für die zusammengehörigen Figurenliste und 3D-Vorschau. */
-  const FIGUREN_STAND = 'ruestungen-plainhide-gravethorn-v2-20260924';
 
   let figur = $state('');
   let frisur = $state('');
@@ -277,23 +206,14 @@
   let alt: Record<string, string> = {};
 
   /** H_01 ist das alte, hinter dem neuen Wikingerkopf schwebende Haarteil. */
-  const frisuren = $derived(
-    daten?.hairstyles.filter((eintrag) => figur !== 'wikinger' || eintrag.id !== 'H_01') ?? []
-  );
-  const augenbrauen = $derived(daten?.eyebrows?.filter((a) => a.figure === figur) ?? []);
+  const frisuren = $derived(frisurenFuer(daten, figur));
+  const augenbrauen = $derived(augenbrauenFuer(daten, figur));
 
   const gestadeHinweis = $derived(
     gestade === 'dev'
       ? t['create.voyage.shore.hint.dev']
       : t['create.voyage.shore.hint.live'],
   );
-
-  /**
-   * Die Vorschau kommt aus derselben Auslieferung wie die Webseite. Dadurch
-   * bleibt sie unabhängig von Login-Status, Gestade und CORS-Regeln der
-   * Spielserver; nur das Erstellen selbst spricht weiterhin deren API an.
-   */
-  const modellWurzel = '/assets/models/';
 
   /** 00:00 … 23:00, die markanten Stunden mit Namen dahinter. */
   const stunden = $derived(
@@ -319,141 +239,39 @@
     }
   }
 
-  function datei(liste: Eintrag[], id: string): string | null {
-    const e = liste.find((x) => x.id === id);
-    return e?.file && daten ? `${daten.folder}/${e.file}` : null;
-  }
-
   function eintragName(eintrag: Eintrag): string {
     return lang === 'en' ? eintrag.nameEn ?? eintrag.name : eintrag.name;
   }
 
-  /** Das Körpermodell der gewählten Figur, relativ zu /assets/models/. */
-  function koerperDatei(): string {
-    const ausgewaehlt = daten?.figures.find((eintrag) => eintrag.id === figur);
-    return ausgewaehlt?.model ?? (daten ? `${daten.folder}/${daten.body}` : '');
-  }
-
   function brauenVorgabe(): string {
-    return daten?.defaultEyebrows?.[figur] ?? augenbrauen[0]?.id ?? '';
+    return brauenVorgabeFuer(daten, figur);
   }
 
   /* -------------------------------------------------------- Die Bühne */
 
-  async function zeigeAussehen(lauf?: number): Promise<boolean> {
-    if (!vorschau || !daten) return false;
-    const istAktuell = () => lauf === undefined || lauf === ladeLauf;
-    if (!istAktuell()) return false;
-    // Nur H_01 stammt aus der alten Ansicht und liegt beim neuen Wikinger
-    // hinter dem Kopf. Alle übrigen Frisuren bleiben für beide Körper da.
-    await vorschau.setze('frisur', datei(frisuren, frisur) ?? datei(frisuren, frisuren[0]?.id ?? ''));
-    if (!istAktuell()) return false;
-    // Bärte gibt es im Master nur für den männlichen Grundkörper.
-    await vorschau.setze('bart', figur === 'wikinger' ? datei(daten.beards ?? [], bart) : null);
-    if (!istAktuell()) return false;
-    await vorschau.setze('augenbraue', datei(daten.eyebrows ?? [], augenbraue));
-    if (!istAktuell()) return false;
-    // Die Haarfarbe ist kein Modell, sondern eine Toenung auf dem
-    // Frisurmodell -- deshalb NACH der Frisur und ueber einen eigenen Weg.
-    // Ohne diesen Aufruf steht die Auswahl da und die Vorschau zeigt sie
-    // nicht; genau so war es, bevor der Auswaehler ueberhaupt fehlte.
-    const ton = (daten.hairColors ?? []).find((h) => h.id === haarfarbe)?.hex ?? '';
-    vorschau.setzeHaarfarbe(ton);
-    vorschau.setzeAugenfarbe(augenfarbe);
-    return istAktuell();
+  /**
+   * Der gewünschte Zustand der Figur, frisch aus dem Seitenzustand gelesen.
+   * Die Steuerung ruft das bei jedem Ladeschritt neu, damit eine inzwischen
+   * geänderte Wahl (Klasse, Rüstung, Helm) nicht von einem älteren Lauf
+   * überschrieben wird.
+   */
+  function figurPlan(d: Aussehen) {
+    return baueLadePlan(
+      d,
+      { klasse: klasseId, figur, frisur, haarfarbe, augenfarbe, bart, augenbraue },
+      { teile: ruestungAn ? aktiveRuestung?.teile : undefined, helmAus },
+    );
   }
+
+  const zeigeAussehen = () => (steuerung && daten ? steuerung.zeigeAussehen(() => figurPlan(daten!)) : Promise.resolve(false));
 
   /** Legt das vollständige Set der aktiven Klasse an oder räumt es ab. */
-  async function zeigeKlassenruestung(lauf?: number): Promise<boolean> {
-    if (!vorschau) return false;
-    const ruestungsAufruf = ++ruestungsLauf;
-    const istAktuell = () =>
-      (lauf === undefined || lauf === ladeLauf) && ruestungsAufruf === ruestungsLauf;
-    const set = ruestungAn ? RUESTUNGSSETS[klasseId] : undefined;
-    // `helmAus` wird hier, im selben Atemzug wie `ruestungAn`, gelesen: Die
-    // Vorschau setzt jeden Slot sofort, der letzte Aufruf gewinnt, und so kann
-    // nach schnellen Klicks weder ein Helm ohne Rüstung noch eine Rüstung mit
-    // dem falschen Helmzustand stehen bleiben. Die Slotnummern bleiben stabil;
-    // der Helm ist nur ein Slot, der `null` bekommt.
-    const helmWeg = helmAus;
-    await Promise.all(
-      Array.from({ length: 7 }, (_, index) => {
-        const teil = set?.teile[index];
-        return vorschau!.setze(
-          `klassenruestung-${index}`,
-          teil && !(helmWeg && teil.slot === 'kopf') ? teil.datei : null,
-        );
-      })
-    );
-    if (!istAktuell()) return false;
-    return true;
-  }
-
-  /**
-   * Wartet nicht nur auf Dateien, sondern auf tatsächlich gezeichnete Bilder.
-   * Die Waffenhaltung wird nach Babylons Animationsdurchlauf aufgetragen;
-   * ohne diesen Puffer verschwand der Lader einen Frame vor der fertigen Pose.
-   */
-  function warteBilder(anzahl = 3): Promise<void> {
-    return new Promise((resolve) => {
-      const weiter = () => {
-        anzahl -= 1;
-        if (anzahl <= 0) resolve();
-        else requestAnimationFrame(weiter);
-      };
-      requestAnimationFrame(weiter);
-    });
-  }
+  const zeigeKlassenruestung = () =>
+    steuerung && daten ? steuerung.zeigeRuestung(() => figurPlan(daten!)) : Promise.resolve(false);
 
   async function ladeAlles() {
-    if (!vorschau || !daten) return;
-    const lauf = ++ladeLauf;
-    const istAktuell = () => lauf === ladeLauf;
-    fertig = false;
-    hinweisText = null;
-    try {
-      await vorschau.setzeWurzel(modellWurzel);
-      if (!istAktuell()) return;
-      const koerperGeladen = await vorschau.ladeKoerper(koerperDatei());
-      if (!koerperGeladen || !istAktuell()) return;
-      await vorschau.setzeWaffe(waffeFuerKlasse(klasseId));
-      if (!istAktuell()) return;
-      if (!await zeigeAussehen(lauf)) return;
-      if (!await zeigeKlassenruestung(lauf)) return;
-      // Während Frisur und Kleidung nachladen, kann bereits eine andere
-      // Klasse gewählt worden sein. Solange abgleichen, bis genau diese
-      // Wahl samt Haltung fertig ist; danach drei echte Renderframes warten.
-      // So bleibt weder eine veraltete Waffe noch die T-Pose kurz sichtbar.
-      while (true) {
-        const abgeglicheneKlasse = klasseId;
-        await vorschau.setzeWaffe(waffeFuerKlasse(abgeglicheneKlasse));
-        if (!istAktuell()) return;
-        await warteBilder();
-        if (!istAktuell()) return;
-        if (klasseId === abgeglicheneKlasse) break;
-      }
-      fertig = true;
-    } catch (e) {
-      // Die Meldung nennt Adresse UND Grund. Eine Vorgängerfassung sagte nur
-      // „liess sich nicht laden“ — damit war weder zu erkennen, ob der Server
-      // schweigt, ob die Datei fehlt oder ob der Browser die Domaingrenze
-      // blockt, und jede Fehlersuche begann mit Raten.
-      const url = `${modellWurzel}${koerperDatei()}.glb`;
-      console.warn('[erstellung] Laden fehlgeschlagen:', url, e);
-      let grund = String(e instanceof Error ? e.message : e);
-      try {
-        const probe = await fetch(url, { method: 'GET' });
-        grund = probe.ok
-          ? fuelle(t['create.stage.hint.file_reachable'], { status: probe.status })
-          : fuelle(t['create.stage.hint.server_status'], { status: probe.status });
-      } catch (netz) {
-        grund = fuelle(t['create.stage.hint.no_access'], {
-          fehler: String(netz).slice(0, 60),
-        });
-      }
-      fertig = false;
-      hinweisText = fuelle(t['create.stage.hint.not_loaded'], { grund });
-    }
+    if (!steuerung || !daten) return;
+    await steuerung.ladeAlles(() => figurPlan(daten!));
   }
 
   async function waehleKlasse(id: string) {
@@ -463,9 +281,9 @@
     // Während der Körper noch importiert wird, existiert Hand_R noch nicht.
     // ladeAlles() übernimmt die inzwischen gewählte Klassenwaffe direkt nach
     // dem Import; ein paralleler Ladeversuch würde nur ohne Hand-Anker enden.
-    if (!fertig || !vorschau) return;
+    if (!fertig || !steuerung) return;
     try {
-      await Promise.all([vorschau.setzeWaffe(waffeFuerKlasse(id)), zeigeKlassenruestung()]);
+      await Promise.all([steuerung.setzeWaffe(waffeFuerKlasse(id)), zeigeKlassenruestung()]);
     } catch (fehler) {
       console.warn('[erstellung] Waffe ließ sich nicht umschalten:', fehler);
     }
@@ -499,12 +317,6 @@
         /* schon gemeldet */
       }
     }
-  }
-
-  function waffeFuerKlasse(id: string): 'schwert' | 'stab' | null {
-    if (id === 'krieger') return 'schwert';
-    if (id === 'druide') return 'stab';
-    return null;
   }
 
   async function figurGewechselt() {
@@ -541,85 +353,12 @@
   }
 
   /**
-   * Bühne aufbauen. Wird erst gerufen, wenn die Sperre offen ist —
-   * vorher gibt es die Leinwand im DOM gar nicht.
-   */
-  async function starteBuehne() {
-    // Ein `tick()` wartet auf genau die DOM-Änderung, die `angemeldet`
-    // ausgelöst hat. Ohne das wäre `leinwand` noch null und der Aufbau
-    // bräche still ab.
-    await tick();
-    if (!leinwand) return;
-
-    if (!daten) {
-      try {
-        daten = await holeJson<Aussehen>(`/assets/appearance.json?v=${FIGUREN_STAND}`);
-      } catch (e) {
-        console.error('[erstellung]', e);
-        hinweisText = t['create.stage.hint.lists_missing'];
-        return;
-      }
-      vorgabenWaehlen();
-    }
-
-    if (!vorschau) {
-      /*
-        Das Vorschau-Bündel ist eine gewöhnliche Datei unter /assets/js/ und
-        wird im SPIEL-Repo gebaut (tools/vorschau-buendeln.mjs), weil Babylon
-        dort ohnehin liegt. `@vite-ignore` hält es aus dem Bündel dieser Seite
-        heraus — Vite soll die 2,8 MB weder anfassen noch mitziehen.
-      */
-      try {
-        const pfad = `/assets/js/vorschau.js?v=${FIGUREN_STAND}`;
-        const modul = (await import(/* @vite-ignore */ pfad)) as {
-          Vorschau: new (leinwand: HTMLCanvasElement, wurzel: string) => Vorschau;
-        };
-        vorschau = new modul.Vorschau(leinwand, modellWurzel);
-        kopfZoomBereit = typeof vorschau.zoomeKopf === 'function';
-        vorschau.beiKopfZustand = (zustand) => {
-          kopfNah = zustand.nah;
-          kopfUeber = zustand.ueber;
-          kopfGueltig = zustand.gueltig === true;
-          if (zustand.nah && !kopfZoomGesehen) {
-            kopfZoomGesehen = true;
-            try {
-              sessionStorage.setItem(KOPFZOOM_SPEICHER, '1');
-            } catch {
-              /* privater Modus: dann gilt es nur für diese Seite */
-            }
-          }
-        };
-      } catch (e) {
-        console.error('[erstellung] vorschau.js', e);
-        hinweisText = fuelle(t['create.stage.hint.module_missing'], {
-          fehler: String(e).slice(0, 90),
-        });
-        return;
-      }
-    }
-
-    await ladeAlles();
-    fussHinweisAn = true;
-  }
-
-  /**
-   * Bühne abräumen, wenn die Sperre zufällt.
-   *
-   * `dispose()` ist nicht Höflichkeit: Die Leinwand verschwindet mit dem
-   * `{#if}` aus dem DOM, aber Babylons Engine liefe mit ihrem Renderloop
-   * weiter und hinge an einer Leinwand, die niemand mehr sieht.
+   * Bühne abräumen, wenn die Sperre zufällt: Die Figur entsorgt ihre Engine,
+   * sobald `aktiv` fällt (Leinwand und Renderloop wären sonst verwaist).
    */
   function raeumeBuehne() {
-    ladeLauf += 1;
-    vorschau?.dispose();
-    vorschau = null;
-    fertig = false;
+    buehneAktiv = false;
     fussHinweisAn = false;
-    kopfNah = false;
-    kopfUeber = false;
-    kopfGueltig = false;
-    kopfZoomBereit = false;
-    hinweisText = null;
   }
 
   /* ------------------------------------------------------ Gestadewahl */
@@ -761,7 +500,7 @@
     }
   }
 
-  onMount(async () => {
+  onMount(() => {
     try {
       alt = JSON.parse(localStorage.getItem(SPEICHER) ?? '{}');
     } catch {
@@ -798,7 +537,6 @@
     if (gewuenscht) writeShore(gewuenscht);
     angemeldet = readToken(gestade) !== null;
 
-    await starteBuehne();
   });
 
   onMount(() => {
@@ -963,51 +701,21 @@
   </aside>
 
   <section class="buehne" aria-label={lang === 'de' ? 'Charaktervorschau' : 'Character preview'}>
-    <div class="figur-lader" class:ausblenden={fertig} class:fehler={Boolean(hinweisText)} aria-hidden="true">
-      <div class="runenportal">
-        <div class="runenring">
-          {#each ['ᚠ', 'ᚢ', 'ᚦ', 'ᚨ', 'ᚱ', 'ᚲ', 'ᚷ', 'ᚹ'] as rune, index (rune)}
-            <span style={`--r:${index * 45}deg`}>{rune}</span>
-          {/each}
-        </div>
-        <i class="runenkern">{hinweisText ? 'ᛁ' : 'ᛉ'}</i>
-      </div>
-      <p>{hinweisText
-        ? (lang === 'de' ? '3D-Vorschau nicht verfügbar' : '3D preview unavailable')
-        : (lang === 'de' ? 'Der Recke wird gerufen …' : 'Summoning your Viking …')}</p>
-    </div>
-    <canvas bind:this={leinwand} class:bereit={fertig}></canvas>
-    <!--
-      Markierung am Kopf. Rein zur Anzeige (pointer-events: none): Der Klick
-      geht an die Leinwand. Ort und Größe liefert die Vorschau als
-      CSS-Variablen an dieser Bühne (--kopf-x, --kopf-y, --kopf-r).
-    -->
-    <div
-      class="kopf-marke"
-      class:gueltig={kopfGueltig}
-      class:sichtbar={fertig && kopfZoomBereit && kopfGueltig && !kopfNah && (!kopfZoomGesehen || kopfUeber)}
-      class:ueber={kopfUeber}
-      aria-hidden="true"
-    >
-      <svg viewBox="0 0 16 16" width="14" height="14" focusable="false"><circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M10 10l4.5 4.5M4.5 6.5h4M6.5 4.5v4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
-    </div>
-    <div class="buehne-hinweis nur-vorlesen" aria-live="polite" class:fertig>{hinweisText ?? t['create.stage.hint.loading']}</div>
-    <div class="buehne-werkzeug">
-      <button type="button" title={t['create.stage.rotate_left']} onclick={() => vorschau?.drehe(-0.35)}>↺</button>
-      <button type="button" title={t['create.stage.reset_view']} onclick={() => vorschau?.blickZurueck()}>⌂</button>
-      <button type="button" title={t['create.stage.rotate_right']} onclick={() => vorschau?.drehe(0.35)}>↻</button>
-      <button
-        type="button"
-        class:aktiv={kopfNah}
-        title={kopfNah ? t['create.stage.zoom_out'] : t['create.stage.zoom_head']}
-        aria-label={t['create.stage.zoom_head']}
-        aria-pressed={kopfNah}
-        disabled={!fertig || !kopfZoomBereit}
-        onclick={() => vorschau?.zoomeKopf?.()}
-      >
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M10 10l4.5 4.5M4.5 6.5h4{kopfNah ? '' : 'M6.5 4.5v4'}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
-      </button>
-    </div>
+    <ReckenVorschau
+      aktiv={buehneAktiv}
+      plan={figurPlan}
+      bind:daten
+      bind:steuerung
+      bind:fertig
+      bind:hinweisText
+      bind:kopfNah
+      bind:kopfUeber
+      bind:kopfGueltig
+      bind:kopfZoomBereit
+      bind:kopfZoomGesehen
+      beiDaten={vorgabenWaehlen}
+      beiGeladen={() => { fussHinweisAn = true; }}
+    />
     <p class="buehne-fuss">{fussHinweisAn ? t['create.footer.hint'] : ''}</p>
   </section>
 
@@ -1229,7 +937,7 @@
   }
   .panel-kopf h2 { font-size: 14px; letter-spacing: 0.13em; }
   .schnellaktionen { display: flex; gap: 5px; }
-  .schnellaktionen button, .detail-tabs button, .waehler button, .buehne-werkzeug button {
+  .schnellaktionen button, .detail-tabs button, .waehler button {
     border: 1px solid rgba(169, 137, 63, 0.38);
     border-radius: 4px;
     background: rgba(22, 23, 24, 0.82);
@@ -1264,87 +972,6 @@
   .farbwahl button.aktiv { outline: 2px solid var(--runengold); outline-offset: 2px; }
   .platzhalter-hinweis { margin: 0; color: #9d947e; font-size: 11px; line-height: 1.45; }
   .buehne { grid-column: 2; grid-row: 2; position: relative; min-height: 0; overflow: visible; }
-  .figur-lader {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: 18px;
-    color: #d8b950;
-    text-align: center;
-    text-shadow: 0 2px 8px #000;
-    pointer-events: none;
-    transition: visibility 0s linear, opacity 0.35s ease;
-    z-index: 2;
-  }
-  .figur-lader.ausblenden { visibility: hidden; opacity: 0; transition-delay: 0.35s, 0s; }
-  .figur-lader p { margin: 0; font-family: var(--schrift-kappen); font-size: 11px; letter-spacing: 0.13em; text-transform: uppercase; }
-  .runenportal { position: relative; width: 184px; height: 184px; border: 1px solid rgba(222, 180, 59, 0.4); border-radius: 50%; box-shadow: 0 0 24px rgba(225, 177, 38, 0.16), inset 0 0 28px rgba(225, 177, 38, 0.1); animation: portal-atmen 2.2s ease-in-out infinite; }
-  .runenportal::before, .runenportal::after { content: ''; position: absolute; border-radius: 50%; }
-  .runenportal::before { inset: 14px; border: 1px dashed rgba(240, 204, 93, 0.48); animation: portal-drehen 14s linear infinite reverse; }
-  .runenportal::after { inset: 52px; border: 1px solid rgba(240, 204, 93, 0.32); box-shadow: inset 0 0 18px rgba(240, 204, 93, 0.18); }
-  .runenring { position: absolute; inset: 0; animation: portal-drehen 10s linear infinite; }
-  .runenring span { position: absolute; top: 50%; left: 50%; color: #f0cf69; font-family: var(--schrift-kopf); font-size: 17px; transform: translate(-50%, -50%) rotate(var(--r)) translateY(-72px); transform-origin: center; }
-  .runenkern { position: absolute; inset: 50% auto auto 50%; display: grid; place-items: center; width: 62px; height: 62px; border-radius: 50%; background: radial-gradient(circle, rgba(237, 197, 69, 0.2), transparent 68%); font-family: var(--schrift-kopf); font-size: 38px; font-style: normal; transform: translate(-50%, -50%); animation: runenkern-leuchten 1.65s ease-in-out infinite; }
-  .figur-lader.fehler { color: #b98d72; }
-  .figur-lader.fehler .runenportal, .figur-lader.fehler .runenportal::before, .figur-lader.fehler .runenkern, .figur-lader.fehler .runenring { animation-play-state: paused; }
-  .figur-lader.fehler .runenportal { border-color: rgba(166, 91, 61, 0.45); box-shadow: 0 0 20px rgba(91, 34, 24, 0.2), inset 0 0 28px rgba(91, 34, 24, 0.12); }
-  .figur-lader.fehler .runenring span, .figur-lader.fehler .runenkern { color: #b87559; }
-  @keyframes portal-drehen { to { transform: rotate(360deg); } }
-  @keyframes portal-atmen { 50% { border-color: rgba(255, 220, 102, 0.72); box-shadow: 0 0 44px rgba(225, 177, 38, 0.3), inset 0 0 36px rgba(225, 177, 38, 0.17); } }
-  @keyframes runenkern-leuchten { 50% { opacity: 0.58; transform: translate(-50%, -50%) scale(0.9); } }
-  .buehne canvas { position: absolute; inset: -28px -10px -36px; width: calc(100% + 20px); height: calc(100% + 64px); outline: none; background: transparent; cursor: grab; touch-action: none; opacity: 0; transition: opacity 0.3s ease; }
-  .buehne canvas.bereit { opacity: 1; }
-  .buehne canvas:active { cursor: grabbing; }
-  .buehne-hinweis { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; color: #b8ad95; font-size: 12px; text-align: center; text-shadow: 0 2px 6px #000; pointer-events: none; }
-  .buehne-hinweis.fertig { display: none; }
-  .buehne-werkzeug { position: absolute; right: 12px; bottom: 34px; display: flex; gap: 5px; z-index: 3; }
-  .buehne-werkzeug button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; font-size: 14px; backdrop-filter: blur(5px); }
-  .buehne-werkzeug button:disabled { cursor: not-allowed; opacity: 0.52; }
-  .buehne-werkzeug button.aktiv { border-color: var(--runengold); color: var(--runengold); background: rgba(182, 139, 37, 0.17); }
-
-  /*
-    Kopfmarkierung: dünner Ring in Runengold um den Kopf, mit einer kleinen
-    Lupe am Rand. Ort und Größe kommen aus der Vorschau (--kopf-x/-y/-r in
-    Pixeln, bezogen auf diese Bühne). Sichtbar, sobald die Figur steht,
-    deutlicher über der Bühne und am deutlichsten über dem Kopf selbst. Nach
-    dem ersten Kopf-Zoom der Sitzung zeigt die Seite sie nur noch beim
-    Überfahren des Kopfes (Klasse `sichtbar`).
-  */
-  .kopf-marke {
-    position: absolute;
-    z-index: 2;
-    left: var(--kopf-x, 50%);
-    top: var(--kopf-y, 30%);
-    width: calc(var(--kopf-r, 0px) * 2);
-    height: calc(var(--kopf-r, 0px) * 2);
-    transform: translate(-50%, -50%);
-    border: 1px solid color-mix(in srgb, var(--runengold), transparent 35%);
-    border-radius: 50%;
-    box-shadow: 0 0 16px rgba(255, 215, 0, 0.1), inset 0 0 14px rgba(255, 215, 0, 0.06);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.35s ease;
-  }
-  /* Ohne gültige Kopfposition (Körperwechsel, vor dem ersten Bild): sofort weg, ohne Blende. */
-  .kopf-marke:not(.gueltig) { opacity: 0; transition: none; animation: none; }
-  .kopf-marke.sichtbar { opacity: 0.4; animation: kopf-puls 2.8s ease-in-out infinite; }
-  .buehne:hover .kopf-marke.sichtbar { opacity: 0.8; }
-  .kopf-marke.sichtbar.ueber { opacity: 1; border-color: var(--runengold); }
-  .kopf-marke svg {
-    position: absolute;
-    right: 8%;
-    top: 8%;
-    transform: translate(50%, -50%);
-    box-sizing: content-box;
-    padding: 4px;
-    border: 1px solid color-mix(in srgb, var(--runengold), transparent 40%);
-    border-radius: 50%;
-    background: rgba(9, 11, 16, 0.78);
-    color: var(--runengold);
-  }
-  @keyframes kopf-puls { 50% { transform: translate(-50%, -50%) scale(1.05); } }
   .buehne-fuss { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); width: max-content; max-width: 92%; margin: 0; color: rgba(225, 216, 196, 0.72); font-size: 10px; text-align: center; }
 
   .klasseninfo { grid-column: 3; grid-row: 2; align-self: stretch; overflow: auto; padding: 10px 0 12px 20px; border-left: 1px solid rgba(208, 157, 32, 0.22); background: linear-gradient(90deg, rgba(5, 8, 9, 0.48), rgba(4, 6, 7, 0.16)); backdrop-filter: blur(3px); }
@@ -1401,7 +1028,6 @@
     .schmiede-kopf, .anpassung, .buehne, .klasseninfo, .klassenwahl, .schmiede-aktionen { grid-column: 1; grid-row: auto; min-width: 0; }
     .anpassung { order: 2; }
     .buehne { order: 1; min-height: 55svh; }
-    .buehne canvas { inset: 0; width: 100%; height: 100%; }
     .klassenwahl { order: 3; overflow-x: auto; justify-content: flex-start; padding: 8px 2px; }
     .klassenwahl button { flex: 0 0 56px; width: 56px; }
     .klassen-icon { width: 56px; height: 56px; }
@@ -1418,9 +1044,4 @@
     .zurueck, .erstellen-los { width: 100%; }
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .runenportal, .runenportal::before, .runenkern, .runenring { animation: none; }
-    .kopf-marke { transition: none; }
-    .kopf-marke.sichtbar { animation: none; }
-  }
 </style>

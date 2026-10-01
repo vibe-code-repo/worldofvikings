@@ -578,7 +578,9 @@ async function main(): Promise<void> {
       const vorher = new Set(lootZDOs());
       alice.meldungen.length = 0;
       sendAbriss(alice, stueck.position);
-      await warte(400);
+      // poll instead of a fixed sleep (one run in four missed the 400 ms under load), then let the refund packets arrive
+      for (let t = 0; t < 4000 && !stueck.destroyed; t += 50) await warte(50);
+      await warte(300);
       const gelegt = neueBeute(vorher);
       const summe = (item: string): number => gelegt.filter((l) => l.getString(BEUTE_ITEM) === item).reduce((a, l) => a + l.getInt(BEUTE_MENGE), 0);
       check(`the piece "${teilDef.name}" is torn down`, stueck.destroyed);

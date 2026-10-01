@@ -28,10 +28,15 @@
 # ── Was er NICHT behauptet ───────────────────────────────────────────────
 # "ok" heisst: die Seite hat eigenen Inhalt im HTML. Es heisst NICHT, dass
 # sie ohne JavaScript VOLLSTAENDIG ist. Mehrere Seiten holen ihre Daten
-# weiterhin im Browser nach — saga und ruhmeshalle seit jeher, karte und
-# ruestkammer ebenso; konto kann es gar nicht anders, weil dort etwas
-# Persoenliches stuende. Die drei mit einer eigenen Schwelle stehen unten
-# namentlich in NACHGELADEN, mit Begruendung je Zeile.
+# weiterhin im Browser nach — saga und karte seit jeher; konto kann es gar
+# nicht anders, weil dort etwas Persoenliches stuende. Die mit einer eigenen
+# Schwelle stehen unten namentlich in NACHGELADEN, mit Begruendung je Zeile.
+#
+# ruestkammer (armory) und ruhmeshalle (hall-of-fame) stehen NICHT mehr dort:
+# Sie rendern seit R2 serverseitig (`prerender = false`, Daten vom Spielserver)
+# und liegen deshalb gar nicht als HTML in build/. Dieses Skript sieht sie
+# nicht; ihr Text im ausgelieferten HTML steht in der Ablaufbeschreibung der
+# Karte, nicht in einer Schwelle hier.
 #
 # Das ist Altbestand, kein Ergebnis des Sprachumbaus — aber es steht hier,
 # damit niemand die Zahl fuer eine Zusicherung haelt, die sie nicht ist.
@@ -72,9 +77,6 @@ NACHGELADEN = {
     'saga': 90,
     # Eintraege kommen aus /api/devlog.json; vorgerendert steht nur der Rahmen.
     'devlog': 90,
-    # Tafeln werden im Browser umgeschaltet (Altbestand).
-    'ruhmeshalle': 300,
-    'hall-of-fame': 300,
     # Zeigt die Recken des ANGEMELDETEN Kontos. Vorgerendert kann hier
     # nichts Persoenliches stehen; die Seite erklaert genau das und bietet
     # Anmelden und Konto anlegen an. Kurz, aber nicht leer.

@@ -21,16 +21,18 @@
  * sie weg, solange der Server sie nicht kennt. Kommen sie, setzt `baueProfil`
  * sie, und die Webseite liest `undefined` als "unbekannt".
  *
- * ── Puffer ────────────────────────────────────────────────────────────
- * Antworten liegen ARMORY_CACHE_MS im Speicher. 30 s, weil der Spielerzustand
- * hoechstens alle 30 s geschrieben wird (SpielerSicherung): Die Anzeige ist
- * damit hoechstens rund eine Minute alt (Puffer plus Schreibabstand), und ein
- * kuerzerer Puffer brachte keine frischeren Daten, nur mehr JSON-Parsen. Das
- * Abbild eines Charakters kostet einen Parse von `spielerzustand.daten`; ohne
- * Puffer wuerde jeder Seitenaufruf eines Besuchers (oder eines Schleifenskripts)
- * die Datenbank belasten. Die Groesse ist begrenzt, damit verschiedene
- * Suchbegriffe den Speicher nicht fuellen koennen. Aendert sich, wer sichtbar
- * ist (Loeschung, Bann, neuer Charakter), wird der Puffer sofort geleert.
+ * ── Speicherstand statt Puffer je Anfrage ───────────────────────────
+ * Die Liste kommt aus EINEM Speicherstand aller sichtbaren Charaktere
+ * (ARMORY_CACHE_MS = 30 s; Neubau hoechstens je ARMORY_NEUBAU_MIN_MS, auch
+ * wenn sich die Sichtbarkeit aendert). Suche und Seiten sind Array-Arbeit auf
+ * diesem Stand: `q` und `seite` bestimmen nichts, was gespeichert wird, ein
+ * Angreifer kann den Speicher also nicht fuellen und keine Datenbankarbeit je
+ * Anfrage erzwingen. 30 s, weil der Spielerzustand hoechstens alle 30 s
+ * geschrieben wird (SpielerSicherung): die Anzeige ist rund eine Minute alt.
+ * Profile werden einzeln je 30 s gepuffert (hoechstens ARMORY_CACHE_MAX), ihre
+ * Sichtbarkeit aber bei jedem Aufruf an der Datenbank geprueft und der
+ * Profiltext nie gepuffert. Eine Drossel je Herkunft (`erlaubt`) ist die zweite
+ * Linie; nginx sperrt den Weg von aussen (deploy/nginx/wov-lab.conf).
  */
 import {
   AUSRUESTUNG_SLOTS, KEINE_WERTE, STAT_IDS, SLOT_VORGABE, ausgehenderNahkampfSchaden, decodeArmor, findItem,

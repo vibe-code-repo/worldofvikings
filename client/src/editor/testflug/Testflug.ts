@@ -51,7 +51,6 @@ import { verdrahteGrundskalaLive } from './grundskalaLive';
 import { GelaendeAktionen } from './GelaendeAktionen';
 import { GelaendeSteuerung, type Kasten } from './GelaendeSteuerung';
 import { pipetteEntscheid, radiusSchritt, verlaufEntscheid } from './gelaendePinsel';
-import { rohHoehenQuelle } from './gelaendeRoh';
 import { verdrahteEntwurfHoerer } from './gelaendeHoerer';
 import type { SperrKatalog } from './gelaendeSperre';
 
@@ -800,7 +799,6 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       vegetation: (n) => foliageNamen.has(n),
       upload: (n) => uploadedModelRegistry.uploadedModelEntry(n),
     };
-    let rohQuelle: ((x: number, z: number) => number) | null = null;
     const KREIS_FREI = new Color3(0.4, 0.9, 0.4);
     const KREIS_GESPERRT = new Color3(0.95, 0.2, 0.2);
     const KREIS_SEGMENTE = 48;
@@ -846,11 +844,6 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         verberge: () => kreisNetz?.setEnabled(false),
       },
       // Der Boden unter losen Objekten hat sich bewegt: nur diese neu aufsetzen (Gebäude und Sockel bleiben, wie sie sind).
-      rohHoehe: (x, z) => {
-        // Ohne Sockel und ohne Handkorrektur (zweites Gelände aus dem Layout, erst beim ersten Ebnen gebaut).
-        rohQuelle ??= rohHoehenQuelle(kontext.world()?.geo) ?? ((px, pz) => kontext.world()?.getGroundHeight(px, pz) ?? 0);
-        return rohQuelle(x, z);
-      },
       pipetteAnzeige: (an) => panel.setzePipetteBereit(an),
       nachStrich: (lose) => {
         if (lose === 'alle') neuAufbauenAlle();

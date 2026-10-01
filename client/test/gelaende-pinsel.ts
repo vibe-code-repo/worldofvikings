@@ -51,7 +51,6 @@ import {
 import { gebaeudeRadius, gesperrtDurch, istBauteil, sperrKreise, type SperrKatalog } from '../src/editor/testflug/gelaendeSperre';
 import { GelaendeAktionen } from '../src/editor/testflug/GelaendeAktionen';
 import { GelaendeSteuerung, type GelaendeAbh, type Kasten } from '../src/editor/testflug/GelaendeSteuerung';
-import { rohHoehenQuelle } from '../src/editor/testflug/gelaendeRoh';
 import { entferneKorrekturSicht, installiereKorrekturSicht } from '../src/editor/testflug/gelaendeGeo';
 
 let fehler = 0;
@@ -320,7 +319,6 @@ function aufbau(doc: Record<string, unknown>): Aufbau {
   let zeit = 1000;
   let vorgaenge = 0;
   const ein: Aufbau['ein'] = { werkzeug: 'anheben', radius: 6, staerke: 20, ziel: null };
-  const rohQ = rohHoehenQuelle(welt.geo)!;
   const abh: GelaendeAbh = {
     hoehe: (x, z) => welt.getGroundHeight(x, z),
     geo: () => welt.geo,
@@ -333,7 +331,6 @@ function aufbau(doc: Record<string, unknown>): Aufbau {
     aktionen,
     einstellung: () => ein,
     setzeZiel: (h) => void (ein.ziel = h),
-    rohHoehe: (x, z) => rohQ(x, z),
     pipetteAnzeige: () => undefined,
     meldung: (t) => meldungen.push(t),
     kreis: { zeige: (_x, _z, r, gesperrt) => void kreise.push({ r, gesperrt }), verberge: () => undefined },

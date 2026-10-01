@@ -33,6 +33,7 @@ import {
 } from './gelaendePinsel';
 import { GelaendeVerlauf } from './gelaendeVerlauf';
 import { loseIndizes, platzierungenNahe } from './gelaendeLose';
+import { rohHoehenQuelle } from './gelaendeRoh';
 import { gesperrtDurch, punktGesperrt, sperrKreise, type SperrKatalog, type SperrKreis, type SperrPlatzierung } from './gelaendeSperre';
 import { t } from '../i18n';
 
@@ -58,10 +59,8 @@ export interface GelaendeAbh {
   einstellung(): { werkzeug: Werkzeug; radius: number; staerke: number; ziel: number | null };
   /** The pipette / a number in the target field: show the new target height in the panel. */
   setzeZiel(hoehe: number): void;
-  /** Ground height at a vertex WITHOUT plinths and WITHOUT the hand correction (the level tool aims at `Ziel − Rohhöhe`). */
-  rohHoehe(x: number, z: number): number;
   /** The pipette button is armed / disarmed (panel highlight). */
-  pipetteAnzeige(an: boolean): void;
+  pipetteAnzeige?(an: boolean): void;
   meldung(text: string): void;
   kreis: { zeige(x: number, z: number, r: number, gesperrt: boolean): void; verberge(): void };
   /**
@@ -92,6 +91,7 @@ export class GelaendeSteuerung {
   private platzSig: string | null = null;
   /** The pipette button was pressed: the next click on the ground reads the height and starts no stroke. */
   private pipetteScharfBei = false;
+  private rohQuelle: ((x: number, z: number) => number) | null = null;
 
   constructor(private readonly abh: GelaendeAbh) {}
 
@@ -122,6 +122,15 @@ export class GelaendeSteuerung {
     this.karte = karte;
     this.platzSig = this.platzierungenSig();
     return true;
+  }
+
+  /**
+   * Ground height at a vertex WITHOUT plinths and WITHOUT the hand correction (`gelaendeRoh.ts`, built at the first
+   * level stroke): the level tool aims the correction at `Ziel − Rohhöhe`.
+   */
+  private rohHoehe(x: number, z: number): number {
+    this.rohQuelle ??= rohHoehenQuelle(this.abh.geo()) ?? ((px, pz) => this.abh.hoehe(px, pz));
+    return this.rohQuelle(x, z);
   }
 
   private platzierungenSig(): string {
@@ -220,7 +229,7 @@ export class GelaendeSteuerung {
     // The pipette button is armed: this click reads the height and starts no stroke.
     if (this.pipetteScharfBei) {
       this.pipetteScharfBei = false;
-      this.abh.pipetteAnzeige(false);
+      this.abh.pipetteAnzeige?.(false);
       this.pipetteAn(p);
       return;
     }
@@ -267,7 +276,7 @@ export class GelaendeSteuerung {
     const wirk = wirkRadius(werkzeug, radius, e.staerke);
     const sperre = gesperrtDurch(this.sperrkreiseHolen(), p.x, p.z, wirk);
     const r = strich.stempel(
-      { x: p.x, z: p.z, radius, staerke: e.staerke, werkzeug, hoehe: (ix, iz) => this.abh.hoehe(ix, iz), ziel: e.ziel ?? undefined, roh: (ix, iz) => this.abh.rohHoehe(ix, iz) },
+      { x: p.x, z: p.z, radius, staerke: e.staerke, werkzeug, hoehe: (ix, iz) => this.abh.hoehe(ix, iz), ziel: e.ziel ?? undefined, roh: (ix, iz) => this.rohHoehe(ix, iz) },
       sperre !== null
     );
     this.abh.kreis.zeige(p.x, p.z, wirk, sperre !== null);
@@ -375,7 +384,7 @@ export class GelaendeSteuerung {
   /** The button „Pipette“: the next click on the ground reads the height (and starts no stroke). */
   pipetteScharf(): void {
     this.pipetteScharfBei = true;
-    this.abh.pipetteAnzeige(true);
+    this.abh.pipetteAnzeige?.(true);
     this.abh.meldung(t('testflug.gelaende.pipette_bereit'));
   }
 
@@ -443,7 +452,7 @@ export class GelaendeSteuerung {
     // Tab change, Esc, closing the panel: an armed pipette does not wait for a later click.
     if (this.pipetteScharfBei) {
       this.pipetteScharfBei = false;
-      this.abh.pipetteAnzeige(false);
+      this.abh.pipetteAnzeige?.(false);
     }
     this.loslassen();
     this.abh.kreis.verberge();

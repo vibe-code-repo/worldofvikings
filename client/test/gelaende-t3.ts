@@ -139,7 +139,6 @@ function aufbau(doc: Record<string, unknown>): Aufbau {
   const zeigt = new Map<number, string>();
   platz(e).forEach((p, i) => zeigt.set(i, String((p as { id?: string }).id ?? i)));
   const stand = { pipetteAnzeige: false };
-  const rohQ = rohHoehenQuelle(welt.geo)!;
   const abh: GelaendeAbh = {
     hoehe: (x, z) => welt.getGroundHeight(x, z),
     geo: () => welt.geo,
@@ -151,7 +150,6 @@ function aufbau(doc: Record<string, unknown>): Aufbau {
     aktionen,
     einstellung: () => ein,
     setzeZiel: (h) => void (ein.ziel = h),
-    rohHoehe: (x, z) => rohQ(x, z),
     pipetteAnzeige: (an) => void (stand.pipetteAnzeige = an),
     meldung: (t) => meldungen.push(t),
     kreis: { zeige: () => undefined, verberge: () => undefined },

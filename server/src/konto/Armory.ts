@@ -640,9 +640,12 @@ const STUFE_MAX = 999;
  * Tode, Spielzeit, Stufe und Fertigkeiten aus dem Spielstand, jeweils nur wenn vorhanden und lesbar
  * (ein fehlendes Feld bleibt weg, es wird nie zu 0). Erfahrung (xp, xpGesamt) wird absichtlich NICHT ausgegeben.
  *
- * Spielzeit: auf VOLLE STUNDEN abgerundet, in Minuten (Vielfache von 60). Die Zahl waere sonst minutengenau und
- * wuerde sich zwischen zwei Abrufen aendern, solange jemand spielt: ein Ablesen von "gerade online" aus einer
- * Summe. Stundenstufen aendern sich hoechstens einmal je Stunde und sagen nichts ueber den Zeitpunkt.
+ * Spielzeit: auf VOLLE STUNDEN abgerundet, in Minuten (Vielfache von 60). Das haelt die Zahl grob, verhindert aber NICHT,
+ * dass man ablesen kann, wann jemand online war: Ein Sprung der Spielzeit (eine Stunde weiter) oder der Tode verraet,
+ * dass der Charakter kurz davor verbunden war, auf etwa eine Minute genau (Sicherungstakt 30 s + Puffer 30 s; die
+ * Spielzeit selbst fliesst im normalen Takt in 5-Minuten-Stufen ein). Dieses Risiko ist entschieden und wird getragen
+ * (Mike, 01.10.2026: "so lassen, Text korrigieren"). Wer es ausschliessen will, muss Tode und Spielzeit aus einem
+ * Tagesstand liefern, den ein fester Zeitpunkt fuer alle Charaktere zieht.
  */
 function leseSpielwerte(g: Record<string, unknown>): Partial<Pick<ArmoryProfil, 'stufe' | 'tode' | 'spielzeitMinuten' | 'fertigkeiten'>> {
   const aus: Partial<Pick<ArmoryProfil, 'stufe' | 'tode' | 'spielzeitMinuten' | 'fertigkeiten'>> = {};

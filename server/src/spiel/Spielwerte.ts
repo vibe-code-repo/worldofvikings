@@ -37,6 +37,9 @@ export interface SpielwerteStand {
   spielzeitSek: number;
 }
 
+/** Stufe der Spielzeit im normalen Sicherungstakt: so selten aendert sich der gesicherte Stand eines untaetigen Spielers. */
+export const SPIELZEIT_STUFE_SEK = 300;
+
 export type MonotoneUhr = () => number;
 
 const monotoneUhr: MonotoneUhr = () => performance.now();
@@ -47,6 +50,8 @@ export class Spielwerte {
   private spielMs: number | undefined;
   /** Messpunkt der laufenden Spanne; `null` = es laeuft nichts (nicht angemeldet oder beendet). */
   private lauf: number | null = null;
+  /** Der zuletzt gemeldete Sekundenwert: die Meldung sinkt nie (eine Stufe unter einem genauen Stand meldet diesen weiter). */
+  private gemeldetSek = 0;
 
   constructor(private readonly uhr: MonotoneUhr = monotoneUhr) {}
 
@@ -55,6 +60,7 @@ export class Spielwerte {
     this.tode = bereinigeZaehler(gespeichert?.tode, TODE_MAX);
     const sek = bereinigeZaehler(gespeichert?.spielzeitSek, SPIELZEIT_MAX_SEK);
     this.spielMs = sek === undefined ? undefined : sek * 1000;
+    this.gemeldetSek = sek ?? 0;
     this.lauf = this.uhr();
   }
 
@@ -74,16 +80,25 @@ export class Spielwerte {
     }
   }
 
-  /** Der Stand fuer die Sicherung: beide Felder, Spielzeit in ganzen Sekunden abgerundet. */
-  stand(): SpielwerteStand {
+  /**
+   * Der Stand fuer die Sicherung: beide Felder, Spielzeit in ganzen Sekunden abgerundet.
+   *
+   * `exakt = false` (normaler Takt und Ereignisse): die Spielzeit steigt nur in 5-Minuten-Stufen. Ein Spieler, der sonst
+   * nichts aendert, schreibt dann hoechstens alle 5 Minuten eine Zeile (F8: nur Geaendertes) statt bei jedem 30-s-Takt.
+   * `exakt = true` (Abmelden, Stopp, Tod): sekundengenau. Die Meldung sinkt nie unter einen schon gemeldeten Wert.
+   */
+  stand(exakt = false): SpielwerteStand {
     this.buche();
-    return { tode: this.tode ?? 0, spielzeitSek: Math.floor((this.spielMs ?? 0) / 1000) };
+    const genau = Math.floor((this.spielMs ?? 0) / 1000);
+    const stufe = Math.floor(genau / SPIELZEIT_STUFE_SEK) * SPIELZEIT_STUFE_SEK;
+    this.gemeldetSek = exakt ? genau : Math.max(stufe, this.gemeldetSek);
+    return { tode: this.tode ?? 0, spielzeitSek: this.gemeldetSek };
   }
 
   /** Abmelden: den Rest buchen und stoppen. Weitere `stand()`-Aufrufe zaehlen nichts mehr. */
   beende(): SpielwerteStand {
     this.buche();
     this.lauf = null;
-    return this.stand();
+    return this.stand(true);
   }
 }

@@ -2549,7 +2549,7 @@ export class WovServer {
     // and the next world save writes it to the players[] section.
     // F3 (Security-Review): geschluesselt ueber die stabile spielerId,
     // nicht mehr ueber den Namen — siehe Kopfkommentar von savedPlayers.
-    const stand = this.spielerStand(peer);
+    const stand = this.spielerStand(peer, true);
     this.savedPlayers.set(peer.spielerId, stand);
     // F8: der Abschlussstand geht sofort in die SQLite (Fehler laut, der
     // Weltspeicher hat ihn ohnehin in savedPlayers).
@@ -6341,7 +6341,7 @@ export class WovServer {
    * Phase G: fuer Peers in einem Dungeon zaehlt der Rueckkehrpunkt der
    * Oberwelt — Instanzen ueberleben keinen Neustart.
    */
-  private spielerStand(peer: Peer): SavedPlayer {
+  private spielerStand(peer: Peer, exakt = false): SavedPlayer {
     return {
       name: peer.name,
       spielerId: peer.spielerId,
@@ -6356,7 +6356,7 @@ export class WovServer {
       augenfarbe: peer.augenfarbe,
       klasse: peer.klasse,
       starterSetGranted: peer.starterSetGranted,
-      ...peer.spielwerte.stand(),
+      ...peer.spielwerte.stand(exakt),
       ruestung: peer.ruestung,
       waffe: peer.waffe || undefined,
       inventar: peer.inventar.serialize(),
@@ -6372,7 +6372,7 @@ export class WovServer {
    */
   private sichereSpieler(peers: readonly Peer[], grund: string, welt: 'alle' | readonly ZDO[] | null = null): void {
     if (!this.spielerSicherung) return;
-    const staende = peers.filter((p) => p.authenticated && !p.nurEditor && p.spielerId).map((p) => this.spielerStand(p));
+    const staende = peers.filter((p) => p.authenticated && !p.nurEditor && p.spielerId).map((p) => this.spielerStand(p, grund === 'tod' || grund === 'stopp'));
     // F8 N2: die geaenderten Behaelter-/Bau-ZDOs kommen in DERSELBEN Transaktion
     // mit auf die Platte ('alle' = Vollabtastung im Takt, sonst nur die
     // beruehrten ZDOs eines Ereignisses).
@@ -6744,7 +6744,7 @@ export class WovServer {
       // Schluessel); der bleibt unbenutzt liegen. Was tatsaechlich auf die Platte geht, sind nur die WERTE
       // (players[] ist ein Array) — der Map-Schluessel selbst ist reiner
       // Laufzeitzustand.
-      players.set(peer.spielerId, this.spielerStand(peer));
+      players.set(peer.spielerId, this.spielerStand(peer, true));
     }
 
     return {

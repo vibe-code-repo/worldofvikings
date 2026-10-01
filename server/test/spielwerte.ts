@@ -44,49 +44,65 @@ function teil1(): void {
   let t = 1000;
   const sw = new Spielwerte(() => t);
   sw.laden(undefined);
-  check('Altstand ohne Felder laedt fehlerfrei und liefert 0/0 erst im Sicherungsstand', JSON.stringify(sw.stand()) === '{"tode":0,"spielzeitSek":0}');
+  check('Altstand ohne Felder laedt fehlerfrei und liefert 0/0 erst im Sicherungsstand', JSON.stringify(sw.stand(true)) === '{"tode":0,"spielzeitSek":0}');
   t += 90_500; // 90,5 s
-  check('90,5 s -> 90 s (abgerundet, Rest bleibt erhalten)', sw.stand().spielzeitSek === 90, JSON.stringify(sw.stand()));
-  check('zweites Sichern ohne Zeitablauf zaehlt nichts doppelt', sw.stand().spielzeitSek === 90);
+  check('90,5 s -> 90 s (abgerundet, Rest bleibt erhalten)', sw.stand(true).spielzeitSek === 90, JSON.stringify(sw.stand(true)));
+  check('zweites Sichern ohne Zeitablauf zaehlt nichts doppelt', sw.stand(true).spielzeitSek === 90);
   t += 600; // Rest 0,5 + 0,6 = 1,1 s
-  check('der Rest unter einer Sekunde geht nicht verloren (90,5 + 0,6 -> 91 s)', sw.stand().spielzeitSek === 91, String(sw.stand().spielzeitSek));
+  check('der Rest unter einer Sekunde geht nicht verloren (90,5 + 0,6 -> 91 s)', sw.stand(true).spielzeitSek === 91, String(sw.stand(true).spielzeitSek));
   t -= 3_600_000; // Uhr springt eine Stunde zurueck
-  const nachSprung = sw.stand().spielzeitSek;
+  const nachSprung = sw.stand(true).spielzeitSek;
   check('Uhrsprung rueckwaerts: keine negative Spanne, nichts geht verloren', nachSprung === 91, String(nachSprung));
   t += 10_000;
-  check('danach laeuft es ab dem neuen Messpunkt weiter (+10 s)', sw.stand().spielzeitSek === 101, String(sw.stand().spielzeitSek));
+  check('danach laeuft es ab dem neuen Messpunkt weiter (+10 s)', sw.stand(true).spielzeitSek === 101, String(sw.stand(true).spielzeitSek));
   t += 5_000;
   const ende = sw.beende();
   check('Abmelden bucht den Rest (+5 s)', ende.spielzeitSek === 106, JSON.stringify(ende));
   t += 999_000;
-  check('nach dem Abmelden laeuft nichts weiter', sw.stand().spielzeitSek === 106 && sw.beende().spielzeitSek === 106);
+  check('nach dem Abmelden laeuft nichts weiter', sw.stand(true).spielzeitSek === 106 && sw.beende().spielzeitSek === 106);
 
   // Zwei Sitzungen nacheinander: die zweite beginnt beim gespeicherten Stand.
   const zweite = new Spielwerte(() => t);
   zweite.laden({ tode: 3, spielzeitSek: ende.spielzeitSek });
   t += 4_000;
-  check('zweite Sitzung: gespeicherter Stand + eigene Spanne, nicht doppelt', zweite.stand().spielzeitSek === 110 && zweite.stand().tode === 3);
+  check('zweite Sitzung: gespeicherter Stand + eigene Spanne, nicht doppelt', zweite.stand(true).spielzeitSek === 110 && zweite.stand(true).tode === 3);
 
   // Tode
   const z = new Spielwerte(() => t);
   z.laden({ tode: 2 });
   z.zaehleTod();
-  check('ein Tod -> +1', z.stand().tode === 3);
-  check('Sichern zaehlt den Tod nicht noch einmal', z.stand().tode === 3 && z.stand().tode === 3);
+  check('ein Tod -> +1', z.stand(true).tode === 3);
+  check('Sichern zaehlt den Tod nicht noch einmal', z.stand(true).tode === 3 && z.stand(true).tode === 3);
 
   // Kaputte Werte
   const k = new Spielwerte(() => t);
   k.laden({ tode: -4, spielzeitSek: Number.NaN });
-  check('negativ/NaN -> wie nicht erfasst (0 im ersten Stand)', JSON.stringify(k.stand()) === '{"tode":0,"spielzeitSek":0}');
+  check('negativ/NaN -> wie nicht erfasst (0 im ersten Stand)', JSON.stringify(k.stand(true)) === '{"tode":0,"spielzeitSek":0}');
   const r = new Spielwerte(() => t);
   r.laden({ tode: 1e300, spielzeitSek: Infinity });
-  check('riesig -> gekappt, Unendlich -> verworfen', r.stand().tode === TODE_MAX && r.stand().spielzeitSek === 0);
+  check('riesig -> gekappt, Unendlich -> verworfen', r.stand(true).tode === TODE_MAX && r.stand(true).spielzeitSek === 0);
   const r2 = new Spielwerte(() => t);
   r2.laden({ tode: '7', spielzeitSek: 1e30 });
-  check('Text -> verworfen; riesige Sekunden -> gekappt', r2.stand().tode === 0 && r2.stand().spielzeitSek === SPIELZEIT_MAX_SEK);
+  check('Text -> verworfen; riesige Sekunden -> gekappt', r2.stand(true).tode === 0 && r2.stand(true).spielzeitSek === SPIELZEIT_MAX_SEK);
   const f = new Spielwerte(() => t);
   f.laden({ tode: 2.9, spielzeitSek: 10.9 });
-  check('Kommazahlen werden abgerundet', f.stand().tode === 2 && f.stand().spielzeitSek === 10);
+  check('Kommazahlen werden abgerundet', f.stand(true).tode === 2 && f.stand(true).spielzeitSek === 10);
+  // Normaler Takt: nur 5-Minuten-Stufen, Abmelden/Tod/Stopp exakt, die Meldung sinkt nie.
+  t = 0;
+  const st = new Spielwerte(() => t);
+  st.laden(undefined);
+  const gemeldet: number[] = [];
+  for (let i = 0; i < 10; i++) { t += 30_000; gemeldet.push(st.stand().spielzeitSek); } // 10 Takte = 300 s
+  check('10 Takte zu 30 s im normalen Takt: erst die 5-Minuten-Stufe aendert den Wert', JSON.stringify(gemeldet) === '[0,0,0,0,0,0,0,0,0,300]', JSON.stringify(gemeldet));
+  check('hoechstens eine Aenderung je 5 Minuten (untaetiger Spieler schreibt kaum)', new Set(gemeldet).size <= 2);
+  t += 70_000;
+  check('exakt (Abmelden/Tod/Stopp): sekundengenau (370 s)', st.stand(true).spielzeitSek === 370);
+  check('danach sinkt die Meldung im normalen Takt nicht (370, nicht 300)', st.stand().spielzeitSek === 370);
+  t += 240_000; // 610 s genau -> Stufe 600
+  check('spaeter wieder in Stufen (610 s -> 600)', st.stand().spielzeitSek === 600, String(st.stand().spielzeitSek));
+  const ge = new Spielwerte(() => t);
+  ge.laden({ spielzeitSek: 1000 });
+  check('geladener Stand 1000 s wird im normalen Takt nicht unterschritten (nicht 900)', ge.stand().spielzeitSek === 1000, String(ge.stand().spielzeitSek));
 }
 
 // ── [2] Ruestkammer ──────────────────────────────────────────────
@@ -187,6 +203,8 @@ async function toete(server: ReturnType<typeof baue>['server'], zugriff: ReturnT
   await warte(300);
 }
 
+let spielzeitVorher = -1;
+
 async function teil3(): Promise<void> {
   console.log('\n[3] Echter Server');
   const a = baue();
@@ -203,6 +221,20 @@ async function teil3(): Promise<void> {
     sockets.push(ws);
     const anna = peerVon(a.server, 'Anna')!;
     check('neuer Charakter: noch nichts gesichert', zeileAnna(a.zugriff) === undefined);
+    const verbundenSeit = Date.now();
+    // Untaetiger Spieler, 10 Takte (je 250 ms): auf main schreibt der erste Takt eine Zeile, die anderen nichts (Zahlen unten im Bericht).
+    const sichereTakt = (a.server as unknown as { sichereSpieler(p: readonly Peer[], g: string): void }).sichereSpieler.bind(a.server);
+    const z0 = a.zugriff.spielerSicherung.stats().zeilen;
+    const je: number[] = [];
+    for (let i = 0; i < 10; i++) {
+      const vor = a.zugriff.spielerSicherung.stats().zeilen;
+      sichereTakt(a.server.net.getPeers(), 'takt');
+      je.push(a.zugriff.spielerSicherung.stats().zeilen - vor);
+      await warte(250);
+    }
+    check('untaetiger Spieler, 10 Takte: hoechstens eine Zeile (die erste), danach keine (wie auf main)', a.zugriff.spielerSicherung.stats().zeilen - z0 <= 1 && je.slice(1).every((n) => n === 0), JSON.stringify(je));
+    check('die erste Zeile traegt beide Felder (Altstand bekommt sie beim ersten Sichern): tode 0, spielzeitSek 0 (noch unter der ersten Stufe)',
+      zeileAnna(a.zugriff)?.tode === 0 && zeileAnna(a.zugriff)?.spielzeitSek === 0, JSON.stringify(zeileAnna(a.zugriff)).slice(0, 120));
     a.server.liegezeitMs = 400;
     await toete(a.server, a.zugriff, anna);
     check('Anna liegt tot (ein PlayerTod)', ws.tod === 1 && anna.totBis > 0);
@@ -223,10 +255,12 @@ async function teil3(): Promise<void> {
     while (peerVon(a.server, 'Anna') && Date.now() - t1 < 4000) await warte(25);
     check('Anna ist abgemeldet', peerVon(a.server, 'Anna') === undefined);
     const stand = zeileAnna(a.zugriff);
-    check('Abmelden sichert tode 2 und Spielzeit als ganze Zahl >= 0', stand?.tode === 2 && Number.isInteger(stand.spielzeitSek) && stand.spielzeitSek! >= 0, JSON.stringify(stand));
-    const frozen = anna.spielwerte.stand().spielzeitSek;
+    const wandSek = Math.ceil((Date.now() - verbundenSeit) / 1000);
+    check('Abmelden sichert tode 2 und die EXAKTE Spielzeit (>= 2 s gespielt, hoechstens die Wandzeit)', stand?.tode === 2 && stand.spielzeitSek! >= 2 && stand.spielzeitSek! <= wandSek, `${stand?.spielzeitSek} s bei ${wandSek} s Wandzeit`);
+    spielzeitVorher = stand?.spielzeitSek ?? -1;
+    const frozen = anna.spielwerte.stand(true).spielzeitSek;
     await warte(1300);
-    check('nach dem Abmelden zaehlt die Spielzeit des alten Peers nicht weiter', anna.spielwerte.stand().spielzeitSek === frozen, `${frozen} -> ${anna.spielwerte.stand().spielzeitSek}`);
+    check('nach dem Abmelden zaehlt die Spielzeit des alten Peers nicht weiter', anna.spielwerte.stand(true).spielzeitSek === frozen, `${frozen} -> ${anna.spielwerte.stand(true).spielzeitSek}`);
 
     const ws2 = await verbinde('Anna');
     sockets.push(ws2);
@@ -245,7 +279,7 @@ async function teil3(): Promise<void> {
     sockets2.push(ws);
     const anna = peerVon(b.server, 'Anna')!;
     check('nach dem Neustart: tode 2 aus dem Spielerzustand', anna.spielwerte.stand().tode === 2, String(anna.spielwerte.stand().tode));
-    check('Spielzeit bleibt erhalten (>= Stand vor dem Neustart)', anna.spielwerte.stand().spielzeitSek >= 0);
+    check('Spielzeit bleibt erhalten (>= exakter Stand vor dem Neustart, und der war >= 2)', spielzeitVorher >= 2 && anna.spielwerte.stand(true).spielzeitSek >= spielzeitVorher, `${spielzeitVorher} -> ${anna.spielwerte.stand(true).spielzeitSek}`);
   } finally {
     for (const s of sockets2) if (s.readyState === WebSocket.OPEN) s.close();
     b.server.stop();

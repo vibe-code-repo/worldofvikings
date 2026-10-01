@@ -223,7 +223,7 @@ async function teil3(): Promise<void> {
     check('neuer Charakter: noch nichts gesichert', zeileAnna(a.zugriff) === undefined);
     const verbundenSeit = Date.now();
     // Untaetiger Spieler, 10 Takte (je 250 ms): auf main schreibt der erste Takt eine Zeile, die anderen nichts (Zahlen unten im Bericht).
-    const sichereTakt = (a.server as unknown as { sichereSpieler(p: readonly Peer[], g: string): void }).sichereSpieler.bind(a.server);
+    const sichereTakt = (_p: readonly Peer[], g: string): void => (a.server as unknown as { sichereSpielerSofort(p: Peer, g: string): void }).sichereSpielerSofort(anna, g);
     const z0 = a.zugriff.spielerSicherung.stats().zeilen;
     const je: number[] = [];
     for (let i = 0; i < 10; i++) {

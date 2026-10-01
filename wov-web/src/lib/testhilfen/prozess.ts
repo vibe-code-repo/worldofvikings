@@ -11,7 +11,7 @@ export async function beendeProzess(
 ): Promise<boolean> {
   if (!kind || kind.exitCode !== null || kind.signalCode !== null) return true;
   const ende = new Promise<void>((fertig) => kind.once('exit', () => fertig()));
-  void 0;
+  kind.kill();
   let uhr: ReturnType<typeof setTimeout> | undefined;
   const abgelaufen = new Promise<'frist'>((fertig) => {
     uhr = setTimeout(() => fertig('frist'), frist);

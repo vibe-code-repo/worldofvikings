@@ -16,6 +16,8 @@ describe('beendeProzess', () => {
 
   it('ein lebendiger Prozess wird beendet', async () => {
     const kind = node('setInterval(() => {}, 1000)');
+    // Erst anlaufen lassen: ein SIGTERM im Start des Prozesses wird nicht zuverlässig zugestellt.
+    await new Promise((r) => setTimeout(r, 300));
     expect(await beendeProzess(kind, 5000)).toBe(true);
     expect(kind.exitCode !== null || kind.signalCode !== null).toBe(true);
   });

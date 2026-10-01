@@ -21,6 +21,8 @@ export interface VegetationAbh {
   einstellung(): { radius: number; nurBaeume: boolean };
   meldung(text: string): void;
   kreis: { zeige(x: number, z: number, r: number, gesperrt: boolean): void; verberge(): void };
+  /** A stroke is now in the draft and in this history (the shared order of undo steps). */
+  strichGemacht?(): void;
 }
 
 export class VegetationSteuerung {
@@ -28,11 +30,20 @@ export class VegetationSteuerung {
   private readonly verlauf = new VegetationVerlauf();
   private zaehler = 0;
   private grenzeGemeldet = false;
+  private weltrandGemeldet = false;
 
   constructor(private readonly abh: VegetationAbh) {}
 
   get strichOffen(): boolean {
     return this.strich !== null;
+  }
+
+  get kannRueckgaengig(): boolean {
+    return this.verlauf.kannRueckgaengig;
+  }
+
+  get kannWiederholen(): boolean {
+    return this.verlauf.kannWiederholen;
   }
 
   /** Changes with every pending circle and every end of a stroke / undo / redo (part of the preview's change marker). */
@@ -67,6 +78,7 @@ export class VegetationSteuerung {
     }
     this.strich = new VegetationStrich(gelesen.kreise);
     this.grenzeGemeldet = false;
+    this.weltrandGemeldet = false;
     this.stempeln(p);
   }
 
@@ -86,6 +98,10 @@ export class VegetationSteuerung {
       this.grenzeGemeldet = true;
       this.abh.meldung(t('testflug.gelaende.vegetation.grenze', { max: VEGETATION_KREISE_MAX }));
     }
+    if (strich.verworfen && !this.weltrandGemeldet) {
+      this.weltrandGemeldet = true;
+      this.abh.meldung(t('testflug.gelaende.vegetation.weltrand'));
+    }
   }
 
   /** Mouse up: the stroke ends and becomes ONE write and ONE undo step. */
@@ -102,7 +118,12 @@ export class VegetationSteuerung {
       return;
     }
     this.verlauf.neu({ kreise });
-    this.abh.meldung(t('testflug.gelaende.vegetation.strich_gespeichert', { n: kreise.length }));
+    this.abh.strichGemacht?.();
+    // The HUD shows ONE line: what stopped the stroke is said again in the closing line, not painted over.
+    const zeilen = [t('testflug.gelaende.vegetation.strich_gespeichert', { n: kreise.length })];
+    if (strich.voll) zeilen.push(t('testflug.gelaende.vegetation.grenze', { max: VEGETATION_KREISE_MAX }));
+    if (strich.verworfen) zeilen.push(t('testflug.gelaende.vegetation.weltrand'));
+    this.abh.meldung(zeilen.join(' '));
   }
 
   rueckgaengig(): boolean {

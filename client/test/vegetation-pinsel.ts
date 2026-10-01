@@ -16,10 +16,11 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { VEGETATION_KREISE_MAX, type VegetationEntferntKreis } from '@wov/shared';
+import { VEGETATION_KREISE_MAX, vegetationPruefer, type VegetationEntferntKreis } from '@wov/shared';
 import { abgedeckt, stempelEntlang, vegStempelAbstand, VegetationStrich } from '../src/editor/testflug/vegetationPinsel';
 import { VegetationVerlauf, VEG_VERLAUF_MAX } from '../src/editor/testflug/vegetationVerlauf';
-import { VegetationAktionen, vegetationKreiseAusEntwurf } from '../src/editor/testflug/vegetationAktionen';
+import { VegetationAktionen, vegetationKreiseAusEntwurf, vegetationQuelleFuerVorschau } from '../src/editor/testflug/vegetationAktionen';
+import { VerlaufReihenfolge, type VerlaufQuelle } from '../src/editor/testflug/verlaufReihenfolge';
 import { VegetationSteuerung } from '../src/editor/testflug/vegetationSteuerung';
 import type { EntwurfDokument } from '../src/editor/testflug/TestflugPersistenz';
 import { verlaufEntscheid } from '../src/editor/testflug/gelaendePinsel';
@@ -56,7 +57,7 @@ function entwurf(start: Record<string, unknown> = { placements: [] }) {
   return s;
 }
 
-function aufbau(start?: Record<string, unknown>, einst: { radius: number; nurBaeume: boolean } = { radius: 10, nurBaeume: false }) {
+function aufbau(start?: Record<string, unknown>, einst: { radius: number; nurBaeume: boolean } = { radius: 10, nurBaeume: false }, strichGemacht?: () => void) {
   const e = entwurf(start);
   const meldungen: string[] = [];
   const kreisAufrufe: Array<{ x: number; z: number; r: number; gesperrt: boolean }> = [];
@@ -67,6 +68,7 @@ function aufbau(start?: Record<string, unknown>, einst: { radius: number; nurBae
     einstellung: () => einst,
     meldung: (m) => void meldungen.push(m),
     kreis: { zeige: (x, z, r, gesperrt) => void kreisAufrufe.push({ x, z, r, gesperrt }), verberge: () => void versteckt++ },
+    strichGemacht,
   });
   return { e, einst, meldungen, kreisAufrufe, steuerung, aktionen, versteckt: () => versteckt };
 }
@@ -122,7 +124,8 @@ function ziehe(a: ReturnType<typeof aufbau>, von: [number, number], bis: [number
 // ── 2. Abdeckung ─────────────────────────────────────────────────────────────
 {
   pruefe(abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 3, z: 0, r: 7 }), '2: Kreis liegt ganz im vorhandenen (Rand berührt): abgedeckt');
-  pruefe(!abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 3, z: 0, r: 7.5 }), '2: ragt 0,5 m heraus: nicht abgedeckt');
+  pruefe(!abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 3, z: 0, r: 8 }), '2: ragt 1 m heraus (3 von 25 Probepunkten draußen): nicht abgedeckt');
+  pruefe(abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 3, z: 0, r: 7.5 }), '2: ragt nur 0,5 m heraus (1 von 25 Probepunkten, 96 % gedeckt): abgedeckt');
   pruefe(!abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 0, z: 0, r: 12 }), '2: größerer Kreis: nicht abgedeckt');
   pruefe(abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 0, z: 0, r: 10 }), '2: derselbe Kreis: abgedeckt');
   pruefe(!abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 0, z: 0, r: 5, nur: 'baeume' }), '2: ein Kreis für alles deckt einen Nur-Bäume-Kreis NICHT (andere Wirkung)');
@@ -313,6 +316,169 @@ function viele4097(): Kreis[] {
   return Array.from({ length: VEGETATION_KREISE_MAX + 1 }, (_, i) => ({ x: i, z: 0, r: 1 }));
 }
 
+// ── 9. N1: Zittern, Grenzhinweis, Weltrand, Reihenfolge, Testlücken ───────────
+{
+  // Befund 1: 20 Striche über dieselbe Stelle mit 0,5 m Zittern wachsen die Liste nicht auf das Zwanzigfache
+  let zufall = 12345;
+  const rnd = (): number => ((zufall = (zufall * 1103515245 + 12345) % 2147483648) / 2147483648 - 0.5);
+  const einzel = aufbau();
+  ziehe(einzel, [0, 0], [100, 0]);
+  const nEinzel = einzel.e.kreise().length;
+  const z = aufbau();
+  for (let s = 0; s < 20; s++) {
+    z.steuerung.druecken({ x: rnd(), z: rnd() });
+    for (let i = 1; i <= 40; i++) z.steuerung.bewegen({ x: (100 * i) / 40 + rnd(), z: rnd() });
+    z.steuerung.loslassen();
+  }
+  pruefe(z.e.kreise().length <= 2 * nEinzel, `9: 20 Striche mit 0,5 m Zittern: ${z.e.kreise().length} Kreise, höchstens das Doppelte eines Strichs (${nEinzel})`);
+  // Eine Pflanze am Rand eines leicht versetzten Strichs wird trotzdem entfernt
+  const r = aufbau({ placements: [], vegetationEntfernt: [{ x: 0, z: 0, r: 6 }] }, { radius: 6, nurBaeume: false });
+  r.steuerung.druecken({ x: 0.5, z: 0 });
+  r.steuerung.loslassen();
+  const pr = vegetationPruefer(r.e.kreise());
+  pruefe(r.e.kreise().length === 2 && pr.istEntfernt(6.4, 0, 'baum'), '9: ein um 0,5 m versetzter Stempel wird gelegt, die Pflanze bei x = 6,4 (nur dort erreicht) wird entfernt');
+  pruefe(!vegetationPruefer([{ x: 0, z: 0, r: 6 }]).istEntfernt(6.4, 0, 'baum'), '9: Kontrolle: der erste Kreis allein erreicht sie nicht');
+
+  // Befund 2: der Grenzhinweis steht auch in der Abschlussmeldung
+  const viele = (n: number): Kreis[] => Array.from({ length: n }, (_, i) => ({ x: -30000 + (i % 100) * 20, z: -30000 + Math.floor(i / 100) * 20, r: 2 }));
+  const g = aufbau({ placements: [], vegetationEntfernt: viele(VEGETATION_KREISE_MAX - 5) });
+  ziehe(g, [0, 0], [200, 0], 200);
+  const letzte = g.meldungen.at(-1) ?? '';
+  pruefe(letzte.includes(t('testflug.gelaende.vegetation.strich_gespeichert', { n: 5 })) && letzte.includes(t('testflug.gelaende.vegetation.grenze', { max: VEGETATION_KREISE_MAX })), `9: die letzte Meldung nennt „gespeichert“ UND die Grenze (${letzte.slice(0, 80)}…)`);
+  const kurz = aufbau();
+  ziehe(kurz, [0, 0], [30, 0]);
+  pruefe(!(kurz.meldungen.at(-1) ?? '').includes(t('testflug.gelaende.vegetation.weltrand')) && !(kurz.meldungen.at(-1) ?? '').includes('4096'), '9: ein normaler Strich meldet weder Grenze noch Weltrand');
+
+  // Befund 3: Stempel außerhalb des Weltbereichs: Hinweis
+  const w = aufbau();
+  w.steuerung.druecken({ x: 39995, z: 0 });
+  w.steuerung.bewegen({ x: 40030, z: 0 });
+  pruefe(w.meldungen.filter((m) => m === t('testflug.gelaende.vegetation.weltrand')).length === 1, '9: Weltrand: der Hinweis kommt während des Strichs, genau einmal');
+  w.steuerung.loslassen();
+  pruefe((w.meldungen.at(-1) ?? '').includes(t('testflug.gelaende.vegetation.weltrand')) && w.e.kreise().length >= 1 && w.e.kreise().every((c) => c.x <= 40000), '9: … und in der Abschlussmeldung; was im Weltbereich lag, ist gespeichert');
+
+  // Befund 4: eine Reihenfolge über zwei Verläufe
+  const log: string[] = [];
+  const falsch = (name: string): VerlaufQuelle & { stapel: string[]; vorn: string[]; neu(): void } => {
+    const q = {
+      stapel: [] as string[],
+      vorn: [] as string[],
+      neu(): void {
+        q.stapel.push(`${name}${q.stapel.length + q.vorn.length + 1}`);
+        q.vorn.length = 0;
+      },
+      rueckgaengig(): boolean {
+        const x = q.stapel.pop();
+        if (!x) return false;
+        q.vorn.push(x);
+        log.push(`z:${x}`);
+        return true;
+      },
+      wiederholen(): boolean {
+        const x = q.vorn.pop();
+        if (!x) return false;
+        q.stapel.push(x);
+        log.push(`y:${x}`);
+        return true;
+      },
+      get kannRueckgaengig(): boolean {
+        return q.stapel.length > 0;
+      },
+      get kannWiederholen(): boolean {
+        return q.vorn.length > 0;
+      },
+    };
+    return q;
+  };
+  const boden = falsch('G');
+  const bew = aufbau(undefined, undefined, () => reihenfolge.neu('vegetation'));
+  const reihenfolge = new VerlaufReihenfolge();
+  reihenfolge.verbinde({ gelaende: boden, vegetation: bew.steuerung });
+  const machG = (): void => {
+    boden.neu();
+    reihenfolge.neu('gelaende');
+  };
+  machG();
+  ziehe(bew, [0, 0], [20, 0]);
+  machG();
+  pruefe(bew.e.kreise().length > 0, '9: Reihenfolge: Gelände, Bewuchs, Gelände gemacht');
+  reihenfolge.rueckgaengig();
+  pruefe(boden.stapel.length === 1 && bew.e.kreise().length > 0, '9: 1. Strg+Z nimmt den ZULETZT gemachten (Gelände) zurück, der Bewuchs bleibt');
+  reihenfolge.rueckgaengig();
+  pruefe(bew.e.kreise().length === 0 && boden.stapel.length === 1, '9: 2. Strg+Z nimmt den Bewuchs-Strich zurück (egal welches Werkzeug gewählt ist)');
+  reihenfolge.rueckgaengig();
+  pruefe(boden.stapel.length === 0 && log.join(',') === 'z:G2,z:G1', `9: 3. Strg+Z den ersten Geländestrich (${log.join(',')})`);
+  const leer: string[] = [];
+  reihenfolge.verbinde({ gelaende: boden, vegetation: bew.steuerung }, (a) => leer.push(a));
+  pruefe(!reihenfolge.rueckgaengig() && leer.join() === 'rueckgaengig', '9: danach nichts mehr (und der Hinweis „nichts zurückzunehmen“)');
+  reihenfolge.wiederholen();
+  reihenfolge.wiederholen();
+  pruefe(bew.e.kreise().length > 0 && boden.stapel.length === 1, '9: Strg+Y in derselben Reihenfolge: erst Gelände (1.), dann der Bewuchs');
+  reihenfolge.wiederholen();
+  pruefe(boden.stapel.length === 2 && log.at(-1) === 'y:G2', '9: … zuletzt der zweite Geländestrich');
+  // a new stroke ends the redo line over both tools
+  reihenfolge.rueckgaengig();
+  ziehe(bew, [100, 100], [120, 100]);
+  const nGemeldet: string[] = [];
+  reihenfolge.verbinde({ gelaende: boden, vegetation: bew.steuerung }, (a) => nGemeldet.push(a));
+  const logLaenge = log.length;
+  pruefe(!reihenfolge.wiederholen() && log.length === logLaenge && boden.vorn.length === 1 && nGemeldet.join() === 'wiederholen', '9: ein neuer Strich beendet die Wiederholen-Linie beider Werkzeuge: der alte Redo-Schritt des Geländes wird NICHT genommen, es heißt „nichts zu wiederholen“');
+  // stale tag: a history that lost its steps (foreign change) is skipped
+  const b2 = falsch('G');
+  const v2 = falsch('V');
+  const r2 = new VerlaufReihenfolge();
+  r2.verbinde({ gelaende: b2, vegetation: v2 });
+  b2.neu(); r2.neu('gelaende');
+  v2.neu(); r2.neu('vegetation');
+  v2.stapel.length = 0; // emptied from outside
+  pruefe(r2.rueckgaengig() && b2.stapel.length === 0, '9: ein Eintrag, dessen Verlauf leer ist, wird übersprungen, der ältere Schritt kommt dran');
+  // refused step stays
+  const b3 = falsch('G');
+  b3.rueckgaengig = (): boolean => false;
+  const r3 = new VerlaufReihenfolge();
+  r3.verbinde({ gelaende: b3, vegetation: falsch('V') });
+  b3.neu(); r3.neu('gelaende');
+  pruefe(!r3.rueckgaengig() && r3.tiefe.rueckgaengig === 1, '9: ein verweigerter Schritt (Sperre) bleibt in der Reihenfolge stehen');
+
+  // Befund 5: Testlücken
+  const entlang = stempelEntlang({ x: 0, z: 0 }, { x: 7, z: 0 }, 5);
+  pruefe(entlang.length === 1 && entlang[0]!.x === 5 && entlang.every((p) => p.x <= 7), '9: stempelEntlang stempelt nie über den Zeiger hinaus (floor, nicht ceil)');
+  pruefe(stempelEntlang({ x: 0, z: 0 }, { x: 10, z: 0 }, 5).length === 2 && stempelEntlang({ x: 0, z: 0 }, { x: 14.9, z: 0 }, 5).length === 2, '9: genau n = floor(Weg / Abstand) Stempel');
+  // Quelle der Vorschau: Kreise des offenen Strichs gehören dazu
+  const q = vegetationQuelleFuerVorschau({ vegetationEntfernt: [{ x: 1, z: 1, r: 2 }] }, [{ x: 5, z: 5, r: 3 }]);
+  pruefe(q?.length === 2 && q[1]!.x === 5, '9: Quelle der Vorschau = Entwurf + Kreise des offenen Strichs');
+  pruefe(vegetationQuelleFuerVorschau(null, [{ x: 5, z: 5, r: 3 }]) === null, '9: ohne Entwurf: null');
+  // `stand` ändert sich beim Loslassen auch dann, wenn das Schreiben verweigert wird (die Vorschau muss die Kreise loswerden)
+  const s = aufbau();
+  s.steuerung.druecken({ x: 0, z: 0 });
+  s.steuerung.bewegen({ x: 30, z: 0 });
+  s.e.setzeFremd({ placements: [], vegetationEntfernt: viele(VEGETATION_KREISE_MAX) });
+  const vorStand = s.steuerung.stand;
+  s.steuerung.loslassen();
+  pruefe(s.e.kreise().length === VEGETATION_KREISE_MAX && s.steuerung.stand !== vorStand && s.steuerung.strichKreise().length === 0, '9: verweigertes Schreiben: `stand` ändert sich beim Loslassen, die Kreise des Strichs sind aus der Quelle');
+  const s2 = aufbau();
+  s2.steuerung.druecken({ x: 0, z: 0 });
+  const vor2 = s2.steuerung.stand;
+  s2.steuerung.loslassen();
+  pruefe(s2.steuerung.stand !== vor2, '9: erfolgreicher Strich: `stand` ändert sich beim Loslassen');
+  // `entfernen`: bei doppelten Kreisen kommt das LETZTE Vorkommen heraus (die Liste behält ihre Reihenfolge)
+  const A: Kreis = { x: 1, z: 1, r: 2 };
+  const Bk: Kreis = { x: 9, z: 9, r: 2 };
+  const d = aufbau({ placements: [], vegetationEntfernt: [A, Bk, A] });
+  pruefe(d.aktionen.entfernen([A]).ok && JSON.stringify(d.e.kreise()) === JSON.stringify([A, Bk]), '9: `entfernen` nimmt das letzte Vorkommen: [A, B, A] ⇒ [A, B]');
+  // Wächter im Schreibweg: ungültige Kreise werden von jedem Aufrufer abgelehnt
+  const wch = aufbau({ placements: [], vegetationEntfernt: [A] });
+  const roh = JSON.stringify(wch.e.roh());
+  const ergebnisse = [wch.aktionen.hinzufuegen([{ x: NaN, z: 0, r: 5 }]), wch.aktionen.hinzufuegen([{ x: 0, z: 0, r: 500 }]), wch.aktionen.hinzufuegen([{ x: 0, z: 0, r: 5, nur: 'busch' as never }])];
+  pruefe(ergebnisse.every((e) => !e.ok) && JSON.stringify(wch.e.roh()) === roh && wch.e.schreibungen === 0, '9: Schreibweg: NaN, Radius 500 und ein falsches `nur` werden abgelehnt, der Entwurf bleibt byte-gleich');
+  // Verdrahtung im Quelltext
+  const tf2 = readFileSync(resolve(HIER, '../src/editor/testflug/Testflug.ts'), 'utf-8');
+  const gs = readFileSync(resolve(HIER, '../src/editor/testflug/GelaendeSteuerung.ts'), 'utf-8');
+  pruefe(/strichGemacht: \(\) => reihenfolge\.neu\('gelaende'\)/.test(tf2) && /strichGemacht: \(\) => reihenfolge\.neu\('vegetation'\)/.test(tf2) && /reihenfolge\.verbinde\(\{ gelaende, vegetation: vegPinsel \}, /.test(tf2), '9: Testflug.ts meldet beide Werkzeuge an die gemeinsame Reihenfolge');
+  pruefe(/this\.verlauf\.neu\(v\);\s*this\.abh\.strichGemacht\?\.\(\);/.test(gs), '9: GelaendeSteuerung meldet jeden gespeicherten Strich');
+  pruefe(/vegetationQuelleFuerVorschau\(persistenz\.laden\(\), vegetationPinsel\?\.strichKreise\(\) \?\? \[\]\)/.test(tf2) && /reihenfolge\.verbinde\(\{ gelaende, vegetation: vegPinsel \}, \(art\) =>/.test(tf2), '9: Testflug.ts: die Vorschau-Quelle ist `vegetationQuelleFuerVorschau` mit den Kreisen des offenen Strichs');
+}
+
 // ── 8. Kern des Strichs, Tasten, Verdrahtung, Texte ─────────────────────────
 {
   const s = new VegetationStrich([]);
@@ -325,9 +491,9 @@ function viele4097(): Kreis[] {
 
   const tf = readFileSync(resolve(HIER, '../src/editor/testflug/Testflug.ts'), 'utf-8');
   const sp = readFileSync(resolve(HIER, '../src/editor/SpawnPanel.ts'), 'utf-8');
-  pruefe(/new BewuchsVorschau\([\s\S]*?vegetationKreiseAusEntwurf\(persistenz\.laden\(\)\)/.test(tf), '8: Testflug.ts: die Vorschau bekommt die Kreise aus dem ENTWURF');
+  pruefe(/new BewuchsVorschau\([\s\S]*?vegetationQuelleFuerVorschau\(persistenz\.laden\(\), vegetationPinsel\?\.strichKreise\(\) \?\? \[\]\)/.test(tf), '8: Testflug.ts: die Vorschau bekommt die Kreise aus dem ENTWURF');
   pruefe(/vegetationPinsel\?\.stand/.test(tf) && /vegetationPinsel\?\.strichKreise\(\)/.test(tf), '8: Testflug.ts: Änderungsmarke und Kreise des offenen Strichs gehen in die Vorschau');
-  pruefe(/verlaufEntscheid\(e, panel\.istGelaendeModus, tipptImFeld\(e\)\)[\s\S]{0,400}panel\.vegetationEinstellung\.aktiv\) void \(verlauf\.aktion === 'rueckgaengig' \? vegPinsel\.rueckgaengig\(\) : vegPinsel\.wiederholen\(\)\);\s*else if \(verlauf\.aktion\) void/.test(tf), '8: Testflug.ts: Strg+Z/Y gehen durch dieselbe Prüfung (Reiter offen, nicht im Textfeld) an das gewählte Werkzeug');
+  pruefe(/verlaufEntscheid\(e, panel\.istGelaendeModus, tipptImFeld\(e\)\)[\s\S]{0,400}verlauf\.aktion === 'rueckgaengig' \? reihenfolge\.rueckgaengig\(\) : reihenfolge\.wiederholen\(\)/.test(tf), '8: Testflug.ts: Strg+Z/Y gehen durch dieselbe Prüfung (Reiter offen, nicht im Textfeld) an die gemeinsame Reihenfolge');
   pruefe(/gelaende\.beenden\(\);\s*vegPinsel\.beenden\(\);/.test(tf), '8: Testflug.ts: Werkzeugende (Esc, Rechtsklick, Loslassen) schließt auch den Bewuchs-Strich');
   pruefe(/vegPinsel\.druecken\(gp\)/.test(tf) && /vegPinsel\.bewegen\(p\)/.test(tf), '8: Testflug.ts: Drücken und Bewegen gehen an den Bewuchs-Pinsel, wenn er gewählt ist');
   pruefe(/vegetationEinstellung\.aktiv\) return;\s*gelaende\.tick/.test(tf), '8: Testflug.ts: ein stehender Zeiger stempelt nicht nach (Gelände-Takt gilt nicht für den Bewuchs-Pinsel)');

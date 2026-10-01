@@ -345,6 +345,7 @@
   "testflug.gelaende.vegetation.rueckgaengig": "Vegetation stroke undone ({n} circles)",
   "testflug.gelaende.vegetation.strich_gespeichert": "Vegetation stroke saved in the draft ({n} circles). \"Save to world\" carries it into the world file.",
   "testflug.gelaende.vegetation.tip": "Remove vegetation: dragging removes trees, bushes, plants and stones in the circle (the \"trees only\" switch leaves the rest). The radius is the brush radius. Ctrl+Z/Ctrl+Y undoes or restores a stroke. After \"Save & restart\" the vegetation is gone in the game too; hand-placed objects stay.",
+  "testflug.gelaende.vegetation.weltrand": "No painting outside the world frame (±40,000 m)",
   "testflug.gelaende.vegetation.wiederholt": "Vegetation stroke restored ({n} circles)",
   "testflug.gelaende.verlauf_gesperrt": "{n} points of this step lie under a building or plinth — step not possible (remove the building or plinth first, or use \"Reset\")",
   "testflug.gelaende.verworfen.art.bausaetze": "building sets",

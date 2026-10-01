@@ -14,7 +14,7 @@
  */
 import { GRASLAND_FLORA_NAMEN, HeightmapProvider, NADELWALD_FLORA_NAMEN, RegionGeo, getStableHash, sanitizeWorldLayout, streuArt, FOLIAGE, type VegetationEntferntKreis } from '@wov/shared';
 import { BewuchsVorschau } from '../src/editor/BewuchsVorschau';
-import { VegetationAktionen, vegetationKreiseAusEntwurf } from '../src/editor/testflug/vegetationAktionen';
+import { VegetationAktionen, vegetationQuelleFuerVorschau } from '../src/editor/testflug/vegetationAktionen';
 import { VegetationSteuerung } from '../src/editor/testflug/vegetationSteuerung';
 import type { EntwurfDokument } from '../src/editor/testflug/TestflugPersistenz';
 
@@ -86,12 +86,7 @@ function flug(layoutExtra: Record<string, unknown> = {}, einst = { radius: 20, n
     undefined,
     () => (dok.placements as never) ?? [],
     () => `${persistenz.rohtext()}#${pinsel?.stand ?? 0}`,
-    () => {
-      const kreise = vegetationKreiseAusEntwurf(persistenz.laden());
-      if (kreise === null) return null;
-      const offen = pinsel?.strichKreise() ?? [];
-      return offen.length === 0 ? kreise : [...kreise, ...offen];
-    }
+    () => vegetationQuelleFuerVorschau(persistenz.laden(), pinsel?.strichKreise() ?? [])
   );
   pinsel = new VegetationSteuerung({
     aktionen: new VegetationAktionen(persistenz),

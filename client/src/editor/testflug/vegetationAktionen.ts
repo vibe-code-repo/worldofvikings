@@ -26,6 +26,19 @@ export function vegetationKreiseAusEntwurf(dok: EntwurfDokument | null | undefin
   return Array.isArray(roh) ? (roh as VegetationEntferntKreis[]) : [];
 }
 
+/**
+ * The circles the preview scatters with: those of the draft plus those of the stroke that is still open (not in the
+ * draft until the button is released). `null` without a draft: the preview then takes the layout of the world.
+ */
+export function vegetationQuelleFuerVorschau(
+  dok: EntwurfDokument | null | undefined,
+  offen: readonly VegetationEntferntKreis[]
+): readonly VegetationEntferntKreis[] | null {
+  const kreise = vegetationKreiseAusEntwurf(dok);
+  if (kreise === null) return null;
+  return offen.length === 0 ? kreise : [...kreise, ...offen];
+}
+
 export class VegetationAktionen {
   constructor(private readonly persistenz: Pick<TestflugPersistenz, 'laden' | 'aendern'>) {}
 

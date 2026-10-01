@@ -54,7 +54,8 @@ import { ENTWURF_KEY } from '../weltdokument';
 import { verdrahteGrundskalaLive } from './grundskalaLive';
 import { GelaendeAktionen } from './GelaendeAktionen';
 import { GelaendeSteuerung, type Kasten } from './GelaendeSteuerung';
-import { VegetationAktionen, vegetationKreiseAusEntwurf } from './vegetationAktionen';
+import { VegetationAktionen, vegetationQuelleFuerVorschau } from './vegetationAktionen';
+import { VerlaufReihenfolge } from './verlaufReihenfolge';
 import { VegetationSteuerung } from './vegetationSteuerung';
 import { pipetteEntscheid, radiusSchritt, verlaufEntscheid } from './gelaendePinsel';
 import { istTexteingabeAktiv } from '../../engine/texteingabe';
@@ -549,12 +550,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           // seine Kreise des offenen Strichs stehen noch nicht im Entwurf.
           persistenz.rohtext ? () => `${persistenz.rohtext!()}#${vegetationPinsel?.stand ?? 0}` : null,
           // Entfernte Vegetation: Kreise des ENTWURFS (nicht des Layouts der Welt) plus die des offenen Strichs.
-          () => {
-            const kreise = vegetationKreiseAusEntwurf(persistenz.laden());
-            if (kreise === null) return null;
-            const offen = vegetationPinsel?.strichKreise() ?? [];
-            return offen.length === 0 ? kreise : [...kreise, ...offen];
-          }
+          () => vegetationQuelleFuerVorschau(persistenz.laden(), vegetationPinsel?.strichKreise() ?? [])
         )
       : null;
     if (bewuchs) {
@@ -802,6 +798,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     // `GelaendeSteuerung`/`gelaendePinsel`; hier hängen nur Zeiger, Tasten, Kreisvorschau
     // und der Neuaufbau der Kacheln daran. Ein Strich (Drücken bis Loslassen) = EIN Vorgang.
     const gelaendeAktionen = new GelaendeAktionen(persistenz);
+    // Strg+Z/Y über beide Werkzeuge: der zuletzt gemachte Strich zuerst (die Verläufe selbst bleiben getrennt).
+    const reihenfolge = new VerlaufReihenfolge();
     const foliageNamen: ReadonlySet<string> = new Set(FOLIAGE.map((f) => f.prefabName));
     const sperrKatalog: SperrKatalog = {
       def: (n) => findPrefabByName(n),
@@ -867,6 +865,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       setzeZiel: (h) => panel.setzeZiel(h),
       jetztMs: () => performance.now(),
       vorgangId: () => `gelaende-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      strichGemacht: () => reihenfolge.neu('gelaende'),
     });
     // Bewuchs entfernen: derselbe Reiter, derselbe Kreis; ein Strich = EIN Entwurfs-Schreibvorgang (`vegetationSteuerung.ts`).
     vegetationPinsel = new VegetationSteuerung({
@@ -874,8 +873,10 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       einstellung: () => ({ radius: panel.gelaendeEinstellung.radius, nurBaeume: panel.vegetationEinstellung.nurBaeume }),
       meldung: (text) => hud.meldung(text),
       kreis: kreisAnzeige,
+      strichGemacht: () => reihenfolge.neu('vegetation'),
     });
     const vegPinsel = vegetationPinsel;
+    reihenfolge.verbinde({ gelaende, vegetation: vegPinsel }, (art) => hud.meldung(t(art === 'rueckgaengig' ? 'testflug.gelaende.nichts_rueckgaengig' : 'testflug.gelaende.nichts_wiederholen')));
     /** Strich offen (Maustaste unten im Gelände-Reiter) und der letzte Zeigerpunkt, für den Halte-Takt. */
     let gelaendeUnten = false;
     let gelaendeZeiger: { x: number; y: number } | null = null;
@@ -923,9 +924,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // nur bei offenem Reiter, nicht im Textfeld, gehaltene Taste = ein Schritt).
       const verlauf = verlaufEntscheid(e, panel.istGelaendeModus, tipptImFeld(e));
       if (verlauf.verhindern) e.preventDefault();
-      // Der Verlauf gehört dem Werkzeug, das gerade gewählt ist (Gelände-Striche und Bewuchs-Striche haben je einen Stapel).
-      if (verlauf.aktion && panel.vegetationEinstellung.aktiv) void (verlauf.aktion === 'rueckgaengig' ? vegPinsel.rueckgaengig() : vegPinsel.wiederholen());
-      else if (verlauf.aktion) void (verlauf.aktion === 'rueckgaengig' ? gelaende.rueckgaengig() : gelaende.wiederholen());
+      // Der zuletzt gemachte Strich kommt zuerst dran, egal welches Werkzeug gewählt ist (`verlaufReihenfolge.ts`).
+      if (verlauf.aktion) void (verlauf.aktion === 'rueckgaengig' ? reihenfolge.rueckgaengig() : reihenfolge.wiederholen());
       if (verlauf.verhindern) return;
       // Pipette: Taste H liest die Bodenhöhe unter dem Zeiger in das Zielfeld (H ist im Flug frei; Strg wäre im Baumodus die Sinktaste).
       // Nur bei offenem Reiter und nicht im Textfeld (ein „h“ im Namensfeld bleibt ein „h“).

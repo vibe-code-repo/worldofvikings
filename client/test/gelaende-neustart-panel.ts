@@ -229,6 +229,15 @@ async function main(): Promise<void> {
   pruefe(!kSpeichern[0].disabled && !kNeustart[0].disabled, 'N5: nach dem Zeitlimit wieder frei');
   pruefe(statusZeile()?.style.color === '#e08a7a', 'N5: Fehlerfarbe in der Statuszeile', String(statusZeile()?.style.color));
 
+  // V3 N1: Werkzeugwechsel zurück auf ein Geländewerkzeug setzt den Bewuchs-Pinsel zurück
+  const kVeg = knoepfe.find((k) => k.textContent === t('testflug.gelaende.werkzeug.vegetation'));
+  const kHeb = knoepfe.find((k) => k.textContent === t('testflug.gelaende.werkzeug.anheben'));
+  pruefe(!!kVeg && !!kHeb && !panel.vegetationEinstellung.aktiv, 'V1: Bewuchs-Knopf und Anheben-Knopf sind im Panel, der Bewuchs-Pinsel ist anfangs aus');
+  kVeg!.onclick!();
+  pruefe(panel.vegetationEinstellung.aktiv, 'V2: Klick auf „Bewuchs entfernen“ schaltet den Bewuchs-Pinsel ein');
+  kHeb!.onclick!();
+  pruefe(!panel.vegetationEinstellung.aktiv && panel.gelaendeEinstellung.werkzeug === 'anheben', 'V3: Klick auf ein Geländewerkzeug schaltet ihn wieder aus');
+
   console.log(fehler === 0 ? '\nalle Prüfungen bestanden' : `\n${fehler} Prüfung(en) FEHLGESCHLAGEN`);
   fertig = true;
   process.exit(fehler === 0 ? 0 : 1);

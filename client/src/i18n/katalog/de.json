@@ -345,6 +345,7 @@
   "testflug.gelaende.vegetation.rueckgaengig": "Bewuchs-Strich rückgängig ({n} Kreise)",
   "testflug.gelaende.vegetation.strich_gespeichert": "Bewuchs-Strich im Entwurf gespeichert ({n} Kreise). „In Welt speichern“ übernimmt ihn in die Weltdatei.",
   "testflug.gelaende.vegetation.tip": "Bewuchs entfernen: Ziehen entfernt Bäume, Büsche, Pflanzen und Steine im Kreis (Schalter „nur Bäume“ lässt den Rest stehen). Der Radius ist der des Pinsels. Strg+Z/Strg+Y nimmt einen Strich zurück bzw. stellt ihn wieder her. Nach „Speichern & neu starten“ ist der Bewuchs auch im Spiel weg; handplatzierte Objekte bleiben.",
+  "testflug.gelaende.vegetation.weltrand": "Außerhalb des Weltbereichs (±40 000 m) wird nicht gemalt",
   "testflug.gelaende.vegetation.wiederholt": "Bewuchs-Strich wiederhergestellt ({n} Kreise)",
   "testflug.gelaende.verlauf_gesperrt": "{n} Punkte dieses Schritts liegen unter einem Gebäude oder Sockel — Schritt nicht möglich (Gebäude oder Sockel erst entfernen, oder „Zurücksetzen“ benutzen)",
   "testflug.gelaende.verworfen.art.bausaetze": "Bausätze",

@@ -564,7 +564,7 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
 {
   const tf = readFileSync(resolve(HIER, '../src/editor/testflug/Testflug.ts'), 'utf-8');
   const sp = readFileSync(resolve(HIER, '../src/editor/SpawnPanel.ts'), 'utf-8');
-  pruefe(/verlaufEntscheid\(e, panel\.istGelaendeModus, tipptImFeld\(e\)\)/.test(tf) && tf.includes("verlauf.aktion === 'rueckgaengig' ? gelaende.rueckgaengig() : gelaende.wiederholen()"), '9: Strg+Z/Y im Reiter laufen über verlaufEntscheid (Reiter offen, Textfeld)');
+  pruefe(/verlaufEntscheid\(e, panel\.istGelaendeModus, tipptImFeld\(e\)\)/.test(tf) && tf.includes("verlauf.aktion === 'rueckgaengig' ? reihenfolge.rueckgaengig() : reihenfolge.wiederholen()"), '9: Strg+Z/Y im Reiter laufen über verlaufEntscheid (Reiter offen, Textfeld) und die gemeinsame Reihenfolge der Verläufe (V3 N1)');
   pruefe(sp.includes("['ebnen', 'testflug.gelaende.werkzeug.ebnen']") && sp.includes("['zuruecksetzen', 'testflug.gelaende.werkzeug.zuruecksetzen']"), '9: das Panel hat die Knöpfe Ebnen und Zurücksetzen');
   pruefe(sp.includes("ziel.type = 'number'") && sp.includes('setzeZiel(hoehe: number)'), '9: das Panel hat das Zahlenfeld für die Zielhöhe');
   const de = JSON.parse(readFileSync(resolve(HIER, '../src/i18n/katalog/de.json'), 'utf-8')) as Record<string, string>;

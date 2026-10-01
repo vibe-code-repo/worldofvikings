@@ -70,6 +70,8 @@ export interface GelaendeAbh {
   nachStrich(lose: number[] | 'alle'): void;
   jetztMs(): number;
   vorgangId(): string;
+  /** A stroke is now in the draft and in this history (the shared order of undo steps with the vegetation brush). */
+  strichGemacht?(): void;
 }
 
 /** How long the lock circles of the draft are reused (placements only change through other tools). */
@@ -199,6 +201,14 @@ export class GelaendeSteuerung {
   private loseNachfuehren(aenderungen: readonly Aenderung[]): void {
     if (this.listeGeaendert()) this.abh.nachStrich('alle');
     else this.abh.nachStrich(loseIndizes(this.abh.platzierungen(), this.abh.katalog, aenderungen));
+  }
+
+  get kannRueckgaengig(): boolean {
+    return this.verlauf.kannRueckgaengig;
+  }
+
+  get kannWiederholen(): boolean {
+    return this.verlauf.kannWiederholen;
   }
 
   get strichOffen(): boolean {
@@ -370,6 +380,7 @@ export class GelaendeSteuerung {
       this.abh.meldung(t('testflug.gelaende.strich_gespeichert', { n: v.aenderungen.length }));
       // The ground under loose objects moved: put them back on it (buildings are locked and did not move).
       this.verlauf.neu(v);
+      this.abh.strichGemacht?.();
       this.loseNachfuehren(v.aenderungen);
       return;
     }

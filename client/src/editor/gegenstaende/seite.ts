@@ -473,7 +473,7 @@ class GegenstandsSeite {
   /** Field errors under their fields, the counters, the rest in the general line, and the state of the save button. */
   private aktualisiere(): void {
     const fehler = this.fehlerListe();
-    const je = new Map<string, Anzeigetext[]>();
+    const je: Map<string, Anzeigetext[]> = new Map();
     const uebrig: Anzeigetext[] = [];
     for (const f of fehler) {
       const text = feldFehlerText(f);
@@ -551,7 +551,8 @@ class GegenstandsSeite {
     }
     s.value = gewaehlt;
     s.onchange = () => {
-      bei(s.value as T);
+      const treffer = werte.find((w) => w.id === s.value);
+      if (treffer !== undefined) bei(treffer.id);
       this.aktualisiere();
     };
     return s;
@@ -588,7 +589,7 @@ class GegenstandsSeite {
     this.formEl.appendChild(this.allgemeinFehlerEl);
 
     // General
-    const idFeld = this.eingabe(f.id, (v) => Object.assign(f, setzeId(f, v)), { gesperrt: !idAenderbar(f), mono: true });
+    const idFeld = this.eingabe(f.id, (v) => { f.id = setzeId(f, v).id; }, { gesperrt: !idAenderbar(f), mono: true });
     const allgemein = this.abschnitt(
       'editor.gegenstand.abschnitt.allgemein',
       this.zeile('id', 'editor.gegenstand.feld.id', idFeld, idAenderbar(f) ? tA('editor.gegenstand.feld.id_hinweis_neu') : tA('editor.gegenstand.feld.id_hinweis_fest')),

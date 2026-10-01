@@ -434,7 +434,7 @@ const DOM_DATEIEN = new Set(['dom.ts', 'seite.ts']);
  *  - `new Text`, `new Option`, a write to a text property through a key whose type is that property, and, in the DOM files,
  *    a write through a computed key.
  */
-function typFunde(programm: ts.Program, q: ts.SourceFile, o: { anzeige: boolean; dom: boolean; streng: boolean }): string[] {
+function typFunde(programm: ts.Program, q: ts.SourceFile, o: { anzeige: boolean; dom: boolean; streng: boolean; datei?: string; ab?: number }): string[] {
   const pruefer = programm.getTypeChecker();
   const funde: string[] = [];
   const ort = (x: ts.Node): string => `${x.getText(q).slice(0, 60)}@${q.getLineAndCharacterOfPosition(x.getStart(q)).line + 1}`;
@@ -495,6 +495,223 @@ function typFunde(programm: ts.Program, q: ts.SourceFile, o: { anzeige: boolean;
       }
     }
   });
+  funde.push(...erlaubnisFunde(programm, q, { anzeige: o.anzeige, datei: o.datei ?? 'zz-probe.ts', ab: o.ab }, istMarke));
+  return funde;
+}
+
+/**
+ * N6 (Angriff N5): an ALLOW list, not a deny list. In the mask files only what is named here exists; everything else is red.
+ * Three gates, all asked of the type checker (the resolved symbol / type, never a spelling):
+ *  1. every identifier that resolves to a declaration outside the mask and its imports (a lib / ambient script file) must be
+ *     on `ERLAUBTE_GLOBALE`, and a name with a member list is only usable as `Name.member` (called, or read where listed);
+ *  2. every member of a DOM type (`lib.dom.d.ts`) must be on `ERLAUBTE_DOM_MEMBER`; a DOM method is only ever called, never
+ *     passed on as a value (`.call` / `.bind` / a variable), and a DOM object is never destructured or indexed by a computed key;
+ *  3. marks (`Anzeigetext`, `Zierrat`, `Trenner`, ...) are made in `anzeige.ts` only: outside it no type predicate, no overload,
+ *     no ambient declaration, no cast, no explicit type argument and no return-only type parameter may carry or yield one.
+ */
+interface GlobalSpec {
+  /** why the mask may use it */
+  warum: string;
+  /** only `Name.member(...)` calls with these members (a callee, never a value) */
+  aufrufe?: readonly string[];
+  /** only `Name.member` reads with these members (a value, not a function) */
+  werte?: readonly string[];
+  /** only in these files (by file name) */
+  nur?: readonly string[];
+}
+const ERLAUBTE_GLOBALE: Record<string, GlobalSpec> = {
+  undefined: { warum: 'the value `undefined`' },
+  NaN: { warum: 'a typed bad number is NaN and is reported by the mask check' },
+  document: { warum: 'creates elements, holds the page body, takes the key handler, finds the open dialog; no createRange, createTextNode, write, title, implementation', aufrufe: ['createElement', 'addEventListener', 'removeEventListener', 'querySelector'], werte: ['body'] },
+  window: { warum: 'only the confirm dialog, and only in dom.ts (the one question the mask asks)', aufrufe: ['confirm'], nur: ['dom.ts'] },
+  Object: { warum: 'only these static calls, directly on the name: never passed on, never destructured, never by ["..."]', aufrufe: ['keys', 'entries', 'fromEntries', 'freeze', 'hasOwn'] },
+  JSON: { warum: 'parse (into a declared unknown, checked by the any rule) and stringify', aufrufe: ['parse', 'stringify'] },
+  Array: { warum: 'Array.isArray and Array.from', aufrufe: ['isArray', 'from'] },
+  Math: { warum: 'numbers' },
+  Number: { warum: 'numbers' },
+  String: { warum: 'String.fromCodePoint and conversions to string (the result is a plain string, never an Anzeigetext)' },
+  Boolean: { warum: 'filter predicate' },
+  Set: { warum: 'collection' },
+  Map: { warum: 'collection' },
+  Promise: { warum: 'async flow' },
+  Error: { warum: 'own error classes extend it' },
+  RegExp: { warum: 'patterns' },
+  structuredClone: { warum: 'deep copy of the form' },
+  AbortController: { warum: 'request time-out', nur: ['api.ts'] },
+  setTimeout: { warum: 'request time-out', nur: ['api.ts'] },
+  clearTimeout: { warum: 'request time-out', nur: ['api.ts'] },
+  fetch: { warum: 'the one network call', nur: ['api.ts'] },
+};
+/** Members of DOM types (any receiver in `lib.dom.d.ts`) the mask may use. Everything else is red. */
+const ERLAUBTE_DOM_MEMBER: Record<string, string> = {
+  // keys are `DeclaringInterface.member`, as the type checker resolves them (an inherited member keeps its declaring interface)
+  'Document.createElement': 'the factory behind el()',
+  'Document.body': 'where the dialog shell goes',
+  'Document.addEventListener': 'the key handler (Escape)',
+  'Document.removeEventListener': 'the key handler (Escape)',
+  'ParentNode.querySelector': 'finds the open dialog (read only)',
+  'Window.confirm': 'the confirm dialog of dom.ts',
+  'Node.appendChild': 'a child on the page: its argument is a Node by type, a text never gets here (see the append rule)',
+  'ParentNode.append': 'every argument must be a Node (checked by the append rule)',
+  'ParentNode.replaceChildren': 'every argument must be a Node (checked by the append rule)',
+  'ParentNode.lastElementChild': 'read only',
+  'ChildNode.remove': 'takes the dialog shell off the page',
+  'Element.id': 'read of an element id',
+  'Element.setAttribute': 'only with a listed attribute name (rule verboteneWege); no setAttributeNS, no toggleAttribute',
+  'ElementCSSInlineStyle.style': 'inline style (the style property names below)',
+  'CSSStyleDeclaration.display': 'layout',
+  'CSSStyleDeclaration.color': 'layout',
+  'CSSStyleDeclaration.opacity': 'layout',
+  'CSSStyleDeclaration.cursor': 'layout',
+  'CSSStyleDeclaration.marginTop': 'layout',
+  'CSSStyleDeclaration.flex': 'layout',
+  'GlobalEventHandlers.onclick': 'handler',
+  'GlobalEventHandlers.oninput': 'handler',
+  'GlobalEventHandlers.onchange': 'handler',
+  'HTMLButtonElement.disabled': 'state',
+  'HTMLInputElement.disabled': 'state',
+  'HTMLInputElement.checked': 'state',
+  'HTMLInputElement.type': 'kind of the input',
+  'HTMLInputElement.value': 'the text the author edits (value list in verboteneWege)',
+  'HTMLSelectElement.value': 'the selected id (value list in verboteneWege)',
+  'HTMLOptionElement.value': 'an id, not a text (value list in verboteneWege)',
+  'Event.stopPropagation': 'key handler',
+  'KeyboardEvent.code': 'key handler',
+  'AbortController.abort': 'request time-out (api.ts)',
+  'AbortController.signal': 'request time-out (api.ts)',
+  'AbortSignal.addEventListener': 'request time-out (api.ts)',
+  'Response.status': 'HTTP status (api.ts)',
+  'Response.headers': 'HTTP headers (api.ts)',
+  'Headers.get': 'HTTP headers (api.ts)',
+  'Body.text': 'the response body as text for the reader (api.ts); a Promise<string>, no Node',
+};
+
+/** Every identifier / member the allow list rules out, for one source file. `istMarke` is the one-level brand test of `typFunde`. */
+function erlaubnisFunde(programm: ts.Program, q: ts.SourceFile, o: { anzeige: boolean; datei: string; ab?: number }, istMarke: (t: ts.Type, tiefe?: number, imUnion?: boolean) => boolean): string[] {
+  const pruefer = programm.getTypeChecker();
+  const funde: string[] = [];
+  const ab = o.ab ?? 0;
+  const ort = (x: ts.Node): string => `${x.getText(q).slice(0, 60)}@${q.getLineAndCharacterOfPosition(x.getStart(q)).line + 1}`;
+  const istLibDom = (sym: ts.Symbol | undefined): boolean => (sym?.declarations ?? []).some((d) => /[\\/]lib\.(dom|webworker)[^\\/]*\.d\.ts$/.test(d.getSourceFile().fileName));
+  const istLib = (sym: ts.Symbol | undefined): boolean => (sym?.declarations ?? []).some((d) => programm.isSourceFileDefaultLibrary(d.getSourceFile()) || /[\\/]node_modules[\\/]/.test(d.getSourceFile().fileName));
+  const istDomTyp = (ty: ts.Type): boolean => (ty.isUnionOrIntersection() ? ty.types.some(istDomTyp) : istLibDom(ty.getSymbol()) || istLibDom(ty.aliasSymbol));
+  /** Does the type carry a brand anywhere: union, intersection, type arguments, properties, call returns, index types, a type parameter's constraint? */
+  const enthaelt = (ty: ts.Type, gesehen = new Set<ts.Type>(), tiefe = 0, imUnion = false): boolean => {
+    if (gesehen.has(ty) || tiefe > 8) return false;
+    gesehen.add(ty);
+    if (istMarke(ty, 0, imUnion)) return true;
+    if (ty.isUnionOrIntersection()) return ty.types.some((x) => enthaelt(x, gesehen, tiefe + 1, true));
+    if (ty.flags & ts.TypeFlags.TypeParameter) {
+      const c = ty.getConstraint();
+      return c !== undefined && enthaelt(c, gesehen, tiefe + 1);
+    }
+    if (ty.flags & ts.TypeFlags.Index) return false;
+    if (!(ty.flags & ts.TypeFlags.Object)) return false;
+    const args = [...(ty.aliasTypeArguments ?? []), ...((ty as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference ? pruefer.getTypeArguments(ty as ts.TypeReference) : [])];
+    if (args.some((x) => enthaelt(x, gesehen, tiefe + 1))) return true;
+    if (istLib(ty.getSymbol())) return false; // a library type declares no brand of ours; only its arguments can
+    for (const p of pruefer.getPropertiesOfType(ty)) if (enthaelt(pruefer.getTypeOfSymbol(p), gesehen, tiefe + 1)) return true;
+    for (const s of [...ty.getCallSignatures(), ...ty.getConstructSignatures()]) if (enthaelt(pruefer.getReturnTypeOfSignature(s), gesehen, tiefe + 1)) return true;
+    const i1 = ty.getStringIndexType();
+    const i2 = ty.getNumberIndexType();
+    return (i1 !== undefined && enthaelt(i1, gesehen, tiefe + 1)) || (i2 !== undefined && enthaelt(i2, gesehen, tiefe + 1));
+  };
+  const ausTyp = (t: ts.TypeNode): ts.Type => pruefer.getTypeFromTypeNode(t);
+  const istAufrufziel = (n: ts.Node): boolean => {
+    let p = n.parent;
+    let k: ts.Node = n;
+    while (ts.isParenthesizedExpression(p) || ts.isNonNullExpression(p)) {
+      k = p;
+      p = p.parent;
+    }
+    return ts.isCallExpression(p) && p.expression === k;
+  };
+  const memberName = (n: ts.PropertyAccessExpression | ts.ElementAccessExpression): string | null => (ts.isPropertyAccessExpression(n) ? n.name.text : ts.isStringLiteralLike(n.argumentExpression) ? n.argumentExpression.text : null);
+
+  besuche(q, (n) => {
+    if (n.getStart(q) < ab) return; // the probe's own header (`declare const ...`) is not under test
+    // ── gate 1: global names ──
+    if (ts.isIdentifier(n)) {
+      if (ts.isPropertyAccessExpression(n.parent) && n.parent.name === n) return;
+      if (ts.isBindingElement(n.parent) && n.parent.propertyName === n) return;
+      if (ts.isQualifiedName(n.parent) || ts.isImportSpecifier(n.parent) || ts.isExportSpecifier(n.parent)) return;
+      let inTyp = false;
+      for (let p: ts.Node | undefined = n.parent; p && !ts.isSourceFile(p); p = p.parent) if (ts.isTypeNode(p) && !ts.isExpressionWithTypeArguments(p)) inTyp = true;
+      if (inTyp) return;
+      const sym = ts.isShorthandPropertyAssignment(n.parent) && n.parent.name === n ? pruefer.getShorthandAssignmentValueSymbol(n.parent) : pruefer.getSymbolAtLocation(n);
+      if (sym === undefined || sym.flags & ts.SymbolFlags.Alias) return;
+      const decls = sym.declarations ?? [];
+      const global = decls.length === 0 || decls.some((d) => !ts.isExternalModule(d.getSourceFile()));
+      if (!global) return;
+      const spec = Object.hasOwn(ERLAUBTE_GLOBALE, n.text) ? ERLAUBTE_GLOBALE[n.text] : undefined;
+      if (spec === undefined) {
+        funde.push(`globaler Name ${n.text} nicht erlaubt ${ort(n)}`);
+        return;
+      }
+      if (spec.nur !== undefined && !spec.nur.includes(o.datei)) {
+        funde.push(`globaler Name ${n.text} hier nicht erlaubt ${ort(n)}`);
+        return;
+      }
+      if (spec.aufrufe !== undefined || spec.werte !== undefined) {
+        const e = n.parent;
+        const direkt = ts.isPropertyAccessExpression(e) && e.expression === n;
+        const m = direkt ? e.name.text : null;
+        const nurWert = direkt && (spec.werte ?? []).includes(m as string) && !istAufrufziel(e);
+        const nurAufruf = direkt && (spec.aufrufe ?? []).includes(m as string) && istAufrufziel(e);
+        if (!nurWert && !nurAufruf) funde.push(`globaler Name ${n.text} nur als ${n.text}.<erlaubtes Mitglied> ${ort(n)}`);
+      }
+      return;
+    }
+    // ── gate 2: members of DOM types ──
+    if (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) {
+      const empf = ts.isPropertyAccessExpression(n) ? n.expression : n.expression;
+      const ty = pruefer.getTypeAtLocation(empf);
+      if (istDomTyp(ty)) {
+        const m = memberName(n);
+        if (m === null) {
+          const k = ts.isElementAccessExpression(n) ? pruefer.getTypeAtLocation(n.argumentExpression) : undefined;
+          if (k === undefined || (k.flags & ts.TypeFlags.NumberLike) === 0) funde.push(`DOM-Zugriff ueber einen berechneten Schluessel ${ort(n)}`);
+        } else {
+          for (const t of ty.isUnion() ? ty.types : [ty]) {
+            if (!istDomTyp(t)) continue;
+            const sym = pruefer.getPropertyOfType(pruefer.getApparentType(t), m);
+            const decl = sym?.declarations?.[0]?.parent;
+            const schluessel = `${decl !== undefined && (ts.isInterfaceDeclaration(decl) || ts.isClassDeclaration(decl)) && decl.name !== undefined ? decl.name.text : '?'}.${m}`;
+            if (!Object.hasOwn(ERLAUBTE_DOM_MEMBER, schluessel)) funde.push(`DOM-Mitglied ${schluessel} nicht erlaubt ${ort(n)}`);
+            else if (pruefer.getTypeAtLocation(n).getCallSignatures().length > 0 && !istAufrufziel(n)) funde.push(`DOM-Methode ${schluessel} als Wert weitergereicht ${ort(n)}`);
+          }
+        }
+      }
+    }
+    if (ts.isObjectBindingPattern(n) && n.parent && (ts.isVariableDeclaration(n.parent) || ts.isParameter(n.parent) || ts.isBindingElement(n.parent))) {
+      if (istDomTyp(pruefer.getTypeAtLocation(n))) funde.push(`DOM-Objekt zerlegt ${ort(n)}`);
+    }
+    // ── gate 3: marks only in anzeige.ts ──
+    if (o.anzeige) return;
+    if (ts.isTypePredicateNode(n) && n.type !== undefined && enthaelt(ausTyp(n.type))) funde.push(`Typpraedikat auf eine Marke ${ort(n)}`);
+    if ((ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n) || ts.isConstructorDeclaration(n)) && n.body === undefined && !n.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword)) funde.push(`Funktionsueberladung / Deklaration ohne Rumpf ${ort(n)}`);
+    if (ts.isInterfaceDeclaration(n) || ts.isTypeLiteralNode(n)) {
+      const aufrufe = n.members.filter((m) => ts.isCallSignatureDeclaration(m)).length;
+      const namen = new Map<string, number>();
+      for (const m of n.members) if (ts.isMethodSignature(m) && ts.isIdentifier(m.name)) namen.set(m.name.text, (namen.get(m.name.text) ?? 0) + 1);
+      if (aufrufe > 1 || [...namen.values()].some((c) => c > 1)) funde.push(`Ueberladung in einer Schnittstelle ${ort(n)}`);
+    }
+    if ((ts.canHaveModifiers(n) ? ts.getModifiers(n) : undefined)?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) funde.push(`declare ausserhalb von anzeige.ts ${ort(n)}`);
+    if ((ts.isAsExpression(n) || ts.isTypeAssertionExpression(n) || ts.isSatisfiesExpression(n)) && !ts.isConstTypeReference(n.type)) {
+      const ziel = ausTyp(n.type);
+      if (enthaelt(ziel)) funde.push(`Umwandlung auf einen Typ mit Marke ${ort(n)}`);
+      if (ziel.flags & ts.TypeFlags.TypeParameter) funde.push(`Umwandlung auf einen Typparameter ${ort(n)}`);
+    }
+    if ((ts.isCallExpression(n) || ts.isNewExpression(n)) && n.typeArguments?.some((t) => enthaelt(ausTyp(t)))) funde.push(`Typargument mit Marke ${ort(n)}`);
+    if (ts.isFunctionLike(n) && n.typeParameters !== undefined && n.type !== undefined && !ts.isTypePredicateNode(n.type)) {
+      // a type parameter that only the return type names can be chosen by the caller (`g<Anzeigetext>(x)` or by the expected type)
+      const imRueckgabetyp = new Set<string>();
+      const imParameter = new Set<string>();
+      besuche(n.type, (k) => ts.isTypeReferenceNode(k) && ts.isIdentifier(k.typeName) && imRueckgabetyp.add(k.typeName.text));
+      for (const p of n.parameters) besuche(p, (k) => ts.isTypeReferenceNode(k) && ts.isIdentifier(k.typeName) && imParameter.add(k.typeName.text));
+      for (const tp of n.typeParameters) if (imRueckgabetyp.has(tp.name.text) && !imParameter.has(tp.name.text)) funde.push(`Typparameter nur im Rueckgabetyp ${tp.name.text} ${ort(n)}`);
+    }
+  });
   return funde;
 }
 
@@ -514,22 +731,37 @@ function markenWerte(programm: ts.Program): Set<string> {
 }
 
 /** A program over the real mask files, and optionally one virtual file `zz-probe.ts` next to them (for the scanner's own tests). */
+let probeText: string | undefined;
+let geteilterHost: ts.CompilerHost | undefined;
+let letztesProgramm: ts.Program | undefined;
 function baueProgramm(probe?: string): ts.Program {
   const konfig = ts.readConfigFile(resolve(CLIENT, 'tsconfig.json'), ts.sys.readFile);
   const optionen = { ...ts.parseJsonConfigFileContent(konfig.config, ts.sys, CLIENT).options, noEmit: true };
   const wurzeln = dateien.map((d) => resolve(ORDNER, d));
   const probePfad = resolve(ORDNER, 'zz-probe.ts');
-  const host = ts.createCompilerHost(optionen);
-  if (probe !== undefined) {
+  probeText = probe;
+  if (geteilterHost === undefined) {
+    // one host for all probe programs: the library and the mask files are read once, only the virtual file changes
+    const host = ts.createCompilerHost(optionen);
     const echt = host.getSourceFile.bind(host);
     const echtLesen = host.readFile.bind(host);
     const echtDa = host.fileExists.bind(host);
-    host.getSourceFile = (name, ziel, ...rest) => (name === probePfad ? ts.createSourceFile(name, probe, ziel, true, ts.ScriptKind.TS) : echt(name, ziel, ...rest));
-    host.readFile = (name) => (name === probePfad ? probe : echtLesen(name));
-    host.fileExists = (name) => name === probePfad || echtDa(name);
-    wurzeln.push(probePfad);
+    const zwischen = new Map<string, ts.SourceFile>();
+    host.getSourceFile = (name, ziel, ...rest) => {
+      if (name === probePfad) return probeText === undefined ? undefined : ts.createSourceFile(name, probeText, ziel, true, ts.ScriptKind.TS);
+      const da = zwischen.get(name);
+      if (da !== undefined) return da;
+      const neu = echt(name, ziel, ...rest);
+      if (neu !== undefined) zwischen.set(name, neu);
+      return neu;
+    };
+    host.readFile = (name) => (name === probePfad ? probeText : echtLesen(name));
+    host.fileExists = (name) => (name === probePfad ? probeText !== undefined : echtDa(name));
+    geteilterHost = host;
   }
-  return ts.createProgram({ rootNames: wurzeln, options: optionen, host });
+  if (probe !== undefined) wurzeln.push(probePfad);
+  letztesProgramm = ts.createProgram({ rootNames: wurzeln, options: optionen, host: geteilterHost, oldProgram: letztesProgramm });
+  return letztesProgramm;
 }
 
 
@@ -641,7 +873,7 @@ function baueProgramm(probe?: string): ts.Program {
   for (const d of dateien) {
     const q = programm.getSourceFile(resolve(ORDNER, d));
     if (!q) continue;
-    const funde = typFunde(programm, q, { anzeige: d === 'anzeige.ts', dom: DOM_DATEIEN.has(d), streng: d === 'seite.ts' || d === 'texte.ts' });
+    const funde = typFunde(programm, q, { anzeige: d === 'anzeige.ts', dom: DOM_DATEIEN.has(d), streng: d === 'seite.ts' || d === 'texte.ts', datei: d });
     check(`${d}: laut Typpruefer keine Umwandlung auf eine Marke, kein any, nur Nodes an append & Co, kein new Text / Option, kein berechneter Schluessel`, funde.length === 0, funde.join(' | '));
   }
   const kopf = [
@@ -651,12 +883,15 @@ function baueProgramm(probe?: string): ts.Program {
     "declare const zeile: HTMLDivElement;",
     "declare const kk: string;",
     "declare function anzeigeName(x: { id: string }): Anzeigetext;",
+    "declare const sel: HTMLSelectElement;",
+    "declare const jj: unknown;",
+    "interface W { t: Anzeigetext }",
     "",
   ].join('\n');
-  const probe = (code: string, dom = true): string[] => {
+  const probe = (code: string, dom = true, datei = 'zz-probe.ts'): string[] => {
     const pg = baueProgramm(kopf + code);
     const q = pg.getSourceFile(resolve(ORDNER, 'zz-probe.ts'));
-    return q ? [...typFunde(pg, q, { anzeige: false, dom, streng: true }), ...verboteneWege(q)] : ['keine Quelle'];
+    return q ? [...typFunde(pg, q, { anzeige: false, dom, streng: true, datei, ab: kopf.length }), ...verboteneWege(q)] : ['keine Quelle'];
   };
   for (const [name, code] of [
     ['alias', 'const x = e.id as AT;'],
@@ -691,6 +926,73 @@ function baueProgramm(probe?: string): ts.Program {
   const frei = probe("const a = sichtbarKuerzen(e.id); const b = zier('('); const c = fuege(' ', a, b); unten.append(zeile, document.createElement('p')); unten.replaceChildren(); const j: unknown = JSON.parse('1'); const z = [1, 2]; z[0] = 3; const s = e.id as string;");
   check('... und laesst durch: Nodes an append / replaceChildren, JSON.parse in ein unknown, ein Index, gewoehnliche Umwandlungen', frei.length === 0, frei.join(' | '));
   check('... ein Schluessel-Zugriff ausserhalb der DOM-Dateien (Wert-Tabelle) ist erlaubt, die Text-Eigenschaft ueber einen Schluessel nie', probe('const t: Record<string, number> = {}; t[kk] = 1;', false).length === 0 && probe("const k = 'innerHTML'; unten[k] = e.id;", false).length >= 1);
+  // N6 (Angriff N5): every probe of the N5 attack, plus the three that were only run virtually, as biting probes of the allow list
+  for (const [name, code] of [
+    ['pred: Typpraedikat auf die Marke', 'function ist(x: string): x is Anzeigetext { return true; } if (ist(e.id)) unten.append(anzeigeName(e));'],
+    ['pred: Typpraedikat in einer Eigenschaft', 'const o: { ist: (x: string) => x is Anzeigetext } = { ist: (x: string): x is Anzeigetext => true }; o.ist(e.id);'],
+    ['asserts: Assertion-Funktion auf die Marke', 'function muss(x: unknown): asserts x is Anzeigetext {} muss(e.id);'],
+    ['gen: Cast auf einen Typparameter, Typargument am Aufruf', 'function g<T>(x: unknown): T { return x as T; } const x = g<Anzeigetext>(e.id);'],
+    ['gen: Typparameter nur im Rueckgabetyp', 'function g<T>(): T { return undefined as never; } const x: Anzeigetext = g();'],
+    ['json: Cast auf ein Objekt mit Marke', 'const j: unknown = JSON.parse(e.id); const x = (j as { t: Anzeigetext }).t;'],
+    ['json: Cast auf einen Funktionstyp mit Marke', 'const x = (jj as () => Anzeigetext)();'],
+    ['json: Cast auf eine Schnittstelle mit Marke', 'const x = (jj as W).t;'],
+    ['json: Cast auf ein Feld in einem Promise', 'const x = jj as Promise<{ t: Anzeigetext }>;'],
+    ['overload: Ueberladung mit Marke im Ergebnis', 'function f(x: string): Anzeigetext; function f(x: string): string { return x; }'],
+    ['overload: Ueberladung in einer Schnittstelle', 'interface I { (x: string): Anzeigetext; (x: number): string }'],
+    ['declare: eine Funktion nur deklariert', 'declare function mk(x: string): Anzeigetext; const x = mk(e.id);'],
+    ['textalias: new Text ueber einen Alias', 'const T = Text; unten.append(new T(e.id));'],
+    ['textalias: new Text ueber eine Klammer', 'unten.append(new (Text)(e.id));'],
+    ['defprop: Object ueber einen Alias', "const O = Object; O.defineProperty(unten, 'textContent', { value: e.id });"],
+    ['defprop: Object.defineProperty', "Object.defineProperty(unten, 'textContent', { value: e.id });"],
+    ['defprop: Object.assign', 'Object.assign(unten, { textContent: e.id });'],
+    ["defprop: Object['assign']", "Object['assign'](unten, { textContent: e.id });"],
+    ['defprop: aus Object zerlegt', 'const { assign } = Object; assign(unten, { textContent: e.id });'],
+    ['defprop: Object als Wert weitergereicht', 'const p = [{}].map(Object);'],
+    ['defprop: Object.keys als Wert', 'const k = Object.keys; k({});'],
+    ['defprop: Reflect ueber einen Alias', "const R = Reflect; R.set(unten, 'textContent', e.id);"],
+    ['defprop: Reflect.set', "Reflect.set(unten, 'textContent', e.id);"],
+    ['defprop: globalThis.Reflect', "globalThis.Reflect.set(unten, 'textContent', e.id);"],
+    ['frag: createRange().createContextualFragment', 'unten.append(document.createRange().createContextualFragment(e.id));'],
+    ['frag: DOMParser', "unten.append(new DOMParser().parseFromString(e.id, 'text/html').body);"],
+    ['frag: document.implementation', "unten.append(document.implementation.createHTMLDocument(e.id).body);"],
+    ['setAttributeNS', "unten.setAttributeNS(null, 'title', e.id);"],
+    ['toggleAttribute', 'unten.toggleAttribute(e.id);'],
+    ['select.add mit Option', 'sel.add(new Option(e.id));'],
+    ['options.add', 'sel.options.add(new Option(e.id));'],
+    ['document.title', 'document.title = e.id;'],
+    ['document.write', 'document.write(e.id);'],
+    ['document.createTextNode', 'unten.append(document.createTextNode(e.id));'],
+    ['window.open', 'window.open(e.id);'],
+    ['location', 'location.href = e.id;'],
+    ['Notification', 'new Notification(e.id);'],
+    ['setTimeout mit Text', 'setTimeout(e.id, 0);'],
+    ['eval', 'eval(e.id);'],
+    ['new Function', 'new Function(e.id)();'],
+    ['fetch ausserhalb von api.ts', "fetch('/x');"],
+    ['window.confirm ausserhalb von dom.ts', 'window.confirm(e.id);'],
+    ['globalThis', 'const g = globalThis;'],
+    ['insertAdjacentHTML', "unten.insertAdjacentHTML('beforeend', e.id);"],
+    ['DOM-Methode als Wert (.call)', 'unten.append.call(unten, e.id);'],
+    ['DOM-Methode als Wert (Variable)', 'const f = unten.append; f.call(unten, e.id);'],
+    ['DOM-Methode als Wert (.bind)', 'unten.append.bind(unten)(e.id);'],
+    ['DOM-Objekt zerlegt', 'const { append } = unten; append(e.id);'],
+    ['DOM mit berechnetem Schluessel (lesen)', 'const f = unten[kk];'],
+    ['Typargument mit Marke: new Map', 'const m = new Map<string, Anzeigetext>();'],
+    ['Typargument mit Marke: Promise.resolve', 'const m = Promise.resolve<Anzeigetext>(e.id as never);'],
+  ] as const) {
+    check(`die Erlaubnisliste beisst: ${name}`, probe(code).length >= 1, code);
+  }
+  const probeFetch = probe("fetch('/x'); const a = new AbortController(); const u = setTimeout(() => a.abort(), 1); clearTimeout(u);", true, 'api.ts');
+  check('... fetch, AbortController und setTimeout sind in api.ts erlaubt (und nur dort)', probeFetch.length === 0, probeFetch.join(' | '));
+  const durch = probe(
+    "const m = new Map<string, number>(); const st = new Set<string>(); const copy = structuredClone({ a: 1 }); const ks = Object.keys(copy); const en = Object.entries(copy); const fe = Object.fromEntries(en); const fr = Object.freeze([1]); const h = Object.hasOwn(copy, 'a'); " +
+      "const arr = Array.from(st); const ia = Array.isArray(arr); const n = Math.max(1, 2) + Number('3'); const str = String(n); const pr = Promise.resolve(1); const rx = /a/.test('b'); const nn = NaN; const uu = undefined; " +
+      "unten.style.display = 'none'; document.body.appendChild(zeile); document.addEventListener('keydown', () => {}); document.removeEventListener('keydown', () => {}); const dlg = document.querySelector('[data-x]'); " +
+      "unten.setAttribute('list', 'x'); zeile.remove(); unten.onclick = () => {}; unten.id; const kopieA = [...arr]; function id2<T>(x: T): T { return x; } const v = id2(1); const o = document.createElement('div'); unten.append(o); " +
+      "class Fehler extends Error { constructor(public code: string) { super(code); } } const bf = new Fehler('x'); const gk = (bf as Error).message; const sb = e.id.slice(0, 1);",
+    true
+  );
+  check('... und laesst durch: jeden legitimen Gebrauch der Erlaubnisliste (Collections, Object.keys & Co direkt am Namen, Math, structuredClone, document.createElement/body/Listener, style, onclick, Fehlerklasse, generische Funktion mit Parameter)', durch.length === 0, durch.join(' | '));
 }
 
 // invisible characters by rule

@@ -327,7 +327,7 @@ try {
       ["wov . dev", kuerzel],
       ["Port 2467", port],
       ["Ports 2467", port],
-      ["port:8080", port],
+      ["port:80", port],
       ["liegt in ~/foo", zeichen],
       // Hashes
       ["a1b2c3d", hash],
@@ -401,7 +401,7 @@ try {
       ["modell.glb", endung],
       ["szene.blend", endung],
       ["nginx.conf", endung],
-      ["WovServer.ts", endung],
+      ["Beispiel.ts", endung],
       ["Welt.TS", endung],
       ["server.js", endung],
       // andere Schriften und Zeichen
@@ -700,7 +700,7 @@ try {
       for (const satz of ["`port` + number", "`wov` + any separator", "also inside a word", "IP:fe80::1", "year + word", "day + word"]) {
         pruefe(`Doku nennt „${satz}“`, text.includes(satz));
       }
-      pruefe("Verhalten „port“ + Zahl", gesp("port 12") && gesp("ports:8080") && gesp("port 8") && !gesp("port"), "");
+      pruefe("Verhalten „port“ + Zahl", gesp("port 12") && gesp("ports:80") && gesp("port 8") && !gesp("port"), "");
       // N7: Hexzahl, TLD- und Endungsliste aus der Doku gegen den Code
       const H = zahl(/`0x` followed by (\d+) or more hex characters/);
       grenze("Hexzahl", `0x${"a".repeat(H)}`, `0x${"a".repeat(H - 1)}`);

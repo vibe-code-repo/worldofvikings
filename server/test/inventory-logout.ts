@@ -1,6 +1,7 @@
 /** Exercise the real disconnect handler and subsequent saved-state lookup. */
 import assert from 'node:assert/strict';
 import { WovServer } from '../src/WovServer.js';
+import { Spielwerte } from '../src/spiel/Spielwerte.js';
 import { Inventory, IRONWARD_PARTS, findItem } from '@wov/shared';
 
 // Private handlers are intentionally exercised; the probe is deliberately
@@ -15,7 +16,7 @@ inventory.all[1]!.equipped = true;
 const before = inventory.serialize();
 const peer = { name: 'LogoutTest', spielerId: 'logout-test', inventar: inventory,
   position: { x: 12, y: 4, z: -18 }, figur: 'wikinger', ruestung: '|',
-  characterID: { isNone: () => true }, flying: false };
+  characterID: { isNone: () => true }, flying: false, spielwerte: new Spielwerte() };
 server.onPeerQuit(peer);
 const saved = server.ermittleGespeichertenStand(peer);
 assert.deepEqual(saved.inventar, before, 'Disconnect must preserve all items and equipped flags');

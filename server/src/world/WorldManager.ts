@@ -114,6 +114,10 @@ export interface SavedPlayer {
   augenfarbe?: string;
   klasse?: string;
   starterSetGranted?: string;
+  /** Tode des Charakters; fehlt in Staenden von vor der Erfassung (= noch nicht erfasst, nicht 0). */
+  tode?: number;
+  /** Aktive Spielzeit in Sekunden; fehlt wie `tode` in Altstaenden. */
+  spielzeitSek?: number;
   ruestung?: string;
   /** Getragene Waffe (Kampfkern K2a), Name des Gegenstands; fehlt bei Altstaenden = Faust. */
   waffe?: string;

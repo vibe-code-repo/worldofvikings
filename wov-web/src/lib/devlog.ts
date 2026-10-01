@@ -73,10 +73,11 @@ export function istDatum(x: unknown): x is string {
  * `SATZZEICHEN`, `PIKTO_ABGELEHNT`, `FALTUNG`) is exported below, and a test
  * compares every list in this block with it.
  *
- *   - Latin letters U+0041-U+017F (Basic Latin, Latin-1 Supplement, Latin
- *     Extended-A, so umlauts, ß and é), without × and ÷. Latin Extended-B
- *     (U+0180-U+024F) is not allowed at all. No other script, no IPA or
- *     phonetic letters, no combining marks (write precomposed letters).
+ *   - Latin letters A-Z, a-z and U+00C0-U+017F (Latin-1 Supplement and Latin
+ *     Extended-A, so umlauts, ß and é), without × and ÷. Not allowed below
+ *     U+00C0: U+00AA U+00B5 U+00BA (ª µ º). Latin Extended-B (U+0180-U+024F)
+ *     is not allowed at all. No other script, no IPA or phonetic letters, no
+ *     combining marks (write precomposed letters).
  *     Left out of that range: U+013F U+0140 U+0149 (they fold to punctuation).
  *   - Digits 0-9 and the space U+0020 (no other space, no tab, no line break).
  *   - Punctuation: . , ! ? : ; ' " „ “ ” ‚ ‘ ’ ( ) - – — % + & €
@@ -99,24 +100,33 @@ export function istDatum(x: unknown): x is string {
  *
  * On top of the list the tool rejects a few patterns on the normalised text
  * (NFKC, diacritics removed, the folding above, lower case, – and — as -):
- * hashes (a run of 7 or more of 0-9 a-f that contains digits and letters,
- * also inside a word such as "Fix1a2b3c4d", except the forms word + year
- * "Facade2026", day + word "30Dec2026" or "1Feb2026", and year + word
- * "2026Dec"; "abc1234" and "Bad1234" are rejected on purpose; or a run of 10
- * or more characters from a-f only), "pr|pull request|issue|commit|gh"
- * followed by a number of 3+ digits, domains (`word.tld` or `word . tld` or
- * `word dot tld` for common TLDs, `localhost`, `www.`, `github`), IPv4
- * addresses (four parts of 1-3 digits with value 0-255, leading zeros
- * included, so "192.168.001.001" is rejected; "Update 1.2.3.4" and
- * "10.000.000.000 Gold" are rejected on purpose, write big numbers in words;
- * "127.1", "2130706433" and "0177.0.0.1" stay free because they are not the
- * four-part form and are hopeless to tell from versions and gold amounts),
- * IPv6 (a `::` with at least one hex group that has a digit, such as "fe80::1"
- * or "::1", also after a colon as in "IP:fe80::1"; or 6 to 8 hex groups of
- * 1-4 characters; times such as 20:00:30 and words such as "Bad::" stay
- * free), server names (`wov` + any separator + dev|host|lab|live), `port` +
- * number, file endings, and every line of the blocklist file kept outside
- * the repository.
+ *
+ * Hash rules: a run of 7 or more of 0-9 a-f that contains digits and letters
+ * is rejected, also inside a word such as "Fix1a2b3c4d"; so is a run of 10 or
+ * more characters from a-f only.
+ * Free hash forms: "Facade2026" "30Dec2026" "1Feb2026" "2026Dec" "6bcbdac".
+ * These are word + year, day + word + year, year + word and day + word
+ * without a year. The last form frees real commit abbreviations: of the 1616
+ * commits of this repository it frees 6 of the 7-character, 5 of the
+ * 8-character and 1 of the 9-character abbreviations, none from 10 on.
+ * Hashes rejected on purpose: "abc1234" "Bad1234" "Dead1337" "30Dec26"
+ * "2026Dec30" "Feb282026". That is: a name plus a short number, a two-digit
+ * year, and the orders year-word-day and word-day-year; the rule stays as it
+ * is because every widening frees more real abbreviations.
+ *
+ * Other patterns: "pr|pull request|issue|commit|gh" followed by a number of
+ * 3+ digits; domains (`word.tld` or `word . tld` or `word dot tld` for common
+ * TLDs, `localhost`, `www.`, `github`); IPv4 addresses (four parts of 1-3
+ * digits with value 0-255, leading zeros included, so "192.168.001.001" is
+ * rejected; "Update 1.2.3.4" and "10.000.000.000 Gold" are rejected on
+ * purpose, write big numbers in words; "127.1", "2130706433" and
+ * "0177.0.0.1" stay free because they are not the four-part form and are
+ * hopeless to tell from versions and gold amounts); IPv6 (a `::` with at
+ * least one hex group that has a digit, such as "fe80::1" or "::1", also
+ * after a colon as in "IP:fe80::1"; or 6 to 8 hex groups of 1-4 characters;
+ * times such as 20:00:30 and words such as "Bad::" stay free); server names
+ * (`wov` + any separator + dev|host|lab|live); `port` + number; file endings;
+ * and every line of the blocklist file kept outside the repository.
  */
 /** Last code point of the allowed Latin range (Latin Extended-A ends at U+017F). */
 export const LATEIN_BIS = 0x17f;

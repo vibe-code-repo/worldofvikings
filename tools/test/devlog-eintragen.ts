@@ -651,6 +651,61 @@ try {
       const funde = findeSpuren({ de: { titel: "T", punkte: [text] } }, []).filter((f) => !/Zeichen nicht erlaubt/.test(f));
       pruefe(`Grenze ${JSON.stringify(text)}: ${gesperrtSoll ? "gesperrt" : "frei"}`, (funde.length > 0) === gesperrtSoll, funde.join("|"));
     }
+    // N6/5: Die Zahlen und Listen der Musterregeln in der Doku („Allowed text“) stimmen mit dem Verhalten überein:
+    // jede Zahl wird aus dem Kommentarblock gelesen und an ihrer Grenze geprüft (eine Doku-Änderung ohne Code-Änderung wird rot).
+    {
+      const quelle = readFileSync(resolve(import.meta.dirname, "../../wov-web/src/lib/devlog.ts"), "utf8");
+      const text = quelle
+        .slice(quelle.indexOf("Allowed text"), quelle.indexOf("export const LATEIN_BIS"))
+        .replace(/\n \* ?/g, " ")
+        .replace(/\s+/g, " ");
+      const zahl = (re: RegExp): number => Number(re.exec(text)?.[1] ?? Number.NaN);
+      const gesp = (t: string): boolean => findeSpuren({ de: { titel: "T", punkte: [t] } }, []).some((f) => !/Zeichen nicht erlaubt/.test(f));
+      const grenze = (name: string, gross: string, klein: string) =>
+        pruefe(`Doku-Zahl ${name}: ${JSON.stringify(gross)} gesperrt, ${JSON.stringify(klein)} frei`, gesp(gross) && !gesp(klein), `${gesp(gross)} ${gesp(klein)}`);
+      const M = zahl(/a run of (\d+) or more of 0-9 a-f/);
+      grenze("Hash gemischt", "a1".repeat(M).slice(0, M), "a1".repeat(M).slice(0, M - 1));
+      const K = zahl(/so is a run of (\d+) or more characters from a-f only/);
+      grenze("Hash a-f", "abcdef".repeat(4).slice(0, K), "abcdef".repeat(4).slice(0, K - 1));
+      const D = zahl(/followed by a number of (\d+)\+ digits/);
+      grenze("Nummer nach pr", `pr ${"1".repeat(D)}`, `pr ${"1".repeat(D - 1)}`);
+      const O = zahl(/value 0-(\d+)/);
+      grenze("Oktett", `${O}.${O}.${O}.${O}`, `${O + 1}.1.1.1`);
+      const Z = zahl(/four parts of 1-(\d+) digits/);
+      grenze("Oktett-Ziffern", `${"1".repeat(Z)}.1.1.1`, `${"1".repeat(Z + 1)}.1.1.1`);
+      const g = /(\d+) to (\d+) hex groups of 1-(\d+) characters/.exec(text);
+      const [gmin, gmax, glen] = [Number(g?.[1]), Number(g?.[2]), Number(g?.[3])];
+      const gruppen = (n: number) => Array.from({ length: n }, (_, i) => String((i + 1) % 10)).join(":");
+      grenze("IPv6 Gruppen unten", gruppen(gmin), gruppen(gmin - 1));
+      grenze("IPv6 Gruppen oben", gruppen(gmax), gruppen(gmax + 1));
+      grenze("IPv6 Gruppenlänge", `${"1".repeat(glen)}:1:2:3:4:5`, `${"1".repeat(glen + 1)}:1:2:3:4:5`);
+      const server = /`wov` \+ any separator \+ ([a-z|]+)\)/.exec(text)?.[1]?.split("|") ?? [];
+      const kandidaten = ["dev", "host", "lab", "live", "test", "prod", "web", "staging"];
+      pruefe(
+        "Doku-Liste Serverkürzel = Verhalten",
+        server.length > 0 && kandidaten.every((k) => gesp(`wov-${k}`) === server.includes(k)),
+        `doku=${server.join()}`,
+      );
+      const quoted = (von: string, bis: string): string[] => {
+        const teil = text.slice(text.indexOf(von) + von.length, text.indexOf(bis));
+        return [...teil.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+      };
+      const frei = quoted("Free hash forms:", "These are");
+      const abgelehnt = quoted("Hashes rejected on purpose:", "That is");
+      pruefe("Doku: freie Hashformen genannt und frei", frei.length >= 5 && frei.every((t) => !gesp(t)), frei.filter(gesp).join());
+      pruefe("Doku: bewusst abgelehnte Hashformen genannt und gesperrt", abgelehnt.length >= 6 && abgelehnt.every((t) => gesp(t)), abgelehnt.filter((t) => !gesp(t)).join());
+      for (const satz of ["`port` + number", "`wov` + any separator", "also inside a word", "IP:fe80::1", "year + word", "day + word"]) {
+        pruefe(`Doku nennt „${satz}“`, text.includes(satz));
+      }
+      pruefe("Verhalten „port“ + Zahl", gesp("port 12") && gesp("ports:8080") && !gesp("port"), "");
+    }
+    // N6/3 und 6: zweistellige Jahre, andere Datumsreihenfolgen und Name plus kurze Zahl sind bewusst abgelehnt.
+    for (const t of ["30Dec26", "25Dec25", "2026Dec30", "2026Feb28", "Feb282026", "Dead1337", "Face1234", "Ace12345"]) {
+      const funde = findeSpuren({ de: { titel: "T", punkte: [t] } }, []).join("|");
+      pruefe(`Bewusst abgelehnt (Doku): ${JSON.stringify(t)}`, funde.includes("Commit-Hash"), funde || "keine");
+    }
+    // N6/5: die Buchstaben ª µ º stehen unterhalb von U+00C0 und sind abgelehnt.
+    pruefe("ª µ º abgelehnt", JSON.stringify(unerlaubteZeichen("ªµº")) === JSON.stringify(["U+00AA", "U+00B5", "U+00BA"]), "");
     const leer = findeSpuren({ de: { titel: "T", punkte: ["Ein ganz normaler Satz"] } }, ["", "  ", "\u200b"]);
     pruefe("Sperrliste: Zeile, die nach dem Glätten leer ist, sperrt nichts", leer.length === 0, leer.join());
     const benannt = findeSpuren({ de: { titel: "T", punkte: ["a/b"] } }, sperr).join("|");

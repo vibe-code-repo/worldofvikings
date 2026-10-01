@@ -323,10 +323,36 @@ describe('devlog: Zeichen-Positivliste (Allowed text)', () => {
     }
     expect(sortiert(abgelehnt)).toBe(sortiert(ascii));
     // Lateinbereich, Erweiterung B und Ausnahmen
-    expect(hex(/Latin letters (U\+[0-9A-F]{4}-U\+[0-9A-F]{4})/.exec(text)?.[1])).toEqual([
-      0x41,
-      LATEIN_BIS,
-    ]);
+    expect(
+      hex(/Latin letters A-Z, a-z and (U\+[0-9A-F]{4}-U\+[0-9A-F]{4})/.exec(text)?.[1]),
+    ).toEqual([0xc0, LATEIN_BIS]);
+    // Buchstaben zwischen U+0080 und U+00BF (ª µ º): in der Doku genannt, vom Code abgelehnt
+    const unterLatein: number[] = [];
+    for (let c = 0x80; c < 0xc0; c++)
+      if (/^\p{L}$/u.test(String.fromCodePoint(c))) unterLatein.push(c);
+    expect(
+      zahlen(hex(/Not allowed below U\+00C0: ((?:U\+[0-9A-F]{4} ?)+)/.exec(text)?.[1])),
+    ).toEqual(zahlen(unterLatein));
+    expect(unterLatein.length).toBe(3);
+    for (const c of unterLatein) {
+      expect(unerlaubteZeichen(String.fromCodePoint(c)).length > 0, `U+${c.toString(16)}`).toBe(
+        true,
+      );
+    }
+    // Sätze zu Emoji, Leerzeichen und Symbolen: Text und Verhalten
+    for (const satz of [
+      'one of each at most',
+      'assigned code points only',
+      'without × and ÷',
+      'no other space, no tab, no line break',
+    ]) {
+      expect(text, satz).toContain(satz);
+    }
+    expect(unerlaubteZeichen('10\u00d73\u00f7')).toEqual(['U+00D7', 'U+00F7']);
+    expect(unerlaubteZeichen('a b')).toEqual([]);
+    expect(unerlaubteZeichen('a\tb\u00a0c\nd')).toEqual(['U+0009', 'U+00A0', 'U+000A']);
+    expect(unerlaubteZeichen('\u2764\uFE0F\uFE0F')).toEqual(['U+FE0F']);
+    expect(unerlaubteZeichen('\u{1F44D}\u{1F3FD}\u{1F3FD}')).toEqual(['U+1F3FD']);
     expect(hex(/Extended-B \((U\+[0-9A-F]{4}-U\+[0-9A-F]{4})\)/.exec(text)?.[1])).toEqual([
       LATEIN_BIS + 1,
       0x24f,

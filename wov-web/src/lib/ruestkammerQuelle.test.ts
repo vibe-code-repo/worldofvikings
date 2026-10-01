@@ -44,6 +44,21 @@ describe('keine Demo-Daten mehr', () => {
     }
   });
 
+  it('kein {@html} in Rüstkammer, Ruhmeshalle und Profil', () => {
+    for (const f of [
+      'src/routes/[lang=lang]/ruestkammer/+page.svelte',
+      'src/routes/[lang=lang]/ruhmeshalle/+page.svelte',
+      'src/lib/Reckenprofil.svelte',
+    ]) {
+      expect(readFileSync(join(WURZEL, f), 'utf8')).not.toContain('{@html');
+    }
+  });
+
+  it('das Profil hat keine Ereignis-Handler am Bild (CSP: kein Inline-Handler)', () => {
+    const q = readFileSync(join(WURZEL, 'src/lib/Reckenprofil.svelte'), 'utf8');
+    expect(q).not.toMatch(/\bonerror\b|\bonload\b|use:pruefeBild/);
+  });
+
   it('die Demo-Hinweise sind aus dem Katalog', () => {
     const katalog = readFileSync(join(WURZEL, 'src/lib/i18n/de.ts'), 'utf8');
     expect(katalog).not.toMatch(/armory\.hint\.|hall_of_fame\.hint\./);

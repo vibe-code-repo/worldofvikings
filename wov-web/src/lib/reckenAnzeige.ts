@@ -54,15 +54,16 @@ export function glyphe(platz: Platz | 'waffe'): string {
 }
 
 /**
- * Was ein Platz zeigt: das Symbol des Stücks, solange es eines gibt und es
- * nicht geladen werden konnte (`fehlgeschlagen`), sonst die Glyphe des Platzes.
+ * Was ein Platz zeigt. Mit Symbol ein Bild, dessen Ersatztext die Glyphe des
+ * Platzes ist: Lädt das Bild nicht, steht die Glyphe da, ohne JavaScript und
+ * ohne Inline-Handler (die Content-Security-Policy erlaubt keine). Ohne Symbol
+ * steht die Glyphe selbst.
  */
 export function symbolAnzeige(
   platz: Platz | 'waffe',
   stueck: Pick<Stueck, 'symbol'>,
-  fehlgeschlagen: boolean,
-): { art: 'bild'; src: string } | { art: 'glyphe'; zeichen: string } {
-  if (stueck.symbol && !fehlgeschlagen) return { art: 'bild', src: stueck.symbol };
+): { art: 'bild'; src: string; alt: string } | { art: 'glyphe'; zeichen: string } {
+  if (stueck.symbol) return { art: 'bild', src: stueck.symbol, alt: glyphe(platz) };
   return { art: 'glyphe', zeichen: glyphe(platz) };
 }
 
@@ -103,26 +104,51 @@ export interface OptionalesFeld {
   wert: string;
 }
 
+/** Eine Zahl mit den Tausendertrennern der Sprache. */
+export function zahlText(n: number, sprache: string = 'de'): string {
+  return new Intl.NumberFormat(sprache).format(n);
+}
+
 /** Minuten als „12 h 5 min“; unter einer Stunde nur Minuten. */
-export function spielzeitText(minuten: number): string {
+export function spielzeitText(minuten: number, sprache: string = 'de'): string {
   const h = Math.floor(minuten / 60);
   const m = Math.floor(minuten % 60);
-  return h > 0 ? `${h} h ${m} min` : `${m} min`;
+  return h > 0 ? `${zahlText(h, sprache)} h ${m} min` : `${m} min`;
+}
+
+/** Der übersetzte Klassenname (`armory.klasse.<id>`); unbekannt bleibt die Kennung, leer bleibt leer. */
+export function klassenName(klasse: string, katalog: Record<string, string>): string {
+  const text = Object.hasOwn(katalog, `armory.klasse.${klasse}`)
+    ? katalog[`armory.klasse.${klasse}`]
+    : undefined;
+  return text ?? klasse;
+}
+
+/** Der Zähler der Liste in der richtigen Zahlform („1 Recke“, „2 Recken“). */
+export function zaehlerText(
+  n: number,
+  katalog: Record<string, string>,
+  sprache: string = 'de',
+): string {
+  const vorlage = katalog[n === 1 ? 'armory.list.count_one' : 'armory.list.count_other'] ?? '{n}';
+  return vorlage.replace('{n}', zahlText(n, sprache));
 }
 
 /**
  * Die Felder, die das Spiel erst später liefert. Ein fehlendes Feld ergibt KEINE
  * Zeile (nicht „0“): Null Tode ist eine Aussage, ein fehlender Wert nicht.
  */
-export function optionaleFelder(recke: Recke): OptionalesFeld[] {
+export function optionaleFelder(recke: Recke, sprache: string = 'de'): OptionalesFeld[] {
   const felder: OptionalesFeld[] = [];
-  if (recke.stufe !== undefined) felder.push({ schluessel: 'stufe', wert: String(recke.stufe) });
+  if (recke.stufe !== undefined)
+    felder.push({ schluessel: 'stufe', wert: zahlText(recke.stufe, sprache) });
   if (recke.erfahrung !== undefined) {
-    felder.push({ schluessel: 'erfahrung', wert: String(recke.erfahrung) });
+    felder.push({ schluessel: 'erfahrung', wert: zahlText(recke.erfahrung, sprache) });
   }
-  if (recke.tode !== undefined) felder.push({ schluessel: 'tode', wert: String(recke.tode) });
+  if (recke.tode !== undefined)
+    felder.push({ schluessel: 'tode', wert: zahlText(recke.tode, sprache) });
   if (recke.spielzeitMinuten !== undefined) {
-    felder.push({ schluessel: 'spielzeit', wert: spielzeitText(recke.spielzeitMinuten) });
+    felder.push({ schluessel: 'spielzeit', wert: spielzeitText(recke.spielzeitMinuten, sprache) });
   }
   return felder;
 }
@@ -174,6 +200,10 @@ export function seltenheitStufe(s: Stueck['seltenheit']): 1 | 2 | 3 | 4 {
 }
 
 /** Die angelegten Stücke als Kennungen, wie `planFuerRecke` sie für die Figur braucht. */
-export function figurStuecke(recke: Pick<Recke, 'ausruestung' | 'waffe'>): Array<{ name: string }> {
-  return ausruestungsZeilen(recke).flatMap((z) => (z.stueck ? [{ name: z.stueck.kennung }] : []));
+export function figurStuecke(
+  recke: Pick<Recke, 'ausruestung' | 'waffe'>,
+): Array<{ kennung: string }> {
+  return ausruestungsZeilen(recke).flatMap((z) =>
+    z.stueck ? [{ kennung: z.stueck.kennung }] : [],
+  );
 }

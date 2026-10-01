@@ -262,13 +262,11 @@ export const de = {
   'armory.search.placeholder': 'Charaktername …',
   'armory.state.error':
     'Die Kammer ist gerade verschlossen — der Spielserver antwortet nicht. Bitte versuche es gleich noch einmal.',
-  'armory.state.loading': 'Die Kammer wird aufgeschlossen …',
   'armory.state.empty':
     'In der Kammer steht noch niemand. Sobald jemand einen Recken anlegt, erscheint er hier.',
 
   'armory.search.submit': 'Suchen',
   'armory.state.no_match': 'Kein Recke dieses Namens in der Kammer.',
-  'armory.list.count': '{n} Recken',
   'armory.card.never': 'noch nie gespielt',
   'armory.pages.label': 'Seiten',
   'armory.pages.prev': '‹ Zurück',
@@ -307,6 +305,22 @@ export const de = {
   'armory.feld.tode': 'Tode',
   'armory.feld.spielzeit': 'Spielzeit',
 
+  'armory.list.count_one': '{n} Recke',
+  'armory.list.count_other': '{n} Recken',
+  'armory.error.title': 'Dieser Recke ist nicht in der Kammer.',
+  'armory.error.text':
+    'Die Adresse führt zu keinem Recken. Vielleicht wurde er gelöscht, oder der Link ist falsch.',
+  'armory.error.back': '‹ Zur Rüstkammer',
+  'armory.klasse.krieger': 'Krieger',
+  'armory.klasse.schildmaid': 'Schildmaid',
+  'armory.klasse.jaeger': 'Jäger',
+  'armory.klasse.skalde': 'Skalde',
+  'armory.klasse.seherin': 'Seherin',
+  'armory.klasse.berserker': 'Berserker',
+  'armory.klasse.runenmagier': 'Runenmagier',
+  'armory.klasse.hexer': 'Hexer',
+  'armory.klasse.druide': 'Druide',
+
   /* ---------------------------------------------------- hall_of_fame */
   'hall_of_fame.title': 'Ruhmeshalle',
   'hall_of_fame.description': 'Die Tafeln aus Midgard: wer zuletzt unterwegs war.',
@@ -324,7 +338,6 @@ export const de = {
     'Runenrang, bezwungene Wächter, Zeit auf Fahrt und Fahrten nach Hel erscheinen hier, sobald das Spiel sie erfasst. Bis dahin stehen nur Tafeln da, für die es echte Zahlen gibt.',
 
   /* ------------------------ character_profile (Reckenprofil.svelte) */
-  'character_profile.slot.weapon': 'Waffe',
   'character_profile.slot.empty': '— leer —',
   'character_profile.last_seen': 'zuletzt gesehen',
   'character_profile.gear.title': 'Ausrüstung',
@@ -461,24 +474,7 @@ export const de = {
   'thing.mod.resolve': 'Erledigt',
   'thing.mod.delete_post': 'Beitrag entfernen',
   'thing.mod.not_moderator': 'Nur für Moderatoren.',
-  'thing.connection.heading': 'Wie es angeschlossen wird',
-  'thing.connection.location.title': 'Eigener Ort, gleiche Hülle',
   /* Three blocks, because two <code> snippets sit inside the sentence. */
-  'thing.connection.location.text_1': 'Das Forum bekommt einen eigenen Dienst unter',
-  'thing.connection.location.text_2':
-    '. Der Nginx im Container hat den Ort bereits vorgesehen — es fehlt nur das',
-  'thing.connection.location.text_3': 'auf die Software. Kopf, Fuß und Palette kommen aus',
-  'thing.connection.location.text_4': ', damit das Forum nicht wie ein Fremdkörper aussieht.',
-  'thing.connection.account.title': 'Ein Konto für alles',
-  'thing.connection.account.text':
-    'Sobald das Spiel Konten kennt, meldet man sich einmal an — für Spiel, Rüstkammer und Thing. Bis dahin gibt es bewusst keine Anmeldung, denn ein Forumskonto, das später nicht zum Spielkonto passt, macht mehr Ärger als es wert ist.',
-  'thing.connection.character.title': 'Recke am Beitrag',
-  'thing.connection.character.text_1':
-    'Jeder Beitrag soll den Recken des Schreibers zeigen — Name, Sippe, Runenrang — verlinkt in die Rüstkammer. Die Daten dafür liegen schon im richtigen Format unter',
-  'thing.connection.character.text_2': '.',
-  'thing.connection.reading.title': 'Erst lesen, dann schreiben',
-  'thing.connection.reading.text':
-    'Das Thing wird ohne Anmeldung lesbar sein. Wer schreiben will, braucht ein Konto — das hält Suchmaschinen drin und Werbemüll draußen.',
   'thing.cta': 'Solange lieber auf Fahrt gehen',
 
   /* ------------------------------------------------------------- wiki */

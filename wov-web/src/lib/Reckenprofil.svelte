@@ -8,16 +8,17 @@
     SLOT_SCHLUESSEL,
     ausruestungsZeilen,
     fertigkeitenListe,
-    figurStuecke,
     isoVon,
+    klassenName,
     optionaleFelder,
     seltenheitStufe,
     stueckName,
     stueckWerte,
     symbolAnzeige,
+    zahlText,
   } from './reckenAnzeige';
   import type { Recke } from './recken';
-  import { planFuerRecke } from './reckenVorschauKern';
+  import { type AusruestungsStueck, type FigurAussehen, planFuerRecke } from './reckenVorschauKern';
   import { type MessageKey, localeFrom, messages } from './i18n';
 
   /**
@@ -30,37 +31,36 @@
    * Bewusst NICHT dem Entwurf gefolgt:
    *
    *  1. Die Bühne zeigt die 3D-Figur (`ReckenVorschau`, dasselbe Babylon-Bündel
-   *     wie die Charaktererstellung) mit Aussehen und angelegter Rüstung des
-   *     Recken. Ohne WebGL und ohne JavaScript bleibt die Silhouette.
+   *     wie die Charaktererstellung) mit Aussehen und angelegter Rüstung, die die
+   *     Seite über die Props `aussehen` und `ausruestung` mitgibt. Ohne Aussehen,
+   *     ohne WebGL und ohne JavaScript bleibt die Silhouette.
    *  2. Es gibt nur, was das Spiel kennt: Stufe, Erfahrung, Tode, Spielzeit und
    *     Fertigkeiten erscheinen erst, wenn der Server sie liefert, und fehlen
    *     sonst ganz (kein „0“, kein Strich). Beiname, Sippe, Wächter, Lande und
    *     Trophäen waren erfunden und sind weg.
    *  3. Ein Platz zeigt das Symbol des Gegenstands (`/assets/sprites/…`). Fehlt
-   *     es oder lässt es sich nicht laden, steht die Glyphe des Platzes da.
+   *     es, steht die Glyphe des Platzes da; lässt es sich nicht laden, zeigt
+   *     der Browser den Ersatztext des Bildes, und der ist dieselbe Glyphe (ohne
+   *     JavaScript, ohne Inline-Handler).
    */
 
-  let { recke }: { recke: Recke } = $props();
+  let {
+    recke,
+    aussehen,
+    ausruestung,
+  }: {
+    recke: Recke;
+    /** Aussehen und angelegte Stücke; ohne `aussehen` bleibt es bei der Silhouette. */
+    aussehen?: FigurAussehen;
+    ausruestung?: readonly AusruestungsStueck[];
+  } = $props();
 
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
 
   const zeilen = $derived(ausruestungsZeilen(recke));
-  const felder = $derived(optionaleFelder(recke));
+  const felder = $derived(optionaleFelder(recke, lang));
   const fertigkeiten = $derived(fertigkeitenListe(recke));
-  const aussehen = $derived({ klasse: recke.klasse, ...recke.aussehen });
-  const stuecke = $derived(figurStuecke(recke));
-
-  /** Plätze, deren Symbol sich nicht laden ließ: dort steht die Glyphe. */
-  let fehlgeschlagen = $state<Record<string, boolean>>({});
-
-  /**
-   * Ein Bild, das schon vor dem Start des Skripts gescheitert ist, hat sein
-   * `error`-Ereignis verpasst; dieser Griff holt es nach.
-   */
-  function pruefeBild(img: HTMLImageElement, platz: string) {
-    if (img.complete && img.naturalWidth === 0) fehlgeschlagen[platz] = true;
-  }
 
   const WERTE: Array<[keyof Recke['werte'], MessageKey]> = [
     ['lebenMax', 'armory.wert.leben'],
@@ -110,9 +110,13 @@
 <div class="gitter gitter-2 profile">
   <div class="tafel main-panel">
     <div class="stage">
-      <ReckenVorschau lazy auto eng plan={(daten) => planFuerRecke(daten, aussehen, stuecke)}>
-        {#snippet rueckfall()}{@render silhouette()}{/snippet}
-      </ReckenVorschau>
+      {#if aussehen}
+        <ReckenVorschau lazy auto eng plan={(daten) => planFuerRecke(daten, aussehen, ausruestung)}>
+          {#snippet rueckfall()}{@render silhouette()}{/snippet}
+        </ReckenVorschau>
+      {:else}
+        {@render silhouette()}
+      {/if}
     </div>
 
     <h2 class="profile-name">{recke.name}</h2>
@@ -128,7 +132,7 @@
     <h3 class="panel-eyebrow">{t['armory.stats.title']}</h3>
     <div class="werte">
       {#each WERTE as [k, b] (k)}
-        <div class="wert"><b>{recke.werte[k]}</b><span>{t[b]}</span></div>
+        <div class="wert"><b>{zahlText(recke.werte[k], lang)}</b><span>{t[b]}</span></div>
       {/each}
     </div>
 
@@ -139,19 +143,17 @@
       {#each zeilen as z (z.platz)}
         {#if z.stueck}
           {@const s = z.stueck}
-          {@const anzeige = symbolAnzeige(z.platz, s, fehlgeschlagen[z.platz] === true)}
+          {@const anzeige = symbolAnzeige(z.platz, s)}
           <div class="slot guete-{seltenheitStufe(s.seltenheit)}">
             <span class="slot-bild" aria-hidden="true">
               {#if anzeige.art === 'bild'}
                 <img
                   class="symbol"
                   src={anzeige.src}
-                  alt=""
+                  alt={anzeige.alt}
                   width="38"
                   height="38"
                   loading="lazy"
-                  use:pruefeBild={z.platz}
-                  onerror={() => (fehlgeschlagen[z.platz] = true)}
                 />
               {:else}
                 {anzeige.zeichen}
@@ -163,13 +165,13 @@
                 >{t[SLOT_SCHLUESSEL[z.platz]]} · {t[SELTENHEIT_SCHLUESSEL[s.seltenheit]]} · {t[
                   'armory.stueck.stufe'
                 ]}
-                {s.itemStufe}{#if s.qualitaet > 0}
-                  · {t['armory.stueck.qualitaet']} {s.qualitaet}{/if}</span
+                {zahlText(s.itemStufe, lang)}{#if s.qualitaet > 0}
+                  · {t['armory.stueck.qualitaet']} {zahlText(s.qualitaet, lang)}{/if}</span
               >
               {#if stueckWerte(s).length > 0}
                 <span class="slot-werte">
                   {#each stueckWerte(s) as [id, wert] (id)}
-                    <span>{t[STUECK_WERTE[id]]} {wert > 0 ? '+' : ''}{wert}</span>
+                    <span>{t[STUECK_WERTE[id]]} {wert > 0 ? '+' : ''}{zahlText(wert, lang)}</span>
                   {/each}
                 </span>
               {/if}
@@ -209,7 +211,7 @@
     {#if fertigkeiten.length > 0}
       <section class="tafel-matt side-panel">
         <h3 class="panel-eyebrow">{t['character_profile.skills.title']}</h3>
-        {#each fertigkeiten as f (f.name)}
+        {#each fertigkeiten as f, i (i)}
           <div class="balken-zeile">
             <div class="balken-kopf"><span>{f.name}</span><b>{f.stufe}</b></div>
             <div class="balken"><i style="--anteil:{f.stufe}"></i></div>
@@ -219,7 +221,9 @@
     {/if}
 
     <section class="tafel-matt side-panel">
-      <h3 class="panel-eyebrow">{recke.klasse}</h3>
+      {#if recke.klasse !== ''}
+        <h3 class="panel-eyebrow">{klassenName(recke.klasse, t)}</h3>
+      {/if}
       <p class="created">
         {t['character_profile.created']}
         {datumKurz(isoVon(recke.erstellt), lang)}.

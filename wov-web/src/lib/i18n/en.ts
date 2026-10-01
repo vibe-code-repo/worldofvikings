@@ -235,13 +235,11 @@ export const en: Messages = {
   'armory.search.placeholder': 'Character name …',
   'armory.state.error':
     'The armory is locked right now — the game server is not answering. Please try again in a moment.',
-  'armory.state.loading': 'Unlocking the armory …',
   'armory.state.empty':
     'Nobody is in the armory yet. As soon as someone creates a hero, they will show up here.',
 
   'armory.search.submit': 'Search',
   'armory.state.no_match': 'No hero by that name in the armory.',
-  'armory.list.count': '{n} heroes',
   'armory.card.never': 'never played',
   'armory.pages.label': 'Pages',
   'armory.pages.prev': '‹ Previous',
@@ -280,6 +278,22 @@ export const en: Messages = {
   'armory.feld.tode': 'Deaths',
   'armory.feld.spielzeit': 'Play time',
 
+  'armory.list.count_one': '{n} hero',
+  'armory.list.count_other': '{n} heroes',
+  'armory.error.title': 'This hero is not in the armory.',
+  'armory.error.text':
+    'The address does not lead to a hero. They may have been deleted, or the link is wrong.',
+  'armory.error.back': '‹ Back to the armory',
+  'armory.klasse.krieger': 'Warrior',
+  'armory.klasse.schildmaid': 'Shieldmaiden',
+  'armory.klasse.jaeger': 'Hunter',
+  'armory.klasse.skalde': 'Skald',
+  'armory.klasse.seherin': 'Seer',
+  'armory.klasse.berserker': 'Berserker',
+  'armory.klasse.runenmagier': 'Runemage',
+  'armory.klasse.hexer': 'Warlock',
+  'armory.klasse.druide': 'Druid',
+
   /* ---------------------------------------------------- hall_of_fame */
   'hall_of_fame.title': 'Hall of Fame',
   'hall_of_fame.description': 'The boards of Midgard: who was out and about most recently.',
@@ -297,7 +311,6 @@ export const en: Messages = {
     'Rune rank, guardians defeated, time voyaging, and trips to Hel will appear here once the game records them. Until then only boards with real numbers are shown.',
 
   /* ------------------------ character_profile (Reckenprofil.svelte) */
-  'character_profile.slot.weapon': 'Weapon',
   'character_profile.slot.empty': '— empty —',
   'character_profile.last_seen': 'last seen',
   'character_profile.gear.title': 'Gear',
@@ -432,24 +445,6 @@ export const en: Messages = {
   'thing.mod.resolve': 'Resolve',
   'thing.mod.delete_post': 'Remove post',
   'thing.mod.not_moderator': 'Moderators only.',
-  'thing.connection.heading': 'How it will be connected',
-  'thing.connection.location.title': 'Its own location, same shell',
-  'thing.connection.location.text_1': 'The forum will get its own service under',
-  'thing.connection.location.text_2':
-    '. The Nginx in the container already has the location set up — all that is missing is the',
-  'thing.connection.location.text_3':
-    'to the software. Header, footer, and colour palette come from',
-  'thing.connection.location.text_4': ", so the forum doesn't feel like a foreign body.",
-  'thing.connection.account.title': 'One account for everything',
-  'thing.connection.account.text':
-    "Once the game has accounts, you'll sign in once — for the game, the armory, and the Thing. Until then, there's deliberately no login, because a forum account that later doesn't match the game account would cause more trouble than it's worth.",
-  'thing.connection.character.title': 'Hero on every post',
-  'thing.connection.character.text_1':
-    'Every post should show the hero of its writer — name, clan, rune rank — linked to the armory. The data for this already exists in the right format at',
-  'thing.connection.character.text_2': '.',
-  'thing.connection.reading.title': 'Read first, then write',
-  'thing.connection.reading.text':
-    'The Thing will be readable without logging in. Anyone who wants to post needs an account — that keeps search engines in and spam out.',
   'thing.cta': 'Better go voyaging in the meantime',
 
   /* ------------------------------------------------------------- wiki */

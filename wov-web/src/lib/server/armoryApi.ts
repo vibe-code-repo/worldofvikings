@@ -24,6 +24,33 @@ type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 /** Zeitlimit je Abruf in ms. Länger als der Spielserver je braucht, kürzer als ein Besucher wartet. */
 export const ZEITLIMIT_MS = 4000;
 
+/** Größte Antwort in Zeichen, die wir lesen; darüber gilt der Spielserver als fehlerhaft. */
+export const ANTWORT_MAX = 2 * 1024 * 1024;
+
+/** Den Körper lesen, aber nie mehr als ANTWORT_MAX Zeichen im Speicher halten. */
+async function liesBegrenzt(res: Response): Promise<string> {
+  const laenge = Number(res.headers.get('content-length') ?? '0');
+  if (laenge > ANTWORT_MAX) throw new Error('zu gross');
+  if (!res.body) {
+    const text = await res.text();
+    if (text.length > ANTWORT_MAX) throw new Error('zu gross');
+    return text;
+  }
+  const leser = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  for (;;) {
+    const { done, value } = await leser.read();
+    if (done) break;
+    text += decoder.decode(value, { stream: true });
+    if (text.length > ANTWORT_MAX) {
+      await leser.cancel();
+      throw new Error('zu gross');
+    }
+  }
+  return text + decoder.decode();
+}
+
 /** Längster Suchbegriff, den der Server annimmt (Armory.ts: ARMORY_SUCHE_MAX). */
 const SUCHE_MAX = 32;
 
@@ -55,7 +82,7 @@ async function hole(fetch: Fetcher, pfad: string, opt: AbrufOptionen): Promise<E
           signal: regler.signal,
         });
         if (!res.ok) return { ok: false, status: res.status } as const;
-        return { ok: true, data: (await res.json()) as unknown } as const;
+        return { ok: true, data: JSON.parse(await liesBegrenzt(res)) as unknown } as const;
       })(),
       abgelaufen,
     ]);

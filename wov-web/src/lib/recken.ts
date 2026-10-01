@@ -124,6 +124,25 @@ function text(v: unknown, max = 200): string | null {
   return typeof v === 'string' && v.length > 0 && v.length <= max ? v : null;
 }
 
+/** Eine Zeichenkette, die auch leer sein darf (Altbestand, Charakter ohne Klasse); sonst ''. */
+function textOderLeer(v: unknown, max = 200): string {
+  return typeof v === 'string' && v.length <= max ? v : '';
+}
+
+/** Obergrenzen: ein fehlerhafter Spielserver darf die Seite nicht aufblähen. */
+export const MAX_EINTRAEGE = 100;
+export const MAX_FERTIGKEITEN = 50;
+const MAX_ZAEHLER = 1_000_000_000;
+const MAX_MINUTEN = 60 * 24 * 365 * 100;
+const MAX_WERT = 1_000_000;
+
+/** Eine ganze Zahl in [min, max]; Nachkommastellen werden gerundet, Unsinn ist null. */
+function ganz(v: unknown, min: number, max: number): number | null {
+  const z = zahl(v);
+  if (z === null) return null;
+  return Math.min(max, Math.max(min, Math.round(z)));
+}
+
 function zahl(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
@@ -134,9 +153,9 @@ function zeit(v: unknown): number | null {
   return z !== null && Math.abs(z) <= 8.64e15 ? z : null;
 }
 
-function nichtNegativ(v: unknown): number | undefined {
+function nichtNegativ(v: unknown, max = MAX_ZAEHLER): number | undefined {
   const z = zahl(v);
-  return z !== null && z >= 0 ? z : undefined;
+  return z !== null && z >= 0 ? (ganz(z, 0, max) ?? undefined) : undefined;
 }
 
 /** Nur der Pfad, den der Spielclient auch lädt; alles andere wird zu „kein Symbol“. */
@@ -146,30 +165,32 @@ export function pruefeSymbol(v: unknown): string | null {
   return typeof v === 'string' && SYMBOL_MUSTER.test(v) ? v : null;
 }
 
-function aussehenAus(v: unknown): Aussehen | null {
-  if (!istObjekt(v)) return null;
-  const figur = text(v.figur, 40);
-  const frisur = text(v.frisur, 80);
-  const haarfarbe = text(v.haarfarbe, 40);
-  const augenfarbe = text(v.augenfarbe, 40);
-  if (!figur || !frisur || !haarfarbe || !augenfarbe) return null;
-  return { figur, frisur, haarfarbe, augenfarbe };
+/**
+ * Das Aussehen darf unvollständig sein: Altbestand hat leere Haarfarben, und
+ * die Figur fällt für leere oder unbekannte Werte selbst auf Vorgaben zurück.
+ */
+function aussehenAus(v: unknown): Aussehen {
+  const r: Roh = istObjekt(v) ? v : {};
+  return {
+    figur: textOderLeer(r.figur, 40),
+    frisur: textOderLeer(r.frisur, 80),
+    haarfarbe: textOderLeer(r.haarfarbe, 40),
+    augenfarbe: textOderLeer(r.augenfarbe, 40),
+  };
 }
 
 export function normalisiereEintrag(v: unknown): ReckenEintrag | null {
   if (!istObjekt(v)) return null;
   const id = zahl(v.id);
   const name = text(v.name, 60);
-  const klasse = text(v.klasse, 40);
-  const aussehen = aussehenAus(v.aussehen);
   const erstellt = zeit(v.erstellt);
   if (id === null || !Number.isSafeInteger(id) || id <= 0) return null;
-  if (!name || !klasse || !aussehen || erstellt === null) return null;
+  if (!name || erstellt === null) return null;
   return {
     id,
     name,
-    klasse,
-    aussehen,
+    klasse: textOderLeer(v.klasse, 40),
+    aussehen: aussehenAus(v.aussehen),
     erstellt,
     zuletztGespielt: zeit(v.zuletztGespielt),
   };
@@ -184,15 +205,15 @@ function stueckAus(v: unknown): Stueck | null {
   if (istObjekt(v.werte)) {
     for (const id of WERT_IDS) {
       const w = zahl(v.werte[id]);
-      if (w !== null) werte[id] = w;
+      if (w !== null) werte[id] = Math.round(w);
     }
   }
   const stueck: Stueck = {
     kennung,
     name,
     seltenheit: SELTENHEITEN.find((s) => s === v.seltenheit) ?? 'common',
-    itemStufe: zahl(v.itemStufe) ?? 1,
-    qualitaet: zahl(v.qualitaet) ?? 0,
+    itemStufe: ganz(v.itemStufe, 0, 1000) ?? 1,
+    qualitaet: ganz(v.qualitaet, 0, 1000) ?? 0,
     werte,
     symbol: pruefeSymbol(v.symbol),
   };
@@ -204,13 +225,13 @@ function stueckAus(v: unknown): Stueck | null {
 function werteAus(v: unknown): Werte {
   const r: Roh = istObjekt(v) ? v : {};
   return {
-    damage: zahl(r.damage) ?? 0,
-    armor: zahl(r.armor) ?? 0,
-    strength: zahl(r.strength) ?? 0,
-    vitality: zahl(r.vitality) ?? 0,
-    agility: zahl(r.agility) ?? 0,
-    lebenMax: zahl(r.lebenMax) ?? 0,
-    nahkampfSchaden: zahl(r.nahkampfSchaden) ?? 0,
+    damage: ganz(r.damage, -MAX_WERT, MAX_WERT) ?? 0,
+    armor: ganz(r.armor, -MAX_WERT, MAX_WERT) ?? 0,
+    strength: ganz(r.strength, -MAX_WERT, MAX_WERT) ?? 0,
+    vitality: ganz(r.vitality, -MAX_WERT, MAX_WERT) ?? 0,
+    agility: ganz(r.agility, -MAX_WERT, MAX_WERT) ?? 0,
+    lebenMax: ganz(r.lebenMax, -MAX_WERT, MAX_WERT) ?? 0,
+    nahkampfSchaden: ganz(r.nahkampfSchaden, -MAX_WERT, MAX_WERT) ?? 0,
   };
 }
 
@@ -232,21 +253,22 @@ export function normalisiereRecke(v: unknown): Recke | null {
   };
   const profil = text(v.profil, 1000);
   if (profil) recke.profil = profil;
-  const stufe = nichtNegativ(v.stufe);
+  const stufe = nichtNegativ(v.stufe, 10_000);
   if (stufe !== undefined) recke.stufe = stufe;
   const erfahrung = nichtNegativ(v.erfahrung);
   if (erfahrung !== undefined) recke.erfahrung = erfahrung;
   const tode = nichtNegativ(v.tode);
   if (tode !== undefined) recke.tode = tode;
-  const minuten = nichtNegativ(v.spielzeitMinuten);
+  const minuten = nichtNegativ(v.spielzeitMinuten, MAX_MINUTEN);
   if (minuten !== undefined) recke.spielzeitMinuten = minuten;
   if (Array.isArray(v.fertigkeiten)) {
     const f: Array<{ name: string; stufe: number }> = [];
-    for (const roh of v.fertigkeiten) {
+    for (const roh of v.fertigkeiten.slice(0, MAX_FERTIGKEITEN * 4)) {
+      if (f.length >= MAX_FERTIGKEITEN) break;
       if (!istObjekt(roh)) continue;
       const name = text(roh.name, 60);
-      const s = nichtNegativ(roh.stufe);
-      if (name && s !== undefined) f.push({ name, stufe: s });
+      const s = nichtNegativ(roh.stufe, 100);
+      if (name && s !== undefined && !f.some((x) => x.name === name)) f.push({ name, stufe: s });
     }
     recke.fertigkeiten = f;
   }
@@ -256,22 +278,17 @@ export function normalisiereRecke(v: unknown): Recke | null {
 export function normalisiereListe(v: unknown): ReckenListe | null {
   if (!istObjekt(v) || !Array.isArray(v.eintraege)) return null;
   const eintraege: ReckenEintrag[] = [];
-  for (const roh of v.eintraege) {
+  for (const roh of v.eintraege.slice(0, MAX_EINTRAEGE * 2)) {
+    if (eintraege.length >= MAX_EINTRAEGE) break;
     const e = normalisiereEintrag(roh);
-    if (e) eintraege.push(e);
+    if (e && !eintraege.some((x) => x.id === e.id)) eintraege.push(e);
   }
-  const seite = zahl(v.seite);
-  const seiten = zahl(v.seiten);
-  const gesamt = zahl(v.gesamt);
-  const groesse = zahl(v.seitenGroesse);
+  const seite = ganz(v.seite, 1, MAX_ZAEHLER);
+  const seiten = ganz(v.seiten, 1, MAX_ZAEHLER);
+  const gesamt = ganz(v.gesamt, 0, MAX_ZAEHLER);
+  const groesse = ganz(v.seitenGroesse, 1, MAX_ZAEHLER);
   if (seite === null || seiten === null || gesamt === null || groesse === null) return null;
-  return {
-    eintraege,
-    seite: Math.max(1, Math.floor(seite)),
-    seiten: Math.max(1, Math.floor(seiten)),
-    gesamt: Math.max(0, Math.floor(gesamt)),
-    seitenGroesse: Math.max(1, Math.floor(groesse)),
-  };
+  return { eintraege, seite, seiten, gesamt, seitenGroesse: groesse };
 }
 
 /* ------------------------------------------------------ Ruhmeshalle */
@@ -299,14 +316,17 @@ export const TAFELN: Tafel[] = [
 ];
 
 /** Die Zeilen einer Tafel: absteigend nach Wert, ohne Einträge ohne Wert. */
+export const TAFEL_ZEILEN = 24;
+
 export function tafelZeilen(
   tafel: Tafel,
   eintraege: readonly ReckenEintrag[],
+  max = TAFEL_ZEILEN,
 ): Array<{ eintrag: ReckenEintrag; wert: number }> {
   const zeilen: Array<{ eintrag: ReckenEintrag; wert: number }> = [];
   for (const eintrag of eintraege) {
     const wert = tafel.wert(eintrag);
     if (wert !== null) zeilen.push({ eintrag, wert });
   }
-  return zeilen.sort((a, b) => b.wert - a.wert || a.eintrag.id - b.eintrag.id);
+  return zeilen.sort((a, b) => b.wert - a.wert || a.eintrag.id - b.eintrag.id).slice(0, max);
 }

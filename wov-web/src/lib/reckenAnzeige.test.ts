@@ -5,6 +5,7 @@ import {
   fertigkeitenListe,
   figurStuecke,
   glyphe,
+  klassenName,
   listenAdresse,
   optionaleFelder,
   profilAdresse,
@@ -14,6 +15,8 @@ import {
   stueckName,
   stueckWerte,
   symbolAnzeige,
+  zaehlerText,
+  zahlText,
 } from './reckenAnzeige';
 
 const STUECK: Stueck = {
@@ -47,19 +50,16 @@ const RECKE: Recke = {
 };
 
 describe('Symbol und Rückfall', () => {
-  it('zeigt das Symbol, solange es geladen werden kann', () => {
-    expect(symbolAnzeige('kopf', STUECK, false)).toEqual({
+  it('mit Symbol ein Bild, dessen Ersatztext die Glyphe des Platzes ist (Rückfall ohne JS)', () => {
+    expect(symbolAnzeige('kopf', STUECK)).toEqual({
       art: 'bild',
       src: '/assets/sprites/helm.png',
+      alt: glyphe('kopf'),
     });
   });
 
-  it('fällt auf die Glyphe des Platzes zurück, wenn das Bild nicht lädt', () => {
-    expect(symbolAnzeige('kopf', STUECK, true)).toEqual({ art: 'glyphe', zeichen: glyphe('kopf') });
-  });
-
-  it('fällt auf die Glyphe zurück, wenn es kein Symbol gibt', () => {
-    expect(symbolAnzeige('waffe', { symbol: null }, false)).toEqual({
+  it('ohne Symbol steht die Glyphe selbst da', () => {
+    expect(symbolAnzeige('waffe', { symbol: null })).toEqual({
       art: 'glyphe',
       zeichen: glyphe('waffe'),
     });
@@ -136,8 +136,8 @@ describe('Ausrüstung', () => {
   it('die Figur bekommt die Kennungen der angelegten Stücke, auch der Waffe', () => {
     const waffe: Stueck = { ...STUECK, kennung: 'Sax', name: 'Sax' };
     expect(figurStuecke({ ...RECKE, waffe })).toEqual([
-      { name: 'Sax' },
-      { name: 'IronwardHelmet' },
+      { kennung: 'Sax' },
+      { kennung: 'IronwardHelmet' },
     ]);
   });
 
@@ -161,6 +161,29 @@ describe('Adressen', () => {
     expect(reckenIdAus('12')).toBe(12);
     for (const schlecht of [null, '', '0', '-1', '1.5', '1e3', 'abc', '12abc', '9'.repeat(30)])
       expect(reckenIdAus(schlecht)).toBeNull();
+  });
+});
+
+describe('Klasse, Zähler, Zahlen', () => {
+  const KATALOG = {
+    'armory.klasse.krieger': 'Warrior',
+    'armory.list.count_one': '{n} hero',
+    'armory.list.count_other': '{n} heroes',
+  };
+  it('der Klassenname kommt aus dem Katalog; unbekannt bleibt die Kennung, leer bleibt leer', () => {
+    expect(klassenName('krieger', KATALOG)).toBe('Warrior');
+    expect(klassenName('zauberer', KATALOG)).toBe('zauberer');
+    expect(klassenName('', KATALOG)).toBe('');
+    expect(klassenName('constructor', KATALOG)).toBe('constructor');
+  });
+  it('Plural: 1 Recke, sonst Recken', () => {
+    expect(zaehlerText(1, KATALOG, 'en')).toBe('1 hero');
+    expect(zaehlerText(0, KATALOG, 'en')).toBe('0 heroes');
+    expect(zaehlerText(1234, KATALOG, 'en')).toBe('1,234 heroes');
+  });
+  it('Zahlen tragen die Trenner der Sprache', () => {
+    expect(zahlText(1234567, 'de')).toBe('1.234.567');
+    expect(zahlText(1234567, 'en')).toBe('1,234,567');
   });
 });
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_EINTRAEGE,
+  MAX_FERTIGKEITEN,
   normalisiereEintrag,
   normalisiereListe,
   normalisiereRecke,
@@ -198,7 +200,6 @@ describe('Pflichtfelder und Symbol', () => {
     expect(normalisiereEintrag({ ...BASIS, name: '' })).toBeNull();
     expect(normalisiereEintrag({ ...BASIS, id: 0 })).toBeNull();
     expect(normalisiereEintrag({ ...BASIS, id: 1.5 })).toBeNull();
-    expect(normalisiereEintrag({ ...BASIS, aussehen: null })).toBeNull();
     expect(normalisiereEintrag({ ...BASIS, erstellt: 1e300 })).toBeNull();
     expect(normalisiereEintrag('Ragnar')).toBeNull();
   });
@@ -255,5 +256,109 @@ describe('Ruhmeshalle', () => {
   it('„zuletzt aktiv“ sortiert absteigend und lässt nie Gespielte weg', () => {
     const zeilen = tafelZeilen(TAFELN[0], [e(1, 100), e(2, null), e(3, 300), e(4, 200)]);
     expect(zeilen.map((z) => z.eintrag.id)).toEqual([3, 4, 1]);
+  });
+});
+
+describe('B2: leere und unvollständige Werte werden toleriert', () => {
+  it('Charakter ohne Klasse bleibt in Liste und Profil', () => {
+    const e = normalisiereEintrag({ ...BASIS, klasse: '' });
+    expect(e).toMatchObject({ name: 'Ragnar', klasse: '' });
+    const l = normalisiereListe({
+      eintraege: [{ ...BASIS, id: 6, klasse: '' }, BASIS],
+      seite: 1,
+      seitenGroesse: 24,
+      gesamt: 2,
+      seiten: 1,
+    });
+    expect(l?.eintraege).toHaveLength(2);
+    expect(
+      normalisiereRecke({ ...BASIS, klasse: '', ausruestung: {}, waffe: null, werte: WERTE }),
+    ).not.toBeNull();
+  });
+  it('Altbestand mit leerer Haarfarbe oder fehlendem Aussehen bleibt', () => {
+    expect(
+      normalisiereEintrag({ ...BASIS, aussehen: { ...AUSSEHEN, haarfarbe: '' } })?.aussehen
+        .haarfarbe,
+    ).toBe('');
+    expect(normalisiereEintrag({ ...BASIS, aussehen: null })?.aussehen).toEqual({
+      figur: '',
+      frisur: '',
+      haarfarbe: '',
+      augenfarbe: '',
+    });
+    expect(
+      normalisiereEintrag({ ...BASIS, aussehen: { figur: 5, frisur: {}, haarfarbe: null } })
+        ?.aussehen.figur,
+    ).toBe('');
+  });
+  it('ohne Namen, Id oder Zeit bleibt der Eintrag draußen', () => {
+    expect(normalisiereEintrag({ ...BASIS, name: '' })).toBeNull();
+  });
+});
+
+describe('B7/B8: Grenzen und ganze Zahlen', () => {
+  it('Liste: höchstens MAX_EINTRAEGE, doppelte Ids nur einmal', () => {
+    const viele = Array.from({ length: 1000 }, (_, i) => ({ ...BASIS, id: i + 1, name: `R${i}` }));
+    const l = normalisiereListe({
+      eintraege: viele,
+      seite: 1,
+      seitenGroesse: 24,
+      gesamt: 1000,
+      seiten: 42,
+    });
+    expect(l?.eintraege).toHaveLength(MAX_EINTRAEGE);
+    const doppelt = normalisiereListe({
+      eintraege: [BASIS, BASIS],
+      seite: 1,
+      seitenGroesse: 24,
+      gesamt: 2,
+      seiten: 1,
+    });
+    expect(doppelt?.eintraege).toHaveLength(1);
+  });
+  it('Fertigkeiten: höchstens MAX_FERTIGKEITEN, Namen nur einmal, Stufe höchstens 100', () => {
+    const f = Array.from({ length: 5000 }, (_, i) => ({ name: `F${i}`, stufe: 250 }));
+    const r = normalisiereRecke({
+      ...BASIS,
+      ausruestung: {},
+      waffe: null,
+      werte: WERTE,
+      fertigkeiten: [{ name: 'A', stufe: 1 }, { name: 'A', stufe: 9 }, ...f],
+    });
+    expect(r?.fertigkeiten).toHaveLength(MAX_FERTIGKEITEN);
+    expect(r?.fertigkeiten?.[0]).toEqual({ name: 'A', stufe: 1 });
+    expect(Math.max(...(r?.fertigkeiten ?? []).map((x) => x.stufe))).toBe(100);
+  });
+  it('krumme Zahlen werden ganz, Riesenwerte gekappt', () => {
+    const r = normalisiereRecke({
+      ...BASIS,
+      ausruestung: {
+        kopf: {
+          kennung: 'H',
+          name: 'Helm',
+          seltenheit: 'common',
+          itemStufe: 2.5,
+          qualitaet: 0,
+          werte: { armor: 0.30000000000000004 },
+          symbol: null,
+        },
+      },
+      waffe: null,
+      werte: { ...WERTE, lebenMax: 100.30000000000001 },
+      stufe: 2.5,
+      tode: 1.5,
+      spielzeitMinuten: 1.6666666666666666e19,
+    });
+    expect(r?.werte.lebenMax).toBe(100);
+    expect(r?.ausruestung.kopf?.werte.armor).toBe(0);
+    expect(r?.ausruestung.kopf?.itemStufe).toBe(3);
+    expect(r?.stufe).toBe(3);
+    expect(r?.tode).toBe(2);
+    expect(r?.spielzeitMinuten).toBe(60 * 24 * 365 * 100);
+  });
+  it('das Symbolmuster hat einen Endanker', () => {
+    expect(pruefeSymbol('/assets/sprites/a.png" x')).toBeNull();
+    expect(pruefeSymbol('/assets/sprites/a.png\n')).toBeNull();
+    expect(pruefeSymbol('x/assets/sprites/a.png')).toBeNull();
   });
 });

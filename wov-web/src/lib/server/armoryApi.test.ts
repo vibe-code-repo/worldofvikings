@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ladeRecke, ladeRuestkammer, seiteAus, sucheAus } from './armoryApi';
+import { ANTWORT_MAX, ladeRecke, ladeRuestkammer, seiteAus, sucheAus } from './armoryApi';
 
 // Der Abruf gegen einen Attrappen-`fetch`: kein Netz, keine Spielserver-Instanz.
 
@@ -200,6 +200,28 @@ describe('ladeRecke', () => {
       zeitlimitMs: 30,
     });
     expect(r).toEqual({ ok: false, status: 0 });
+  });
+});
+
+describe('B7: Größe der Antwort', () => {
+  it('eine zu große Antwort gilt als Fehler des Spielservers (status 0)', async () => {
+    const gross = JSON.stringify(liste([eintrag(1, 'x'.repeat(ANTWORT_MAX))]));
+    const r = await ladeRuestkammer(
+      attrappe(() => new Response(gross, { status: 200 })).fetch,
+      '',
+      1,
+      BASIS,
+    );
+    expect(r).toEqual({ ok: false, status: 0 });
+  });
+  it('eine Antwort darunter geht durch', async () => {
+    const r = await ladeRuestkammer(
+      attrappe(() => json(liste([eintrag(1, 'Ragnar')]))).fetch,
+      '',
+      1,
+      BASIS,
+    );
+    expect(r.ok).toBe(true);
   });
 });
 

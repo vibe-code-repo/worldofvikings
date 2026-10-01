@@ -3,7 +3,15 @@
   import Kopfdaten from '$lib/Kopfdaten.svelte';
   import { fuelle } from '$lib/reckenVorschauKern';
   import { vorWieLange } from '$lib/formate';
-  import { isoVon, listenAdresse, profilAdresse } from '$lib/reckenAnzeige';
+  import {
+    figurStuecke,
+    isoVon,
+    klassenName,
+    listenAdresse,
+    profilAdresse,
+    zaehlerText,
+    zahlText,
+  } from '$lib/reckenAnzeige';
   import Reckenprofil from '$lib/Reckenprofil.svelte';
   import { localeFrom, localizedPath, messages } from '$lib/i18n';
   import type { PageData } from './$types';
@@ -35,6 +43,7 @@
 <Kopfdaten
   titel={gewaehlt ? `${gewaehlt.name} — ${t['armory.title']}` : t['armory.title']}
   beschreibung={t['armory.description']}
+  abfrage={gewaehlt ? `?reck=${gewaehlt.id}` : ''}
 />
 
 <main class="mitte seite armory-page">
@@ -45,7 +54,11 @@
   {#if data.ansicht === 'profil'}
     <a class="knopf knopf-schlicht back" href={kammer}>{t['armory.back']}</a>
     {#if gewaehlt}
-      <Reckenprofil recke={gewaehlt} />
+      <Reckenprofil
+        recke={gewaehlt}
+        aussehen={{ klasse: gewaehlt.klasse, ...gewaehlt.aussehen }}
+        ausruestung={figurStuecke(gewaehlt)}
+      />
     {:else}
       <p class="leer-zustand">{t['armory.state.error']}</p>
     {/if}
@@ -78,12 +91,14 @@
         {suchLeer ? t['armory.state.empty'] : t['armory.state.no_match']}
       </p>
     {:else}
-      <p class="zaehler">{fuelle(t['armory.list.count'], { n: liste.gesamt })}</p>
+      <p class="zaehler">{zaehlerText(liste.gesamt, t, lang)}</p>
       <div class="results">
         {#each liste.eintraege as r (r.id)}
           <a class="tafel-matt karte result" href={profilAdresse(kammer, r.id)}>
             <h3>{r.name}</h3>
-            <div class="result-sub">{r.klasse}</div>
+            {#if r.klasse !== ''}
+              <div class="result-sub">{klassenName(r.klasse, t)}</div>
+            {/if}
             <div class="result-line">
               {#if r.zuletztGespielt !== null}
                 {t['character_profile.last_seen']}
@@ -105,7 +120,10 @@
           {:else}
             <span class="knopf knopf-schlicht aus" aria-hidden="true">{t['armory.pages.prev']}</span>
           {/if}
-          <span>{fuelle(t['armory.pages.of'], { seite: liste.seite, seiten: liste.seiten })}</span>
+          <span>{fuelle(t['armory.pages.of'], {
+              seite: zahlText(liste.seite, lang),
+              seiten: zahlText(liste.seiten, lang),
+            })}</span>
           {#if liste.seite < liste.seiten}
             <a class="knopf knopf-schlicht" rel="next" href={listenAdresse(kammer, data.q, liste.seite + 1)}
               >{t['armory.pages.next']}</a

@@ -35,21 +35,22 @@ const fake = () => global.__fake as Fake;
 
 const daten = JSON.parse(readFileSync('static/assets/appearance.json', 'utf8'));
 const recke = {
-  id: 'r1',
+  id: 1,
   name: 'Probe',
-  beiname: 'b',
-  sippe: 's',
-  welt: 'w',
-  stufe: 1,
-  tode: 0,
-  spielzeit_stunden: 1,
-  zuletzt_gesehen: '2026-09-30T10:00:00Z',
-  erschaffen: '2026-09-01T10:00:00Z',
-  werte: { leben: 1, ausdauer: 1, eitr: 1, traglast: 1 },
-  fertigkeiten: [],
-  bosse: [],
-  biome: [],
-  trophaeen: [],
+  klasse: 'krieger',
+  aussehen: { figur: 'wikinger', frisur: 'H_04', haarfarbe: 'x', augenfarbe: 'y' },
+  erstellt: 1_700_000_000_000,
+  zuletztGespielt: 1_750_000_000_000,
+  werte: {
+    damage: 0,
+    armor: 0,
+    strength: 0,
+    vitality: 0,
+    agility: 0,
+    lebenMax: 100,
+    nahkampfSchaden: 1,
+  },
+  waffe: null,
   ausruestung: {},
 };
 const mann = {

@@ -421,8 +421,7 @@ describe('Verdrahtung der Oberfläche', () => {
     const q = quelle('Reckenprofil.svelte');
     expect(q).toMatch(/<ReckenVorschau\s+lazy\b/);
     expect(q).toContain('{#snippet rueckfall()}{@render silhouette()}{/snippet}');
-    // Seit R2 trägt jeder Recke ein Aussehen: kein `{#if aussehen}` mehr, die Figur bekommt Aussehen und Stücke.
-    expect(q).toContain('planFuerRecke(daten, aussehen, stuecke)');
+    expect(q).toMatch(/\{#if aussehen\}[\s\S]*\{:else\}[\s\S]*\{@render silhouette\(\)\}/);
   });
 
   it('ReckenVorschau entsorgt die Engine beim Abbau und wartet bei lazy auf die Sichtbarkeit', () => {

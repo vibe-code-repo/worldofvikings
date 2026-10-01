@@ -45,6 +45,7 @@ import { herkunftErmitteln } from '../net/Herkunft.js';
 import { tokenAusstellen, type SpielerId } from '../net/Identitaet.js';
 import { EDITOR_NAME, nameHatSteuerzeichen, namenSchluessel } from '../net/Namen.js';
 import { WEBSITE_URSPRUENGE } from '../net/WebsiteUrspruenge.js';
+import { Armory, aufTag } from './Armory.js';
 import { Kontendatenbank, PROFILTEXT_MAX, type Charakter, type GeloeschtesKonto } from './Kontendatenbank.js';
 import { passwortEinlagern, passwortPruefen, veraltet } from './Passwort.js';
 import {
@@ -233,6 +234,8 @@ export class KontoApi {
   private readonly loginVersuche = new Map<string, { anzahl: number; bis: number }>();
   /** Nur fuer Tests, s. `KontoTestHaken`. */
   testHaken: KontoTestHaken = {};
+  /** Oeffentliches Abbild fuer die Ruestkammer; `uhr` ist fuer Tests offen. */
+  readonly armory: Armory;
 
   constructor(
     private readonly db: Kontendatenbank,
@@ -270,6 +273,7 @@ export class KontoApi {
     // Domain separation: a different key for account tokens, derived from
     // the same secret. See the header comment.
     this.kontoSchluessel = createHmac('sha256', sessionSecret).update('wov-konto-v1').digest();
+    this.armory = new Armory(db, [...geschuetzteNamen, ...standardKontoNamen]);
   }
 
   /**
@@ -277,8 +281,21 @@ export class KontoApi {
    * can fall back to its previous behaviour (the 426).
    */
   behandle(req: IncomingMessage, res: ServerResponse): boolean {
-    const pfad = new URL(req.url ?? '/', 'http://x').pathname.replace(/\/+$/, '');
+    let pfad: string;
+    try {
+      pfad = new URL(req.url ?? '/', 'http://x').pathname.replace(/\/+$/, '');
+    } catch {
+      // Ein Pfad, den `new URL` gar nicht lesen kann (`//accounts%2fx/…`: Host mit ungueltigem Zeichen), ist kein Weg dieser API.
+      this.json(res, 400, { error: 'bad-path' });
+      return true;
+    }
     if (!pfad.startsWith('/accounts')) return false;
+    // Der ROHE Pfad entscheidet, nicht der geparste: `new URL` macht aus `/accounts/x\..\armory` den Pfad
+    // `/accounts/armory`, nachdem ein Vorschalter (nginx) die Anfrage schon nach dem rohen Text eingeordnet hat.
+    if (rohPfadUnzulaessig(req.url ?? '')) {
+      this.json(res, 400, { error: 'bad-path' });
+      return true;
+    }
 
     const ursprung = req.headers.origin;
     if (ursprung && ERLAUBTE_URSPRUENGE.has(ursprung)) {
@@ -312,6 +329,13 @@ export class KontoApi {
     if (pfad === '/accounts/email' && m === 'POST') return this.emailAendern(req, res);
     if (pfad === '/accounts/password' && m === 'POST') return this.passwortAendern(req, res);
     if (pfad === '/accounts/delete' && m === 'POST') return this.kontoLoeschen(req, res);
+
+    // Die Ruestkammer-Wege beantwortet NUR ein Loopback-Peer (die Webseite ruft ueber 127.0.0.1; nginx sperrt sie von aussen).
+    // Der Spielserver lauscht auf allen Schnittstellen: von einer anderen Adresse gilt der Weg als nicht vorhanden (404 wie unten).
+    const lokal = istLoopbackPeer(req);
+    if (lokal && pfad === '/accounts/armory' && m === 'GET') return this.armoryListe(req, res);
+    const armoryProfil = /^\/accounts\/armory\/(\d{1,9})$/.exec(pfad);
+    if (lokal && armoryProfil && m === 'GET') return this.armoryEinzeln(req, res, Number(armoryProfil[1]));
 
     const melden = /^\/accounts\/characters\/(\d+)\/report$/.exec(pfad);
     if (melden && m === 'POST') return this.profilMelden(req, res, Number(melden[1]));
@@ -652,7 +676,34 @@ export class KontoApi {
     // Recken: wuerde er an jedem Charakter haengen, verriete der gleiche
     // Text, welche Charaktere derselben Person gehoeren.
     const profil = this.db.avatarVon(c.kontoId) === c.id ? this.db.profilTextVon(c.kontoId) : '';
-    this.json(res, 200, { character: { ...nachAussen(c), profile: profil } });
+    // Fuer FREMDE Aufrufer gerundet: `lastPlayed` und `created` auf volle TAGE (dieser Weg hat weder Puffer noch Drossel;
+    // im Sekundentakt abgefragt, verriete eine Stundenrundung den ersten Spielbeginn je Stunde; die Webseite zeigt nur das Datum).
+    // Dem Besitzer liefern `/accounts/me` und die Konto-Wege weiter die genauen Werte.
+    this.json(res, 200, {
+      character: {
+        ...nachAussen(c), created: aufTag(c.erstellt), lastPlayed: c.zuletztGespielt === null ? null : aufTag(c.zuletztGespielt), profile: profil,
+      },
+    });
+  }
+
+  /**
+   * Ruestkammer, Liste: `GET /accounts/armory?seite=&q=`, ohne Anmeldung.
+   * Was in der Antwort steht und was nie, regelt `Armory.ts` (Positivliste).
+   */
+  private armoryListe(req: IncomingMessage, res: ServerResponse): void {
+    if (!this.armory.erlaubt(this.herkunft(req))) return this.json(res, 429, { error: 'rate-limited' });
+    const abfrage = new URL(req.url ?? '/', 'http://x').searchParams;
+    const liste = this.armory.liste(abfrage.get('seite'), abfrage.get('q'));
+    if (!liste) return this.json(res, 503, { error: 'warming-up' }); // der erste Speicherstand wird gerade gebaut
+    this.json(res, 200, liste);
+  }
+
+  /** Ruestkammer, Profil: 404 fuer unbekannte, geloeschte, gebannte und Standardkonto-Charaktere. */
+  private armoryEinzeln(req: IncomingMessage, res: ServerResponse, id: number): void {
+    if (!this.armory.erlaubt(this.herkunft(req))) return this.json(res, 429, { error: 'rate-limited' });
+    const profil = this.armory.profil(id);
+    if (!profil) return this.json(res, 404, { error: 'unknown' });
+    this.json(res, 200, profil);
   }
 
   /**
@@ -1097,6 +1148,42 @@ export class KontoApi {
     });
     res.end(text);
   }
+}
+
+/** Kommt die Verbindung selbst (Socket-Peer, nicht ein Kopf) von Loopback? */
+export function istLoopbackPeer(req: IncomingMessage): boolean {
+  const peer = (req.socket?.remoteAddress ?? '').toLowerCase();
+  return peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
+}
+
+/**
+ * Gibt es im ROHEN Pfad einer Anfrage etwas, das ein Vorschalter anders deutet als `new URL`?
+ *
+ * Die WHATWG-URL behandelt `\` wie `/` und loest `.`/`..` auch in der Form `%2e` auf; nginx tut beides nicht
+ * (sein `location` waehlt nach dem Text). Wer so einen Pfad schickt, kann eine Sperre im Vorschalter umgehen
+ * (`/accounts/x\..\armory`). Deshalb: kein Rueckwaertsstrich, kein `.`/`..`-Segment (roh oder prozentkodiert),
+ * kein Steuerzeichen, keine kaputte Prozentfolge, genau ein fuehrender Schraegstrich, roher gleich geparster Pfad.
+ * Gilt fuer ALLE Wege der KontoApi. Die absolute Form
+ * (`http://host/pfad`) wird auf ihren Pfad gekuerzt.
+ */
+export function rohPfadUnzulaessig(url: string): boolean {
+  let pfad = url;
+  const absolut = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i.exec(pfad);
+  if (absolut) pfad = pfad.slice(absolut[0].length);
+  pfad = pfad.split(/[?#]/, 1)[0];
+  // Genau EIN fuehrender Schraegstrich: `//accounts/accounts/armory` macht `new URL` zu Host `accounts` und Pfad
+  // `/accounts/armory`, nginx fasst `//` zusammen und waehlt eine ganz andere location (`/accounts/`, `/ws`).
+  if (!pfad.startsWith('/') || pfad.startsWith('//')) return true;
+  // Der rohe Pfad muss dem geparsten gleichen: jede Abweichung (Host-Deutung, Normalisierung, Kodierung) ist eine
+  // Stelle, an der ein Vorschalter und dieser Server verschiedene Wege sehen.
+  let geparst: string;
+  try { geparst = new URL(url, 'http://x').pathname; } catch { return true; }
+  if (geparst !== pfad) return true;
+  if (pfad.includes('\\')) return true;
+  let dekodiert: string;
+  try { dekodiert = decodeURIComponent(pfad); } catch { return true; }
+  if (dekodiert.includes('\\') || /[\u0000-\u001f\u007f]/.test(dekodiert)) return true;
+  return dekodiert.split('/').some((s) => s === '.' || s === '..');
 }
 
 /**

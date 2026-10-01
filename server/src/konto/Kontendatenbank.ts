@@ -170,6 +170,43 @@ export interface GeloeschtesKonto {
   charaktere: Charakter[];
 }
 
+/** Eine Zeile fuer die Ruestkammer: der Charakter samt der Kennungen, die NIE nach aussen gehen (Armory.ts waehlt aus). */
+export interface ArmoryZeile {
+  id: number;
+  kontoId: number;
+  spielerId: string;
+  /** Benutzername des Kontos; nur fuer den Standardkonto-Filter, nie ausgeliefert. */
+  kontoName: string;
+  name: string;
+  klasse: string;
+  figur: string;
+  frisur: string;
+  haarfarbe: string;
+  augenfarbe: string;
+  erstellt: number;
+  zuletztGespielt: number | null;
+}
+
+const ARMORY_AUSWAHL = `SELECT c.id, c.konto_id, c.spieler_id, c.name, c.klasse, c.figur, c.frisur, c.haarfarbe,
+  c.augenfarbe, c.erstellt, c.zuletzt_gespielt, k.benutzername FROM charaktere c JOIN konten k ON k.id = c.konto_id`;
+
+function zuArmoryZeile(z: Record<string, unknown>): ArmoryZeile {
+  return {
+    id: Number(z.id),
+    kontoId: Number(z.konto_id),
+    spielerId: String(z.spieler_id),
+    kontoName: String(z.benutzername),
+    name: String(z.name),
+    klasse: String(z.klasse ?? ''),
+    figur: String(z.figur ?? ''),
+    frisur: String(z.frisur ?? ''),
+    haarfarbe: String(z.haarfarbe ?? ''),
+    augenfarbe: String(z.augenfarbe ?? 'fjordblau'),
+    erstellt: Number(z.erstellt),
+    zuletztGespielt: z.zuletzt_gespielt === null || z.zuletzt_gespielt === undefined ? null : Number(z.zuletzt_gespielt),
+  };
+}
+
 export class Kontendatenbank {
   private readonly db: DatabaseSync;
 
@@ -808,6 +845,84 @@ export class Kontendatenbank {
     return z ? this.zuCharakter(z) : null;
   }
 
+  // ── Ruestkammer: Lesewege (nur lesen) ───────────────────────────────
+
+  /**
+   * Die gerade wirksamen Konto- und Spielerbanns (kleingeschrieben), `jetzt` in ms. Geloeschte Konten sind schon
+   * deshalb nicht in der Ruestkammer, weil ihre Charaktere mit ihnen geloescht werden.
+   */
+  armoryBanns(jetzt: number): { konten: Set<string>; spieler: Set<string> } {
+    const aus = { konten: new Set<string>(), spieler: new Set<string>() };
+    for (const z of this.db
+      .prepare(`SELECT art, wert FROM banns WHERE art IN ('konto', 'spieler') AND (bis IS NULL OR bis > ?)`)
+      .all(jetzt) as { art: string; wert: string }[]) {
+      (z.art === 'konto' ? aus.konten : aus.spieler).add(String(z.wert).toLowerCase());
+    }
+    return aus;
+  }
+
+  /**
+   * Eine Seite Charaktere nach Id (Primaerschluessel, ohne Sortierung nach Spielzeit): Armory.ts baut seinen
+   * Speicherstand daraus in kleinen Stuecken, ohne den Faden lange zu belegen. Banns und Standardkonten filtert
+   * der Aufrufer. Eine Obergrenze gibt es nicht.
+   */
+  armorySeite(nachId: number, limit: number): ArmoryZeile[] {
+    this.armorySeiteAbfrage ??= this.db.prepare(`${ARMORY_AUSWAHL} WHERE c.id > ? ORDER BY c.id LIMIT ?`);
+    return (this.armorySeiteAbfrage.all(nachId, limit) as Record<string, unknown>[]).map(zuArmoryZeile);
+  }
+  private armorySeiteAbfrage: ReturnType<DatabaseSync['prepare']> | null = null;
+
+  /** Ein Charakter nach Id mit denselben Bann-Regeln wie `armoryBanns`, oder null. */
+  armoryEinzeln(id: number, jetzt: number): ArmoryZeile | null {
+    this.armoryEinzelnAbfrage ??= this.db.prepare(`${ARMORY_AUSWAHL} WHERE c.id = ?
+      AND NOT EXISTS (SELECT 1 FROM banns b WHERE b.art = 'konto' AND b.wert = CAST(c.konto_id AS TEXT) AND (b.bis IS NULL OR b.bis > ?))
+      AND NOT EXISTS (SELECT 1 FROM banns b WHERE b.art = 'spieler' AND lower(b.wert) = lower(c.spieler_id) AND (b.bis IS NULL OR b.bis > ?))`);
+    const z = this.armoryEinzelnAbfrage.get(id, jetzt, jetzt) as Record<string, unknown> | undefined;
+    return z ? zuArmoryZeile(z) : null;
+  }
+  private armoryEinzelnAbfrage: ReturnType<DatabaseSync['prepare']> | null = null;
+
+  /**
+   * Der JSON-Text des Spielerzustands dieses Spielers in der AKTIVEN Welt,
+   * der Welt, mit der dieser Server Zustand liest und schreibt (`aktiveWelt`).
+   * Eine fremde Welt, die in derselben Datei Zeilen hinterliess, zaehlt nicht.
+   * Ist die aktive Welt noch unbekannt (nichts gelesen, nichts geschrieben),
+   * gibt es null: lieber keine Ausruestung als die einer fremden Welt.
+   */
+  armorySpielerdaten(spielerId: string): string | null {
+    if (this.aktiveWelt === null) return null;
+    const z = this.db
+      .prepare('SELECT daten FROM spielerzustand WHERE spieler_id = ? AND welt_id = ?')
+      .get(spielerId, this.aktiveWelt) as { daten: unknown } | undefined;
+    return z ? String(z.daten) : null;
+  }
+
+  /**
+   * Fingerabdruck dessen, was die Sichtbarkeit aendert: Anzahl und hoechste Id
+   * der Charaktere (Loeschen, Anlegen), juengste Erstellzeit (eine wiederverwendete Id nach dem Loeschen der hoechsten
+   * aendert Anzahl und hoechste Id nicht) und der Text aller Konto-/Spielerbanns
+   * (Art, Ziel, Zeitpunkt, Frist). Ein Zaehler oder eine Summe liesse zu, dass
+   * ein geloeschter und ein neuer Bann in derselben Millisekunde (Zeilen-Ids
+   * werden wiederverwendet) denselben Wert ergeben. Die
+   * Ruestkammer baut ihren Speicherstand neu, sobald er sich aendert, damit ein
+   * geloeschtes oder gebanntes Konto nicht noch eine halbe Minute steht.
+   */
+  armoryStempel(): string {
+    this.armoryStempelAbfrage ??= this.db.prepare(`SELECT
+      (SELECT COUNT(*) FROM charaktere) AS cn, (SELECT COALESCE(MAX(id), 0) FROM charaktere) AS cm,
+      (SELECT COALESCE(MAX(erstellt), 0) FROM charaktere) AS ce,
+      (SELECT COALESCE(group_concat(art || ':' || wert || ':' || gesetzt || ':' || COALESCE(bis, ''), '|' ORDER BY art, wert), '')
+         FROM banns WHERE art IN ('konto', 'spieler')) AS bs`);
+    const z = this.armoryStempelAbfrage.get() as Record<string, number | string>;
+    return `${z.cn}:${z.cm}:${z.ce}:${z.bs}`;
+  }
+
+  /** Einmal vorbereitet: der Stempel wird bei jeder Ruestkammer-Anfrage gebraucht. */
+  private armoryStempelAbfrage: ReturnType<DatabaseSync['prepare']> | null = null;
+
+  /** Welt, mit der dieser Server zuletzt Zustand gelesen oder geschrieben hat; null, solange unbekannt. */
+  private aktiveWelt: string | null = null;
+
   // ── Avatar ──────────────────────────────────────────────────────────
 
   /** Der gewaehlte Avatar dieses Kontos, oder null. */
@@ -1016,6 +1131,7 @@ export class Kontendatenbank {
     zdos: readonly { zdoId: string; weltId: string; stand: number; daten: string | null }[],
   ): void {
     if (spieler.length === 0 && zdos.length === 0) return;
+    const geschrieben = spieler.length > 0 ? spieler[spieler.length - 1].weltId : zdos[zdos.length - 1].weltId;
     const ersetzen = this.db.prepare(
       'INSERT OR REPLACE INTO spielerzustand (spieler_id, welt_id, stand, daten) VALUES (?, ?, ?, ?)',
     );
@@ -1028,6 +1144,7 @@ export class Kontendatenbank {
       haken('txn-mitte');
       for (const z of zdos) zdoErsetzen.run(z.zdoId, z.weltId, z.stand, z.daten);
       this.db.exec('COMMIT');
+      this.aktiveWelt = geschrieben;
     } catch (err) {
       try { this.db.exec('ROLLBACK'); } catch { /* Transaktion schon weg */ }
       throw err;
@@ -1036,6 +1153,7 @@ export class Kontendatenbank {
 
   /** Alle Zeilen der Welt `weltId` (Zeitstempel in ms, JSON-Text). Zeilen anderer Welten bleiben unberuehrt. */
   spielerzustandLesen(weltId: string): { spielerId: string; stand: number; daten: string }[] {
+    this.aktiveWelt = weltId; // Der Server liest den Zustand der Welt, in der er laeuft (Ruestkammer: nur diese zaehlt).
     return (
       this.db
         .prepare('SELECT spieler_id, stand, daten FROM spielerzustand WHERE welt_id = ?')

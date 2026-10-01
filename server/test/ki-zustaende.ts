@@ -1332,6 +1332,9 @@ console.log('\n[26] Ein fliehendes Ziel wird direkt verfolgt, ein stehendes umla
     return fang;
   };
   for (const nur of ['pure', 'server'] as const) {
+    // Genau auf der Schwelle der Mutanten 0,75 und 1,0 m/s (N7b): wer 0,75 m/s geht, ist schon „fliehend“ und wird direkt verfolgt.
+    const dreiviertel = zickzack(0.75, 0, nur);
+    check(`${nur}: Rücken zum Wolf, Start bei 8 m: Weggehen mit 0,75 m/s wird gefangen (unter 10 s)`, dreiviertel >= 0 && dreiviertel < 10, `gefangen nach ${f(dreiviertel, 2)} s`);
     const langsam = zickzack(1.0, 0, nur);
     const zick = zickzack(1.0, 1.0, nur);
     check(`${nur}: Rücken zum Wolf, Start bei 8 m: Weggehen mit 1,0 m/s wird gefangen (unter 10 s)`, langsam >= 0 && langsam < 10, `gefangen nach ${f(langsam, 2)} s`);

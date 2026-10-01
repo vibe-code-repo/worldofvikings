@@ -40,9 +40,18 @@ export function speichernVerdrahtung(d: {
         return;
       }
       laeuft = true;
-      d.hud(t('testflug.speichere_in_welt'));
+      // A2: a throwing HUD must never keep the lock (or stop the save): the lock is freed in `finally` whatever happens.
+      const meldung = (text: string): void => {
+        try {
+          d.hud(text);
+        } catch {
+          /* the HUD is only a display */
+        }
+      };
+      meldung(t('testflug.speichere_in_welt'));
       void entwurfSpeichern(d.entwurf)
-        .then((e) => d.hud(entwurfErgebnisText(e)))
+        .then((e) => meldung(entwurfErgebnisText(e)))
+        .catch(() => undefined)
         .finally(() => {
           laeuft = false;
         });

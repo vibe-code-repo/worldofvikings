@@ -48,6 +48,8 @@ export type SpeicherAntwort = {
   loeschsperre?: number;
   /** Why the running game did not apply the saved state (`geo`, `server-aus`, `abgelehnt`, …); missing: applied or unknown. */
   grund?: string;
+  /** A warning the service attached to the answer ("ACHTUNG: n Einträge … verworfen"), without the rest of the message. */
+  warnung?: string;
 };
 
 /**

@@ -368,6 +368,7 @@
   "testflug.neustart.fehler.neustart": "Restart failed: {grund}",
   "testflug.neustart.fehler.speichern": "Not saved, no restart: {message}",
   "testflug.neustart.fehler.speichert_noch": "Saving is still going on. Please wait a moment and try again.",
+  "testflug.neustart.fehler.unerwartet": "Unexpected error during the run: {fehler}",
   "testflug.neustart.fehler.zeitlimit": "The server is not back up after {sekunden} s. Please check in the map editor.",
   "testflug.neustart.ja": "Yes, save & restart",
   "testflug.neustart.spieler": "Currently connected: {count}",

@@ -23,6 +23,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as ts from 'typescript';
 import { sanitizeWorldLayout } from '@wov/shared';
 import { entwurfErgebnisText, entwurfSpeichern, GEPRUEFTE_SAMMLUNGEN, type EntwurfDienste } from '../src/editor/testflug/entwurfSpeichern';
 import { neustartSteuerung, type NeustartOberflaeche } from '../src/editor/testflug/neustartSteuerung';
@@ -125,6 +126,70 @@ const HASH2 = '2'.repeat(64);
 const HASH3 = 'c'.repeat(64);
 const warteTick = (): Promise<void> => new Promise((f) => setTimeout(f, 5));
 const OK: SpeicherAntwort = { ok: true, message: 'Gespeichert' };
+
+
+/**
+ * A1: the binding of `Testflug.ts` to `speichernVerdrahtung.ts`, read from the syntax tree. Returns the violations (empty = bound).
+ *  - the four panel callbacks (`neustartKlick`, `neustartJa`, `neustartAbbruch`, `speichernGelaende`) come from ONE spread
+ *    `...panelRueckrufe(() => ({ verdrahtung, neustart }))`; nobody else assigns them (no property, no `x.neustartJa = …`);
+ *    nothing follows the spread in that object literal;
+ *  - `aufSpeichern` is assigned exactly once, to `verdrahtung.speichereEntwurf`, in an object literal without any spread;
+ *  - `belegt` is assigned exactly once, to the arrow `() => verdrahtung.einfachLaeuft()`.
+ */
+function testflugBindung(quelle: string): string[] {
+  const sf = ts.createSourceFile('Testflug.ts', quelle, ts.ScriptTarget.Latest, true);
+  const SCHLUESSEL = ['neustartKlick', 'neustartJa', 'neustartAbbruch', 'speichernGelaende'];
+  const verstoesse: string[] = [];
+  const name = (n: ts.PropertyName | ts.Expression): string | null => (ts.isIdentifier(n) || ts.isStringLiteral(n) ? n.text : null);
+  const zuweisungen = new Map<string, Array<{ init: ts.Node | null; objekt: ts.ObjectLiteralExpression | null }>>();
+  const spreads: ts.SpreadAssignment[] = [];
+  const merke = (k: string, init: ts.Node | null, objekt: ts.ObjectLiteralExpression | null): void => {
+    const l = zuweisungen.get(k) ?? [];
+    l.push({ init, objekt });
+    zuweisungen.set(k, l);
+  };
+  const gehe = (n: ts.Node): void => {
+    if (ts.isPropertyAssignment(n)) {
+      const k = name(n.name);
+      if (k) merke(k, n.initializer, n.parent as ts.ObjectLiteralExpression);
+      else if (ts.isComputedPropertyName(n.name)) merke('<berechnet>', n, null);
+    } else if (ts.isShorthandPropertyAssignment(n)) merke(n.name.text, null, n.parent as ts.ObjectLiteralExpression);
+    else if (ts.isMethodDeclaration(n) || ts.isGetAccessor(n) || ts.isSetAccessor(n)) {
+      const k = name(n.name);
+      if (k) merke(k, null, ts.isObjectLiteralExpression(n.parent) ? n.parent : null);
+    } else if (ts.isSpreadAssignment(n)) spreads.push(n);
+    else if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(n.left)) merke(n.left.name.text, n.right, null);
+    ts.forEachChild(n, gehe);
+  };
+  gehe(sf);
+  const text = (n: ts.Node | null): string => (n ? n.getText(sf).replace(/\s+/g, ' ') : '');
+  const panelSpreads = spreads.filter((s) => ts.isCallExpression(s.expression) && text(s.expression.expression) === 'panelRueckrufe');
+  if (panelSpreads.length !== 1) verstoesse.push(`panelRueckrufe wird ${panelSpreads.length}-mal durchgereicht (erwartet 1)`);
+  else {
+    const sp = panelSpreads[0]!;
+    const arg = (sp.expression as ts.CallExpression).arguments.map((a) => text(a)).join(',');
+    if (arg !== '() => ({ verdrahtung, neustart })') verstoesse.push(`panelRueckrufe bekommt ${arg}`);
+    const objekt = sp.parent as ts.ObjectLiteralExpression;
+    const nach = objekt.properties.slice(objekt.properties.indexOf(sp) + 1);
+    for (const p of nach) if (ts.isSpreadAssignment(p)) verstoesse.push('nach dem Durchreichen folgt ein weiterer Spread');
+    for (const p of nach) {
+      const k = p.name ? name(p.name) : null;
+      if (k && SCHLUESSEL.includes(k)) verstoesse.push(`${k} wird nach dem Durchreichen überschrieben`);
+    }
+  }
+  for (const k of SCHLUESSEL) if ((zuweisungen.get(k) ?? []).length > 0) verstoesse.push(`${k} wird in Testflug.ts selbst zugewiesen`);
+  if ((zuweisungen.get('<berechnet>') ?? []).length > 0) verstoesse.push('berechneter Schlüssel in einem Objekt');
+  const auf = zuweisungen.get('aufSpeichern') ?? [];
+  if (auf.length !== 1) verstoesse.push(`aufSpeichern wird ${auf.length}-mal zugewiesen (erwartet 1)`);
+  else {
+    if (text(auf[0]!.init) !== 'verdrahtung.speichereEntwurf') verstoesse.push(`aufSpeichern ist ${text(auf[0]!.init)}`);
+    if (auf[0]!.objekt?.properties.some((p) => ts.isSpreadAssignment(p))) verstoesse.push('im Objekt von aufSpeichern steht ein Spread');
+  }
+  const bel = zuweisungen.get('belegt') ?? [];
+  if (bel.length !== 1) verstoesse.push(`belegt wird ${bel.length}-mal zugewiesen (erwartet 1)`);
+  else if (text(bel[0]!.init) !== '() => verdrahtung.einfachLaeuft()') verstoesse.push(`belegt ist ${text(bel[0]!.init)}`);
+  return verstoesse;
+}
 
 async function main(): Promise<void> {
   // ── Vorbedingung: das gültige Testdokument hat kein heightProblem ──
@@ -252,9 +317,26 @@ async function main(): Promise<void> {
   const panel = lies('../src/editor/SpawnPanel.ts');
   const verd = lies('../src/editor/testflug/speichernVerdrahtung.ts');
   pruefe(/speichereEntwurf\(\) \{[\s\S]{0,900}entwurfSpeichern\(d\.entwurf\)/.test(verd), '9: der einfache Speichern-Knopf geht über entwurfSpeichern (F1)');
-  pruefe(/\.\.\.panelRueckrufe\(\(\) => \(\{ verdrahtung, neustart \}\)\)/.test(testflug), '9: Testflug reicht die Panel-Rückrufe der Verdrahtung durch (Ja, Klick, Abbrechen, Speichern)');
-  pruefe(/aufSpeichern: verdrahtung\.speichereEntwurf/.test(testflug), '9: der Routen-Editor speichert über denselben Schutz');
-  pruefe(/belegt: \(\) => verdrahtung\.einfachLaeuft\(\)/.test(testflug), '9: die Steuerung kennt das laufende einfache Speichern (R5)');
+  // A1: die Bindung wird am Syntaxbaum geprüft, nicht am Text; die Umformulierungen des Prüfers müssen auffallen
+  const urspruenglich = testflugBindung(testflug);
+  pruefe(urspruenglich.length === 0, '9: Testflug.ts ist an die Verdrahtung gebunden (Syntaxbaum: Rückrufe, aufSpeichern, belegt)', urspruenglich.join('; '));
+  const DURCH = '      ...panelRueckrufe(() => ({ verdrahtung, neustart })),';
+  const AUF = '      aufSpeichern: verdrahtung.speichereEntwurf,';
+  const umformulierungen: Array<[string, string, string]> = [
+    ['X26b „Ja“ dahinter überschrieben', DURCH, `${DURCH}\n      neustartJa: () => undefined,`],
+    ['X26d eigenes speichernGelaende dahinter', DURCH, `${DURCH}\n      speichernGelaende: () => void persistenz.speichern(persistenz.laden() ?? {}),`],
+    ['X27b alte Zeile als Kommentar, eigenes aufSpeichern', AUF, '      // aufSpeichern: verdrahtung.speichereEntwurf\n      aufSpeichern: () => void persistenz.speichern(persistenz.laden() ?? {}),'],
+    ['X27c zweites aufSpeichern per Spread', AUF, `${AUF}\n      ...{ aufSpeichern: () => void persistenz.speichern(persistenz.laden() ?? {}) },`],
+    ['Y14b belegt && false', '      belegt: () => verdrahtung.einfachLaeuft(),', '      belegt: () => verdrahtung.einfachLaeuft() && false,'],
+    ['X26 Durchreichen entfernt', `${DURCH}\n`, ''],
+    ['X27 aufSpeichern am Schutz vorbei', AUF, '      aufSpeichern: () => void persistenz.speichern(persistenz.laden() ?? {}),'],
+    ['Zuweisung nach dem Bau (cb.neustartJa = …)', AUF, `${AUF}\n      zusatz: (cb: { neustartJa?: () => void }) => { cb.neustartJa = () => undefined; },`],
+  ];
+  for (const [name, alt, neu] of umformulierungen) {
+    const treffer = testflug.split(alt).length - 1;
+    const verstoesse = treffer === 1 ? testflugBindung(testflug.replace(alt, neu)) : ['Stelle nicht gefunden'];
+    pruefe(treffer === 1 && verstoesse.length > 0, `9: ${name} → die Bindungsprüfung schlägt an`, verstoesse.join('; ') || 'NICHT erkannt');
+  }
   pruefe(/neustartJa: \(\) => void holen\(\)\.neustart\.neustartJa\(\)/.test(verd) && /neustartKlick: \(\) => void holen\(\)\.neustart\.neustartKlick\(\)/.test(verd) && /neustartAbbruch: \(\) => holen\(\)\.neustart\.neustartAbbruch\(\)/.test(verd), '9: die Panel-Rückrufe sind verdrahtet (Ja ist nicht tot)');
   pruefe(!/sanitizeWorldLayout\(roh as never\)/.test(testflug), '9: Testflug.ts bereinigt den Entwurf nicht mehr am Schutz vorbei');
   pruefe(/neustartSteuerung\(\{[\s\S]{0,200}entwurf: entwurfDienste/.test(testflug) && /speichernVerdrahtung\(\{ entwurf: entwurfDienste/.test(testflug), '9: beide Knöpfe gehen über denselben Speicherweg (entwurfDienste)');
@@ -268,7 +350,7 @@ async function main(): Promise<void> {
   const de = JSON.parse(lies('../src/i18n/katalog/de.json')) as Record<string, string>;
   const en = JSON.parse(lies('../src/i18n/katalog/en.json')) as Record<string, string>;
   const schluessel = Object.keys(de).filter((k) => k.startsWith('testflug.neustart.') || k.startsWith('testflug.gelaende.hoehe.') || k.startsWith('testflug.gelaende.verworfen.') || k === 'testflug.gelaende.speichern_neustart');
-  pruefe(schluessel.length === 36, '9: 36 neue Schlüssel', String(schluessel.length));
+  pruefe(schluessel.length === 37, '9: 37 neue Schlüssel', String(schluessel.length));
   pruefe(schluessel.every((k) => typeof en[k] === 'string' && en[k] !== de[k]), '9: jeder Schlüssel in en vorhanden und übersetzt');
   const quelle = lies('../src/editor/testflug/neustart.ts') + lies('../src/editor/testflug/entwurfSpeichern.ts') + lies('../src/editor/testflug/LocalStoragePersistenz.ts') + lies('../src/editor/testflug/neustartSteuerung.ts') + lies('../src/editor/testflug/speichernVerdrahtung.ts') + testflug + panel;
   pruefe(schluessel.every((k) => quelle.includes(`'${k}'`)), '9: jeder neue Schlüssel wird im Quelltext benutzt');
@@ -402,7 +484,7 @@ async function main(): Promise<void> {
     pruefe(e3b.art === 'unlesbar' && entwurfErgebnisText(e3b).includes('nicht lesbar'), 'N3: auch der einfache Knopf sagt „nicht lesbar“');
 
     // N4: Warntext der Speicherung
-    const e4 = await lauf({ speichern: async () => ({ ok: true, message: 'Der Server hat den Stand aus Schutz nicht angewendet (abgelehnt)' }), netz: attrappe({}) }).l.starten();
+    const e4 = await lauf({ speichern: async () => ({ ok: true, message: 'Der Server hat den Stand aus Schutz nicht angewendet (abgelehnt)', grund: 'abgelehnt' }), netz: attrappe({}) }).l.starten();
     pruefe(e4 !== null && neustartText(e4).includes('aus Schutz nicht angewendet'), 'N4: der Warntext der Speicherung steht im Schlusstext', e4 ? neustartText(e4) : '');
 
     // N5: Netzabbruch / 504 beim Neustart-POST
@@ -681,11 +763,66 @@ async function main(): Promise<void> {
       pruefe(e3?.phase === 'fehler' && !r3.l.laeuft(), 'R6: unlesbar bleibt eine Meldung');
     }
 
-    // R7: der überholte Satz bei geo und server-aus fehlt, eine Warnung zu Objekten bleibt
-    for (const [grund, bleibt] of [['geo', false], ['server-aus', false], ['abgelehnt', true], [undefined, true]] as const) {
-      const e = await lauf({ speichern: async () => ({ ok: true, message: 'Meldung-des-Dienstes', ...(grund ? { grund } : {}) }), netz: attrappe({}) }).l.starten();
+    // R7/A3: nur der überholte Dienstsatz entfällt; ein angehängter Warnhinweis und Meldungen anderer Gründe bleiben
+    const ACHTUNG = 'ACHTUNG: 2 Einträge vom Betriebsdienst verworfen';
+    const a3: Array<[string | undefined, string | undefined, boolean, boolean]> = [
+      // [Grund, Warnung, Dienstsatz sichtbar?, Warnung sichtbar?]
+      ['geo', undefined, false, false],
+      ['geo', ACHTUNG, false, true],
+      ['server-aus', undefined, false, false],
+      ['server-aus', ACHTUNG, false, true],
+      ['zu-viele-aenderungen', undefined, false, false],
+      ['zu-viele-aenderungen', ACHTUNG, false, true],
+      ['keine-quittung', undefined, false, false],
+      ['keine-quittung', ACHTUNG, false, true],
+      [undefined, undefined, false, false],
+      [undefined, ACHTUNG, false, true],
+      ['abgelehnt', undefined, true, false],
+    ];
+    for (const [grund, warnung, satz, warn] of a3) {
+      const e = await lauf({ speichern: async () => ({ ok: true, message: 'Meldung-des-Dienstes', ...(grund ? { grund } : {}), ...(warnung ? { warnung } : {}) }), netz: attrappe({}) }).l.starten();
       const text = e ? neustartText(e) : '';
-      pruefe(text.includes('Meldung-des-Dienstes') === bleibt, `R7: Grund ${String(grund)} → Dienstmeldung ${bleibt ? 'bleibt' : 'entfällt'}`, text);
+      pruefe(text.includes('Meldung-des-Dienstes') === satz && text.includes('ACHTUNG') === warn, `A3: Grund ${String(grund)}${warnung ? ' mit Warnhinweis' : ''} → Dienstsatz ${satz ? 'bleibt' : 'entfällt'}, Warnhinweis ${warn ? 'bleibt' : 'fehlt'}`, text);
+    }
+    {
+      const e200 = await lauf({ speichern: async () => ({ ok: true, message: 'Gespeichert' }), netz: attrappe({}) }).l.starten();
+      pruefe(e200 !== null && !neustartText(e200).includes('Meldung beim Speichern'), 'A3: bei 200 kein „Meldung beim Speichern: Gespeichert“', e200 ? neustartText(e200) : '');
+      // durch die echte Persistenz: 202 geo mit „verworfen“ → der Warnhinweis kommt als `warnung` an und im Schlusstext
+      const speicher = new Map<string, string>();
+      (globalThis as unknown as { localStorage: unknown }).localStorage = { getItem: (k: string) => speicher.get(k) ?? null, setItem: (k: string, v: string) => void speicher.set(k, v) };
+      speicher.set(STAND_KEY, JSON.stringify({ zeit: '2026-10-01T00:00:00.000Z', instanz: 'dev', quelle: 'server', tabId: 'tabA', basis: 'h1' }));
+      (globalThis as unknown as { fetch: unknown }).fetch = async () => new Response(JSON.stringify({ ok: true, hash: HASH2, angewendet: false, grund: 'geo', verworfen: 2, message: 'Geschrieben, aber nicht angewendet (geo).' }), { status: 202 });
+      const pers = localStoragePersistenz();
+      const echt = await pers.speichern(ENTWURF());
+      pruefe(echt.ok === true && echt.warnung?.includes('ACHTUNG') === true && echt.warnung.includes('2'), 'A3: die Persistenz reicht den Warnhinweis des Dienstes getrennt durch', JSON.stringify(echt));
+      const eEcht = await lauf({ speichern: (d) => pers.speichern(d), netz: attrappe({}) }).l.starten();
+      pruefe(eEcht !== null && neustartText(eEcht).includes('ACHTUNG') && !neustartText(eEcht).includes('Geschrieben, aber nicht angewendet'), 'A3: Schlusstext zeigt den Warnhinweis, aber nicht den überholten Satz', eEcht ? neustartText(eEcht) : '');
+    }
+
+    // A2: ein werfendes HUD hält die Sperre nie dauerhaft
+    {
+      let gespeichert = 0;
+      const entwurf: EntwurfDienste = { laden: () => ENTWURF(), speichern: async () => (gespeichert++, OK) };
+      let hudAufrufe = 0;
+      const v = speichernVerdrahtung({ entwurf, hud: () => { hudAufrufe++; throw new Error('HUD kaputt'); }, neustart: () => ({ laeuft: () => false, neustartKlick: async () => undefined, neustartJa: async () => undefined, neustartAbbruch: () => undefined }) });
+      v.speichereEntwurf();
+      await warteTick();
+      await warteTick();
+      pruefe(gespeichert === 1 && hudAufrufe === 2, 'A2: ein werfendes HUD stoppt das Speichern nicht', `${gespeichert}/${hudAufrufe}`);
+      pruefe(!v.einfachLaeuft(), 'A2: die Sperre ist danach frei');
+      v.speichereEntwurf();
+      await warteTick();
+      await warteTick();
+      pruefe(gespeichert === 2 && !v.einfachLaeuft(), 'A2: ein weiterer Klick speichert wieder');
+    }
+
+    // Hinweis: eine unerwartete Ausnahme hat einen eigenen Text
+    {
+      let uhrAufrufe = 0;
+      const l5 = neustartLauf({ entwurf: { laden: () => ENTWURF(), speichern: async () => OK }, holen: attrappe({}).holen, jetzt: () => { if (++uhrAufrufe > 2) throw new Error('Uhr kaputt'); return uhrAufrufe; }, schlafe: async () => undefined, status: () => undefined });
+      const e5 = await l5.starten();
+      pruefe(e5?.phase === 'fehler' && e5.grund === 'unerwartet', 'Unerwartete Ausnahme hat den Grund „unerwartet“', JSON.stringify(e5));
+      pruefe(e5 !== null && neustartText(e5).includes('Unerwarteter Fehler') && !neustartText(e5).includes('Betriebsdienst'), 'Unerwartete Ausnahme: eigener, zutreffender Text', e5 ? neustartText(e5) : '');
     }
   }
 

@@ -39,7 +39,9 @@ export type NeustartFehler =
   | { grund: 'aktion-laeuft' }
   | { grund: 'neustart'; message: string }
   | { grund: 'zeitlimit'; sekunden: number }
-  | { grund: 'netz'; fehler: string };
+  | { grund: 'netz'; fehler: string }
+  /** Something threw that nobody expected (not the network): own text, not "connection failed". */
+  | { grund: 'unerwartet'; fehler: string };
 
 export type NeustartStatus =
   | { phase: 'speichert' }
@@ -149,9 +151,13 @@ export function neustartLauf(d: NeustartDienste): NeustartLauf {
     if (!e.antwort.ok) return fehler({ grund: 'speichern', message: e.antwort.message });
     const loeschsperre = e.antwort.loeschsperre ?? 0;
     const leereRouten = e.leereRouten;
-    // R7: after a restart "written, not applied (geo)" is outdated and reads like a contradiction; a warning
-    // about objects (`abgelehnt`, …) stays.
-    const meldung = e.antwort.grund === 'geo' || e.antwort.grund === 'server-aus' ? '' : e.antwort.message;
+    // R7/A3: after a restart the service's reason sentence for `geo`, `server-aus`, `zu-viele-aenderungen`,
+    // `keine-quittung` and the bare "Gespeichert" (200, no reason) is outdated and reads like a contradiction. What stays: a
+    // warning the service appended ("ACHTUNG: n Einträge verworfen") and the whole message for any other reason
+    // (`abgelehnt` concerns objects, …).
+    const grund = e.antwort.grund;
+    const ueberholt = grund === undefined || ['geo', 'server-aus', 'zu-viele-aenderungen', 'keine-quittung'].includes(grund);
+    const meldung = ueberholt ? (e.antwort.warnung ?? '') : e.antwort.message;
 
     melde({ phase: 'startet-neu', sekunden: 0 });
     // No answer (network, gateway timeout) does not mean "no restart": the service answers only after `systemctl`.
@@ -214,7 +220,7 @@ export function neustartLauf(d: NeustartDienste): NeustartLauf {
         return await ablauf();
       } catch (err) {
         // Whatever throws unexpectedly: the line must not stay on "Speichere …".
-        return fehler({ grund: 'netz', fehler: String(err) });
+        return fehler({ grund: 'unerwartet', fehler: String(err) });
       } finally {
         laeuft = false;
       }
@@ -263,6 +269,8 @@ export function neustartText(s: NeustartStatus): string {
           return t('testflug.neustart.fehler.zeitlimit', { sekunden: s.sekunden });
         case 'netz':
           return t('testflug.neustart.fehler.netz', { fehler: s.fehler });
+        case 'unerwartet':
+          return t('testflug.neustart.fehler.unerwartet', { fehler: s.fehler });
       }
   }
 }

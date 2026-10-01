@@ -368,6 +368,7 @@
   "testflug.neustart.fehler.neustart": "Neustart fehlgeschlagen: {grund}",
   "testflug.neustart.fehler.speichern": "Nicht gespeichert, kein Neustart: {message}",
   "testflug.neustart.fehler.speichert_noch": "Das Speichern läuft noch. Bitte kurz warten und dann erneut versuchen.",
+  "testflug.neustart.fehler.unerwartet": "Unerwarteter Fehler im Ablauf: {fehler}",
   "testflug.neustart.fehler.zeitlimit": "Der Server ist nach {sekunden} s nicht wieder oben. Bitte im Karteneditor nachsehen.",
   "testflug.neustart.ja": "Ja, speichern & neu starten",
   "testflug.neustart.spieler": "Gerade verbunden: {count}",

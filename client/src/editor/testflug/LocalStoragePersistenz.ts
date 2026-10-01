@@ -67,6 +67,15 @@ export function istDienstHash(hash: string | null | undefined): hash is string {
   return typeof hash === 'string' && /^[0-9a-f]{64}$/.test(hash);
 }
 
+/** `schreibeWeltdokument` appends this marker plus the count when the service dropped entries. */
+const ACHTUNG_MARKE = ' — ACHTUNG:';
+
+/** The appended warning of a save message (A3), or nothing. */
+export function warnungVon(message: string): { warnung?: string } {
+  const i = message.indexOf(ACHTUNG_MARKE);
+  return i >= 0 ? { warnung: message.slice(i + 3) } : {};
+}
+
 /** Storage key shared with `editor.html`. */
 export const ENTWURF_SCHLUESSEL = 'wov-editor-layout';
 
@@ -92,7 +101,7 @@ export function localStoragePersistenz(): TestflugPersistenz {
         if (!istDienstHash(antwort.hash)) return { ok: false, message: UNBESTAETIGT() } satisfies SpeicherAntwort;
         // Der Server hat jetzt unseren Stand: Er ist die Basis des nächsten Speicherns.
         basisNachziehen(antwort.hash);
-        return { ok: true, message: antwort.sperrAnzahl ? (antwort.messageOhneSperre ?? antwort.message) : antwort.message, ...(antwort.sperrAnzahl ? { loeschsperre: antwort.sperrAnzahl } : {}), ...(antwort.grund ? { grund: antwort.grund } : {}) } satisfies SpeicherAntwort;
+        return { ok: true, message: antwort.sperrAnzahl ? (antwort.messageOhneSperre ?? antwort.message) : antwort.message, ...(antwort.sperrAnzahl ? { loeschsperre: antwort.sperrAnzahl } : {}), ...(antwort.grund ? { grund: antwort.grund } : {}), ...warnungVon(antwort.message) } satisfies SpeicherAntwort;
       }
       // Bei 409 bleibt die alte Basis im Zettel: Erst der Editor-Dialog (Serverstand laden oder „Entwurf behalten") ersetzt sie.
       if (antwort.art === 'veraltet') return { ok: false, message: VERALTET() } satisfies SpeicherAntwort;

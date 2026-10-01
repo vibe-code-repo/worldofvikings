@@ -283,6 +283,9 @@ export const en: Messages = {
   'armory.feld.tode': 'Deaths',
   'armory.feld.spielzeit': 'Play time',
 
+  'armory.search.too_general':
+    'The search is too general. Only the first hits are shown; please be more specific.',
+  'armory.list.count_min': 'at least {n} hits',
   'armory.list.count_one': '{n} hero',
   'armory.list.count_other': '{n} heroes',
   'armory.error.title': 'This hero is not in the armory.',

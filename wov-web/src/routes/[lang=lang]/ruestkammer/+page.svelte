@@ -97,7 +97,10 @@
       {#if data.q !== '' && liste.suche === ''}
         <p class="hinweis note">{t['armory.search.too_short']}</p>
       {/if}
-      <p class="zaehler">{zaehlerText(liste.gesamt, t, lang)}</p>
+      {#if liste.sucheGekuerzt}
+        <p class="hinweis note">{t['armory.search.too_general']}</p>
+      {/if}
+      <p class="zaehler">{zaehlerText(liste.gesamt, t, lang, liste.sucheGekuerzt)}</p>
       <div class="results">
         {#each liste.eintraege as r (r.id)}
           <a class="tafel-matt karte result" href={profilAdresse(kammer, r.id)}>

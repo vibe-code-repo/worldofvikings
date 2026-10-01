@@ -249,6 +249,34 @@ beschreibe('Rüstkammer ohne JavaScript (gebauter Stand)', () => {
     expect(leer.text).not.toContain('Kein Recke dieses Namens');
   });
 
+  it('gekürzte Suche: Hinweis „zu allgemein“, Zähler „mindestens“, keine Seiten über das Stück hinaus', async () => {
+    const stueck = (seite: number, kuerzt: boolean) =>
+      listeAntwort([eintrag(1, 'Ragnar'), eintrag(2, 'Sigrid')], {
+        seite,
+        seiten: 2,
+        gesamt: 48,
+        suche: 'ig',
+        suche_gekuerzt: kuerzt,
+      });
+    modus = () => stueck(2, true);
+    const r = await frage('/de/ruestkammer?q=ig&seite=2');
+    expect(r.status).toBe(200);
+    expect(r.text).toContain('zu allgemein');
+    expect(r.text).toMatch(/mindestens 48 Treffer/);
+    expect(r.text).not.toMatch(/48 Recken/);
+    // Letzte Seite des gelieferten Stücks: kein „Weiter“-Link.
+    expect(r.main).not.toContain('rel="next"');
+    expect(r.main).toContain('rel="prev"');
+    expect((await frage('/en/armory?q=ig&seite=2')).text).toMatch(/at least 48 hits/);
+    // Nicht gekürzt (oder Feld fehlt): normaler Zähler, kein Hinweis.
+    modus = () => stueck(1, false);
+    const normal = await frage('/de/ruestkammer?q=ig');
+    expect(normal.text).toContain('48 Recken');
+    expect(normal.text).not.toContain('zu allgemein');
+    modus = () => listeAntwort([eintrag(1, 'Ragnar')], { gesamt: 1 });
+    expect((await frage('/de/ruestkammer')).text).not.toContain('zu allgemein');
+  });
+
   it('Suche und Seite kommen unverändert beim Spielserver an; Müll wird zu Seite 1', async () => {
     modus = () => listeAntwort([eintrag(1, 'Sigrid')], { seite: 2, seiten: 3, gesamt: 60 });
     gesehen.length = 0;

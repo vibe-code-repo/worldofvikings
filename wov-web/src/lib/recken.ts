@@ -116,6 +116,11 @@ export interface ReckenListe {
    * Server), ist es `undefined`.
    */
   suche?: string;
+  /**
+   * Wahr: Die Suche war zu allgemein, die Treffer sind nur das Anfangsstück in Anzeigereihenfolge,
+   * und `gesamt`/`seiten` sind NICHT die volle Trefferzahl. Fehlt das Feld, gilt `false`.
+   */
+  sucheGekuerzt: boolean;
 }
 
 /* ------------------------------------------------------ Normalisierer */
@@ -294,7 +299,14 @@ export function normalisiereListe(v: unknown): ReckenListe | null {
   const gesamt = ganz(v.gesamt, 0, MAX_ZAEHLER);
   const groesse = ganz(v.seitenGroesse, 1, MAX_ZAEHLER);
   if (seite === null || seiten === null || gesamt === null || groesse === null) return null;
-  const liste: ReckenListe = { eintraege, seite, seiten, gesamt, seitenGroesse: groesse };
+  const liste: ReckenListe = {
+    eintraege,
+    seite,
+    seiten,
+    gesamt,
+    seitenGroesse: groesse,
+    sucheGekuerzt: v.suche_gekuerzt === true,
+  };
   if (typeof v.suche === 'string') liste.suche = v.suche.slice(0, 64);
   return liste;
 }

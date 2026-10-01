@@ -311,6 +311,9 @@ export const de = {
   'armory.feld.tode': 'Tode',
   'armory.feld.spielzeit': 'Spielzeit',
 
+  'armory.search.too_general':
+    'Die Suche ist zu allgemein. Es werden nur die ersten Treffer gezeigt; bitte suche genauer.',
+  'armory.list.count_min': 'mindestens {n} Treffer',
   'armory.list.count_one': '{n} Recke',
   'armory.list.count_other': '{n} Recken',
   'armory.error.title': 'Dieser Recke ist nicht in der Kammer.',

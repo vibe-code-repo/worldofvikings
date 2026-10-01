@@ -129,7 +129,10 @@ export function zaehlerText(
   n: number,
   katalog: Record<string, string>,
   sprache: string = 'de',
+  mindestens = false,
 ): string {
+  if (mindestens)
+    return (katalog['armory.list.count_min'] ?? '{n}').replace('{n}', zahlText(n, sprache));
   const vorlage = katalog[n === 1 ? 'armory.list.count_one' : 'armory.list.count_other'] ?? '{n}';
   return vorlage.replace('{n}', zahlText(n, sprache));
 }

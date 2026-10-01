@@ -296,6 +296,17 @@ describe('B2: leere und unvollständige Werte werden toleriert', () => {
   });
 });
 
+describe('Feld suche_gekuerzt der Liste', () => {
+  const liste = { eintraege: [], seite: 1, seitenGroesse: 24, gesamt: 0, seiten: 1 };
+  it('nur ein echtes true zählt; fehlt das Feld oder ist es Unsinn, gilt false', () => {
+    expect(normalisiereListe({ ...liste, suche_gekuerzt: true })?.sucheGekuerzt).toBe(true);
+    expect(normalisiereListe({ ...liste, suche_gekuerzt: false })?.sucheGekuerzt).toBe(false);
+    expect(normalisiereListe(liste)?.sucheGekuerzt).toBe(false);
+    expect(normalisiereListe({ ...liste, suche_gekuerzt: 'true' })?.sucheGekuerzt).toBe(false);
+    expect(normalisiereListe({ ...liste, suche_gekuerzt: 1 })?.sucheGekuerzt).toBe(false);
+  });
+});
+
 describe('Feld suche der Liste', () => {
   const liste = { eintraege: [], seite: 1, seitenGroesse: 24, gesamt: 0, seiten: 1 };
   it('bleibt erhalten, auch leer; fehlt es, bleibt es weg; Unsinn zählt als fehlend', () => {

@@ -8,6 +8,7 @@
  * herausgezogen, damit Erstellen und Rüstkammer dieselbe Figur zeigen.
  */
 
+import { canWearArmor } from '../../../shared/src/armorCompatibility';
 import type { EquipmentSetCatalog } from '../../../shared/src/equipmentSets';
 
 /** Ein Eintrag aus `assets/appearance.json` (Feldnamen englisch, Drahtformat). */
@@ -99,9 +100,13 @@ export interface FigurAussehen {
   augenbraue?: string;
 }
 
-/** Ein angelegtes Stück: nur die Gegenstandskennung zählt. */
+/**
+ * Ein angelegtes Stück: nur die Gegenstandskennung zählt (`kennung` des
+ * Rüstkammer-Endpunkts, z. B. `IronwardHelmet`). `name` ist dort der
+ * Anzeigename und taugt nicht zur Zuordnung; das Feld gibt es hier bewusst nicht.
+ */
 export interface AusruestungsStueck {
-  name: string;
+  kennung: string;
 }
 
 export interface RuestungsTeil {
@@ -173,9 +178,11 @@ export function ruestungsPlaetze(
 
 /**
  * Die angelegten Stücke eines Recken als Rüstungsteile. Erkannt wird ein Stück
- * an der Gegenstandskennung eines Teils aus `equipmentSets` der eigenen Figur;
+ * an seiner `kennung` gegen die Gegenstandskennung (`itemId`) eines Teils aus
+ * `equipmentSets`, ohne Rücksicht auf Groß-/Kleinschreibung. Es zählen Sets,
+ * die der Körper der Figur tragen darf (`canWearArmor`, wie im Bündel).
  * Waffen, Schmuck und Unbekanntes bleiben draußen. Je Körperplatz zählt ein
- * Stück, das später genannte gewinnt.
+ * Stück; bei mehreren gewinnt das später genannte.
  */
 export function ruestungAusStuecken(
   daten: AussehenDaten | null,
@@ -183,18 +190,22 @@ export function ruestungAusStuecken(
   stuecke: readonly AusruestungsStueck[] | undefined,
 ): RuestungsTeil[] {
   if (!daten?.equipmentSets || !stuecke?.length) return [];
-  const namen = new Set(stuecke.map((s) => s.name));
-  const jePlatz = new Map<string, RuestungsTeil>();
+  const teile = new Map<string, RuestungsTeil>();
   for (const set of daten.equipmentSets) {
-    if (set.figure !== figur) continue;
+    if (!canWearArmor(set, figur)) continue;
     for (const teil of set.parts) {
-      if (!namen.has(teil.itemId)) continue;
-      jePlatz.set(teil.appearanceSlot, {
+      teile.set(teil.itemId.toLowerCase(), {
         datei: teil.model.replace(/\.glb$/, ''),
         regionen: teil.regions,
         slot: teil.appearanceSlot,
       });
     }
+  }
+  const jePlatz = new Map<string, RuestungsTeil>();
+  for (const stueck of stuecke) {
+    const kennung = typeof stueck?.kennung === 'string' ? stueck.kennung.toLowerCase() : '';
+    const teil = teile.get(kennung);
+    if (teil) jePlatz.set(teil.slot, teil);
   }
   return [...jePlatz.values()].slice(0, RUESTUNGS_PLAETZE);
 }
@@ -252,17 +263,26 @@ export function planFuerRecke(
   const figur = daten.figures.some((f) => f.id === aussehen.figur)
     ? aussehen.figur
     : (daten.defaultFigure ?? daten.figures[0]?.id ?? '');
-  const z = zerlegeFrisur(daten, aussehen.frisur);
+  const text = (wert: unknown) => (typeof wert === 'string' ? wert : '');
+  const z = zerlegeFrisur(daten, text(aussehen.frisur));
   return baueLadePlan(
     daten,
     {
-      ...aussehen,
+      klasse: text(aussehen.klasse),
+      haarfarbe: text(aussehen.haarfarbe),
+      augenfarbe: text(aussehen.augenfarbe),
       figur,
       frisur: z.frisur,
       bart: aussehen.bart ?? (z.bart || daten.defaultBeard || ''),
       augenbraue: aussehen.augenbraue ?? (z.augenbraue || brauenVorgabe(daten, figur)),
     },
-    { teile: ruestungAusStuecken(daten, figur, ausruestung) },
+    {
+      teile: ruestungAusStuecken(
+        daten,
+        figur,
+        Array.isArray(ausruestung) ? ausruestung : undefined,
+      ),
+    },
   );
 }
 
@@ -271,6 +291,7 @@ export function planFuerRecke(
 export type FigurFehler =
   | { art: 'kein-webgl' }
   | { art: 'buendel'; fehler: unknown }
+  /** `url`: das Körpermodell, wenn dessen Laden scheiterte; sonst leer. */
   | { art: 'laden'; fehler: unknown; url: string };
 
 export interface SteuerungAbhaengigkeiten {
@@ -287,6 +308,8 @@ export interface SteuerungRueckrufe {
   beiKopf?: (zustand: KopfZustand) => void;
   /** Das Bündel kennt den Kopf-Zoom (ein altes, gecachtes nicht). */
   beiKopfZoomBereit?: (bereit: boolean) => void;
+  /** Ein einzelnes Rüstungsteil ließ sich nicht anlegen; sein Platz wurde geleert. */
+  beiTeilFehler?: (slot: string, datei: string, fehler: unknown) => void;
 }
 
 function standardWarteBilder(anzahl = 3): Promise<void> {
@@ -310,6 +333,7 @@ export class FigurSteuerung {
   private ladeLauf = 0;
   private ruestungsLauf = 0;
   private zerstoert = false;
+  private aufbau: Promise<boolean> | null = null;
   private readonly wurzel: string;
 
   constructor(
@@ -323,7 +347,13 @@ export class FigurSteuerung {
    * Baut die Engine auf. Ohne WebGL oder ohne ladbares Bündel bleibt es bei
    * `false` und einem gemeldeten Fehler; es entsteht keine Engine.
    */
-  async starte(leinwand: HTMLCanvasElement): Promise<boolean> {
+  starte(leinwand: HTMLCanvasElement): Promise<boolean> {
+    // Zwei gleichzeitige Aufrufe teilen sich einen Aufbau: nie zwei Engines.
+    this.aufbau ??= this.baueAuf(leinwand);
+    return this.aufbau;
+  }
+
+  private async baueAuf(leinwand: HTMLCanvasElement): Promise<boolean> {
     if (this.zerstoert) return false;
     if (this.vorschau) return true;
     if (!this.abh.hatWebGL()) {
@@ -386,6 +416,37 @@ export class FigurSteuerung {
     return istAktuell();
   }
 
+  /**
+   * Wie `zeigeRuestung`, aber ein Teil, das sich nicht anlegen lässt (etwa weil
+   * es nicht zum Körper passt), leert nur seinen Platz und wird gemeldet; die
+   * übrigen Teile und die Figur bleiben. Für das Profil, wo niemand zurückschalten kann.
+   */
+  async zeigeRuestungNachsichtig(plan: () => LadePlan, lauf?: number): Promise<boolean> {
+    const vorschau = this.vorschau;
+    if (!vorschau) return false;
+    const aufruf = ++this.ruestungsLauf;
+    const istAktuell = () =>
+      (lauf === undefined || lauf === this.ladeLauf) && aufruf === this.ruestungsLauf;
+    const plaetze = plan().ruestung;
+    await Promise.all(
+      Array.from({ length: RUESTUNGS_PLAETZE }, async (_, index) => {
+        const slot = `klassenruestung-${index}`;
+        const datei = plaetze[index] ?? null;
+        try {
+          await vorschau.setze(slot, datei);
+        } catch (fehler) {
+          if (istAktuell() && datei) this.rueckruf.beiTeilFehler?.(slot, datei, fehler);
+          try {
+            await vorschau.setze(slot, null);
+          } catch {
+            /* der Platz bleibt, wie er ist */
+          }
+        }
+      }),
+    );
+    return istAktuell();
+  }
+
   async setzeWaffe(art: Waffenart | null): Promise<void> {
     await this.vorschau?.setzeWaffe(art);
   }
@@ -398,15 +459,20 @@ export class FigurSteuerung {
     const istAktuell = () => lauf === this.ladeLauf;
     this.rueckruf.beiFertig?.(false);
     this.rueckruf.beiFehler?.(null);
+    // Nur beim Körper ist seine Adresse die richtige Auskunft über den Fehler.
+    let koerperUrl = '';
     try {
       await vorschau.setzeWurzel(this.wurzel);
       if (!istAktuell()) return false;
-      const geladen = await vorschau.ladeKoerper(plan().koerper);
+      const koerper = plan().koerper;
+      koerperUrl = `${this.wurzel}${koerper}.glb`;
+      const geladen = await vorschau.ladeKoerper(koerper);
+      koerperUrl = '';
       if (!geladen || !istAktuell()) return false;
       await vorschau.setzeWaffe(plan().waffe);
       if (!istAktuell()) return false;
       if (!(await this.zeigeAussehen(plan, lauf))) return false;
-      if (!(await this.zeigeRuestung(plan, lauf))) return false;
+      if (!(await this.zeigeRuestungNachsichtig(plan, lauf))) return false;
       // Während Frisur und Kleidung nachladen, kann bereits eine andere Klasse
       // gewählt worden sein. Solange abgleichen, bis genau diese Wahl samt
       // Haltung fertig ist; danach drei echte Renderframes warten.
@@ -423,11 +489,7 @@ export class FigurSteuerung {
     } catch (fehler) {
       if (!istAktuell() || this.zerstoert) return false;
       this.rueckruf.beiFertig?.(false);
-      this.rueckruf.beiFehler?.({
-        art: 'laden',
-        fehler,
-        url: `${this.wurzel}${plan().koerper}.glb`,
-      });
+      this.rueckruf.beiFehler?.({ art: 'laden', fehler, url: koerperUrl });
       return false;
     }
   }

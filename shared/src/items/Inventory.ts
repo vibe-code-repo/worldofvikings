@@ -96,6 +96,18 @@ export class Inventory {
     return this.verwahrt;
   }
 
+  /**
+   * An independent copy with everything that decides what fits: the stacks (same cells, same values, nothing repaired or
+   * moved) and the kept raw stacks, which own their cells. For asking "would this fit?" without touching the real one;
+   * a copy through `serialize`/`load` would lose the kept stacks (when keeping is off) and could change cells.
+   */
+  kopie(): Inventory {
+    const k = new Inventory(this.width, this.height);
+    k.items = this.items.map((it) => ({ ...it }));
+    k.verwahrt = this.verwahrt.map((v) => ({ ...v }));
+    return k;
+  }
+
   /** Keeps a stack raw (a chest list that has no cell left for it, or an unusable one). */
   verwahreStapel(s: SavedItemStack): void {
     this.verwahrt.push({ ...s });

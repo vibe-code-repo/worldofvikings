@@ -14,7 +14,7 @@
  *  [11] The owner key is not sent to any client (wire probe on the stranger).
  *  [13] Harvest, refund of a torn-down piece, craft and cooking at a full inventory: what cannot be handed over lies on the
  *       ground (harvest, refund) or the action is refused and nothing is taken (craft, cooking).
- *  [14] The room question `passtNachEntnahme` equals the real remove + addItem on 3,000 random inventories.
+ *  [14] The room question `passtNachEntnahme` equals the real remove + addItem on 3,000 random inventories, about half of them with kept raw stacks.
  *  [15] Every creature and item of the loot tables has a name key in both catalogues.
  *  [12] Damage rules: overkill does not count, the tie goes to the first to hit, the killing blow counts, the tally goes at death /
  *       despawn / after 10 min.
@@ -639,14 +639,18 @@ async function main(): Promise<void> {
       const ganz = (n: number): number => Math.floor(zufall() * n);
       const NAMEN = ['Stone', 'Wood', 'RawMeat', 'CookedMeat', 'AxeFlint', 'Club', 'TrophyEikthyr', 'Flint'];
       // the same inventory twice from one recipe: one for the function (which copies), one for the real sequence
-      const baue = (rezept: Array<[string, number, number]>): Inventory => {
+      // `roh`: kept raw stacks (a data item nobody knows at the moment, an unusable known one) on cells of their own, put in
+      // BEFORE the stacks like a login does; they take cells from the grid, which the real addItem respects
+      const baue = (rezept: Array<[string, number, number]>, roh: Array<[string, number, number, number]> = []): Inventory => {
         const inv = new Inventory();
+        for (const [n, menge, x, y] of roh) inv.verwahreStapel({ name: n, stack: menge, durability: 0, quality: 1, gridX: x, gridY: y, equipped: false });
         for (const [n, menge, qualitaet] of rezept) inv.addItem(findItem(n)!, menge, qualitaet);
         return inv;
       };
       let passt = 0;
       let passtNicht = 0;
       let abweichungen = 0;
+      let mitRoh = 0;
       let erstes = '';
       for (let i = 0; i < 3000; i++) {
         const rezept: Array<[string, number, number]> = [];
@@ -655,18 +659,22 @@ async function main(): Promise<void> {
         const entfernen = Array.from({ length: ganz(4) }, () => ({ item: NAMEN[ganz(NAMEN.length)]!, menge: 1 + ganz(30) }));
         const ergebnis = NAMEN[ganz(NAMEN.length)]!;
         const menge = 1 + ganz(6);
-        const antwort = passtNachEntnahme(baue(rezept), entfernen, ergebnis, menge);
-        const echt = baue(rezept);
+        const roh: Array<[string, number, number, number]> = [];
+        if (zufall() < 0.5) for (let k = 0, n = 1 + ganz(Math.round(30 * dichte) + 1); k < n; k++) roh.push([zufall() < 0.7 ? 'DatenAxtUnbekannt' : 'Wood', zufall() < 0.7 ? 1 + ganz(9) : 0, ganz(8), ganz(4)]);
+        if (roh.length > 0) mitRoh++;
+        const antwort = passtNachEntnahme(baue(rezept, roh), entfernen, ergebnis, menge);
+        const echt = baue(rezept, roh);
         for (const z of entfernen) echt.removeByName(z.item, z.menge);
         const wirklich = echt.addItem(findItem(ergebnis)!, menge) === 0;
         if (antwort !== wirklich) {
           abweichungen++;
-          if (!erstes) erstes = JSON.stringify({ rezept, entfernen, ergebnis, menge, antwort, wirklich });
+          if (!erstes) erstes = JSON.stringify({ rezept, roh, entfernen, ergebnis, menge, antwort, wirklich });
         }
         if (wirklich) passt++;
         else passtNicht++;
       }
       check(`3000 inventories: the answer equals the real addItem in every case`, abweichungen === 0, `${abweichungen} deviation(s) ${erstes}`);
+      check('about half of the inventories held kept raw stacks (the generator covers them)', mitRoh > 1200 && mitRoh < 1800, `${mitRoh} of 3000`);
       check('both outcomes occurred (the comparison is not one-sided)', passt > 300 && passtNicht > 300, `fits ${passt}, does not fit ${passtNicht}`);
     }
 

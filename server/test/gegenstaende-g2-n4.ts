@@ -346,6 +346,22 @@ function main(): void {
       const { warnungen } = ohneWarnung(() => unpackContainer('[["Wood",2.5,0,0]]'));
       check('chest: a repairable tuple is repaired and warned exactly once (unpack, not again in load)', warnungen.filter((w) => w.includes('repaired')).length === 1, `${warnungen.length}`);
     }
+
+    console.log('\n[H] Inventory.kopie carries the kept stacks and the cells (N8)');
+    {
+      const orig = new Inventory();
+      orig.verwahreStapel({ name: 'XUnbekannt', stack: 3, durability: 0, quality: 1, gridX: 7, gridY: 3, equipped: false });
+      orig.addItem(holz(), 70);
+      const k = orig.kopie();
+      check('the copy has the same stacks, cells and kept stacks', JSON.stringify(k.serialize()) === JSON.stringify(orig.serialize()) && k.verwahrte.length === 1 && eindeutig(zellen(k)));
+      k.addItem(holz(), 1000);
+      k.verwahreStapel({ name: 'Y', stack: 1, durability: 0, quality: 1, gridX: 0, gridY: 0, equipped: false });
+      check('the copy is independent (changing it leaves the original alone)', orig.countOf('Wood') === 70 && orig.verwahrte.length === 1);
+      const voll = new Inventory();
+      for (let x = 0; x < 8; x++) for (let y = 0; y < 4; y++) if (x !== 7 || y !== 3) voll.verwahreStapel({ name: 'X' + x + y, stack: 1, durability: 0, quality: 1, gridX: x, gridY: y, equipped: false });
+      const restKopie = voll.kopie().addItem(holz(), 100);
+      check('31 kept stacks leave one free cell: the copy answers like the original (rest 50 of 100)', restKopie === voll.addItem(holz(), 100) && restKopie === 50, `${restKopie}`);
+    }
   } finally {
     setzeUnbekannteVerwahren(false);
     wendeGegenstandsDatenAn([]);

@@ -61,15 +61,14 @@ export interface BeuteStueck {
 
 /**
  * Would `amount` of the item `name` fit into `inv` after `entfernen` was taken out of it? Asked on a copy, so that a craft or a
- * cooking can be refused BEFORE anything is taken. `true` for an unknown item (it gives nothing). The copy goes through
- * `serialize`/`load`: a fact of the inventory that these two do not carry is invisible here, and the test `d5-beute` [14]
- * compares this answer with the real `removeByName` + `addItem` on random inventories.
+ * cooking can be refused BEFORE anything is taken. `true` for an unknown item (it gives nothing). The copy is `Inventory.kopie()`:
+ * it carries the kept raw stacks and their cells too (a copy through `serialize`/`load` lost them), and the test
+ * `d5-beute` [14] compares this answer with the real `removeByName` + `addItem` on random inventories, kept stacks included.
  */
 export function passtNachEntnahme(inv: Inventory, entfernen: ReadonlyArray<{ item: string; menge: number }>, name: string, amount: number): boolean {
   const def = findItem(name);
   if (!def) return true;
-  const probe = new Inventory(inv.width, inv.height);
-  probe.load(inv.serialize());
+  const probe = inv.kopie();
   for (const z of entfernen) probe.removeByName(z.item, z.menge);
   return probe.addItem(def, amount) === 0;
 }

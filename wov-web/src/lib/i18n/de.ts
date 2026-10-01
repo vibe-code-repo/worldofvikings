@@ -270,6 +270,8 @@ export const de = {
     'In der Kammer steht noch niemand. Sobald jemand einen Recken anlegt, erscheint er hier.',
 
   'armory.search.submit': 'Suchen',
+  'armory.search.too_short':
+    'Bitte gib mindestens 2 Zeichen ein, um zu suchen. Hier steht die ganze Liste.',
   'armory.state.no_match': 'Kein Recke dieses Namens in der Kammer.',
   'armory.card.never': 'noch nie gespielt',
   'armory.pages.label': 'Seiten',

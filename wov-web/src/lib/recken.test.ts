@@ -296,6 +296,17 @@ describe('B2: leere und unvollständige Werte werden toleriert', () => {
   });
 });
 
+describe('Feld suche der Liste', () => {
+  const liste = { eintraege: [], seite: 1, seitenGroesse: 24, gesamt: 0, seiten: 1 };
+  it('bleibt erhalten, auch leer; fehlt es, bleibt es weg; Unsinn zählt als fehlend', () => {
+    expect(normalisiereListe({ ...liste, suche: 'sig' })?.suche).toBe('sig');
+    expect(normalisiereListe({ ...liste, suche: '' })?.suche).toBe('');
+    expect(normalisiereListe(liste)).not.toHaveProperty('suche');
+    expect(normalisiereListe({ ...liste, suche: 5 })).not.toHaveProperty('suche');
+    expect(normalisiereListe({ ...liste, suche: 'x'.repeat(500) })?.suche).toHaveLength(64);
+  });
+});
+
 describe('B7/B8: Grenzen und ganze Zahlen', () => {
   it('F2: gleicher Zeitpunkt behält die Reihenfolge des Servers (nicht id, nicht Name)', () => {
     const e = (id: number, name: string) => ({ ...BASIS, id, name, zuletztGespielt: 500 });

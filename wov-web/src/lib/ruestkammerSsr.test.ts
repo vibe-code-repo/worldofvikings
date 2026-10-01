@@ -218,6 +218,32 @@ beschreibe('Rüstkammer ohne JavaScript (gebauter Stand)', () => {
     }
   });
 
+  it('zu kurze Suche (unter 2 Zeichen): ruhiger Hinweis über der ganzen Liste, nicht „kein Recke“', async () => {
+    // Die Attrappe bildet R1 nach: unter 2 Zeichen ungefilterte Liste mit `suche: ''`.
+    modus = (u) => {
+      const q = (u.searchParams.get('q') ?? '').toLowerCase();
+      const gefiltert = q.length >= 2;
+      const alle = [eintrag(1, 'Ragnar'), eintrag(2, 'Sigrid')].filter(
+        (e) => !gefiltert || e.name.toLowerCase().includes(q),
+      );
+      return listeAntwort(alle, { suche: gefiltert ? q : '' });
+    };
+    const kurz = await frage('/de/ruestkammer?q=a');
+    expect(kurz.status).toBe(200);
+    expect(kurz.text).toContain('mindestens 2 Zeichen');
+    expect(kurz.text).not.toContain('Kein Recke dieses Namens');
+    expect(kurz.text).toContain('Ragnar');
+    expect(kurz.text).toContain('Sigrid');
+    expect(kurz.main).toMatch(/minlength="2"/);
+    expect((await frage('/en/armory?q=a')).text).toContain('at least 2 characters');
+    // Gültige Suche und keine Suche: kein Hinweis.
+    const ok = await frage('/de/ruestkammer?q=sig');
+    expect(ok.text).not.toContain('mindestens 2 Zeichen');
+    expect(ok.text).toContain('Sigrid');
+    expect(ok.text).not.toContain('Ragnar');
+    expect((await frage('/de/ruestkammer')).text).not.toContain('mindestens 2 Zeichen');
+  });
+
   it('Suche und Seite kommen unverändert beim Spielserver an; Müll wird zu Seite 1', async () => {
     modus = () => listeAntwort([eintrag(1, 'Sigrid')], { seite: 2, seiten: 3, gesamt: 60 });
     gesehen.length = 0;

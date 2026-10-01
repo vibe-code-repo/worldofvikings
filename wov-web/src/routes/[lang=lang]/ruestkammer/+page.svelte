@@ -77,6 +77,7 @@
         class="feld"
         type="search"
         name="q"
+        minlength="2"
         maxlength="32"
         value={data.q}
         placeholder={t['armory.search.placeholder']}
@@ -93,6 +94,9 @@
         {suchLeer ? t['armory.state.empty'] : t['armory.state.no_match']}
       </p>
     {:else}
+      {#if data.q !== '' && liste.suche === ''}
+        <p class="hinweis note">{t['armory.search.too_short']}</p>
+      {/if}
       <p class="zaehler">{zaehlerText(liste.gesamt, t, lang)}</p>
       <div class="results">
         {#each liste.eintraege as r (r.id)}

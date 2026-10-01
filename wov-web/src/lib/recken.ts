@@ -110,6 +110,12 @@ export interface ReckenListe {
   seitenGroesse: number;
   gesamt: number;
   seiten: number;
+  /**
+   * Der Suchtext, nach dem der Server wirklich gesucht hat (gefaltet). `''` heißt: `q` war
+   * zu kurz (unter 2 Zeichen) und die Liste ist die ungefilterte; fehlt das Feld (älterer
+   * Server), ist es `undefined`.
+   */
+  suche?: string;
 }
 
 /* ------------------------------------------------------ Normalisierer */
@@ -288,7 +294,9 @@ export function normalisiereListe(v: unknown): ReckenListe | null {
   const gesamt = ganz(v.gesamt, 0, MAX_ZAEHLER);
   const groesse = ganz(v.seitenGroesse, 1, MAX_ZAEHLER);
   if (seite === null || seiten === null || gesamt === null || groesse === null) return null;
-  return { eintraege, seite, seiten, gesamt, seitenGroesse: groesse };
+  const liste: ReckenListe = { eintraege, seite, seiten, gesamt, seitenGroesse: groesse };
+  if (typeof v.suche === 'string') liste.suche = v.suche.slice(0, 64);
+  return liste;
 }
 
 /* ------------------------------------------------------ Ruhmeshalle */

@@ -242,6 +242,8 @@ export const en: Messages = {
     'Nobody is in the armory yet. As soon as someone creates a hero, they will show up here.',
 
   'armory.search.submit': 'Search',
+  'armory.search.too_short':
+    'Please enter at least 2 characters to search. The full list is shown below.',
   'armory.state.no_match': 'No hero by that name in the armory.',
   'armory.card.never': 'never played',
   'armory.pages.label': 'Pages',

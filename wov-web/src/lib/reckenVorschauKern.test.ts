@@ -211,7 +211,12 @@ class Attrappe implements VorschauApi {
 }
 
 function aufbau(
-  opt: { webgl?: boolean; buendelFehler?: boolean; buendelWarte?: Promise<void> } = {},
+  opt: {
+    webgl?: boolean;
+    buendelFehler?: boolean;
+    buendelWarte?: Promise<void>;
+    beiBilder?: () => void;
+  } = {},
 ) {
   const engines: Attrappe[] = [];
   const meldungen: string[] = [];
@@ -234,6 +239,7 @@ function aufbau(
       },
       warteBilder: async () => {
         meldungen.push('bilder');
+        opt.beiBilder?.();
       },
     },
     { beiFertig: (f) => meldungen.push(`fertig ${f}`), beiFehler: (f) => fehler.push(f) },
@@ -331,16 +337,18 @@ describe('FigurSteuerung', () => {
   });
 
   it('Klassenwechsel mitten im Laden: Waffe wird nachgezogen, bis sie zur Klasse passt', async () => {
-    const { steuerung, engines } = aufbau();
-    await steuerung.starte(LEINWAND);
     let klasse = 'krieger';
+    let bilder = 0;
+    const { steuerung, engines } = aufbau({
+      // Die Wahl ändert sich, während die Figur auf gezeichnete Bilder wartet.
+      beiBilder: () => {
+        if (++bilder === 1) klasse = 'druide';
+      },
+    });
+    await steuerung.starte(LEINWAND);
     const plan = (): LadePlan => baueLadePlan(DATEN, { ...MANN, klasse });
-    const orig = engines[0].setze.bind(engines[0]);
-    engines[0].setze = async (slot, datei) => {
-      if (slot === 'bart') klasse = 'druide';
-      return orig(slot, datei);
-    };
     expect(await steuerung.ladeAlles(plan)).toBe(true);
+    expect(bilder).toBe(2);
     const waffen = engines[0].aufrufe.filter((a) => a.startsWith('waffe'));
     expect(waffen.at(-1)).toBe('waffe stab');
   });

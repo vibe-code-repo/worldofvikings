@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
 import { leseGegenstandsDatei, schreibeGegenstandsDatei, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import type { Anzeigetext } from '../src/editor/gegenstaende/anzeige';
-import { eigeneBehaltenAbgleich, entferneGegenstand, entscheideNachSpeichern, kanonisch, kopiereFeld, ladeGefangen, ladefehlerBanner, pruefeKonflikt, schnappschuss, speichereGefangen, speicherSperre, unterschiede } from '../src/editor/gegenstaende/ablauf';
+import { eigeneBehaltenAbgleich, entferneGegenstand, entscheideNachSpeichern, hatVorwarnung, juengsteAntwort, kanonisch, kopiereFeld, ladeGefangen, ladefehlerBanner, pruefeKonflikt, schnappschuss, speichereGefangen, speichereSchnappschuss, speicherSperre, unterschiede, vorwarnungVon } from '../src/editor/gegenstaende/ablauf';
 import { ZEITGRENZE_MS, ladeQuittung, ladeStand, speichernMitBestaetigung, speichere } from '../src/editor/gegenstaende/api';
 import { eintragZuFormular, formularZuEintrag, mitEintrag, type Formular } from '../src/editor/gegenstaende/modell';
 
@@ -355,10 +355,10 @@ console.log('\n[5] Verdrahtung in seite.ts (Syntaxbaum):');
   check('die Methoden sind da (Scanner ist nicht leer)', ['laden', 'senden', 'speichern', 'entfernen', 'aktualisiere', 'sicher'].every((m) => methoden.has(m)), [...methoden.keys()].join());
   check('senden(): die Sperre kommt aus speicherSperre (laedt, speichert, konflikt), bei gesperrt wird NICHT gesendet und eine uebersetzte Meldung gezeigt', /speicherSperre\(/.test(rumpf('senden')) && /this\.laedt/.test(rumpf('senden')) && /this\.speichert/.test(rumpf('senden')) && /this\.konflikt\s*!==\s*null/.test(rumpf('senden')) && /gesperrt_laedt/.test(rumpf('senden')) && /gesperrt_speichert/.test(rumpf('senden')) && /gesperrt_konflikt/.test(rumpf('senden')) && rumpf('senden').indexOf('gesperrt_konflikt') < rumpf('senden').indexOf('await lauf()'));
   check('senden(): sendet nur ueber den Schnappschuss-Ablauf (lauf), nie selbst mit this.stand.hash', /await lauf\(\)/.test(rumpf('senden')) && hashFrei('senden') && !/speichernMitBestaetigung\(|speichereGefangen\(/.test(rumpf('senden')));
-  check('laden(): prueft den Entwurf gegen den neuen Stand (pruefeKonflikt) und benutzt den gefangenen Aufruf', /pruefeKonflikt\(/.test(rumpf('laden')) && /ladeGefangen\(/.test(rumpf('laden')));
+  check('laden(): prueft den Entwurf gegen den neuen Stand (ueber pruefeNeuenStand, das pruefeKonflikt ruft) und benutzt den gefangenen Aufruf', /pruefeNeuenStand\(/.test(rumpf('laden')) && /pruefeKonflikt\(/.test(rumpf('pruefeNeuenStand')) && /ladeGefangen\(/.test(rumpf('laden')));
   check('N3: laden() baut bei einem Ladefehler das Banner mit ladefehlerBanner (der offene Konflikt bleibt entscheidbar) und gibt Wahlknoepfe aus', /ladefehlerBanner\(/.test(rumpf('laden')) && /wahlKnoepfe\(/.test(rumpf('laden')) && /konflikt:\s*this\.konflikt/.test(rumpf('laden')));
   check('N3: Netzergebnis mit Zeitgrenze zeigt den Text "zeit" (laden und senden)', /zugangText\(erg\.zeit === true \? 'zeit' : 'netz'\)/.test(rumpf('laden')) && /zugangText\(erg\.zeit === true \? 'zeit' : 'netz'\)/.test(rumpf('senden')));
-  check('N3: laden() uebernimmt eine Zusammenfuehrung ohne Wahl (art "zusammen") und nennt die Felder', /k\.art === 'zusammen'/.test(rumpf('laden')) && /zusammengefuehrtText\(/.test(rumpf('laden')) && /eigeneBehaltenAbgleich\(/.test(rumpf('eigeneBehalten')));
+  check('N3: laden() uebernimmt eine Zusammenfuehrung ohne Wahl (art "zusammen") und nennt die Felder', /k\.art === 'zusammen'/.test(rumpf('pruefeNeuenStand')) && /zusammengefuehrtText\(/.test(rumpf('pruefeNeuenStand')) && /eigeneBehaltenAbgleich\(/.test(rumpf('eigeneBehalten')));
   check('aktualisiere(): Sperre kommt aus speicherSperre, Beschriftung "laedt" wird gesetzt', /speicherSperre\(/.test(rumpf('aktualisiere')) && /speichern_laedt/.test(rumpf('aktualisiere')));
   check('laden(): sperrt den Knopf sofort (aktualisiere() vor dem ersten await)', rumpf('laden').indexOf('this.aktualisiere()') !== -1 && rumpf('laden').indexOf('this.aktualisiere()') < rumpf('laden').indexOf('await'));
   const ent = rumpf('entfernen');
@@ -660,7 +660,7 @@ console.log('\n[10] N4: "Eigene behalten" gegen das lebende Formular, Nachladen 
       }
     });
     check('seite.ts: nachSpeichern() ersetzt das Formular (setzeForm) nur im Zweig "ersetzen" von entscheideNachSpeichern', ns !== undefined && /entscheideNachSpeichern\(/.test(ns.getText(sf)) && setzeForms.length >= 1 && setzeForms.every((x) => /ersetzen/.test(x.bedingung)), JSON.stringify(setzeForms));
-    check('seite.ts: speichern() und entfernen() merken die kanonische Form VOR dem Senden und geben sie an nachSpeichern', sp !== undefined && en !== undefined && /kanonisch\(this\.form\)/.test(sp.getText(sf)) && /kanonisch\(this\.form\)/.test(en.getText(sf)) && sp.getText(sf).indexOf('kanonisch(') < sp.getText(sf).indexOf('this.senden(') && en.getText(sf).indexOf('kanonisch(') < en.getText(sf).indexOf('this.senden(') && /nachSpeichern\([^)]*vorher\)/.test(sp.getText(sf)) && /nachSpeichern\([^)]*vorher\)/.test(en.getText(sf)));
+    check('seite.ts: speichern() und entfernen() merken die kanonische Form VOR dem Senden und geben sie an nachSpeichern', sp !== undefined && en !== undefined && /kanonisch\(this\.form\)/.test(sp.getText(sf)) && /kanonisch\(this\.form\)/.test(en.getText(sf)) && sp.getText(sf).indexOf('kanonisch(') < sp.getText(sf).indexOf('this.senden(') && en.getText(sf).indexOf('kanonisch(') < en.getText(sf).indexOf('this.senden(') && /nachSpeichern\([^)]*vorher[^)]*\)/.test(sp.getText(sf)) && /nachSpeichern\([^)]*vorher[^)]*\)/.test(en.getText(sf)));
     check('seite.ts: das Banner nach "behalten" sagt, dass ungespeicherte Aenderungen offen sind', ns !== undefined && /nach_speichern_offen/.test(ns.getText(sf)));
   }
 
@@ -730,7 +730,7 @@ console.log('\n[10] N4: "Eigene behalten" gegen das lebende Formular, Nachladen 
     const mitNeuerBasis = pruefeKonflikt({ basis: w.weiter.basis, form: weiterGetippt, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [spaeter] });
     const mitAlterBasis = pruefeKonflikt({ basis, form: weiterGetippt, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [spaeter] });
     check('mit dem gespeicherten Stand als Basis: der Server hat das Gewicht geaendert, der Autor nicht seit dem Speichern: das Gewicht des Servers (3) kommt in den Entwurf', mitNeuerBasis.art === 'zusammen' && mitNeuerBasis.form.gewicht === '3' && mitNeuerBasis.form.stapel === '6', JSON.stringify(mitNeuerBasis));
-    check('... mit dem alten Stand als Basis waere es anders (das Gewicht 4 bliebe, der Server-Wert ginge still verloren): der Test unterscheidet die beiden', mitAlterBasis.art === 'keiner' || (mitAlterBasis.art === 'zusammen' && mitAlterBasis.form.gewicht === '4'), JSON.stringify(mitAlterBasis.art));
+    check('... mit dem alten Stand als Basis ginge das Gewicht des Servers still verloren: die Pruefung sieht dann keinen Unterschied (keiner), der Entwurf behielte 4 und das naechste Speichern ueberschriebe die 3 des Servers; mit der neuen Basis sagt sie zusammen und der Entwurf bekommt die 3', mitAlterBasis.art === 'keiner' && weiterGetippt.gewicht === '4' && mitNeuerBasis.art === 'zusammen' && mitNeuerBasis.form.gewicht === '3', JSON.stringify([mitAlterBasis.art, weiterGetippt.gewicht, mitNeuerBasis.art]));
     const ns = methoden.get('nachSpeichern');
     let setztBasis = 0;
     if (ns) besuche(ns, (n) => {
@@ -756,6 +756,99 @@ console.log('\n[10] N4: "Eigene behalten" gegen das lebende Formular, Nachladen 
     check('mit einem geaenderten Formular bleibt offen true', mit.art === 'behalten' && mit.offen === true);
     const ns = methoden.get('nachSpeichern');
     check('seite.ts: das Banner "ungespeicherte Aenderungen" haengt an w.offen', ns !== undefined && /w\.offen\s*\?\s*\[tA\('editor\.gegenstand\.seite\.nach_speichern_offen'\)\]/.test(ns.getText(sf)));
+  }
+
+  // ── [11] EG2 N8 ─────────────────────────────────────────────────────
+  console.log('\n[11] EG2 N8: Vorwarnung vor dem Speichern, der juengste Ladevorgang, die Verdrahtung in seite.ts:');
+  {
+    const dreckig = JSON.stringify({
+      version: 1,
+      kommentar: 'von Hand',
+      gegenstaende: [
+        { id: 'Axt', nameSchluessel: 'inhalt.gegenstand.Axt.name', typ: 'material', stapel: 2.5, gewicht: 5000, texte: { 'inhalt.gegenstand.Axt.name': { de: 'Axt', en: 'Axt' } } },
+        { id: 'Kaputt', nameSchluessel: 'inhalt.gegenstand.Kaputt.name', typ: 'unsinn', texte: {} },
+      ],
+    });
+    const HASH = 'd'.repeat(64);
+    const anfragen: string[] = [];
+    const fetcher = async (_u: unknown, init?: RequestInit): Promise<Response> => {
+      anfragen.push(init?.method ?? 'GET');
+      if (init?.method === 'PUT') return new Response(JSON.stringify({ ok: true, hash: 'e'.repeat(64), eintraege: 1 }), { status: 200 });
+      return new Response(JSON.stringify({ text: dreckig, hash: HASH, quelle: 'arbeit' }), { status: 200 });
+    };
+    const geladen = await ladeStand({ fetcher });
+    if (geladen.art !== 'ok') throw new Error('load failed');
+    const stand = geladen.stand;
+    check('ladeStand: die handgeschriebene Datei meldet ihre Vereinheitlichung (Axt, Dateiebene) und den verworfenen Eintrag', gleich(stand.vereinheitlicht, { ids: ['Axt'], dateiebene: true }) && stand.verworfen.length === 1, JSON.stringify(stand.vereinheitlicht));
+    const eintragAxt = stand.eintraege[0];
+    const s = schnappschuss(stand);
+    const liste = mitEintrag(s.eintraege, 'Axt', eintragAxt);
+
+    anfragen.length = 0;
+    let gefragt = 0;
+    const nein = await speichereSchnappschuss({ fetcher }, s, liste, async () => true, { warnung: vorwarnungVon(stand, 'Axt'), frage: async () => (gefragt++, false) });
+    check('Vorwarnung, Antwort "nein": es geht KEIN PUT raus (kein einziger Aufruf), Ergebnis dialog-nein', nein.art === 'dialog-nein' && gefragt === 1 && anfragen.length === 0, `${nein.art} ${gefragt} ${anfragen.join()}`);
+    const wirft = await speichereSchnappschuss({ fetcher }, s, liste, async () => true, { warnung: vorwarnungVon(stand, 'Axt'), frage: async () => { throw new Error('Dialog kaputt'); } });
+    check('Vorwarnung, der Dialog wirft: Ergebnis ausnahme, KEIN PUT', wirft.art === 'ausnahme' && anfragen.length === 0, `${wirft.art} ${anfragen.join()}`);
+    const ja = await speichereSchnappschuss({ fetcher }, s, liste, async () => true, { warnung: vorwarnungVon(stand, 'Axt'), frage: async () => true });
+    check('Vorwarnung, Antwort "ja": genau ein PUT', ja.art === 'ok' && anfragen.filter((m) => m === 'PUT').length === 1, `${ja.art} ${anfragen.join()}`);
+    anfragen.length = 0;
+    gefragt = 0;
+    const sauberStand = { ...stand, vereinheitlicht: { ids: [], dateiebene: false }, verworfen: [] };
+    const ohneWarnung = await speichereSchnappschuss({ fetcher }, schnappschuss(sauberStand), liste, async () => true, { warnung: vorwarnungVon(sauberStand, 'Axt'), frage: async () => (gefragt++, false) });
+    check('saubere Datei: keine Frage, der PUT geht raus', ohneWarnung.art === 'ok' && gefragt === 0 && anfragen.filter((m) => m === 'PUT').length === 1);
+
+    // Removal: it writes the whole file too, so the same question comes first (after the dependents dialog)
+    anfragen.length = 0;
+    const entf = await entferneGegenstand({ fetcher }, () => stand, 'Axt', async () => true, async () => true, { warnung: vorwarnungVon(stand, null), frage: async () => false });
+    check('Entfernen aus einer unsauberen Datei: ohne "ja" der Vorwarnung kein PUT', entf.art === 'dialog-nein' && anfragen.length === 0, `${entf.art} ${anfragen.join()}`);
+
+    // The id of a discarded entry
+    const w = vorwarnungVon(stand, 'Kaputt');
+    check('vorwarnungVon: ein Eintrag mit der Id eines verworfenen Eintrags (Kaputt) meldet das Ueberschreiben', gleich(w.ueberschreibt.map((v) => v.id), ['Kaputt']) && vorwarnungVon(stand, 'Axt').ueberschreibt.length === 0 && vorwarnungVon(stand, null).ueberschreibt.length === 0);
+    const nurId = { vereinheitlicht: { ids: [], dateiebene: false }, ueberschreibt: w.ueberschreibt };
+    anfragen.length = 0;
+    let fragen2 = 0;
+    const idNein = await speichereSchnappschuss({ fetcher }, s, liste, async () => true, { warnung: nurId, frage: async () => (fragen2++, false) });
+    check('nur die Id-Kollision, ohne Vereinheitlichung: es wird trotzdem gefragt, ohne "ja" kein PUT', idNein.art === 'dialog-nein' && fragen2 === 1 && anfragen.length === 0);
+    check('hatVorwarnung: leer = nichts zu fragen; Id-Kollision allein, Vereinheitlichung allein, nur Dateiebene = fragen', !hatVorwarnung({ vereinheitlicht: { ids: [], dateiebene: false }, ueberschreibt: [] }) && hatVorwarnung(nurId) && hatVorwarnung({ vereinheitlicht: { ids: ['A'], dateiebene: false }, ueberschreibt: [] }) && hatVorwarnung({ vereinheitlicht: { ids: [], dateiebene: true }, ueberschreibt: [] }));
+
+    // The newest load wins
+    const nachLauf = juengsteAntwort();
+    let erstes: (e: { art: 'ausnahme' }) => void = () => undefined;
+    const langsam = nachLauf(() => new Promise((a) => (erstes = a)));
+    const schnell = await nachLauf(async () => ({ art: 'ausnahme' as const }));
+    erstes({ art: 'ausnahme' });
+    check('zwei Ladevorgaenge ueberholen sich nicht: der aeltere, spaeter eintreffende gilt nicht (null), der juengste gilt', (await langsam) === null && schnell !== null);
+    check('nacheinander laufende Ladevorgaenge gelten beide', (await nachLauf(async () => ({ art: 'ausnahme' as const }))) !== null && (await nachLauf(async () => ({ art: 'ausnahme' as const }))) !== null);
+
+    // wiring in seite.ts
+    const rumpf = (name: string): string => methoden.get(name)?.getText(sf) ?? '';
+    const nsText = rumpf('nachSpeichern');
+    check('seite.ts: nachSpeichern() prueft den neuen Stand wie laden() (pruefeNeuenStand), setzt this.stand nicht an der Pruefung vorbei', /pruefeNeuenStand\(/.test(nsText) && /pruefeNeuenStand\(/.test(rumpf('laden')) && /pruefeKonflikt\(/.test(rumpf('pruefeNeuenStand')));
+    check('seite.ts: nachSpeichern() und laden() laden ueber den Zaehler (juengste), nie ladeGefangen allein', /this\.juengste\(\(\) => ladeGefangen\(/.test(nsText) && /this\.juengste\(\(\) => ladeGefangen\(/.test(rumpf('laden')) && !/await ladeGefangen\(/.test(nsText) && !/await ladeGefangen\(/.test(rumpf('laden')));
+    {
+      // I1.1: another author changes the entry between our PUT and the reload, while the draft keeps being typed
+      const gesendet = formularZuEintrag({ ...eintragZuFormular(AXT), gewicht: '4' });
+      const fremd = formularZuEintrag({ ...eintragZuFormular(gesendet), stapel: '9' }); // what the reload brings back
+      const f = { ...eintragZuFormular(gesendet), nameDe: 'weitergetippt' };
+      const vorStand = kanonisch({ ...f, nameDe: 'Axt' });
+      const mitGesendet = entscheideNachSpeichern({ formVorher: vorStand, idVorher: 'Axt', ausgewaehltVorher: 'Axt', formJetzt: f, ausgewaehltJetzt: 'Axt', gespeicherteId: 'Axt', server: gesendet });
+      const mitFremd = entscheideNachSpeichern({ formVorher: vorStand, idVorher: 'Axt', ausgewaehltVorher: 'Axt', formJetzt: f, ausgewaehltJetzt: 'Axt', gespeicherteId: 'Axt', server: fremd });
+      if (mitGesendet.art !== 'behalten' || mitGesendet.weiter === null || mitFremd.art !== 'behalten' || mitFremd.weiter === null) throw new Error('unexpected');
+      const k1 = pruefeKonflikt({ basis: mitGesendet.weiter.basis, form: f, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [fremd] });
+      const k2 = pruefeKonflikt({ basis: mitFremd.weiter.basis, form: f, ausgewaehlt: 'Axt', entwurfGeaendert: true, neuerStand: [fremd] });
+      check('Fremdaenderung zwischen PUT und Neuladen: mit dem GESENDETEN Eintrag als Basis nimmt der Entwurf den fremden Stapel (9) auf (zusammen)', k1.art === 'zusammen' && k1.form.stapel === '9' && k1.form.nameDe === 'weitergetippt', JSON.stringify(k1.art));
+      check('... mit dem neu geladenen Eintrag als Basis (der alte Weg) saehe die Pruefung nichts (keiner): die fremde Aenderung wuerde beim naechsten Speichern still ueberschrieben', k2.art === 'keiner');
+      check('seite.ts: nachSpeichern() gibt dem Entscheider den gesendeten Eintrag als Stand der Basis (server: e ? (geschrieben ?? e) : null)', /server:\s*e \? \(geschrieben \?\? e\) : null/.test(nsText));
+    }
+    check('seite.ts: nachSpeichern() haelt die Ladesperre (laedt) und gibt sie im finally frei', /this\.laedt = true/.test(nsText) && /finally\s*\{[^}]*this\.laedt = false/.test(nsText));
+    check('seite.ts: scheitert der Abruf in nachSpeichern(), steht eine uebersetzte Meldung im Banner (kein stilles return)', /nach_speichern_ladefehler/.test(nsText) && !/if \(erg\.art !== 'ok'\) return;/.test(nsText));
+    check('seite.ts: nachSpeichern() bekommt den gesendeten Eintrag (Basis fuer den Vergleich) von speichern() und null von entfernen()', /nachSpeichern\(eintrag\.id, vorher, eintrag\)/.test(rumpf('speichern')) && /nachSpeichern\(null, vorher, null\)/.test(rumpf('entfernen')));
+    check('seite.ts: speichern() baut den Eintrag mit dem gespeicherten Eintrag als Basis (unbekannte Felder bleiben)', /formularZuEintrag\(this\.form, this\.basis\)/.test(rumpf('speichern')));
+    check('seite.ts: speichern() und entfernen() geben die Vorwarnung (vorab) an den Ablauf', /this\.vorab\(this\.stand, eintrag\.id\)/.test(rumpf('speichern')) && /,\s*vorab\)/.test(rumpf('speichern')) && /this\.vorab\(this\.stand, null\)/.test(rumpf('entfernen')) && /,\s*vorab\)/.test(rumpf('entfernen')));
+    check('seite.ts: das Laden zeigt die Vereinheitlichung als Banner (vereinheitlichtZeilen)', /vereinheitlichtZeilen\(erg\.stand\.vereinheitlicht\)/.test(rumpf('laden')));
+    check('seite.ts: die Ergebniszeile bei netz/zeit kommt aus nichtGespeichertText, kein festes "nicht gespeichert" in senden()', (rumpf('senden').match(/nichtGespeichertText\(erg\.art\)/g) ?? []).length >= 6 && !/seite\.nicht_gespeichert/.test(rumpf('senden')));
   }
 }
 

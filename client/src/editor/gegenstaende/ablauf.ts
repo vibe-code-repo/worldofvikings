@@ -14,7 +14,7 @@
 import { ID_MUSTER, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { STAT_IDS } from '@wov/shared/src/items/stats.js';
 import { ladeStand, speichernMitBestaetigung, type ApiOptionen, type LadeErgebnis, type SpeicherAblauf, type Stand } from './api';
-import { abhaengige, eintragZuFormular, istListe, ohneEintrag, type Formular } from './modell';
+import { abhaengige, eintragZuFormular, istListe, istUnveraendert, ohneEintrag, type Formular, type Vereinheitlichung } from './modell';
 import type { Anzeigetext } from './anzeige';
 import { konfliktInhalt, type BestaetigungInfo, type Uebersetzer } from './texte';
 
@@ -47,13 +47,51 @@ export function schnappschuss(stand: Pick<Stand, 'eintraege' | 'hash'>): Schnapp
   return Object.freeze({ eintraege: Object.freeze([...stand.eintraege]), hash: stand.hash });
 }
 
-/** Saves `liste` (built from `s.eintraege`) with the hash of `s`. */
-export function speichereSchnappschuss(
+/**
+ * What the author has to know before the first save of a loaded file: the save writes the canonical text of the WHOLE
+ * list. `vereinheitlicht` = what that text changes in the file as loaded (`vereinheitlichung`); `ueberschreibt` = the
+ * entries of the file the reader discarded whose id the saved entry carries (the save replaces that raw entry).
+ */
+export interface Vorwarnung {
+  vereinheitlicht: Vereinheitlichung;
+  ueberschreibt: Array<{ index: number; id: string | null; grund: string }>;
+}
+
+/** True if there is anything to ask about. */
+export const hatVorwarnung = (w: Vorwarnung): boolean => !istUnveraendert(w.vereinheitlicht) || w.ueberschreibt.length > 0;
+
+/**
+ * The warning for saving the entry `id` (null: a removal, which writes the file too but saves no entry) into a list
+ * loaded as `stand`.
+ */
+export function vorwarnungVon(stand: Pick<Stand, 'vereinheitlicht' | 'verworfen'>, id: string | null): Vorwarnung {
+  return { vereinheitlicht: stand.vereinheitlicht, ueberschreibt: id === null ? [] : stand.verworfen.filter((v) => v.id === id) };
+}
+
+/** The question before the first save: `true` = go on. Without a yes nothing is sent. */
+export interface VorabFrage {
+  warnung: Vorwarnung;
+  frage: (w: Vorwarnung) => Promise<boolean>;
+}
+
+/**
+ * Saves `liste` (built from `s.eintraege`) with the hash of `s`. With `vorab` and something to warn about, the
+ * author is asked FIRST: "no" (or a throw) sends nothing at all (`dialog-nein` / `ausnahme`).
+ */
+export async function speichereSchnappschuss(
   o: ApiOptionen,
   s: Schnappschuss,
   liste: readonly GegenstandsEintrag[],
-  frage: (info: BestaetigungInfo) => Promise<boolean>
-): Promise<SpeicherAblauf | Ausnahme> {
+  frage: (info: BestaetigungInfo) => Promise<boolean>,
+  vorab?: VorabFrage
+): Promise<SpeicherAblauf | Ausnahme | DialogNein> {
+  if (vorab !== undefined && hatVorwarnung(vorab.warnung)) {
+    try {
+      if (!(await vorab.frage(vorab.warnung))) return { art: 'dialog-nein' };
+    } catch {
+      return { art: 'ausnahme' };
+    }
+  }
   return speichereGefangen(o, liste, s.hash, frage);
 }
 
@@ -71,7 +109,8 @@ export async function entferneGegenstand(
   holeStand: () => Pick<Stand, 'eintraege' | 'hash'> | null,
   id: string,
   bestaetige: (abhaengigeIds: string[]) => Promise<boolean>,
-  frage: (info: BestaetigungInfo) => Promise<boolean>
+  frage: (info: BestaetigungInfo) => Promise<boolean>,
+  vorab?: VorabFrage
 ): Promise<SpeicherAblauf | Ausnahme | DialogNein> {
   try {
     const stand = holeStand();
@@ -83,10 +122,25 @@ export async function entferneGegenstand(
       if (!(await bestaetige(abh))) return { art: 'dialog-nein' };
       liste = liste.filter((e) => !abh.includes(e.id));
     }
-    return await speichereSchnappschuss(o, s, liste, frage);
+    return await speichereSchnappschuss(o, s, liste, frage, vorab);
   } catch {
     return { art: 'ausnahme' };
   }
+}
+
+// ── The newest load wins ───────────────────────────────────────────────
+
+/**
+ * Two loads must not overtake each other: an answer that arrives after a newer load was started is stale and is
+ * dropped (`null`). Every load of the page goes through one `juengsteAntwort()`.
+ */
+export function juengsteAntwort(): (lauf: () => Promise<LadeErgebnis | Ausnahme>) => Promise<LadeErgebnis | Ausnahme | null> {
+  let zaehler = 0;
+  return async (lauf) => {
+    const nr = ++zaehler;
+    const erg = await lauf();
+    return nr === zaehler ? erg : null;
+  };
 }
 
 // ── Nothing escapes ────────────────────────────────────────────────────

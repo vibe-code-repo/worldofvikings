@@ -23,7 +23,7 @@ import {
   type GegenstandsEintrag,
   type VerworfenerEintrag,
 } from '@wov/shared/src/items/gegenstandsDaten.js';
-import { istListe } from './modell';
+import { istListe, vereinheitlichung, type Vereinheitlichung } from './modell';
 import type { BestaetigungInfo } from './texte';
 
 export interface ApiOptionen {
@@ -51,6 +51,8 @@ export interface Stand {
   eintraege: GegenstandsEintrag[];
   /** Entries of the file the reader discards (hand-edited): they vanish with the next save. */
   verworfen: VerworfenerEintrag[];
+  /** What the next save would write differently from this file (clamped values, dropped fields): shown at load, asked once before saving. */
+  vereinheitlicht: Vereinheitlichung;
 }
 
 /** An answer that is none of the expected ones: the HTTP status and the route's `fehler` code (null if it sent none). */
@@ -180,6 +182,7 @@ export async function ladeStand(o: ApiOptionen = {}): Promise<LadeErgebnis> {
       dateiFehler: lesung.dateiFehler,
       eintraege: lesung.eintraege,
       verworfen: lesung.verworfen,
+      vereinheitlicht: vereinheitlichung(r.daten.text, lesung.eintraege),
     },
   };
 }

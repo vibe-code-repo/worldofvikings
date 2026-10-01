@@ -34,10 +34,13 @@ import {
   grundText,
   QUITTUNG_MAX_ZEICHEN,
   konfliktInhalt,
+  nichtGespeichertText,
   quittungText,
   routeFehlerText,
   sichtbarKuerzen,
   verworfenZeile,
+  vereinheitlichtZeilen,
+  vorwarnungsInhalt,
   zugangText,
   zusammengefuehrtText,
   type Uebersetzer,
@@ -1065,10 +1068,21 @@ function baueProgramm(probe?: string): ts.Program {
       for (let c = 0x13430; c <= 0x1345f; c++) if (sichtbarKuerzen(String.fromCodePoint(c)) !== marke(c)) aegypt.push(c.toString(16));
       check('U+13430 bis U+1345F (aegyptische Formatsteuerzeichen, Leerzeichen, Verlustzeichen, Modifikatoren): jedes wird gezeigt', aegypt.length === 0, aegypt.join(','));
     }
-    // the list is the engine's property, no more and no less (the engine is Unicode 17.0; a newer engine only adds)
-    const motor = /\p{Default_Ignorable_Code_Point}/u;
+    // The list is the engine's property: exact while the engine has the Unicode version the constant was read from.
+    // A newer engine may add characters (then only "nothing of the constant is missing in the engine" holds, and a hint
+    // says the constant can be extended), so the test does not turn red just because Node moved on.
+    const versionImKommentar = /Unicode (\d+\.\d+) `DerivedCoreProperties/.exec(readFileSync(resolve(ORDNER, 'anzeige.ts'), 'utf-8'))?.[1] ?? '';
+    const urteil = (laufzeit: string, kommentar: string, mehrInLaufzeit: number, nurInListe: number): { ok: boolean; hinweis: string | null } => {
+      const neuer = Number(laufzeit) > Number(kommentar);
+      if (!neuer) return { ok: mehrInLaufzeit === 0 && nurInListe === 0, hinweis: null };
+      return { ok: nurInListe === 0, hinweis: mehrInLaufzeit > 0 ? `Hinweis: die Laufzeit (Unicode ${laufzeit}) kennt ${mehrInLaufzeit} Default-Ignorable-Zeichen mehr als die Konstante (Unicode ${kommentar}); DEFAULT_IGNORABLE in anzeige.ts ergaenzen.` : null };
+    };
+    check('Zeitbombe entschaerft: gleiche Version = genaue Gleichheit (ein Zeichen mehr in der Laufzeit ist ein Fehler)', !urteil('17.0', '17.0', 1, 0).ok && !urteil('17.0', '17.0', 0, 1).ok && urteil('17.0', '17.0', 0, 0).ok);
+    check('Zeitbombe entschaerft: neuere Laufzeit = nur "nichts aus der Konstante fehlt in der Laufzeit", mit Hinweis bei Mehr-Zeichen', urteil('18.0', '17.0', 3, 0).ok && urteil('18.0', '17.0', 3, 0).hinweis !== null && !urteil('18.0', '17.0', 0, 1).ok && urteil('18.0', '17.0', 0, 0).hinweis === null);
+    check('die Version im Kommentar der Konstante ist lesbar', /^\d+\.\d+$/.test(versionImKommentar), versionImKommentar);
     let fehlt = 0;
     let zuviel = 0;
+    const motor = /\p{Default_Ignorable_Code_Point}/u;
     for (let c = 0; c <= 0x10ffff; c++) {
       if (c >= 0xd800 && c <= 0xdfff) continue;
       const inListe = DEFAULT_IGNORABLE.some(([von, bis]) => c >= von && c <= bis);
@@ -1076,7 +1090,9 @@ function baueProgramm(probe?: string): ts.Program {
       if (imMotor && !inListe) fehlt++;
       if (inListe && !imMotor) zuviel++;
     }
-    check(`die Konstante deckt sich mit der Unicode-Eigenschaft der Laufzeit (${process.versions.unicode}): nichts fehlt, nichts ist zuviel`, fehlt === 0 && zuviel === 0, `fehlt ${fehlt}, zuviel ${zuviel}`);
+    const u = urteil(process.versions.unicode ?? '', versionImKommentar, fehlt, zuviel);
+    if (u.hinweis !== null) console.log(`  ${u.hinweis}`);
+    check(`die Konstante deckt sich mit der Unicode-Eigenschaft der Laufzeit (${process.versions.unicode}, Konstante ${versionImKommentar})`, u.ok, `fehlt ${fehlt}, zuviel ${zuviel}`);
   }
   const durch: string[] = [];
   let pruefungen = 0;
@@ -1147,6 +1163,17 @@ function baueProgramm(probe?: string): ts.Program {
     const viele = zusammengefuehrtText(Array.from({ length: 30 }, () => 'gewicht'), u) ?? '';
     check(`${sprache}: zusammengefuehrtText mit 30 Feldern nennt 12 und den Rest`, viele.includes('18') && (viele.match(new RegExp(katalog(sprache)['editor.gegenstand.feld.gewicht'], 'g')) ?? []).length === 12, viele);
     check(`${sprache}: zusammengefuehrtText: ein fremdes Feld mit Umkehrzeichen wird sichtbar`, !/‮/.test(zusammengefuehrtText(['x‮'], u) ?? ''));
+    // EG2 N8: the load banner and the question before saving a file the writer would change
+    const ids12 = Array.from({ length: 12 }, (_, i) => `Id${i + 1}`);
+    const zeilenVe = vereinheitlichtZeilen({ ids: ids12, dateiebene: true }, u);
+    check(`${sprache}: Vereinheitlichung (Banner): eine Zeile mit Anzahl 12 und genau den ersten zehn Ids, "und 2 weitere", dazu die Zeile zur Dateiebene`, zeilenVe.length === 2 && zeilenVe[0].includes('12') && zeilenVe[0].includes('Id10') && !zeilenVe[0].includes('Id11') && zeilenVe[0].includes('2') && zeilenVe[1] === katalog(sprache)['editor.gegenstand.seite.vereinheitlicht_datei'], zeilenVe.join(' / '));
+    check(`${sprache}: Vereinheitlichung (Banner): nichts zu melden = keine Zeile; eine Id mit Umkehrzeichen wird sichtbar`, vereinheitlichtZeilen({ ids: [], dateiebene: false }, u).length === 0 && !/‮/.test(vereinheitlichtZeilen({ ids: ['x‮'], dateiebene: false }, u).join('')) && vereinheitlichtZeilen({ ids: [], dateiebene: true }, u).length === 1);
+    const vor = vorwarnungsInhalt({ vereinheitlicht: { ids: ids12, dateiebene: true }, ueberschreibt: [{ index: 3, id: 'Kaputt', grund: 'typ-unbekannt' }] }, u);
+    check(`${sprache}: Vorwarnung: der Satz nennt 12 Eintraege, die Liste hat hoechstens 10 Zeilen und "weitere" fuer den Rest (14 Punkte gesamt)`, vor.satz.includes('12') && vor.punkte.length === 10 && vor.weitere !== null && vor.weitere.includes('4') && vor.titel !== '' && vor.bestaetigen !== vor.abbrechen, JSON.stringify(vor));
+    const vor2 = vorwarnungsInhalt({ vereinheitlicht: { ids: [], dateiebene: false }, ueberschreibt: [{ index: 3, id: 'Kaputt', grund: 'typ-unbekannt' }] }, u);
+    check(`${sprache}: Vorwarnung nur wegen einer verworfenen Id: die Zeile nennt Kaputt und den Grund, kein "{anzahl}" im Satz`, vor2.punkte.length === 1 && vor2.punkte[0].includes('Kaputt') && vor2.punkte[0].includes(katalog(sprache)[GRUND_SCHLUESSEL['typ-unbekannt']]) && !vor2.satz.includes('{') && vor2.weitere === null, vor2.punkte.join());
+    check(`${sprache}: kein Platzhalter bleibt in den neuen Texten stehen`, ![...zeilenVe, vor.satz, vor.titel, vor.bestaetigen, ...vor.punkte, ...vor2.punkte, vor2.satz].some((t) => /\{[a-z]+\}/.test(t)));
+    check(`${sprache}: Ergebniszeile: bei netz und zeit "unklar", sonst "nicht gespeichert"`, nichtGespeichertText('netz', u) === katalog(sprache)['editor.gegenstand.seite.unklar_gespeichert'] && ['veraltet', 'gesperrt', 'verworfen', 'fehler', 'ausnahme', 'dialog-nein', 'abgebrochen'].every((art) => nichtGespeichertText(art, u) === katalog(sprache)['editor.gegenstand.seite.nicht_gespeichert']) && katalog(sprache)['editor.gegenstand.seite.unklar_gespeichert'] !== katalog(sprache)['editor.gegenstand.seite.nicht_gespeichert']);
   }
 }
 

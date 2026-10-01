@@ -24,6 +24,7 @@ import {
   eigeneBehaltenAbgleich,
   entferneGegenstand,
   entscheideNachSpeichern,
+  juengsteAntwort,
   kanonisch,
   ladeGefangen,
   ladefehlerBanner,
@@ -31,7 +32,9 @@ import {
   schnappschuss,
   speichereSchnappschuss,
   speicherSperre,
+  vorwarnungVon,
   type KonfliktErgebnis,
+  type VorabFrage,
 } from './ablauf';
 import {
   ANIMATIONSSAETZE,
@@ -44,6 +47,7 @@ import {
   eintragZuFormular,
   formularZuEintrag,
   idAenderbar,
+  keineVereinheitlichung,
   kopie,
   leeresFormular,
   mitEintrag,
@@ -59,6 +63,9 @@ import {
   feldFehlerText,
   konfliktInhalt,
   fehlerErgebnisText,
+  nichtGespeichertText,
+  vereinheitlichtZeilen,
+  vorwarnungsInhalt,
   grundText,
   quittungText,
   routeFehlerText,
@@ -169,6 +176,10 @@ class GegenstandsSeite {
   private basis: GegenstandsEintrag | null = null;
   /** Set while the author has to choose between their version and the server's; saving is locked meanwhile. */
   private konflikt: Extract<KonfliktErgebnis, { art: 'konflikt' }> | null = null;
+  /** The loaded state the author already said yes to for the pre-save warning (asked once per loaded state, no hash involved). */
+  private vorwarnungBestaetigt: Stand | null = null;
+  /** Every load goes through this: only the newest answer counts. */
+  private readonly juengste = juengsteAntwort();
   private offen = false;
   private readonly taste = (e: KeyboardEvent): void => {
     if (e.code === 'Escape' && !document.querySelector('[data-gegenstand-dialog]')) {
@@ -267,7 +278,8 @@ class GegenstandsSeite {
     this.aktualisiere();
     this.meldung(tA('editor.gegenstand.seite.laedt'));
     try {
-      const erg = await ladeGefangen(this.api);
+      const erg = await this.juengste(() => ladeGefangen(this.api));
+      if (erg === null) return; // a newer load was started meanwhile: its answer decides, this one is stale
       if (erg.art !== 'ok') {
         const fehlerText = erg.art === 'ausnahme' ? tA('editor.gegenstand.seite.unerwartet') : erg.art === 'netz' ? zugangText(erg.zeit === true ? 'zeit' : 'netz') : fehlerErgebnisText(erg);
         // An open conflict stays decidable: its lines and the two choices are drawn again under the error.
@@ -290,26 +302,35 @@ class GegenstandsSeite {
           })
         );
       }
-      const k: KonfliktErgebnis = this.form
-        ? pruefeKonflikt({ basis: this.basis, form: this.form, ausgewaehlt: this.ausgewaehlt, entwurfGeaendert: this.veraendert(), neuerStand: erg.stand.eintraege })
-        : { art: 'keiner' };
-      this.konflikt = k.art === 'konflikt' ? k : null;
-      if (k.art === 'uebernehmen' && k.server === null) zeilen.push(tA('editor.gegenstand.seite.entfernt_woanders'));
-      const zusammengefuehrt = k.art === 'zusammen' || k.art === 'konflikt' ? zusammengefuehrtText(k.uebernommen) : null;
-      if (zusammengefuehrt !== null) zeilen.push(zusammengefuehrt);
-      if (this.konflikt) this.zeigeKonflikt(zeilen);
-      else this.banner(zeilen);
+      zeilen.push(...vereinheitlichtZeilen(erg.stand.vereinheitlicht));
       this.meldung(zier(''));
-      if (k.art === 'uebernehmen') this.setzeForm(k.server ? eintragZuFormular(k.server) : null, k.server ? k.server.id : null);
-      else if (k.art === 'zusammen') this.uebernimmZusammen(k.form, k.server);
-      else {
-        this.zeichneListe();
-        this.zeichneForm();
-      }
+      this.pruefeNeuenStand(erg.stand, zeilen, true);
       this.sicher(this.ladeQuittungAnzeige());
     } finally {
       this.laedt = false;
       this.aktualisiere();
+    }
+  }
+
+  /**
+   * The state just loaded (`laden` and `nachSpeichern` both end here): did it change the entry the author is editing?
+   * Draws the banner (`zeilen` plus the conflict, if any) and the list; the form too if it changed or `formNeu`.
+   */
+  private pruefeNeuenStand(stand: Stand, zeilen: Anzeigetext[], formNeu: boolean): void {
+    const k: KonfliktErgebnis = this.form
+      ? pruefeKonflikt({ basis: this.basis, form: this.form, ausgewaehlt: this.ausgewaehlt, entwurfGeaendert: this.veraendert(), neuerStand: stand.eintraege })
+      : { art: 'keiner' };
+    this.konflikt = k.art === 'konflikt' ? k : null;
+    if (k.art === 'uebernehmen' && k.server === null) zeilen.push(tA('editor.gegenstand.seite.entfernt_woanders'));
+    const zusammengefuehrt = k.art === 'zusammen' || k.art === 'konflikt' ? zusammengefuehrtText(k.uebernommen) : null;
+    if (zusammengefuehrt !== null) zeilen.push(zusammengefuehrt);
+    if (this.konflikt) this.zeigeKonflikt(zeilen);
+    else this.banner(zeilen);
+    if (k.art === 'uebernehmen') this.setzeForm(k.server ? eintragZuFormular(k.server) : null, k.server ? k.server.id : null);
+    else if (k.art === 'zusammen') this.uebernimmZusammen(k.form, k.server);
+    else {
+      this.zeichneListe();
+      if (formNeu) this.zeichneForm();
     }
   }
 
@@ -753,40 +774,40 @@ class GegenstandsSeite {
         this.aktualisiere();
         return true;
       case 'veraltet':
-        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.meldung(nichtGespeichertText(erg.art), true);
         this.aktualisiere();
         await this.laden(true);
         return false;
       case 'ausnahme':
         this.banner([tA('editor.gegenstand.seite.unerwartet')]);
-        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.meldung(nichtGespeichertText(erg.art), true);
         break;
       case 'gesperrt':
         this.banner([tA('editor.gegenstand.seite.gesperrt', { sekunden: erg.retryAfter })]);
-        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.meldung(nichtGespeichertText(erg.art), true);
         break;
       case 'verworfen':
         this.banner([
           tA('editor.gegenstand.seite.verworfen_liste', { anzahl: erg.verworfen.length }),
           ...erg.verworfen.map((v) => verworfenZeile(v)),
         ]);
-        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.meldung(nichtGespeichertText(erg.art), true);
         break;
       case 'dialog-nein':
       case 'abgebrochen':
-        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'));
+        this.meldung(nichtGespeichertText(erg.art));
         break;
       case 'bestaetigung':
         // `speichernMitBestaetigung` never returns this one; kept so a future change fails loudly.
-        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.meldung(nichtGespeichertText(erg.art), true);
         break;
       case 'netz':
         this.banner([zugangText(erg.zeit === true ? 'zeit' : 'netz')]);
-        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.meldung(nichtGespeichertText(erg.art), true);
         break;
       case 'fehler':
         this.banner([fehlerErgebnisText(erg)]);
-        this.meldung(tA('editor.gegenstand.seite.nicht_gespeichert'), true);
+        this.meldung(nichtGespeichertText(erg.art), true);
         break;
     }
     this.aktualisiere();
@@ -795,12 +816,30 @@ class GegenstandsSeite {
 
   private async speichern(): Promise<void> {
     if (!this.form || !this.stand || this.fehlerListe().length > 0) return;
-    const eintrag = formularZuEintrag(this.form);
+    const eintrag = formularZuEintrag(this.form, this.basis);
     const s = schnappschuss(this.stand);
+    const vorab = this.vorab(this.stand, eintrag.id);
     const vorher = { form: kanonisch(this.form), id: this.form.id, ausgewaehlt: this.ausgewaehlt };
-    const geschrieben = await this.senden(() => speichereSchnappschuss(this.api, s, mitEintrag(s.eintraege, this.ausgewaehlt, eintrag), (info) => this.frage(info)));
+    const geschrieben = await this.senden(() => speichereSchnappschuss(this.api, s, mitEintrag(s.eintraege, this.ausgewaehlt, eintrag), (info) => this.frage(info), vorab));
     if (!geschrieben) return;
-    await this.nachSpeichern(eintrag.id, vorher);
+    await this.nachSpeichern(eintrag.id, vorher, eintrag);
+  }
+
+  /**
+   * The question before the first save of a loaded file that the writer would change (clamped values, dropped fields) and
+   * before an entry takes the id of one the reader discarded. A "yes" counts for the state it was given for (no second
+   * question about the unifying until the next load); the overwrite of a discarded id is asked again each time.
+   */
+  private vorab(stand: Stand, id: string | null): VorabFrage {
+    const w = vorwarnungVon(stand, id);
+    return {
+      warnung: this.vorwarnungBestaetigt === stand ? { ...w, vereinheitlicht: keineVereinheitlichung() } : w,
+      frage: async (warnung) => {
+        const ja = await fragenDialog(vorwarnungsInhalt(warnung));
+        if (ja) this.vorwarnungBestaetigt = stand;
+        return ja;
+      },
+    };
   }
 
   /**
@@ -815,45 +854,59 @@ class GegenstandsSeite {
       const e = this.stand?.eintraege.find((y) => y.id === x);
       return e ? anzeigeName(e) : null;
     };
+    const vorab = this.vorab(this.stand, null);
     const geschrieben = await this.senden(() =>
-      entferneGegenstand(this.api, () => this.stand, id, (abh) => fragenDialog(abhaengigkeitsInhalt(id, abh, name)), (info) => this.frage(info))
+      entferneGegenstand(this.api, () => this.stand, id, (abh) => fragenDialog(abhaengigkeitsInhalt(id, abh, name)), (info) => this.frage(info), vorab)
     );
     if (!geschrieben) return;
-    await this.nachSpeichern(null, vorher);
+    await this.nachSpeichern(null, vorher, null);
   }
 
   /**
    * Reloads the saved state (the writer may have changed the bytes) and selects the entry that was saved, but only if the
    * form is still what was saved: `vorher` is the form when the save started. If the author kept typing meanwhile the
-   * draft stays (`entscheideNachSpeichern`) and the banner says that edits are still unsaved.
+   * draft stays (`entscheideNachSpeichern`) and the banner says that edits are still unsaved. `geschrieben` = the entry
+   * that was sent (null after a removal): the draft is compared with the state it was saved as, so a change another
+   * author made between the PUT and this load is a conflict (`pruefeNeuenStand`, as in `laden`), not silently the new base.
+   * The load holds the loading lock, so no second load starts meanwhile; if the load fails the author is told.
    */
-  private async nachSpeichern(id: string | null, vorher: { form: string; id: string; ausgewaehlt: string | null }): Promise<void> {
-    const erg = await ladeGefangen(this.api);
-    if (erg.art !== 'ok') return;
-    this.stand = erg.stand;
-    const e = id === null ? undefined : erg.stand.eintraege.find((x) => x.id === id);
-    const w = entscheideNachSpeichern({
-      formVorher: vorher.form,
-      idVorher: vorher.id,
-      ausgewaehltVorher: vorher.ausgewaehlt,
-      formJetzt: this.form,
-      ausgewaehltJetzt: this.ausgewaehlt,
-      gespeicherteId: id,
-      server: e ?? null,
-    });
-    if (w.art === 'ersetzen') this.setzeForm(e ? eintragZuFormular(e) : null, e ? e.id : null);
-    else {
-      if (w.weiter !== null && this.form !== null) {
-        this.ausgewaehlt = w.weiter.ausgewaehlt;
-        this.basis = w.weiter.basis;
-        this.form.neu = w.weiter.neu;
-        this.formAusgang = w.weiter.basis === null ? '' : JSON.stringify(eintragZuFormular(w.weiter.basis));
+  private async nachSpeichern(id: string | null, vorher: { form: string; id: string; ausgewaehlt: string | null }, geschrieben: GegenstandsEintrag | null): Promise<void> {
+    this.laedt = true;
+    this.aktualisiere();
+    try {
+      const erg = await this.juengste(() => ladeGefangen(this.api));
+      if (erg === null) return; // a newer load was started meanwhile: its answer decides
+      if (erg.art !== 'ok') {
+        const grund = erg.art === 'ausnahme' ? tA('editor.gegenstand.seite.unerwartet') : erg.art === 'netz' ? zugangText(erg.zeit === true ? 'zeit' : 'netz') : fehlerErgebnisText(erg);
+        this.banner([tA('editor.gegenstand.seite.nach_speichern_ladefehler', { grund })]);
+        return;
       }
-      this.banner(w.offen ? [tA('editor.gegenstand.seite.nach_speichern_offen')] : []);
-      this.zeichneListe();
+      this.stand = erg.stand;
+      const e = id === null ? undefined : erg.stand.eintraege.find((x) => x.id === id);
+      const w = entscheideNachSpeichern({
+        formVorher: vorher.form,
+        idVorher: vorher.id,
+        ausgewaehltVorher: vorher.ausgewaehlt,
+        formJetzt: this.form,
+        ausgewaehltJetzt: this.ausgewaehlt,
+        gespeicherteId: id,
+        server: e ? (geschrieben ?? e) : null,
+      });
+      if (w.art === 'ersetzen') this.setzeForm(e ? eintragZuFormular(e) : null, e ? e.id : null);
+      else {
+        if (w.weiter !== null && this.form !== null) {
+          this.ausgewaehlt = w.weiter.ausgewaehlt;
+          this.basis = w.weiter.basis;
+          this.form.neu = w.weiter.neu;
+          this.formAusgang = w.weiter.basis === null ? '' : JSON.stringify(eintragZuFormular(w.weiter.basis));
+        }
+        this.pruefeNeuenStand(erg.stand, w.offen ? [tA('editor.gegenstand.seite.nach_speichern_offen')] : [], false);
+      }
+      this.sicher(this.ladeQuittungAnzeige());
+    } finally {
+      this.laedt = false;
       this.aktualisiere();
     }
-    this.sicher(this.ladeQuittungAnzeige());
   }
 }
 

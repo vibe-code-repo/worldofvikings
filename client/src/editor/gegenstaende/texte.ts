@@ -13,7 +13,7 @@
  */
 import type { DateiFehler, VerwerfGrund } from '@wov/shared/src/items/gegenstandsDaten.js';
 import type { TranslationKey, TranslationVars } from '../../i18n';
-import { istListe, type FeldFehler, type LokalerGrund } from './modell';
+import { istListe, type FeldFehler, type LokalerGrund, type Vereinheitlichung } from './modell';
 import { MAX_KENNUNG_ANZEIGE, fuege, kuerzeHart, sichtbarKuerzen, tA, zahlText, zier, type Anzeigetext } from './anzeige';
 
 export { MAX_KENNUNG_ANZEIGE, sichtbarKuerzen };
@@ -274,6 +274,28 @@ export function ersteZeilen(alle: readonly Anzeigetext[]): { punkte: Anzeigetext
   return { punkte: alle.slice(0, MAX_DIALOG_ZEILEN), weitere: Math.max(0, alle.length - MAX_DIALOG_ZEILEN) };
 }
 
+/** The ids of a load banner / dialog list: at most `MAX_DIALOG_ZEILEN` shown (shortened, made visible), then "and N more". */
+function idListe(ids: readonly string[], uebersetze: Uebersetzer): Anzeigetext {
+  const { punkte, weitere } = ersteZeilen(ids.map((id) => sichtbarKuerzen(id)));
+  return fuege('; ', ...punkte, ...(weitere > 0 ? [uebersetze('editor.gegenstand.bestaetigung.weitere', { anzahl: weitere })] : []));
+}
+
+/**
+ * The lines of the load banner for a file the next save would write differently: how many entries (with their ids, ten
+ * at most) and, if there is one, that a key at file level goes. Empty list when the save changes nothing.
+ */
+export function vereinheitlichtZeilen(v: Vereinheitlichung, uebersetze: Uebersetzer = tA): Anzeigetext[] {
+  const zeilen: Anzeigetext[] = [];
+  if (v.ids.length > 0) zeilen.push(uebersetze('editor.gegenstand.seite.vereinheitlicht_hinweis', { anzahl: v.ids.length, liste: idListe(v.ids, uebersetze) }));
+  if (v.dateiebene) zeilen.push(uebersetze('editor.gegenstand.seite.vereinheitlicht_datei'));
+  return zeilen;
+}
+
+/** The result line of a save that did not go through: with no answer at all the server may have written, so it is not "not saved". */
+export function nichtGespeichertText(art: string, uebersetze: Uebersetzer = tA): Anzeigetext {
+  return uebersetze(art === 'netz' ? 'editor.gegenstand.seite.unklar_gespeichert' : 'editor.gegenstand.seite.nicht_gespeichert');
+}
+
 /** "<name> (<id>)", or just the id when the name is missing or the same; both made safe to show. */
 const zeileVon = (id: string, n: string | null): Anzeigetext => {
   const k = sichtbarKuerzen(id);
@@ -332,6 +354,31 @@ export function bestaetigungsInhalt(info: BestaetigungInfo, name: (id: string) =
     punkte,
     weitere: weitere > 0 ? uebersetze('editor.gegenstand.bestaetigung.weitere', { anzahl: weitere }) : null,
     bestaetigen: uebersetze('editor.gegenstand.bestaetigung.entfernen'),
+    abbrechen: uebersetze('editor.gegenstand.bestaetigung.abbrechen'),
+  };
+}
+
+/**
+ * The dialog before the first save of a file that is not in the form the writer produces (`Vorwarnung`): how many entries
+ * are unified (ten ids at most), a key at file level, and the discarded entries whose id the saved entry takes over.
+ */
+export function vorwarnungsInhalt(
+  w: { vereinheitlicht: Vereinheitlichung; ueberschreibt: ReadonlyArray<{ index: number; id: string | null; grund: string }> },
+  uebersetze: Uebersetzer = tA
+): BestaetigungsInhalt {
+  const alle: Anzeigetext[] = [
+    ...w.vereinheitlicht.ids.map((id) => sichtbarKuerzen(id)),
+    ...(w.vereinheitlicht.dateiebene ? [uebersetze('editor.gegenstand.vorwarnung.datei')] : []),
+    ...w.ueberschreibt.map((v) => uebersetze('editor.gegenstand.vorwarnung.ueberschreibt', { zeile: verworfenZeile(v, uebersetze) })),
+  ];
+  const { punkte, weitere } = ersteZeilen(alle);
+  const anzahl = w.vereinheitlicht.ids.length;
+  return {
+    titel: uebersetze('editor.gegenstand.vorwarnung.titel'),
+    satz: anzahl > 0 ? uebersetze('editor.gegenstand.vorwarnung.satz_eintraege', { anzahl }) : uebersetze('editor.gegenstand.vorwarnung.satz_sonst'),
+    punkte,
+    weitere: weitere > 0 ? uebersetze('editor.gegenstand.bestaetigung.weitere', { anzahl: weitere }) : null,
+    bestaetigen: uebersetze('editor.gegenstand.vorwarnung.speichern'),
     abbrechen: uebersetze('editor.gegenstand.bestaetigung.abbrechen'),
   };
 }

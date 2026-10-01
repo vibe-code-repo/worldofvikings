@@ -13,6 +13,8 @@
  *  [9] N1 finding 1: a text error stands at the field that causes it (name / description, de / en), with its own
  *      cause (line break, control character, too long, no letter); the reader is the judge
  *  [10] N1 finding 6: which entries a removal would take with it (direct and through intermediate products)
+ *  [11] EG2 N8: what the next save would change in a hand-written file (`vereinheitlichung`), and a field of the entry the form does
+ *       not know survives an edit (`formularZuEintrag` with the saved entry as base)
  *
  * Run: npx tsx test/editor-gegenstaende-modell.ts   (from client/, cwd as in scripts/kern/client.mjs)
  */
@@ -44,6 +46,7 @@ import {
   pruefeFormular,
   setzeId,
   textGrund,
+  vereinheitlichung,
   verwender,
   type Formular,
 } from '../src/editor/gegenstaende/modell';
@@ -511,6 +514,71 @@ console.log('\n[10] Wer haengt an einem Gegenstand (N1, Befund 6):');
   const rest = liste.filter((e) => e.id !== 'Aaa' && !abhaengige(liste, 'Aaa').includes(e.id));
   const sauber = leseGegenstandsDatei(dokumentText(rest));
   check('Aaa + abhaengige entfernen: der Leser verwirft nichts mehr', sauber.verworfen.length === 0 && sauber.eintraege.length === 1 && sauber.eintraege[0].id === 'Ddd');
+}
+
+// ── [11] EG2 N8: what the next save changes; fields the form does not know ─────────────────────────────
+console.log('\n[11] EG2 N8: Vereinheitlichung beim Laden, unbekannte Felder beim Bearbeiten:');
+{
+  const rohEintrag = (id: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id,
+    nameSchluessel: `inhalt.gegenstand.${id}.name`,
+    typ: 'material',
+    slot: 'hand',
+    stapel: 1,
+    gewicht: 1,
+    itemLevel: 1,
+    rarity: 'common',
+    texte: { [`inhalt.gegenstand.${id}.name`]: { de: id, en: id } },
+    ...extra,
+  });
+  const pruefe = (datei: Record<string, unknown>): { ids: string[]; dateiebene: boolean } => {
+    const text = JSON.stringify(datei);
+    return vereinheitlichung(text, leseGegenstandsDatei(text).eintraege);
+  };
+  const doc = (liste: unknown[], extra: Record<string, unknown> = {}): Record<string, unknown> => ({ version: 1, gegenstaende: liste, ...extra });
+
+  const sauberText = schreibeGegenstandsDatei(leseGegenstandsDatei(JSON.stringify(doc([rohEintrag('Axt'), rohEintrag('Feder')]))).eintraege);
+  const sauber = vereinheitlichung(sauberText, leseGegenstandsDatei(sauberText).eintraege);
+  check('eine Datei in der Form des Schreibers: keine Vereinheitlichung (kein Banner)', sauber.ids.length === 0 && !sauber.dateiebene, JSON.stringify(sauber));
+  const umgestellt = JSON.stringify(doc([{ texte: { 'inhalt.gegenstand.Axt.name': { en: 'Axt', de: 'Axt' } }, ...rohEintrag('Axt') }, rohEintrag('Feder')]));
+  const um = vereinheitlichung(umgestellt, leseGegenstandsDatei(umgestellt).eintraege);
+  check('nur andere Schluesselreihenfolge und Leerraum: keine Vereinheitlichung', um.ids.length === 0 && !um.dateiebene, JSON.stringify(um));
+
+  const stapel = pruefe(doc([rohEintrag('Axt', { stapel: 2.5 }), rohEintrag('Feder')]));
+  check('stapel 2.5 (der Leser rundet): genau dieser Eintrag, sonst nichts', gleich(stapel.ids, ['Axt']) && !stapel.dateiebene, JSON.stringify(stapel));
+  const gewicht = pruefe(doc([rohEintrag('Axt'), rohEintrag('Feder', { gewicht: 5000 })]));
+  check('gewicht 5000 (der Leser klemmt auf 1000): genau dieser Eintrag', gleich(gewicht.ids, ['Feder']), JSON.stringify(gewicht));
+  const skala = pruefe(doc([rohEintrag('Axt', { modell: { skala: 100 } })]));
+  check('modell.skala 100 (der Leser klemmt auf 5): dieser Eintrag', gleich(skala.ids, ['Axt']), JSON.stringify(skala));
+  const unbekannt = pruefe(doc([rohEintrag('Axt', { zauber: 'feuer' }), rohEintrag('Feder')]));
+  check('ein unbekanntes Feld im Eintrag (zauber): dieser Eintrag', gleich(unbekannt.ids, ['Axt']), JSON.stringify(unbekannt));
+  const verschachtelt = pruefe(doc([rohEintrag('Axt', { modell: { zauber: 1 } })]));
+  check('ein unbekanntes Feld in modell: dieser Eintrag', gleich(verschachtelt.ids, ['Axt']), JSON.stringify(verschachtelt));
+  const datei = pruefe(doc([rohEintrag('Axt')], { kommentar: 'von Hand' }));
+  check('ein unbekannter Schluessel auf Dateiebene (kommentar): dateiebene, kein Eintrag', datei.dateiebene && datei.ids.length === 0, JSON.stringify(datei));
+  const mehrere = pruefe(doc([rohEintrag('Axt', { stapel: 2.5 }), rohEintrag('Feder', { zauber: 1 }), rohEintrag('Gabel')], { kommentar: 1 }));
+  check('mehrere Befunde: alle betroffenen Ids in Dateireihenfolge, dazu die Dateiebene', gleich(mehrere.ids, ['Axt', 'Feder']) && mehrere.dateiebene, JSON.stringify(mehrere));
+  const verworfen = pruefe(doc([rohEintrag('Axt'), rohEintrag('Kaputt', { typ: 'unsinn' })]));
+  check('ein vom Leser verworfener Eintrag ist keine Vereinheitlichung (das Banner nennt ihn schon)', verworfen.ids.length === 0 && !verworfen.dateiebene, JSON.stringify(verworfen));
+  check('Text, der keine Datei ist: nichts, kein Wurf', gleich(vereinheitlichung('kein json', []), { ids: [], dateiebene: false }) && gleich(vereinheitlichung('[]', []), { ids: [], dateiebene: false }));
+
+  // A field the form does not know (a later version of the data file adds it) survives an edit.
+  const basis = eintragAus(rohEintrag('Axt', { modell: { skala: 2 }, rezept: { menge: 1, zutaten: [{ item: 'Wood', menge: 2 }] } }));
+  const mitZusatz = structuredClone(basis) as GegenstandsEintrag & Record<string, unknown>;
+  mitZusatz.zukunft = { a: 1 };
+  (mitZusatz.modell as unknown as Record<string, unknown>).griff = 'lang';
+  (mitZusatz.rezept as unknown as Record<string, unknown>).station = 'schmiede';
+  const f = eintragZuFormular(mitZusatz);
+  f.gewicht = '7';
+  const neu = formularZuEintrag(f, mitZusatz) as GegenstandsEintrag & Record<string, unknown>;
+  check('Bearbeiten: das Feld "zukunft" des geladenen Eintrags bleibt unveraendert', gleich(neu.zukunft, { a: 1 }), JSON.stringify(neu.zukunft));
+  check('Bearbeiten: auch Zusatzfelder in modell und rezept bleiben', (neu.modell as unknown as Record<string, unknown>).griff === 'lang' && (neu.rezept as unknown as Record<string, unknown>)?.station === 'schmiede');
+  check('Bearbeiten: das geaenderte Feld gilt (Gewicht 7), die bekannten Felder kommen aus dem Formular', neu.gewicht === 7 && neu.modell.skala === 2 && neu.rezept?.zutaten[0].item === 'Wood');
+  const ohne = formularZuEintrag(f) as GegenstandsEintrag & Record<string, unknown>;
+  check('Gegenprobe: ohne den gespeicherten Eintrag als Basis (neuer Eintrag) kommt nichts mit', ohne.zukunft === undefined && (ohne.modell as unknown as Record<string, unknown>).griff === undefined);
+  const neuAusNull = formularZuEintrag(f, null) as GegenstandsEintrag & Record<string, unknown>;
+  check('Basis null (neuer Eintrag): wie ohne', neuAusNull.zukunft === undefined);
+  check('Zusatzfelder ueberschreiben nie ein Feld des Formulars (Id, Typ, Rezept aus), auch wenn die Basis etwas anderes hat', formularZuEintrag({ ...f, hatRezept: false, typ: 'werkzeug' }, mitZusatz).rezept === null && formularZuEintrag({ ...f, typ: 'werkzeug' }, mitZusatz).typ === 'werkzeug' && formularZuEintrag(f, mitZusatz).id === 'Axt');
 }
 
 console.log(fehler === 0 ? '\nalles gruen' : `\n${fehler} FEHLER`);

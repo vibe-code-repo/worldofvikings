@@ -9,7 +9,9 @@
  * Validation is the SAME as the server's: `pruefeEintrag` (shared/src/items/gegenstandsDaten.ts) runs the
  * entry through the reader's core. On top of that this file checks what the reader would only clamp or fold
  * into one code (an empty name in ONE language, a number outside its range, half a vector), so the mask can
- * name the field and never lets the reader clamp a value behind the author's back. The ranges below repeat
+ * name the field: a value TYPED into the form is never clamped behind the author's back. A hand-written file is
+ * different: the reader clamps and drops what it loads, and the next save writes the clamped text. That is not
+ * hidden: `vereinheitlichung` finds it at load (banner) and the first save asks once. The ranges below repeat
  * the reader's limits; `client/test/editor-gegenstaende-modell.ts` pins them against the real reader.
  *
  * The id is the address of an item (save key): after the first save it can not change (`setzeId` refuses).
@@ -214,8 +216,10 @@ export const standardBeschreibungSchluessel = (id: string): string => `inhalt.ge
 /**
  * The entry a form stands for. It is NOT checked: a typed bad number is `NaN`, a half vector has `NaN` in it.
  * A description key exists only while a description text does; unset numbers are the reader's defaults.
+ * `basis` = the saved entry the form edits (null for a new one): a field of the entry the form does not know
+ * (a field a later version of the data file adds) is carried over unchanged, also inside `modell` and `rezept`.
  */
-export function formularZuEintrag(f: Formular): GegenstandsEintrag {
+export function formularZuEintrag(f: Formular, basis: GegenstandsEintrag | null = null): GegenstandsEintrag {
   const nameSchluessel = f.nameSchluessel ?? standardNameSchluessel(f.id);
   const hatBeschreibung = f.beschreibungDe !== '' || f.beschreibungEn !== '';
   const beschreibungSchluessel = hatBeschreibung ? (f.beschreibungSchluessel ?? standardBeschreibungSchluessel(f.id)) : null;
@@ -244,12 +248,14 @@ export function formularZuEintrag(f: Formular): GegenstandsEintrag {
   if (hVerbrauch !== undefined) haltbarkeit.verbrauch = hVerbrauch;
   if (hAusdauer !== undefined) haltbarkeit.ausdauer = hAusdauer;
   return {
+    ...basis,
     id: f.id,
     nameSchluessel,
     beschreibungSchluessel,
     typ: f.typ,
     slot: 'hand',
     modell: {
+      ...basis?.modell,
       upload: f.upload === '' ? null : f.upload,
       skala: zahlOderUndef(f.skala) ?? 1,
       haltePosition: vektorAus(f.haltePosition),
@@ -266,7 +272,7 @@ export function formularZuEintrag(f: Formular): GegenstandsEintrag {
     itemLevel: zahlOderUndef(f.itemLevel) ?? 1,
     rarity: f.rarity,
     rezept: f.hatRezept
-      ? { menge: zahlOderUndef(f.rezeptMenge) ?? 1, zutaten: f.zutaten.map((z) => ({ item: z.item, menge: zahlOderUndef(z.menge) ?? NaN })) }
+      ? { ...basis?.rezept, menge: zahlOderUndef(f.rezeptMenge) ?? 1, zutaten: f.zutaten.map((z) => ({ item: z.item, menge: zahlOderUndef(z.menge) ?? NaN })) }
       : null,
     texte,
   };
@@ -508,6 +514,64 @@ export function pruefeFormular(f: Formular, andere: readonly GegenstandsEintrag[
 
 /** True while nothing stands against saving. */
 export const kannSpeichern = (f: Formular, andere: readonly GegenstandsEintrag[]): boolean => pruefeFormular(f, andere).length === 0;
+
+// ── What the next save would change in a loaded file ───────────────────
+
+/** What the next save would write differently from what a hand-written file holds: ids of entries, and keys at file level. */
+export interface Vereinheitlichung {
+  /** Ids of the entries whose canonical text differs from the file's (a clamped value, a dropped field, a missing default). */
+  ids: string[];
+  /** The file holds a key beside `version` and `gegenstaende` (the writer drops it). */
+  dateiebene: boolean;
+}
+
+export const keineVereinheitlichung = (): Vereinheitlichung => ({ ids: [], dateiebene: false });
+
+/** True when saving would leave the file as it is, field for field. */
+export const istUnveraendert = (v: Vereinheitlichung): boolean => v.ids.length === 0 && !v.dateiebene;
+
+/** A JSON value as one string with the keys of every object sorted: equal for equal content, whatever the key order. */
+function sortiertJson(v: unknown): string {
+  const sortiert = (x: unknown): unknown =>
+    istListe(x)
+      ? x.map(sortiert)
+      : x !== null && typeof x === 'object'
+        ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, w]) => [k, sortiert(w)]))
+        : x;
+  return JSON.stringify(sortiert(v));
+}
+
+const istJsonObjekt = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !istListe(v);
+
+/**
+ * Compares the raw text of the file with the canonical text of what the reader made of it (`eintraege`, the text
+ * `schreibeGegenstandsDatei` would write), entry by entry, field by field, and at file level. Key order and spacing do
+ * not count; a clamped number, a dropped unknown field, a default that is missing in the file do. Entries the reader
+ * discards are not listed here (the load banner names them). Never throws: a text that is no document gives "nothing".
+ */
+export function vereinheitlichung(rohtext: string, eintraege: readonly GegenstandsEintrag[]): Vereinheitlichung {
+  const aus = keineVereinheitlichung();
+  let roh: unknown;
+  let kanon: unknown;
+  try {
+    const a: unknown = JSON.parse(rohtext);
+    const b: unknown = JSON.parse(schreibeGegenstandsDatei(eintraege));
+    roh = a;
+    kanon = b;
+  } catch {
+    return aus;
+  }
+  if (!istJsonObjekt(roh) || !istJsonObjekt(kanon)) return aus;
+  aus.dateiebene = Object.keys(roh).some((k) => k !== 'version' && k !== 'gegenstaende');
+  const rohListe = istListe(roh.gegenstaende) ? roh.gegenstaende : [];
+  const kanonListe = istListe(kanon.gegenstaende) ? kanon.gegenstaende : [];
+  for (const k of kanonListe) {
+    if (!istJsonObjekt(k) || typeof k.id !== 'string') continue;
+    const r = rohListe.find((x) => istJsonObjekt(x) && x.id === k.id);
+    if (r !== undefined && sortiertJson(r) !== sortiertJson(k)) aus.ids.push(k.id);
+  }
+  return aus;
+}
 
 /** The most entries a document holds, for the "new" button. */
 export const MAX_GEGENSTAENDE = MAX_EINTRAEGE;

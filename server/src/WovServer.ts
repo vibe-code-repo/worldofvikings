@@ -8,7 +8,7 @@
  * the blacklist, admin and whitelist sets.
  */
 
-import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
+import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
 import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, SERVER_MELDUNG_BEUTE_FREMD, SERVER_MELDUNG_INVENTAR_VOLL, serverMeldungAufgesammelt, serverMeldungBesiegt, serverMeldungVollRest, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
@@ -51,7 +51,6 @@ import {
   istFrisur,
   istHaarfarbe,
   istAugenfarbe,
-  istRuestung,
   FRISUR_MEMBER,
   HAARFARBE_MEMBER,
   AUGENFARBE_MEMBER,
@@ -152,13 +151,12 @@ import {
   fordereVerwahrenAn,
   unpackContainer,
   TRUHE_INHALT_MEMBER,
-  TRUHE_LOOTED_MEMBER,
 } from '@wov/shared';
 import { resolve } from 'path';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
-import { waehleChatEmpfaenger, kuerzeChatText } from './spiel/ChatReichweite.js';
+import { handleChatMessage } from './spiel/Chat.js';
 // G12: Betriebsmetriken (Tick-Dauer, ZDO-Anzahl, Sync-Bytes/s, Peers) --
 // eigenes schmales Modul, s. dessen Kopfkommentar fuer die Abgrenzung zu
 // Zeitmessung.ts.
@@ -174,7 +172,7 @@ import {
   ausdauerSchritt,
   AUSDAUER_REGEL,
 } from '@wov/shared/src/bewegung/ausdauer.js';
-import { pickableItem, ZWEIT_DROPS, wuerfleDrop, wuerfleTruhe } from './spiel/Beute.js';
+import { pickableItem, ZWEIT_DROPS, wuerfleDrop } from './spiel/Beute.js';
 import { BEUTE_BESITZER, BeuteAmBoden, passtNachEntnahme } from './spiel/BeuteAmBoden.js';
 import { kannErnten, waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
 import { liesSchlagMeldung, pruefeSchlag, verbucheSchlag, trefferAbstand, schreibeQuittung, SchlagErgebnis, TOLERANZ_MAX_M, type SchlagErgebnisWert } from './spiel/Treffer.js';
@@ -182,6 +180,7 @@ import { EIKTHYR_HASH, BOSS_ENTRY, NPC_ENTRY } from './spiel/Sondereintraege.js'
 import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
 import { handleDungeonEditRequest, handleDungeonEditSave, handleDungeonModulBau, handleDungeonModulLoeschen } from './spiel/DungeonEditPakete.js';
 import { handleAdminCommand, handleSetTimeOfDay } from './spiel/AdminPakete.js';
+import { handleTruheOeffnen, sendeTruheInhalt, handleSetAussehen, handleSetFigur } from './spiel/Interaktion.js';
 // Tests import the weapon helpers from this file, so it keeps exporting them.
 export { gepruefteWaffe, waffeTragbar, WAFFE_PAKETNAME_OHNE_EQUIP, wirksameWaffe } from './spiel/Waffe.js';
 
@@ -556,7 +555,7 @@ export class WovServer {
   }
 
   /** Kurzform fuer den ZDO-Raum eines Peers — s. `welt()`. */
-  private zdosVon(peer: Peer): ZDOManager {
+  zdosVon(peer: Peer): ZDOManager {
     return this.welt(peer).zdos;
   }
   /** Roh-JSON des WorldLayouts (Layout-Modus) — geht in Phase 4 an Clients. */
@@ -2958,46 +2957,7 @@ export class WovServer {
   }
 
   private handleChatMessage(peer: Peer, reader: Reader): void {
-    // An editor connection is not in the world and never speaks in it.
-    if (peer.nurEditor) return;
-    const chatType = reader.readInt32();
-    // Serverseitige Längengrenze (F14) — eine rein clientseitige Grenze
-    // hält einen manipulierten/zweiten Client nie auf. kuerzeChatText
-    // statt eines nackten .slice(), damit der Test dieselbe Funktion
-    // ruft wie hier.
-    const text = kuerzeChatText(reader.readString());
-    // Frequenzlimit (vormals hier als fester 300-ms-Cooldown, Review-Punkt
-    // 11): A4 (Security-Review) ersetzt das durch die Token-Bucket-
-    // Drosselung in NetManager.handlePacket, VOR diesem Handler — ein zu
-    // schnelles ChatMessage-Paket kommt hier gar nicht mehr an.
-
-    // Broadcast — aber nur an Empfänger in Reichweite (F14). Herleitung
-    // der drei Reichweiten (Whisper/Normal/Shout) im Kopfkommentar von
-    // ChatReichweite.ts. Der Absender ist über waehleChatEmpfaenger IMMER
-    // dabei, auch ohne Empfänger in der Nähe — sonst wirkt der Chat für
-    // ihn kaputt.
-    // Privacy fix (2026-09-27): this first field used to be the sender's
-    // userId (account identity), broadcast to every recipient. The client
-    // reads and discards it (main.ts, PacketType.ChatMessage handler) —
-    // senderName already carries what the UI shows — so it now carries a
-    // constant placeholder instead of an identity.
-    const writer = new Writer();
-    writer.writeString('0');
-    writer.writeString(peer.name);
-    writer.writeInt32(chatType);
-    writer.writeString(text);
-    writer.writeVector3(peer.position);
-    const payload = writer.toBuffer();
-
-    const senderId = peer.userId.toString();
-    const kandidaten = this.net
-      .getPeers()
-      .map((p) => ({ id: p.userId.toString(), worldId: p.worldId, position: p.position, peer: p }));
-    for (const empfaenger of waehleChatEmpfaenger(kandidaten, senderId, peer.worldId, peer.position, chatType)) {
-      empfaenger.peer.sendPacket(PacketType.ChatMessage, payload);
-    }
-
-    console.log(`[Chat] ${peer.name}: ${text}`);
+    return handleChatMessage(this, peer, reader);
   }
 
   /**
@@ -3326,7 +3286,7 @@ export class WovServer {
    * Nach jeder Aenderung der Ruestung: Legte man Vitalitaets-Ruestung ab, sinkt das Maximum, und Leben
    * darueber wird gekappt (kein Heilen durch An-/Ablegen: Anlegen hebt das Leben NICHT).
    */
-  private kappeLeben(peer: Peer): void {
+  kappeLeben(peer: Peer): void {
     const max = this.maxHealth(peer);
     const gekappt = peer.health > max;
     if (gekappt) peer.health = max;
@@ -3393,7 +3353,7 @@ export class WovServer {
   }
 
   /** Autoritativen Inventarstand an den Client schicken. */
-  private inventarSync(peer: Peer): void {
+  inventarSync(peer: Peer): void {
     const parts = decodeArmor(peer.ruestung);
     for (const [slot, id] of Object.entries(parts)) {
       const armor = ruestungZu(id);
@@ -4486,172 +4446,20 @@ export class WovServer {
     return antwort(false, 'Damit kann man nichts machen');
   }
 
-  /**
-   * Truhe öffnen (F.CONTAINER, Roadmap F1) — ersetzt den früheren
-   * Ein-Bit-Schalter samt direkt an den Spieler ausgezahlter
-   * Zufallsbeute durch echten, entnehmbaren Inhalt (Container.ts).
-   *
-   * MIGRATION (Alt-Saves kennen nur TRUHE_LOOTED_MEMBER als Bit):
-   *  - Bit noch nicht gesetzt → erste Berührung seit diesem Umbau.
-   *    wuerfleTruhe() bleibt die EINZIGE Zufallsquelle (unverändert
-   *    gegenüber vorher) und befüllt jetzt die Truhe statt den Spieler
-   *    direkt zu beschenken. Das Bit wird SOFORT gesetzt — ein zweiter
-   *    Login oder ein zweiter Öffner würfelt nie ein zweites Mal, exakt
-   *    dieselbe Garantie wie vorher, nur eine Ebene tiefer (jetzt „hat
-   *    ihre Erstbefüllung schon", vorher „wurde geplündert").
-   *  - Bit bereits gesetzt (Alt-Save VOR diesem Umbau hatte die Truhe
-   *    schon per Direktauszahlung geplündert) → sie startet leer. Ihr
-   *    einziger Gegenstand ist damals schon beim Spieler gelandet, es
-   *    gibt nichts nachzuholen.
-   *
-   * Jede weitere Öffnung liest nur noch den vorhandenen Inhalt — die
-   * eigentliche Truhen-UI (nehmen/legen) läuft über ContainerAction
-   * (handleContainerAction).
-   */
   private handleTruheOeffnen(peer: Peer, ziel: ZDO, def: Prefab | undefined): void {
-    if (ziel.getInt(TRUHE_LOOTED_MEMBER) !== 1) {
-      ziel.setInt(TRUHE_LOOTED_MEMBER, 1);
-      const inv = unpackContainer(ziel.getString(TRUHE_INHALT_MEMBER));
-      const beute = wuerfleTruhe(def?.name ?? '');
-      const beuteDef = findItem(beute.name);
-      if (beuteDef) inv.addItem(beuteDef, beute.amount);
-      ziel.setString(TRUHE_INHALT_MEMBER, packContainer(inv));
-      ziel.revision.reviseData();
-      ziel.dirty = true;
-    }
-    peer.sendPacketWith(PacketType.InteractResult, (w) => {
-      w.writeBool(true);
-      w.writeString('Truhe geöffnet');
-      w.writeString('');
-      w.writeInt32(0);
-    });
-    this.sendeTruheInhalt(peer, ziel);
+    return handleTruheOeffnen(this, peer, ziel, def);
   }
 
-  /** Aktuellen Truheninhalt an GENAU diesen Peer schicken (s. PacketType.ContainerSync). */
-  private sendeTruheInhalt(peer: Peer, ziel: ZDO): void {
-    peer.sendPacketWith(PacketType.ContainerSync, (w) => {
-      w.writeString(ziel.zdoid.userId.toString());
-      w.writeInt32(ziel.zdoid.id);
-      w.writeString(ziel.getString(TRUHE_INHALT_MEMBER));
-    });
+  sendeTruheInhalt(peer: Peer, ziel: ZDO): void {
+    return sendeTruheInhalt(this, peer, ziel);
   }
 
-  /**
-   * Figurenwahl des Clients (Paket SetFigur).
-   *
-   * WAS HIER GEPRUEFT WIRD: Der Client schickt eine Kennung, und der
-   * Server glaubt sie NICHT — `istFigur()` entscheidet, ob sie in der
-   * gemeinsamen Liste steht. Ohne diese Pruefung landete ein beliebiger
-   * String am ZDO, und jeder andere Client versuchte, ihn als
-   * Modelldateinamen zu laden.
-   *
-   * WARUM DER WEG UEBER DAS ZDO: Der Member am Charakter-ZDO ist der
-   * einzige Ort, an dem die Wahl AUTOMATISCH bei allen ankommt, die den
-   * Spieler sehen — ZDOSync erledigt Verteilung und Nachzuegler. Ein
-   * eigenes Broadcast-Paket muesste beides selbst loesen und wuerde bei
-   * jemandem, der spaeter in Sichtweite kommt, schweigen.
-   *
-   * Ein Wechsel MITTEN IM SPIEL ist damit ebenfalls abgedeckt: Er
-   * aendert denselben Member, und der Sync traegt ihn weiter.
-   */
-  /**
-   * Frisur und Ruestung des Clients (Paket SetAussehen).
-   *
-   * Wie handleSetFigur: geprueft wird gegen die GEMEINSAME Liste
-   * (shared/aussehen.ts), aus der auch die Charaktererstellung ihre
-   * Auswahl baut — der Server glaubt dem Client nichts. Geschrieben wird
-   * an ZDO-Member, weil ZDOSync Verteilung und Nachzuegler von selbst
-   * loest; ein eigenes Broadcast-Paket muesste beides nachbauen und
-   * schwiege bei jedem, der spaeter in Sichtweite kommt.
-   *
-   * Leerstring ist gueltig und heisst "nichts angezogen".
-   */
   private handleSetAussehen(peer: Peer, reader: Reader): void {
-    const frisur = reader.readString();
-    const ober = reader.readString();
-    const beine = reader.readString();
-    // Vierter Wert, aber nur wenn er da ist: Ein Client von vor dem
-    // 23.08.2026 sendet drei Strings. `readString()` auf einem leeren
-    // Rest wuerfe und risse die Verbindung ab — fuer eine Haarfarbe.
-    const haarfarbe = reader.remaining() > 0 ? reader.readString() : peer.haarfarbe;
-    /*
-     * Zwei additive Protokollstaende muessen sich hier ueberlappen:
-     * Ruestungsclients von vor der Augenfarben-Auswahl schicken als
-     * fuenften String bereits das JSON der Zusatz-Slots. Neue Clients
-     * schicken erst die Augenfarbe und danach dieses JSON. Eine bekannte
-     * Augenfarben-Kennung unterscheidet beide Formen eindeutig.
-     */
-    const fuenfterWert = reader.remaining() > 0 ? reader.readString() : '';
-    const hatAugenfarbe = istAugenfarbe(fuenfterWert);
-    const augenfarbe = hatAugenfarbe
-      ? fuenfterWert
-      : istAugenfarbe(peer.augenfarbe) ? peer.augenfarbe : AUGENFARBE_VORGABE;
-    const ruestungsJson = hatAugenfarbe
-      ? reader.remaining() > 0 ? reader.readString() : ''
-      : fuenfterWert;
-    let extra: unknown = {};
-    try { if (ruestungsJson) extra = JSON.parse(ruestungsJson); }
-    catch { this.inventarSync(peer); return; }
-    if (!validArmorParts(extra, peer.figur)) { this.inventarSync(peer); return; }
-    const parts = { ...extra, oberkoerper: ober, beine };
-    if (!validArmorParts(parts, peer.figur) || Object.values(parts).some(id =>
-      id && ruestungZu(id)?.figure && !peer.inventar.all.some(i => i.shared.ruestungsteil === id))) {
-      this.inventarSync(peer); return;
-    }
-    if (
-      !istFrisur(frisur) ||
-      !istRuestung(ober) ||
-      !istRuestung(beine) ||
-      !istHaarfarbe(haarfarbe) ||
-      !istAugenfarbe(augenfarbe)
-    ) {
-      console.warn(
-        `[WoV] SetAussehen von "${peer.name}" abgelehnt: ` +
-          `frisur="${frisur.slice(0, 24)}" ober="${ober.slice(0, 24)}" ` +
-          `beine="${beine.slice(0, 24)}" haarfarbe="${haarfarbe.slice(0, 24)}" ` +
-          `augenfarbe="${augenfarbe.slice(0, 24)}" ` +
-          `— steht nicht in shared/aussehen.ts`
-      );
-      return;
-    }
-    peer.frisur = frisur;
-    peer.haarfarbe = haarfarbe;
-    peer.augenfarbe = augenfarbe;
-    peer.ruestung = encodeArmor(parts);
-    const remaining = new Set(Object.values(parts));
-    for (const item of peer.inventar.all) {
-      if (item.shared.ruestungsteil) item.equipped = remaining.delete(item.shared.ruestungsteil);
-    }
-    const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
-    if (charZDO) {
-      charZDO.setString(FRISUR_MEMBER, frisur);
-      charZDO.setString(HAARFARBE_MEMBER, haarfarbe);
-      charZDO.setString(AUGENFARBE_MEMBER, augenfarbe);
-      charZDO.setString(RUESTUNG_MEMBER, peer.ruestung);
-    }
-    this.kappeLeben(peer);
-    // F8: Ausruestungswechsel geht sofort auf die Platte.
-    this.sichereSpielerSofort(peer, 'ausruestung');
+    return handleSetAussehen(this, peer, reader);
   }
 
   private handleSetFigur(peer: Peer, reader: Reader): void {
-    const gewuenscht = reader.readString();
-    if (!istFigur(gewuenscht)) {
-      console.warn(
-        `[WoV] SetFigur von "${peer.name}" abgelehnt: "${gewuenscht.slice(0, 40)}" ` +
-          `steht nicht in FIGUREN (shared/figuren.ts)`
-      );
-      return;
-    }
-    if (peer.figur === gewuenscht) return;
-    peer.figur = gewuenscht;
-    const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
-    if (charZDO) charZDO.setString(FIGUR_MEMBER, gewuenscht);
-    // Teile, die zur neuen Figur nicht passen, fallen ab (dieselbe Pruefung wie sonst), Werte werden neu gerechnet.
-    this.inventarSync(peer);
-    this.sichereSpielerSofort(peer, 'figur'); // F8
-    console.log(`[WoV] "${peer.name}" spielt jetzt als "${gewuenscht}"`);
+    return handleSetFigur(this, peer, reader);
   }
 
   /**
@@ -6516,7 +6324,7 @@ export class WovServer {
   }
 
   /** F8: Ereignis, das sofort auf die Platte muss (Ausruestung, Schlafplatz, ...). */
-  private sichereSpielerSofort(peer: Peer, grund: string, welt: readonly ZDO[] | null = null): void {
+  sichereSpielerSofort(peer: Peer, grund: string, welt: readonly ZDO[] | null = null): void {
     this.sichereSpieler([peer], grund, welt);
   }
 

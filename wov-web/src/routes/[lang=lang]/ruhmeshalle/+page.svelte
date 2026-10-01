@@ -1,76 +1,42 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { page } from '$app/state';
   import Kopfdaten from '$lib/Kopfdaten.svelte';
-  import { holeJson } from '$lib/formate';
-  import { TAFELN, type Recke } from '$lib/recken';
+  import { datumKurz } from '$lib/formate';
+  import { HALLE_FEHLER, isoVon, profilAdresse } from '$lib/reckenAnzeige';
+  import { TAFELN, tafelZeilen } from '$lib/recken';
   import { localeFrom, localizedPath, messages } from '$lib/i18n';
+  import type { PageData } from './$types';
 
   /**
    * Die Ruhmeshalle im Entwurf "Rune & Iron".
    *
-   * Diese Seite stand dem Entwurf schon am nächsten: Marken oben, darunter
-   * eine Tafel mit rollbarer Tabelle. Neu sind die Runenzeile, die feste
-   * Zeilenbreite des Intros und die gesperrte Versaloptik der Marken.
+   * Es stehen nur Tafeln da, für die das Spiel Daten hat. Rang, Wächter, Zeit
+   * auf Fahrt und Tode gibt es erst, wenn das Spiel sie erfasst; der Hinweis
+   * unten sagt das, statt erfundene Zahlen zu zeigen. Die Daten kommen
+   * serverseitig (+page.server.ts), die Seite braucht kein JavaScript.
    */
+
+  let { data }: { data: PageData } = $props();
 
   const lang = $derived(localeFrom(page.params.lang));
   const t = $derived(messages(lang));
-
-  let recken = $state<Recke[]>([]);
-  let fehler = $state(false);
-  let geladen = $state(false);
-  let aktiv = $state(TAFELN[0].id);
-
-  const tafel = $derived(TAFELN.find((t2) => t2.id === aktiv) ?? TAFELN[0]);
-
-  const sortiert = $derived(
-    [...recken].sort((a, b) =>
-      tafel.grossIstBesser ? tafel.wert(b) - tafel.wert(a) : tafel.wert(a) - tafel.wert(b)
-    )
-  );
-
-  onMount(async () => {
-    try {
-      recken = (await holeJson<{ recken?: Recke[] }>('/api/recken.json')).recken ?? [];
-    } catch (e) {
-      console.error(e);
-      fehler = true;
-    }
-    geladen = true;
-  });
+  const kammer = $derived(localizedPath(lang, '/ruestkammer'));
+  const tafel = TAFELN[0];
+  const zeilen = $derived(tafelZeilen(tafel, data.eintraege));
 </script>
 
-<Kopfdaten titel={t['hall_of_fame.title']} beschreibung={t['hall_of_fame.description']} />
+<Kopfdaten
+  titel={t['hall_of_fame.title']}
+  beschreibung={t['hall_of_fame.description']}
+  noindex={Boolean(data.fehler)}
+/>
 
 <main class="mitte seite hall-page">
   <span class="runen kicker" aria-hidden="true">ᚱᚢᚺᛗ</span>
   <h1>{t['hall_of_fame.heading']}</h1>
   <p class="intro">{t['hall_of_fame.intro']}</p>
 
-  <div class="hinweis note">
-    <b>{t['hall_of_fame.hint.bold']}</b>
-    {t['hall_of_fame.hint.text']}
-  </div>
-
-  <div class="marken tabs" role="tablist">
-    {#each TAFELN as tf (tf.id)}
-      <!--
-        Welche Marke offen ist, steht in `aria-selected` — und genau daran
-        hängt auch ihr Aussehen. Eine zweite Klasse daneben könnte
-        auseinanderlaufen; ein Stil, der am Zustandsattribut hängt, kann das
-        nicht.
-      -->
-      <button
-        class="knopf knopf-schlicht"
-        type="button"
-        role="tab"
-        aria-selected={tf.id === aktiv}
-        onclick={() => (aktiv = tf.id)}>{t[tf.titel]}</button
-      >
-    {/each}
-  </div>
-
+  <h2 class="tafel-titel">{t[tafel.titel]}</h2>
   <div class="tafel tafel-tabelle">
     <div class="rollbar">
       <table class="tabelle">
@@ -78,34 +44,31 @@
           <tr>
             <th class="zahl">{t['hall_of_fame.table.hash']}</th>
             <th>{t['hall_of_fame.table.character']}</th>
-            <th>{t['hall_of_fame.table.clan']}</th>
             <th class="zahl">{t[tafel.spalte]}</th>
           </tr>
         </thead>
         <tbody>
-          {#if fehler}
-            <tr><td colspan="4">{t['hall_of_fame.state.error']}</td></tr>
-          {:else if !geladen}
-            <tr><td colspan="4">{t['hall_of_fame.state.loading']}</td></tr>
+          {#if !data.erreichbar}
+            <tr><td colspan="3">{t[HALLE_FEHLER[data.fehler ?? 'aus']]}</td></tr>
+          {:else if zeilen.length === 0}
+            <tr><td colspan="3">{t['hall_of_fame.state.empty']}</td></tr>
           {:else}
-            {#each sortiert as r, i (r.id)}
+            {#each zeilen as z, i (z.eintrag.id)}
               <tr>
                 <td class="zahl rang rang-{i + 1}">{i + 1}</td>
-                <td>
-                  <a
-                    href="{localizedPath(lang, '/ruestkammer')}?reck={encodeURIComponent(r.id)}"
-                    >{r.name}</a
-                  >
-                  <span class="byname">{r.beiname}</span>
-                </td>
-                <td>{r.sippe}</td>
-                <td class="zahl">{tafel.zeigen(r)}</td>
+                <td><a href={profilAdresse(kammer, z.eintrag.id)}>{z.eintrag.name}</a></td>
+                <td class="zahl">{datumKurz(isoVon(z.wert), lang)}</td>
               </tr>
             {/each}
           {/if}
         </tbody>
       </table>
     </div>
+  </div>
+
+  <div class="hinweis note">
+    <b>{t['hall_of_fame.soon.bold']}</b>
+    {t['hall_of_fame.soon.text']}
   </div>
 </main>
 
@@ -135,29 +98,13 @@
     line-height: 1.65;
   }
 
+  .tafel-titel {
+    margin: 0 0 1rem;
+    font-size: 22px;
+  }
+
   .note {
-    margin-bottom: 2rem;
-  }
-
-  .tabs {
-    margin-bottom: 1.2rem;
-  }
-
-  .tabs button {
-    padding: 0.7rem 1.2rem;
-    font-size: 12px;
-    text-transform: uppercase;
-  }
-
-  .tabs button[aria-selected='true'] {
-    color: var(--runengold);
-    border-color: var(--umriss);
-  }
-
-  /* Der Beiname steht hinter dem verlinkten Namen und ist kein Link — er
-     muss sich davon absetzen, sonst liest sich die Zelle als ein Name. */
-  .byname {
-    color: var(--text-matt);
+    margin-top: 2rem;
   }
 
   /*

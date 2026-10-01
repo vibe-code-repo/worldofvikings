@@ -60,10 +60,10 @@ export const ARMORY_SCHRITT_MS = 2;
 export const ARMORY_SUCHE_MIN = 2;
 /** Zahl der Eimer des Suchindex (fest). */
 export const ARMORY_EIMER = 65_536;
-const ARMORY_SEITE_ZEILEN = 500;
-const ARMORY_LAUF = 2048;
-const ARMORY_MISCH_MASKE = 2047;
-const ARMORY_INDEX_MASKE = 1023;
+const ARMORY_SEITE_ZEILEN = 250;
+const ARMORY_LAUF = 1024;
+const ARMORY_MISCH_MASKE = 1023;
+const ARMORY_INDEX_MASKE = 511;
 /** Ergebnis-Puffer der Suche je Speicherstand: Eintraege und Gesamtzahl der Positionen. */
 const ARMORY_SUCH_CACHE_MAX = 256;
 const ARMORY_SUCH_CACHE_INTS = 2_000_000;

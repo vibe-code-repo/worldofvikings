@@ -818,6 +818,9 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   const umgestellt = listenTausch([lis('C', 30), lis('B', 20), lis('A', 10)]);
   pruefe(gezeigt(umgestellt) === '0=C 1=B 2=A' && umgestellt.nachListen.at(-1) === 'alle', `11: gleiche ids, andere Reihenfolge: die ganze Liste wird neu aufgebaut (${gezeigt(umgestellt)})`);
 
+  const verschoben = listenTausch([lis('A', 10), lis('B', 21), lis('C', 30)]);
+  pruefe(verschoben.nachListen.at(-1) === 'alle' && Math.abs(verschoben.angezeigt.get(1)! - verschoben.welt.getGroundHeight(21, 0)) < 1e-9, '11: gleiche ids und Reihenfolge, aber ein Objekt verschoben: die ganze Liste wird neu aufgebaut, B steht auf dem Boden an der neuen Stelle');
+
   // N3/N2-1: the other tab changed ONLY the list; the next step of the flight must not redraw by positions of the new list
   const nurListe = (schritt: 'strich' | 'rueckgaengig' | 'wiederholen'): Aufbau => {
     const ab = aufbau({ ...LAYOUT, placements: [lis('A', 10), lis('B', 20), lis('C', 30)] });

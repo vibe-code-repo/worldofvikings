@@ -479,6 +479,9 @@ export class SpawnSystem {
           syncAccum: 0,
         };
         this.nimmAuf(key, c);
+        // Aus dem Save geladen steht jede Kreatur in `wandern` (die KI-Phase wird nicht gespeichert): Eine mit
+        // Leine (Wolf) bekommt volle Lebenspunkte, sonst bliebe sie mit 1 LP verwundet.
+        if (c.steck && Number.isFinite(c.steck.leine)) this.fuelleLeben(c);
         // A creature from the save may still say `walk` or `attack`.
         this.zeigeAnim(c, 'idle');
       }
@@ -689,7 +692,12 @@ export class SpawnSystem {
         if (c.ki && c.steck && c.ki.phase !== 'wandern') this.kiLauf(key, c, deltaSec, kiZiele, angriffsSlots);
         continue;
       }
-      if (nearest.distSqr > simSqr) continue;
+      if (nearest.distSqr > simSqr) {
+        // Außerhalb der Simulation steht die Kreatur: mitten in `heimkehren` (unverwundbar) einzufrieren hieße,
+        // dass sie es bleibt. Sie gilt als zu Hause: volle Lebenspunkte, Phase `wandern`.
+        if (c.ki && c.steck && c.ki.phase !== 'wandern' && Number.isFinite(c.steck.leine)) this.setzeZuHause(c);
+        continue;
+      }
 
       const entry = c.entry;
 
@@ -839,16 +847,20 @@ export class SpawnSystem {
       return false;
     }
     // Der Modus bleibt lesbar (D2 liest daraus das Tempo): laufend = chase, sonst steht sie.
-    c.mode = befehl.bewegung === 'laeuft' ? 'chase' : 'idle';
+    // Die Heimkehr geht im Gehtempo der Art (`walkSpeed`, vorhandene Zahl) mit dem Clip `walk`: Der Spieler sieht,
+    // dass der Wolf abzieht, und die Beine rutschen nicht (der Client koppelt die Clip-Rate an die Bodengeschwindigkeit;
+    // `run` mit Gehtempo oder `walk` mit Lauftempo wären Zeitlupe bzw. ein Wirbel). Modus `walk`: `tempo()` (D2) liest daraus.
+    const heim = befehl.phase === 'heimkehren';
+    c.mode = befehl.bewegung === 'laeuft' ? (heim ? 'walk' : 'chase') : 'idle';
     if (befehl.bewegung === 'laeuft') {
       // Anrennen ohne Kappung (wie vor der Zustandsmaschine); nur der Heimweg endet genau am Ziel.
-      const step = befehl.phase === 'heimkehren' ? Math.min(c.entry.runSpeed * deltaSec, befehl.maxWeg) : c.entry.runSpeed * deltaSec;
+      const step = heim ? Math.min(c.entry.walkSpeed * deltaSec, befehl.maxWeg) : c.entry.runSpeed * deltaSec;
       const vx = p.x;
       const vz = p.z;
       if (step > 0) this.moveStep(c, befehl.dirX, befehl.dirZ, step);
       const np = c.zdo.position;
       c.gelaufen = Math.sqrt((np.x - vx) ** 2 + (np.z - vz) ** 2);
-      this.zeigeAnim(c, 'run');
+      this.zeigeAnim(c, heim ? 'walk' : 'run');
     } else {
       if (befehl.blickX !== 0 || befehl.blickZ !== 0) this.richte(c, befehl.blickX, befehl.blickZ);
       this.zeigeAnim(c, befehl.phase === 'kaempfen' ? 'attack' : 'idle');
@@ -862,6 +874,16 @@ export class SpawnSystem {
       }
     }
     return true;
+  }
+
+  /** Zu Hause (außerhalb der Simulation, neu geladen): frische KI, volle Lebenspunkte, Schadensanteile vergessen. */
+  private setzeZuHause(c: CreatureState): void {
+    c.ki = neuerKiZustand();
+    this.beiAnteileVergessen?.(c.zdo);
+    this.fuelleLeben(c);
+    c.mode = 'idle';
+    c.idleUntil = this.simTime + this.rng.rangeFloat(c.entry.idleMinSec, c.entry.idleMaxSec);
+    this.zeigeAnim(c, 'idle');
   }
 
   /** Volle Lebenspunkte (Heimkehr): der Wert der Art aus `maxLeben`. */
@@ -891,7 +913,11 @@ export class SpawnSystem {
     return (x, z) => this.heightmaps.getGroundHeight(x, z) >= c.entry.minAltitude;
   }
 
-  /** Blickrichtung setzen, erst ab 3° Änderung (jede Schreibung kostet Sync). */
+  /**
+   * Blickrichtung setzen, erst ab 3° Änderung (jede Schreibung kostet Sync). 3°: kleiner als die Drehung, die
+   * ein Spieler bei 4 Hz Sync und 230° Sichtkegel erkennt (ein Schritt der Wanderrichtung ändert den Blick um
+   * wenige Grad); jede Schreibung hebt die ZDO-Revision und damit Netzlast. Gewählt, nicht gemessen.
+   */
   private richte(c: CreatureState, bx: number, bz: number): void {
     const yaw = Math.atan2(bx, bz);
     let d = yaw - yawVon(c.zdo.rotation);

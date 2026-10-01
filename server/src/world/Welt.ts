@@ -202,7 +202,7 @@ export class Welt {
         : this.zones.update(positionen);
     this.spawns?.update(deltaSec, positionen, ziele, zielInfo);
     this.routen.update(deltaSec, positionen);
-    this.aggro.update(deltaSec, ziele);
+    this.aggro.update(deltaSec, ziele, zielInfo);
     return { neueZonen };
   }
 

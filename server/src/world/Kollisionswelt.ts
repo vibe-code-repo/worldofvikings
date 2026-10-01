@@ -139,7 +139,12 @@ export interface Nahfeld extends BodenAbfrage, HindernisAbfrage {
  */
 const HERAUS_TIEFE = 1.15;
 
-/** Wie oft ein Schub in derselben Richtung weitergeht, wenn er im Nachbarfels landet. */
+/**
+ * Wie oft ein Schub in derselben Richtung weitergeht, wenn er im Nachbarfels landet. 8: Ein dicker Block
+ * (7 × 7 Felsen im Abstand 1,5 m, rund 12 m breit) braucht 3 bis 4 Schübe quer durch; acht lassen
+ * die doppelte Reserve und begrenzen die Kosten (je Schub bis zu 16 Sweeps je Form) auf einen Haufen,
+ * den es im Spiel nicht gibt. Der Test [22] (Block aus 49 Felsen) tötet den Wert 1.
+ */
 const HERAUS_SCHRITTE = 8;
 
 /** Luft hinter der Formflaeche, wenn ein Koerper herausgeschoben wird, in m. */

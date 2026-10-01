@@ -62,11 +62,31 @@ export const HEIM_ANKUNFT_M = 0.5;
  * setzt sie ihn auf ihre Position und wandert dort weiter (Ausweg aus Fels,
  * Wand oder einem Anker im Fels).
  *
- * 5 s: Der Wolf läuft 4,9 m/s; die Leine ist 12 m, der gerade Heimweg also
- * rund 2,5 s. 5 s sind das Doppelte davon; wer um ein Hindernis herum
- * läuft, hat in dieser Zeit mehr Fortschritt als `HEIM_FORTSCHRITT_M`.
+ * 5 s: Die Heimkehr geht im Gehtempo des Wolfs (1,0 m/s), in 5 s also 5 m. Wer um ein Hindernis
+ * herum läuft, kommt in dieser Zeit mehr als `HEIM_FORTSCHRITT_M` (0,25 m) näher; wer in 5 s nicht
+ * einmal 0,25 m schafft, steckt fest. Kürzer (etwa 2 s) schnitte schon einen normalen Bogen um einen
+ * Felsen ab, deutlich länger hielte einen Festsitzer unnötig lange unverwundbar und stumm. Der Test
+ * [13] (Wand) und [23] (Schleicher) halten den Wert fest.
  */
 export const HEIMKEHR_FESTSITZEN_SEC = 5;
+
+/**
+ * Bis zu diesem Tempo des Ziels (m/s, geglättet) läuft die Kreatur außen herum; schneller
+ * ist das Ziel auf der Flucht und wird direkt verfolgt. Der Bogen (Tangente plus 30 % nach
+ * innen) ist bis etwa 1,5-mal so lang wie der gerade Weg; der Wolf läuft 4,9 m/s und holt damit
+ * ein Ziel bis rund 3 m/s ein. 1,5 m/s (ein Schlendern, ein Drehen auf der Stelle, ein
+ * Stehenbleiben) ist die Hälfte davon als Reserve und liegt klar unter dem Gehtempo (4,5 m/s):
+ * Wer geht oder läuft, wird nicht umlaufen. Sonst liefe jeder Wolf einem Weglaufenden im Bogen
+ * hinterher, gäbe nach der Verfolgungsstrecke auf und heilte voll.
+ */
+export const UMLAUF_ZIELTEMPO_MAX_MPS = 1.5;
+
+/**
+ * Glättung des Ziel-Tempos in Sekunden (Zeitkonstante): Die Positionen der Spieler kommen im
+ * Takt der Eingabepakete, ein einzelner Tick ohne Bewegung darf das Ziel nicht „stehen“ lassen.
+ * 0,4 s sind rund acht Ticks zu 0,05 s.
+ */
+const ZIELTEMPO_GLAETTUNG_SEC = 0.4;
 
 /**
  * Fortschritt, der die Uhr zurücksetzt: 0,25 m in 5 s = 0,05 m/s. Wer
@@ -149,6 +169,8 @@ export interface KiZustand {
   heimStillSec: number;
   /** Ziele, an denen sie aufgegeben hat (Leine, Strecke, Zeit): nicht gleich wieder bemerken. */
   readonly aufgegeben: Set<string>;
+  /** Letzte Position und geglättetes Tempo (m/s) der Ziele: Ein fliehendes Ziel wird nicht umlaufen. */
+  readonly zielBewegung: Map<string, { x: number; z: number; tempo: number }>;
   readonly tabelle: Map<string, KiEintrag>;
 }
 
@@ -165,6 +187,7 @@ export function neuerKiZustand(): KiZustand {
     heimBest: Infinity,
     heimStillSec: 0,
     aufgegeben: new Set(),
+    zielBewegung: new Map(),
     tabelle: new Map(),
   };
 }
@@ -308,9 +331,13 @@ function gibAuf(z: KiZustand): void {
 }
 
 function wechsle(z: KiZustand, phase: KiPhase): void {
+  const alt = z.phase;
   z.phase = phase;
   z.phaseSec = 0;
-  if (phase === 'anrennen') {
+  // Das Verfolgungsbudget beginnt neu, wenn die Verfolgung neu beginnt (aus `bemerkt`) oder nach einem
+  // Rückzug (der Kampf geht weiter). Nicht bei `kaempfen → anrennen`: Wer eben ausser Reichweite tritt
+  // und wieder heran lässt, hielte den Wolf sonst unbegrenzt hin.
+  if (phase === 'anrennen' && (alt === 'bemerkt' || alt === 'zurueckziehen')) {
     z.verfolgtSec = 0;
     z.strecke = 0;
   }
@@ -361,10 +388,14 @@ function umlaufRichtung(
   s: KiSteckbrief,
   w: KiWelt,
   ziel: KiZiel,
-  abstand: number
+  abstand: number,
+  zielTempo: number
 ): { x: number; z: number } | null {
   if (!s.umlaufen || ziel.blick == null || !Number.isFinite(s.leine)) return null;
+  // Nahfeld: höchstens die halbe Leine. Weiter weg lohnt der Bogen nicht, und innerhalb der Leine
+  // bleibt er so immer kürzer als der Weg heim.
   if (abstand <= s.angriffReichweite || abstand > s.leine / 2) return null;
+  if (zielTempo > UMLAUF_ZIELTEMPO_MAX_MPS) return null;
   // Blickrichtung des Ziels: forward = (−sin yaw, −cos yaw) (Konvention der Peers).
   const fx = -Math.sin(ziel.blick);
   const fz = -Math.cos(ziel.blick);
@@ -379,7 +410,11 @@ function umlaufRichtung(
     tx = -tx;
     tz = -tz;
   }
-  // Ein Anteil nach innen, damit der Bogen sich dem Ziel nähert.
+  // Ein Anteil nach innen, damit der Bogen sich dem Ziel nähert. 0,3 ist ein gewählter, nicht
+  // gemessener Wert (Entwurf D4): Ohne Anteil liefe die Kreatur auf einem Kreis um das Ziel und
+  // käme ihm nie näher; je größer der Anteil, desto geradliniger der Weg und desto weniger „außen
+  // herum“. Mit 0,3 weicht der Weg sichtbar seitlich aus (Test [11]: Seitenlage bis 3,9 m aus 8 m)
+  // und schließt trotzdem in wenigen Metern. Wer ihn ändert, ändert das Aussehen des Anlaufs.
   const ix = -rx;
   const iz = -rz;
   const bx = tx + 0.3 * ix;
@@ -410,6 +445,22 @@ export function kiSchritt(
   // ── Alter, Verfall, Wahrnehmung ───────────────────────────────────
   for (const e of z.tabelle.values()) e.alter += dt;
   z.phaseSec += dt;
+
+  // Tempo der Ziele (geglättet), für die Entscheidung „umlaufen oder direkt“.
+  for (const ziel of w.ziele) {
+    const vor = z.zielBewegung.get(ziel.key);
+    if (!vor) {
+      z.zielBewegung.set(ziel.key, { x: ziel.x, z: ziel.z, tempo: 0 });
+    } else if (dt > 0) {
+      const roh = Math.sqrt((ziel.x - vor.x) ** 2 + (ziel.z - vor.z) ** 2) / dt;
+      vor.tempo += (roh - vor.tempo) * (1 - Math.exp(-dt / ZIELTEMPO_GLAETTUNG_SEC));
+      vor.x = ziel.x;
+      vor.z = ziel.z;
+    }
+  }
+  for (const key of z.zielBewegung.keys()) {
+    if (!w.ziele.some((q) => q.key === key)) z.zielBewegung.delete(key);
+  }
 
   const amLeben = new Set<string>();
   for (const ziel of w.ziele) amLeben.add(ziel.key);
@@ -524,7 +575,7 @@ export function kiSchritt(
         wechsle(z, 'kaempfen');
         continue;
       }
-      const um = umlaufRichtung(s, w, t.ziel, r.d);
+      const um = umlaufRichtung(s, w, t.ziel, r.d, z.zielBewegung.get(t.ziel.key)?.tempo ?? 0);
       const dir = um ?? r;
       return befehl('laeuft', dir.x, dir.z, r.d - s.angriffReichweite, r.x, r.z, r.d);
     }

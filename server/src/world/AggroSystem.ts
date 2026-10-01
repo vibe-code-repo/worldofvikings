@@ -151,7 +151,11 @@ export class AggroSystem {
     return this.gesperrt.size;
   }
 
-  update(deltaSec: number, peerPositions: readonly Vector3[]): void {
+  /**
+   * `zielInfo` (optional) ist parallel zu `peerPositions`: die stabile Kennung je Spieler. Ohne sie zählt der Listenindex,
+   * und dann erbt der Spieler, der nach dem Abmelden eines anderen auf dessen Platz rutscht, dessen Aggro.
+   */
+  update(deltaSec: number, peerPositions: readonly Vector3[], zielInfo: readonly { readonly id: string }[] = []): void {
     this.accum += deltaSec;
     if (this.accum < this.pruefIntervallSec) return;
     // Die WIRKLICH vergangene Zeit, nicht das Intervall: Der Schritt des
@@ -171,7 +175,7 @@ export class AggroSystem {
     // auf und bekäme zwei widersprüchliche Blickrichtungen.
     const kandidaten = this.sucheKandidaten(peerPositions);
     const nochAktiv = new Set<string>();
-    const ziele: KiZiel[] = peerPositions.map((p, i) => ({ key: `p${i}`, x: p.x, z: p.z }));
+    const ziele: KiZiel[] = peerPositions.map((p, i) => ({ key: zielInfo[i]?.id ?? `p${i}`, x: p.x, z: p.z }));
 
     for (const { zdo, name } of kandidaten.values()) {
       const key = zdo.zdoid.toString();

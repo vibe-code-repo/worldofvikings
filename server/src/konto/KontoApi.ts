@@ -45,7 +45,7 @@ import { herkunftErmitteln } from '../net/Herkunft.js';
 import { tokenAusstellen, type SpielerId } from '../net/Identitaet.js';
 import { EDITOR_NAME, nameHatSteuerzeichen, namenSchluessel } from '../net/Namen.js';
 import { WEBSITE_URSPRUENGE } from '../net/WebsiteUrspruenge.js';
-import { Armory } from './Armory.js';
+import { Armory, aufStunde, aufTag } from './Armory.js';
 import { Kontendatenbank, PROFILTEXT_MAX, type Charakter, type GeloeschtesKonto } from './Kontendatenbank.js';
 import { passwortEinlagern, passwortPruefen, veraltet } from './Passwort.js';
 import {
@@ -676,7 +676,13 @@ export class KontoApi {
     // Recken: wuerde er an jedem Charakter haengen, verriete der gleiche
     // Text, welche Charaktere derselben Person gehoeren.
     const profil = this.db.avatarVon(c.kontoId) === c.id ? this.db.profilTextVon(c.kontoId) : '';
-    this.json(res, 200, { character: { ...nachAussen(c), profile: profil } });
+    // Fuer FREMDE Aufrufer gerundet (wie die Ruestkammer): `lastPlayed` auf volle Stunden, `created` auf volle Tage.
+    // Dem Besitzer liefern `/accounts/me` und die Konto-Wege weiter die genauen Werte.
+    this.json(res, 200, {
+      character: {
+        ...nachAussen(c), created: aufTag(c.erstellt), lastPlayed: aufStunde(c.zuletztGespielt), profile: profil,
+      },
+    });
   }
 
   /**

@@ -899,7 +899,8 @@ export class Kontendatenbank {
 
   /**
    * Fingerabdruck dessen, was die Sichtbarkeit aendert: Anzahl und hoechste Id
-   * der Charaktere (Loeschen, Anlegen) und der Text aller Konto-/Spielerbanns
+   * der Charaktere (Loeschen, Anlegen), juengste Erstellzeit (eine wiederverwendete Id nach dem Loeschen der hoechsten
+   * aendert Anzahl und hoechste Id nicht) und der Text aller Konto-/Spielerbanns
    * (Art, Ziel, Zeitpunkt, Frist). Ein Zaehler oder eine Summe liesse zu, dass
    * ein geloeschter und ein neuer Bann in derselben Millisekunde (Zeilen-Ids
    * werden wiederverwendet) denselben Wert ergeben. Die
@@ -909,10 +910,11 @@ export class Kontendatenbank {
   armoryStempel(): string {
     this.armoryStempelAbfrage ??= this.db.prepare(`SELECT
       (SELECT COUNT(*) FROM charaktere) AS cn, (SELECT COALESCE(MAX(id), 0) FROM charaktere) AS cm,
+      (SELECT COALESCE(MAX(erstellt), 0) FROM charaktere) AS ce,
       (SELECT COALESCE(group_concat(art || ':' || wert || ':' || gesetzt || ':' || COALESCE(bis, ''), '|' ORDER BY art, wert), '')
          FROM banns WHERE art IN ('konto', 'spieler')) AS bs`);
     const z = this.armoryStempelAbfrage.get() as Record<string, number | string>;
-    return `${z.cn}:${z.cm}:${z.bs}`;
+    return `${z.cn}:${z.cm}:${z.ce}:${z.bs}`;
   }
 
   /** Einmal vorbereitet: der Stempel wird bei jeder Ruestkammer-Anfrage gebraucht. */

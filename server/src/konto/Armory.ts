@@ -522,7 +522,12 @@ export class Armory {
 
 /** `zuletztGespielt` wird nach aussen nur auf volle Stunden abgerundet gezeigt (ms-Wert der Stunde): so ist die Reihenfolge innerhalb einer Stunde nicht ablesbar. */
 export const ARMORY_ZEIT_RASTER_MS = 3_600_000;
-function aufStunde(ms: number | null): number | null {
+/** `erstellt` wird nach aussen auf volle Tage (UTC) abgerundet: ms-genaue Erstellzeiten machen Charaktere eines Kontos verknuepfbar. */
+export const ARMORY_TAG_RASTER_MS = 86_400_000;
+export function aufTag(ms: number): number {
+  return Math.floor(ms / ARMORY_TAG_RASTER_MS) * ARMORY_TAG_RASTER_MS;
+}
+export function aufStunde(ms: number | null): number | null {
   return ms === null ? null : Math.floor(ms / ARMORY_ZEIT_RASTER_MS) * ARMORY_ZEIT_RASTER_MS;
 }
 
@@ -574,7 +579,7 @@ export function baueEintrag(z: ArmoryZeile): ArmoryEintrag {
     name: z.name,
     klasse: z.klasse,
     aussehen: { figur: z.figur, frisur: z.frisur, haarfarbe: z.haarfarbe, augenfarbe: z.augenfarbe },
-    erstellt: z.erstellt,
+    erstellt: aufTag(z.erstellt),
     zuletztGespielt: aufStunde(z.zuletztGespielt),
   };
 }

@@ -986,6 +986,72 @@ try {
     } finally { rmSync(ordner6, { recursive: true, force: true }); }
   }
 
+  // ── 22. N8: oeffentliche Zeiten gerundet (B1, erstellt), wiederverwendete Id (B2), Stempel ohne Index (B3) ─
+  {
+    const TAG = 86_400_000;
+    // B1: der oeffentliche Charakterweg liefert lastPlayed nur auf volle Stunden, created nur auf volle Tage; die Rohwerte stehen in der DB.
+    const rd = konto('Rundkonto');
+    const rund = figur(rd, 'Rund Rolf');
+    roh.prepare('UPDATE charaktere SET erstellt = ?, zuletzt_gespielt = ? WHERE id = ?').run(20_000 * TAG + 12_345, 7 * H + 123_456, rund.id);
+    const oef = (await hole(`/accounts/characters/${rund.id}`)).daten.character;
+    assert.equal(oef.lastPlayed, 7 * H, 'oeffentlicher Weg: lastPlayed auf volle Stunden');
+    assert.equal(oef.created, 20_000 * TAG, 'oeffentlicher Weg: created auf volle Tage');
+    assert.equal(db.charakterNachId(rund.id)!.zuletztGespielt, 7 * H + 123_456, 'die Datenbank behaelt den Rohwert');
+    jetzt += ARMORY_CACHE_MS + 1;
+    const lr = (await listeFrisch('?q=rund rolf')).daten.eintraege[0];
+    assert.equal(lr.erstellt, 20_000 * TAG, 'Liste: erstellt auf volle Tage');
+    assert.equal(lr.zuletztGespielt, 7 * H, 'Liste: zuletzt gespielt auf volle Stunden');
+    const pr = (await profil(rund.id)).daten;
+    assert.equal(pr.erstellt, 20_000 * TAG, 'Profil: erstellt auf volle Tage');
+    assert.equal(pr.zuletztGespielt, 7 * H);
+    // Der Besitzer sieht seine genauen Werte weiter (/accounts/me).
+    {
+      const kopf = (n: number) => ({ 'content-type': 'application/json', 'x-forwarded-for': `198.18.0.${n}` });
+      const reg = await fetch(`${basis}/accounts/register`, { method: 'POST', headers: kopf(11), body: JSON.stringify({ username: 'Eigenkonto', email: 'eigen@example.org', password: 'geheimespasswort1' }) });
+      const token = ((await reg.json()) as Json).token as string;
+      const neu = await fetch(`${basis}/accounts/characters`, { method: 'POST', headers: { ...kopf(12), 'x-wov-account': token }, body: JSON.stringify({ name: 'Eigen Erik', figure: 'wikingerin', hairstyle: 'H_01', hairColor: 'mittelbraun', eyeColor: 'fjordblau', top: '', legs: '' }) });
+      const eigenId = (((await neu.json()) as Json).character as Json).id as number;
+      const me = (await (await fetch(`${basis}/accounts/me`, { headers: { ...kopf(13), 'x-wov-account': token } })).json()) as Json;
+      const eigen = (me.characters as Json[]).find((c) => c.id === eigenId)!;
+      assert.equal(eigen.created, db.charakterNachId(eigenId)!.erstellt, 'der Besitzer bekommt created genau');
+      assert.notEqual((eigen.created as number) % TAG, 0, 'und nicht auf Tage gerundet');
+    }
+
+    // B2: eine wiederverwendete Id (hoechste Id roh geloescht, neuer Charakter) aendert Zahl und hoechste Id nicht; die Liste zeigt sofort den Neuen.
+    {
+      const idk = konto('Idkonto');
+      const alt = figur(idk, 'Idalt Alfred');
+      const hoechste = (roh.prepare('SELECT MAX(id) AS m FROM charaktere').get() as { m: number }).m;
+      assert.equal(alt.id, hoechste, 'der Alte hat die hoechste Id');
+      assert.equal((await listeFrisch('?q=idalt')).daten.gesamt, 1);
+      roh.prepare('DELETE FROM charaktere WHERE id = ?').run(alt.id);
+      await new Promise<void>((ok) => setTimeout(ok, 5)); // andere Erstellzeit als der Alte
+      const neu = figur(idk, 'Idneu Norbert');
+      assert.equal(neu.id, alt.id, 'die Id wird wiederverwendet (Zahl und hoechste Id unveraendert)');
+      const l = (await listeFrisch('?q=id')).daten;
+      assert.ok(namen(l).includes('Idneu Norbert'), 'die Liste zeigt sofort den Neuen');
+      assert.ok(!namen(l).includes('Idalt Alfred'), 'und nicht den Alten');
+    }
+
+    // B3: der Stempel ist auch ohne den Index `banns_eindeutig` unabhaengig von der Zeilenfolge (ORDER BY im Aggregat, nicht der Index).
+    {
+      const ordner7 = mkdtempSync(join(tmpdir(), 'wov-konto-armory-g-'));
+      try {
+        const db7 = new Kontendatenbank(join(ordner7, 'konten.db'));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw7 = (db7 as any).db as { exec(s: string): void; prepare(s: string): { run(...a: unknown[]): unknown } };
+        raw7.exec('DROP INDEX banns_eindeutig');
+        const ins = (wert: string): void => { raw7.prepare("INSERT INTO banns (art, wert, grund, gesetzt_von, gesetzt, bis) VALUES ('konto', ?, '', '', 2000, NULL)").run(wert); };
+        ins('987001');
+        ins('987002');
+        const v = db7.armoryStempel();
+        raw7.prepare("DELETE FROM banns WHERE wert = '987001'").run();
+        ins('987001'); // ohne Index laeuft die Abfrage jetzt in Zeilenfolge: 987002, 987001
+        assert.equal(db7.armoryStempel(), v, 'gleicher Bestand, andere Zeilenfolge, kein Index: gleicher Stempel');
+      } finally { rmSync(ordner7, { recursive: true, force: true }); }
+    }
+  }
+
   // ── 8. Puffer ─────────────────────────────────────────────────────
   zuletzt(ulf.id, 5 * H);
   jetzt += ARMORY_CACHE_MS + 1;

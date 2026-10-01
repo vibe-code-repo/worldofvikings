@@ -90,8 +90,13 @@
     {#if !liste}
       <p class="leer-zustand">{t[KAMMER_FEHLER[data.fehler ?? 'aus']]}</p>
     {:else if liste.eintraege.length === 0}
+      <!-- Zu allgemeine Suche ohne Treffer im Anfangsstück: der Hinweis geht vor „keine Treffer“. -->
       <p class="leer-zustand">
-        {suchLeer || liste.suche === '' ? t['armory.state.empty'] : t['armory.state.no_match']}
+        {liste.sucheGekuerzt
+          ? t['armory.search.too_general']
+          : suchLeer || liste.suche === ''
+            ? t['armory.state.empty']
+            : t['armory.state.no_match']}
       </p>
     {:else}
       {#if data.q !== '' && liste.suche === ''}

@@ -268,6 +268,13 @@ beschreibe('Rüstkammer ohne JavaScript (gebauter Stand)', () => {
     expect(r.main).not.toContain('rel="next"');
     expect(r.main).toContain('rel="prev"');
     expect((await frage('/en/armory?q=ig&seite=2')).text).toMatch(/at least 48 hits/);
+    // Gekürzt, aber leere Liste (z. B. 20× „İ“): der Hinweis, nicht „keine Treffer“ / „noch niemand“.
+    modus = () => listeAntwort([], { suche: 'i̇i̇', suche_gekuerzt: true });
+    const leerGekuerzt = await frage('/de/ruestkammer?q=İİİİİİİİİİİİİİİİİİİİ');
+    expect(leerGekuerzt.status).toBe(200);
+    expect(leerGekuerzt.text).toContain('zu allgemein');
+    expect(leerGekuerzt.text).not.toMatch(/Kein Recke dieses Namens|noch niemand/);
+    expect((await frage('/en/armory?q=İİİİİİİİİİİİİİİİİİİİ')).text).toContain('too general');
     // Nicht gekürzt (oder Feld fehlt): normaler Zähler, kein Hinweis.
     modus = () => stueck(1, false);
     const normal = await frage('/de/ruestkammer?q=ig');

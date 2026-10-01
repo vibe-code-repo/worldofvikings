@@ -646,6 +646,7 @@ const STUFE_MAX = 999;
  * Spielzeit selbst fliesst im normalen Takt in 5-Minuten-Stufen ein). Dieses Risiko ist entschieden und wird getragen
  * (Mike, 01.10.2026: "so lassen, Text korrigieren"). Wer es ausschliessen will, muss Tode und Spielzeit aus einem
  * Tagesstand liefern, den ein fester Zeitpunkt fuer alle Charaktere zieht.
+ * Weil beim Abmelden exakt gesichert wird, verraet der Stundensprung auch den Abmeldezeitpunkt.
  */
 function leseSpielwerte(g: Record<string, unknown>): Partial<Pick<ArmoryProfil, 'stufe' | 'tode' | 'spielzeitMinuten' | 'fertigkeiten'>> {
   const aus: Partial<Pick<ArmoryProfil, 'stufe' | 'tode' | 'spielzeitMinuten' | 'fertigkeiten'>> = {};
@@ -662,7 +663,7 @@ function leseSpielwerte(g: Record<string, unknown>): Partial<Pick<ArmoryProfil, 
       if (!FERTIGKEIT_ID.test(id)) continue;
       const eintrag = (roh as Record<string, unknown>)[id];
       const rang = eintrag && typeof eintrag === 'object' ? bereinigeZaehler((eintrag as Record<string, unknown>).rang, STUFE_MAX) : undefined;
-      if (rang !== undefined) liste.push({ name: `fertigkeit.${id}`, stufe: rang });
+      if (rang !== undefined && rang >= 1) liste.push({ name: `fertigkeit.${id}`, stufe: rang });
     }
     if (liste.length > 0) aus.fertigkeiten = liste;
   }

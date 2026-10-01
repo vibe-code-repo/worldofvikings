@@ -4119,7 +4119,6 @@ export class WovServer {
       // Which side the blow comes from (attacker position vs. the victim's view yaw).
       const richtung = richtungZuAngreifer(peer.blickYaw ?? null, peer.position, pos);
       if (peer.health <= 0) {
-        peer.spielwerte.zaehleTod(); // BEFORE the 'tod' save of the revival, so the counter lands in the same row
         // Death: with a lying time the figure falls and stays down until belebeFaellige
         // revives it; without one (0 ms, tests of the old behaviour) it gets up at once.
         if (this.liegezeitMs > 0) this.stirb(peer, todClipFuer(richtung));
@@ -4160,6 +4159,7 @@ export class WovServer {
    * belebeFaellige revives him afterwards at the bed / start point.
    */
   private stirb(peer: Peer, clip: TodClip): void {
+    peer.spielwerte.zaehleTod(); // every death passes here or `belebeNeu(.., true)`; BEFORE the 'tod' save of the revival, so the counter lands in the same row
     peer.totBis = Date.now() + this.liegezeitMs;
     peer.paradeBis = 0;
     peer.health = 0;
@@ -4192,6 +4192,7 @@ export class WovServer {
    */
   private belebeNeu(peer: Peer, sofort: boolean): void {
     const warTot = peer.totBis > 0;
+    if (sofort) peer.spielwerte.zaehleTod(); // immediate revival = a death without lying time (`stirb` was skipped)
     peer.totBis = 0;
     // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.
     peer.health = lebensmaximum(this.werteVon(peer).vitality, 0);

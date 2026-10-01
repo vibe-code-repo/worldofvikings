@@ -16,7 +16,7 @@ import WebSocket from 'ws';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { rmSync } from 'fs';
-import { PacketType, type Vector3 } from '@wov/shared';
+import { PacketType, TOD_CLIPS, type Vector3 } from '@wov/shared';
 import { antwortBerechnen, spielerIdErzeugen, tokenAusstellen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
 import { portVon } from '../../scripts/testport.mjs';
@@ -123,13 +123,14 @@ function teil2(): void {
   check('tode 0 bleibt 0 (erfasst)', profil({ tode: 0 }).tode === 0);
   const g = profil({
     stufe: 7, xp: 120, xpGesamt: 9999, erfahrung: 5,
-    fertigkeiten: { schmieden: { rang: 4, xp: 50 }, kochen: { rang: 2, xp: 7 }, '': { rang: 1 }, 'a b': { rang: 1 }, kaputt: 5, negativ: { rang: -1 }, ohne: {} },
+    fertigkeiten: { schmieden: { rang: 4, xp: 50 }, kochen: { rang: 2, xp: 7 }, '': { rang: 1 }, 'a b': { rang: 1 }, kaputt: 5, negativ: { rang: -1 }, ohne: {}, rangnull: { rang: 0 }, rangkomma: { rang: 0.5 } },
   });
   check('stufe 7', g.stufe === 7);
   check('fertigkeiten: name = Schluessel fertigkeit.<id>, stufe = rang, sortiert, Ungueltiges weg',
     JSON.stringify(g.fertigkeiten) === JSON.stringify([{ name: 'fertigkeit.kochen', stufe: 2 }, { name: 'fertigkeit.schmieden', stufe: 4 }]), JSON.stringify(g.fertigkeiten));
   const text = JSON.stringify(g);
   check('XP wird nicht ausgegeben (weder xp, xpGesamt noch erfahrung noch deren Werte)', !/"(xp|xpGesamt|erfahrung)"/i.test(text) && !/[:,[](9999|120)[,}\]]/.test(text), text.slice(0, 200));
+  check('Fertigkeit mit rang < 1 (0, 0,5, negativ) wird nicht ausgegeben', JSON.stringify((profil({ fertigkeiten: { a: { rang: 0 }, b: { rang: 0.5 }, c: { rang: -1 } } }) as { fertigkeiten?: unknown }).fertigkeiten) === undefined);
   check('stufe 0 / negativ / Text entfaellt', profil({ stufe: 0 }).stufe === undefined && profil({ stufe: -1 }).stufe === undefined && profil({ stufe: 'x' }).stufe === undefined);
   const kaputt = profil({ tode: -1, spielzeitSek: 'viel', fertigkeiten: [1, 2], stufe: Number.NaN });
   check('kaputte Werte entfallen', kaputt.tode === undefined && kaputt.spielzeitMinuten === undefined && kaputt.fertigkeiten === undefined && kaputt.stufe === undefined);
@@ -278,6 +279,16 @@ async function teil3(): Promise<void> {
     sockets.push(ws2);
     const anna2 = peerVon(a.server, 'Anna')!;
     check('Wiederanmelden: tode 2 geladen (kein Zuruecksetzen, kein Doppelzaehlen)', anna2.spielwerte.stand().tode === 2, String(anna2.spielwerte.stand().tode));
+
+    // Z2: jeder Tod kommt an `stirb` bzw. `belebeNeu(.., true)` vorbei, nicht nur der Schadensblock.
+    const innen = a.server as unknown as { stirb(p: Peer, clip: (typeof TOD_CLIPS)[number]): void; belebeNeu(p: Peer, sofort: boolean): void };
+    const nTod = beiTod.length;
+    innen.stirb(anna2, TOD_CLIPS[0]!);
+    check('stirb direkt aufgerufen: tode +1 (2 -> 3)', anna2.spielwerte.stand().tode === 3, String(anna2.spielwerte.stand().tode));
+    innen.belebeNeu(anna2, false);
+    check('Wiederbelebung nach dem Liegen zaehlt nichts dazu, und die "tod"-Sicherung traegt 3', anna2.spielwerte.stand().tode === 3 && beiTod.length === nTod + 1 && beiTod[nTod]!.tode === 3, JSON.stringify(beiTod.slice(nTod).map((x) => x.tode)));
+    innen.belebeNeu(anna2, true);
+    check('belebeNeu(sofort) direkt aufgerufen (Tod ohne Liegezeit): tode +1 (3 -> 4), in der "tod"-Sicherung', anna2.spielwerte.stand().tode === 4 && beiTod[beiTod.length - 1]!.tode === 4, String(anna2.spielwerte.stand().tode));
   } finally {
     for (const s of sockets) if (s.readyState === WebSocket.OPEN) s.close();
     a.server.stop();
@@ -290,7 +301,7 @@ async function teil3(): Promise<void> {
     const ws = await verbinde('Anna');
     sockets2.push(ws);
     const anna = peerVon(b.server, 'Anna')!;
-    check('nach dem Neustart: tode 2 aus dem Spielerzustand', anna.spielwerte.stand().tode === 2, String(anna.spielwerte.stand().tode));
+    check('nach dem Neustart: tode 4 aus dem Spielerzustand', anna.spielwerte.stand().tode === 4, String(anna.spielwerte.stand().tode));
     check('Spielzeit bleibt erhalten (>= exakter Stand vor dem Neustart, und der war >= 2)', spielzeitVorher >= 2 && anna.spielwerte.stand(true).spielzeitSek >= spielzeitVorher, `${spielzeitVorher} -> ${anna.spielwerte.stand(true).spielzeitSek}`);
   } finally {
     for (const s of sockets2) if (s.readyState === WebSocket.OPEN) s.close();

@@ -908,21 +908,20 @@ export class Kontendatenbank {
 
   /**
    * Fingerabdruck dessen, was die Sichtbarkeit aendert: Anzahl und hoechste Id
-   * der Charaktere (Loeschen, Anlegen) und die Konto-/Spielerbanns nach Zahl,
-   * Summe ihrer `gesetzt`- und ihrer `bis`-Werte (ein ueberschriebener Bann mit
-   * anderer Frist aendert die Summe, auch bei gleicher Millisekunde). Die
+   * der Charaktere (Loeschen, Anlegen) und der Text aller Konto-/Spielerbanns
+   * (Art, Ziel, Zeitpunkt, Frist). Ein Zaehler oder eine Summe liesse zu, dass
+   * ein geloeschter und ein neuer Bann in derselben Millisekunde (Zeilen-Ids
+   * werden wiederverwendet) denselben Wert ergeben. Die
    * Ruestkammer baut ihren Speicherstand neu, sobald er sich aendert, damit ein
    * geloeschtes oder gebanntes Konto nicht noch eine halbe Minute steht.
    */
   armoryStempel(): string {
     this.armoryStempelAbfrage ??= this.db.prepare(`SELECT
       (SELECT COUNT(*) FROM charaktere) AS cn, (SELECT COALESCE(MAX(id), 0) FROM charaktere) AS cm,
-      (SELECT COUNT(*) FROM banns WHERE art IN ('konto', 'spieler')) AS bn,
-      (SELECT COALESCE(SUM(gesetzt), 0) FROM banns WHERE art IN ('konto', 'spieler')) AS bg,
-      (SELECT COALESCE(SUM(COALESCE(bis, 0)), 0) FROM banns WHERE art IN ('konto', 'spieler')) AS bb,
-      (SELECT COALESCE(SUM(id), 0) FROM banns WHERE art IN ('konto', 'spieler')) AS bi`);
-    const z = this.armoryStempelAbfrage.get() as Record<string, number>;
-    return `${z.cn}:${z.cm}:${z.bn}:${z.bg}:${z.bb}:${z.bi}`;
+      (SELECT COALESCE(group_concat(art || ':' || wert || ':' || gesetzt || ':' || COALESCE(bis, ''), '|'), '')
+         FROM banns WHERE art IN ('konto', 'spieler')) AS bs`);
+    const z = this.armoryStempelAbfrage.get() as Record<string, number | string>;
+    return `${z.cn}:${z.cm}:${z.bs}`;
   }
 
   /** Einmal vorbereitet: der Stempel wird bei jeder Ruestkammer-Anfrage gebraucht. */

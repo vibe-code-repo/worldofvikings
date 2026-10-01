@@ -340,6 +340,7 @@ try {
   assert.equal((await profil(bjorn.id)).status, 200, 'Aufheben bringt es zurueck');
   db.bannSetzen('spieler', bjorn.spielerId, { grund: 'Test' });
   assert.equal((await profil(bjorn.id)).status, 404, 'Spielerbann');
+  assert.equal((await listeFrisch('?q=eisenfaust')).daten.gesamt, 0, 'Spielerbann versteckt auch in der Liste');
   assert.equal((await profil(ohneZeit.id)).status, 200, 'der andere Charakter des Kontos bleibt');
   db.bannAufheben('spieler', bjorn.spielerId);
 
@@ -374,10 +375,10 @@ try {
       assert.ok(c2.ok);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (db2 as any).db.prepare('INSERT INTO spielerzustand (spieler_id, welt_id, stand, daten) VALUES (?, ?, ?, ?)')
-        .run(c2.charakter.spielerId, 'irgendeine-welt', 1, JSON.stringify({ inventar: [stueck('IronwardCuirass')] }));
+        .run(c2.charakter.spielerId, 'welt-a', 1, JSON.stringify({ inventar: [stueck('IronwardCuirass')] }));
       const api2 = new KontoApi(db2, geheimnis, () => ({ spieler: 0, plaetze: 1, tag: 1, welt: 't' }));
       assert.deepEqual(api2.armory.profil(c2.charakter.id)!.ausruestung, {}, 'Welt unbekannt: keine Ausruestung');
-      db2.spielerzustandLesen('irgendeine-welt'); // so beginnt jeder Serverstart
+      db2.spielerzustandLesen('welt-a'); // so beginnt jeder Serverstart
       api2.armory.uhr = () => jetzt + 10 * ARMORY_CACHE_MS;
       assert.ok(api2.armory.profil(c2.charakter.id)!.ausruestung.hemd, 'Welt bekannt: Ausruestung da');
     } finally { rmSync(ordner2, { recursive: true, force: true }); }

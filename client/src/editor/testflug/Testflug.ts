@@ -50,7 +50,8 @@ import { ENTWURF_KEY } from '../weltdokument';
 import { verdrahteGrundskalaLive } from './grundskalaLive';
 import { GelaendeAktionen } from './GelaendeAktionen';
 import { GelaendeSteuerung, type Kasten } from './GelaendeSteuerung';
-import { istPipetteTaste, radiusSchritt, verlaufEntscheid } from './gelaendePinsel';
+import { pipetteEntscheid, radiusSchritt, verlaufEntscheid } from './gelaendePinsel';
+import { rohHoehenQuelle } from './gelaendeRoh';
 import { verdrahteEntwurfHoerer } from './gelaendeHoerer';
 import type { SperrKatalog } from './gelaendeSperre';
 
@@ -799,6 +800,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       vegetation: (n) => foliageNamen.has(n),
       upload: (n) => uploadedModelRegistry.uploadedModelEntry(n),
     };
+    let rohQuelle: ((x: number, z: number) => number) | null = null;
     const KREIS_FREI = new Color3(0.4, 0.9, 0.4);
     const KREIS_GESPERRT = new Color3(0.95, 0.2, 0.2);
     const KREIS_SEGMENTE = 48;
@@ -844,8 +846,15 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         verberge: () => kreisNetz?.setEnabled(false),
       },
       // Der Boden unter losen Objekten hat sich bewegt: nur diese neu aufsetzen (Gebäude und Sockel bleiben, wie sie sind).
+      rohHoehe: (x, z) => {
+        // Ohne Sockel und ohne Handkorrektur (zweites Gelände aus dem Layout, erst beim ersten Ebnen gebaut).
+        rohQuelle ??= rohHoehenQuelle(kontext.world()?.geo) ?? ((px, pz) => kontext.world()?.getGroundHeight(px, pz) ?? 0);
+        return rohQuelle(x, z);
+      },
+      pipetteAnzeige: (an) => panel.setzePipetteBereit(an),
       nachStrich: (lose) => {
-        neuAufbauenLose(lose);
+        if (lose === 'alle') neuAufbauenAlle();
+        else neuAufbauenLose(lose);
         // Die Bewuchs-Vorschau streut nach dem Boden, der beim Streuen galt (`streueZone`); ein Strich, Rückgängig
         // oder Wiederholen lässt sie sonst auf der alten Höhe stehen. Einmal je Strichende, nicht je Stempel;
         // der Ring wird danach eine Zone je Bild nachgestreut (wie nach Taste G).
@@ -870,7 +879,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       gelaendeUnten = false;
       gelaende.beenden();
     };
-    panel.aufPipetteBereit = () => hud.meldung(t('testflug.gelaende.pipette_bereit'));
+    panel.aufPipetteKnopf = () => gelaende.pipetteScharf();
     // Im Baumodus sinkt die Figur mit Strg; bei offenem Gelände-Reiter nicht (Strg+Z/Y gehören dem Verlauf).
     scene.onBeforeRenderObservable.add(() => {
       const p = kontext.player();
@@ -901,14 +910,16 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       if (verlauf.verhindern) e.preventDefault();
       if (verlauf.aktion) void (verlauf.aktion === 'rueckgaengig' ? gelaende.rueckgaengig() : gelaende.wiederholen());
       if (verlauf.verhindern) return;
-      if (tipptImFeld(e) || !panel.istGelaendeModus) return;
       // Pipette: Taste H liest die Bodenhöhe unter dem Zeiger in das Zielfeld (H ist im Flug frei; Strg wäre im Baumodus die Sinktaste).
-      if (istPipetteTaste(e)) {
-        e.preventDefault();
-        const gp = !e.repeat && gelaendeZeiger ? bodenPunkt(gelaendeZeiger.x, gelaendeZeiger.y) : null;
+      // Nur bei offenem Reiter und nicht im Textfeld (ein „h“ im Namensfeld bleibt ein „h“).
+      const pip = pipetteEntscheid(e, panel.istGelaendeModus, tipptImFeld(e));
+      if (pip.verhindern) e.preventDefault();
+      if (pip.lesen) {
+        const gp = gelaendeZeiger ? bodenPunkt(gelaendeZeiger.x, gelaendeZeiger.y) : null;
         if (gp) gelaende.pipetteAn(gp);
-        return;
       }
+      if (pip.verhindern) return;
+      if (tipptImFeld(e) || !panel.istGelaendeModus) return;
       if (e.code === 'Escape') {
         gelaendeAus();
         panel.beendeGelaendeModus();
@@ -998,12 +1009,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // Gelände-Reiter: der Linksklick formt das Gelände statt zu setzen oder zu greifen; Alt greift wie bisher.
       if (panel.istGelaendeModus && !e.altKey && !routen.istZeichenModus) {
         const gp = bodenPunkt(e.offsetX, e.offsetY);
-        // Knopf „Pipette“ scharf: der nächste Klick auf den Boden liest die Höhe und beginnt keinen Strich.
-        if (gp && panel.pipetteBereit) {
-          panel.setzePipetteBereit(false);
-          gelaende.pipetteAn(gp);
-          return;
-        }
+        // (Knopf „Pipette“ scharf: `druecken` liest dann die Höhe und beginnt keinen Strich.)
         if (gp) {
           gelaendeUnten = true;
           gelaendeZeiger = { x: e.offsetX, y: e.offsetY };

@@ -281,10 +281,8 @@ export class SpawnPanel {
   private gelaendeBlock!: HTMLDivElement;
   private zielFeld: HTMLInputElement | null = null;
   private pipetteKnopf: HTMLButtonElement | null = null;
-  /** The pipette button was pressed: the next click on the ground reads the height (and starts no stroke). */
-  pipetteBereit = false;
-  /** Called when the pipette button arms the pipette (HUD hint). */
-  aufPipetteBereit: (() => void) | null = null;
+  /** The pipette button was pressed (the brush arms it; `setzePipetteBereit` only shows it). */
+  aufPipetteKnopf: (() => void) | null = null;
   private tabKnoepfe: Record<'objekte' | 'gelaende', HTMLButtonElement> | null = null;
   private werkzeugKnoepfe = new Map<Werkzeug, HTMLButtonElement>();
   private radiusRegler: HTMLInputElement | null = null;
@@ -667,10 +665,7 @@ export class SpawnPanel {
     };
     block.appendChild(ziel);
     this.zielFeld = ziel;
-    this.pipetteKnopf = this.knopf(t('testflug.gelaende.pipette_knopf'), () => {
-      this.setzePipetteBereit(true);
-      this.aufPipetteBereit?.();
-    });
+    this.pipetteKnopf = this.knopf(t('testflug.gelaende.pipette_knopf'), () => this.aufPipetteKnopf?.());
     block.appendChild(this.pipetteKnopf);
 
     const speichern = document.createElement('div');
@@ -711,7 +706,6 @@ export class SpawnPanel {
   private setzeTab(tab: 'objekte' | 'gelaende'): void {
     if (tab === this.tab) return;
     this.tab = tab;
-    this.setzePipetteBereit(false);
     // Placing and the brush exclude each other: a prefab ghost must not hang on the mouse under the brush.
     if (tab === 'gelaende') this.beendePlatzierModus();
     this.tabMarkieren();
@@ -730,7 +724,6 @@ export class SpawnPanel {
   }
 
   setzePipetteBereit(an: boolean): void {
-    this.pipetteBereit = an;
     if (this.pipetteKnopf) {
       this.pipetteKnopf.style.background = an ? '#243044' : '#1d2431';
       this.pipetteKnopf.style.color = an ? '#e8d48a' : '#d8cfa8';
@@ -1015,7 +1008,6 @@ export class SpawnPanel {
     // A closed panel leaves the terrain tool: opening it again starts on the object tab.
     else if (this.tab === 'gelaende') {
       this.tab = 'objekte';
-      this.setzePipetteBereit(false);
       this.tabMarkieren();
       this.aufGelaende?.();
     }

@@ -555,6 +555,8 @@ export default [
   // World-map publisher: the small probe (256 px, ~20-35 s); `--gross` runs the full 4096 px probe by hand.
   ['tools', 'test/weltkarte-probe.mjs'],
   ['tools', 'test/wov-sicherung-welt.ts'],
+  // Zone-to-kit converter (C3): small fixtures only, every thinning rule, counting rule, byte-equal reruns, Euler per axis, start village.
+  ['tools/test', 'zone-als-bausatz.ts'],
   ['tools/worldlayout-mcp', 'height-correction-readers.ts'],
   ['tools/worldlayout-mcp', 'probe-kontext.ts'],
   // WorldLayout-MCP-Server (Aufgabe B8): echter Client-Handshake gegen den

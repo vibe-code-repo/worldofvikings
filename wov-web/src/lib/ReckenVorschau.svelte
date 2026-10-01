@@ -91,6 +91,11 @@
   let wurzel = $state<HTMLDivElement | null>(null);
   let sichtbar = $state(false);
   let gestartet = $state(false);
+  /** Das Bündel oder die Figur lädt gerade (für den Vorlese-Text). */
+  let laedt = $state(false);
+  /** Zählt Neustarts nach einem Fehler, bei dem die Engine entsorgt wurde. */
+  let neustart = $state(0);
+  let abgebrochen = $state(false);
 
   /** Erst bei Sichtbarkeit; ohne `lazy` gilt die Bühne sofort als sichtbar. */
   $effect(() => {
@@ -107,11 +112,14 @@
   async function fehlerText(fehler: FigurFehler): Promise<string> {
     if (fehler.art === 'kein-webgl') return t['armory.figur.no_webgl'];
     if (fehler.art === 'buendel') {
+      console.error('[figur] vorschau.js', fehler.fehler);
       return fuelle(t['create.stage.hint.module_missing'], { fehler: String(fehler.fehler).slice(0, 90) });
     }
     // Die Meldung nennt Adresse UND Grund: Ob der Server schweigt, die Datei
     // fehlt oder die Domaingrenze blockt, ist sonst nicht zu unterscheiden.
     console.warn('[figur] Laden fehlgeschlagen:', fehler.url, fehler.fehler);
+    // Ohne Körperadresse (Plan oder anderes Teil fehlerhaft) gibt es nichts zu proben.
+    if (!fehler.url) return fuelle(t['create.stage.hint.not_loaded'], { grund: String(fehler.fehler).slice(0, 90) });
     let grund: string;
     try {
       const probe = await fetch(fehler.url, { method: 'GET' });
@@ -124,10 +132,22 @@
     return fuelle(t['create.stage.hint.not_loaded'], { grund });
   }
 
+  /** Der Plan als Vergleichsschlüssel; ein werfender Plan ist ein eigener Schlüssel. */
+  function planSchluessel(d: AussehenDaten): string {
+    try {
+      return JSON.stringify(plan(d));
+    } catch (e) {
+      return `fehler:${String(e)}`;
+    }
+  }
+
+  /** Der zuletzt geladene Plan; `auto` lädt nur bei einem anderen neu. */
+  let letzterPlan = '';
+
   /** Baut Steuerung und Engine auf; gibt den Abbau zurück. */
   function starte(flaeche: HTMLCanvasElement): () => void {
     let beendet = false;
-    const eigene = new FigurSteuerung(
+    const eigene: FigurSteuerung = new FigurSteuerung(
       { ladeBuendel, hatWebGL: () => webGLVerfuegbar() },
       {
         beiFertig: (wert) => {
@@ -139,9 +159,19 @@
             hinweisText = null;
             return;
           }
+          laedt = false;
+          if (fehler.art === 'laden' && rueckfall) {
+            // Im Profil bleibt die Silhouette; die Engine hätte sonst unsichtbar
+            // weitergerendert. Ändert sich der Plan, startet `auto` neu.
+            abgebrochen = true;
+            eigene.dispose();
+          }
           void fehlerText(fehler).then((text) => {
             if (!beendet) hinweisText = text;
           });
+        },
+        beiTeilFehler: (slot, datei, fehler) => {
+          console.warn('[figur] Rüstungsteil nicht angelegt:', slot, datei, fehler);
         },
         beiKopf: (zustand) => {
           if (beendet) return;
@@ -163,24 +193,36 @@
       },
     );
     steuerung = eigene;
+    laedt = true;
 
     void (async () => {
-      if (!daten) {
-        try {
-          daten = await holeJson<AussehenDaten>(AUSSEHEN_PFAD);
-        } catch (e) {
-          console.error('[figur]', e);
-          if (!beendet) hinweisText = t['create.stage.hint.lists_missing'];
-          return;
+      try {
+        let liste = daten;
+        if (!liste) {
+          try {
+            liste = await holeJson<AussehenDaten>(AUSSEHEN_PFAD);
+          } catch (e) {
+            console.error('[figur]', e);
+            if (!beendet) hinweisText = t['create.stage.hint.lists_missing'];
+            return;
+          }
+          // Ein beendeter Lauf setzt `daten` nicht: Der nächste holt sie und ruft `beiDaten`.
+          if (beendet) return;
+          daten = liste;
+          beiDaten?.(liste);
         }
+        const d = liste;
+        if (!(await eigene.starte(flaeche)) || beendet) return;
+        // Feste Rahmen (Profil): senkrechtes Wischen scrollt die Seite, waagerechtes dreht.
+        if (eng) flaeche.style.touchAction = 'pan-y';
+        letzterPlan = planSchluessel(d);
+        gestartet = true;
+        await eigene.ladeAlles(() => plan(d));
         if (beendet) return;
-        beiDaten?.(daten);
+        beiGeladen?.();
+      } finally {
+        if (!beendet) laedt = false;
       }
-      if (!(await eigene.starte(flaeche)) || beendet) return;
-      await eigene.ladeAlles(() => plan(daten as AussehenDaten));
-      if (beendet) return;
-      gestartet = true;
-      beiGeladen?.();
     })();
 
     return () => {
@@ -188,6 +230,8 @@
       eigene.dispose();
       if (steuerung === eigene) steuerung = null;
       gestartet = false;
+      abgebrochen = false;
+      laedt = false;
       fertig = false;
       kopfNah = false;
       kopfUeber = false;
@@ -198,22 +242,33 @@
   }
 
   $effect(() => {
+    void neustart;
     if (!aktiv || !sichtbar || !leinwand) return;
     const flaeche = leinwand;
     return untrack(() => starte(flaeche));
   });
 
-  /** `auto`: Ändert sich der Plan, die Figur neu laden. */
-  let letzterPlan = '';
+  /** `auto`: Ändert sich der Plan, die Figur neu laden (nach einem Fehler: neu starten). */
   $effect(() => {
     if (!auto || !gestartet || !daten || !steuerung) return;
-    const geplant = plan(daten);
-    const schluessel = JSON.stringify(geplant);
+    const schluessel = planSchluessel(daten);
     if (schluessel === letzterPlan) return;
     letzterPlan = schluessel;
     const aktuell = steuerung;
     const d = daten;
-    untrack(() => void aktuell.ladeAlles(() => plan(d)));
+    untrack(() => {
+      if (abgebrochen) neustart += 1;
+      else void aktuell.ladeAlles(() => plan(d));
+    });
+  });
+
+  /** Im festen Rahmen scrollt das Mausrad die Seite; gezoomt wird über den Lupenknopf. */
+  $effect(() => {
+    if (!eng || !wurzel) return;
+    const flaeche = wurzel;
+    const durchlassen = (e: Event) => e.stopPropagation();
+    flaeche.addEventListener('wheel', durchlassen, { capture: true, passive: true });
+    return () => flaeche.removeEventListener('wheel', durchlassen, { capture: true });
   });
 </script>
 
@@ -233,7 +288,14 @@
       <p>{hinweisText ? t['armory.figur.unavailable'] : t['armory.figur.loading']}</p>
     </div>
   {/if}
-  <canvas bind:this={leinwand} class:bereit={fertig}></canvas>
+  <!-- svelte-ignore a11y_no_interactive_element_to_noninteractive_role -->
+  <canvas
+    bind:this={leinwand}
+    class:bereit={fertig}
+    role="img"
+    aria-label={t['armory.figur.aria']}
+    aria-hidden={!fertig}
+  ></canvas>
   <!--
     Markierung am Kopf. Rein zur Anzeige (pointer-events: none): Der Klick
     geht an die Leinwand. Ort und Größe liefert die Vorschau als
@@ -248,12 +310,12 @@
   >
     <svg viewBox="0 0 16 16" width="14" height="14" focusable="false"><circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M10 10l4.5 4.5M4.5 6.5h4M6.5 4.5v4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
   </div>
-  <div class="buehne-hinweis nur-vorlesen" aria-live="polite" class:fertig>{hinweisText ?? t['create.stage.hint.loading']}</div>
-  {#if werkzeug}
+  <div class="buehne-hinweis nur-vorlesen" aria-live="polite" class:fertig>{hinweisText ?? (laedt || !rueckfall ? t['create.stage.hint.loading'] : '')}</div>
+  {#if werkzeug && (fertig || !rueckfall)}
     <div class="buehne-werkzeug">
-      <button type="button" title={t['create.stage.rotate_left']} onclick={() => steuerung?.drehe(-0.35)}>↺</button>
-      <button type="button" title={t['create.stage.reset_view']} onclick={() => steuerung?.blickZurueck()}>⌂</button>
-      <button type="button" title={t['create.stage.rotate_right']} onclick={() => steuerung?.drehe(0.35)}>↻</button>
+      <button type="button" title={t['create.stage.rotate_left']} aria-label={t['armory.figur.rotate_left']} onclick={() => steuerung?.drehe(-0.35)}>↺</button>
+      <button type="button" title={t['create.stage.reset_view']} aria-label={t['create.stage.reset_view']} onclick={() => steuerung?.blickZurueck()}>⌂</button>
+      <button type="button" title={t['create.stage.rotate_right']} aria-label={t['armory.figur.rotate_right']} onclick={() => steuerung?.drehe(0.35)}>↻</button>
       <button
         type="button"
         class:aktiv={kopfNah}

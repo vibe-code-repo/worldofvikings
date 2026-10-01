@@ -48,7 +48,7 @@ const DATEN: AussehenDaten = {
   ],
   eyeColors: [{ id: 'fjordblau', name: 'f', hex: '#49667E' }],
   equipment: [],
-  defaultFigure: 'wikinger',
+  defaultFigure: 'wikingerin',
   defaultBeard: 'B_02',
   defaultEyebrows: { wikinger: 'AM_01', wikingerin: 'AF_01' },
   equipmentSets: [
@@ -138,7 +138,7 @@ describe('Ladeplan', () => {
 
   it('unbekannte Figur fällt auf die Vorgabe zurück', () => {
     expect(planFuerRecke(DATEN, { ...MANN, figur: 'zwerg' }).koerper).toBe(
-      'wikinger/WikingerKoerper',
+      'wikingerin/WikingerinKoerper',
     );
   });
 
@@ -150,26 +150,26 @@ describe('Ladeplan', () => {
 
   it('angelegte Rüstung: nur Stücke der eigenen Figur, je Körperplatz eines', () => {
     const teile = ruestungAusStuecken(DATEN, 'wikinger', [
-      { name: 'IronwardCuirass' },
-      { name: 'IronwardHelmet' },
-      { name: 'plainhide_female_vest' },
-      { name: 'SwordBronze' },
+      { kennung: 'IronwardCuirass' },
+      { kennung: 'IronwardHelmet' },
+      { kennung: 'plainhide_female_vest' },
+      { kennung: 'SwordBronze' },
     ]);
     expect(teile.map((t) => t.datei)).toEqual([
-      'ironward/IronwardHelmet',
       'ironward/IronwardCuirass',
+      'ironward/IronwardHelmet',
     ]);
-    const plan = planFuerRecke(DATEN, MANN, [{ name: 'IronwardHelmet' }]);
+    const plan = planFuerRecke(DATEN, MANN, [{ kennung: 'IronwardHelmet' }]);
     expect(plan.ruestung.slice(0, 2)).toEqual(['ironward/IronwardHelmet', null]);
     expect(plan.ruestung).toHaveLength(RUESTUNGS_PLAETZE);
     expect(ruestungAusStuecken(DATEN, 'wikinger', undefined)).toEqual([]);
-    expect(ruestungAusStuecken(DATEN, 'wikinger', [{ name: 'Unbekannt' }])).toEqual([]);
+    expect(ruestungAusStuecken(DATEN, 'wikinger', [{ kennung: 'Unbekannt' }])).toEqual([]);
   });
 
   it('ausgeblendeter Helm wird zu null, die übrigen Plätze bleiben', () => {
     const teile = ruestungAusStuecken(DATEN, 'wikinger', [
-      { name: 'IronwardHelmet' },
-      { name: 'IronwardCuirass' },
+      { kennung: 'IronwardHelmet' },
+      { kennung: 'IronwardCuirass' },
     ]);
     expect(ruestungsPlaetze(teile, false)[0]).toBe('ironward/IronwardHelmet');
     expect(ruestungsPlaetze(teile, true)[0]).toBeNull();
@@ -181,21 +181,31 @@ describe('Ladeplan', () => {
 
 class Attrappe implements VorschauApi {
   aufrufe: string[] = [];
+  nachEntsorgen: string[] = [];
   entsorgt = 0;
+  wirftBei = new Set<string>();
+  /** Läuft vor `ladeKoerper`; ein Test hält damit einen Ladevorgang an. */
+  vorKoerper: (() => Promise<void>) | null = null;
   beiKopfZustand: ((z: KopfZustand) => void) | null = null;
   zoomeKopf() {}
   async setzeWurzel(url: string) {
-    this.aufrufe.push(`wurzel ${url}`);
+    this.merke(`wurzel ${url}`);
   }
   async ladeKoerper(pfad: string) {
-    this.aufrufe.push(`koerper ${pfad}`);
+    this.merke(`koerper ${pfad}`);
+    await this.vorKoerper?.();
     return true;
   }
   async setzeWaffe(art: string | null) {
-    this.aufrufe.push(`waffe ${art}`);
+    this.merke(`waffe ${art}`);
   }
   async setze(slot: string, datei: string | null) {
-    this.aufrufe.push(`setze ${slot} ${datei}`);
+    this.merke(`setze ${slot} ${datei}`);
+    if (datei && this.wirftBei.has(datei)) throw new Error(`Incompatible armor skeleton: ${datei}`);
+  }
+  private merke(aufruf: string) {
+    this.aufrufe.push(aufruf);
+    if (this.entsorgt) this.nachEntsorgen.push(aufruf);
   }
   setzeHaarfarbe(hex: string) {
     this.aufrufe.push(`haar ${hex}`);
@@ -248,7 +258,7 @@ function aufbau(
 }
 
 const LEINWAND = {} as HTMLCanvasElement;
-const planKrieger = () => planFuerRecke(DATEN, MANN, [{ name: 'IronwardHelmet' }]);
+const planKrieger = () => planFuerRecke(DATEN, MANN, [{ kennung: 'IronwardHelmet' }]);
 
 describe('FigurSteuerung', () => {
   it('lädt in der Reihenfolge der Charaktererstellung', async () => {
@@ -434,5 +444,224 @@ describe('Verdrahtung der Oberfläche', () => {
       /import\(\/\* @vite-ignore \*\/ BUENDEL_PFAD\)/,
     );
     expect(quelle('reckenVorschauKern.ts')).not.toMatch(/from ['"][^'"]*vorschau(\.js)?['"]/);
+  });
+});
+
+describe('Nachbesserung N1: Rüstungszuordnung', () => {
+  const alle = (kennungen: string[]) => kennungen.map((kennung) => ({ kennung }));
+
+  it('der Typ verlangt `kennung`: ein Stück mit `name` legt nichts an und ist ein Typfehler', () => {
+    // @ts-expect-error `name` ist der Anzeigename des Endpunkts, nicht die Zuordnung
+    const mitName = ruestungAusStuecken(DATEN, 'wikinger', [{ name: 'IronwardHelmet' }]);
+    expect(mitName).toEqual([]);
+    expect(ruestungAusStuecken(DATEN, 'wikinger', alle(['IronwardHelmet']))).toHaveLength(1);
+  });
+
+  it('Groß-/Kleinschreibung der Kennung zählt nicht', () => {
+    expect(ruestungAusStuecken(DATEN, 'wikinger', alle(['ironwardhelmet']))).toHaveLength(1);
+  });
+
+  it('bei zwei Stücken auf einem Platz gewinnt das später genannte', () => {
+    const daten = {
+      ...DATEN,
+      equipmentSets: [
+        ...(DATEN.equipmentSets ?? []),
+        {
+          id: 'zwei',
+          figure: 'wikinger',
+          parts: [
+            {
+              itemId: 'ZweiHelm',
+              model: 'zwei/ZweiHelm.glb',
+              regions: ['Head'],
+              appearanceSlot: 'kopf',
+            },
+          ],
+        },
+      ],
+    } as unknown as AussehenDaten;
+    const a = ruestungAusStuecken(daten, 'wikinger', alle(['IronwardHelmet', 'ZweiHelm']));
+    const b = ruestungAusStuecken(daten, 'wikinger', alle(['ZweiHelm', 'IronwardHelmet']));
+    expect(a.map((t) => t.datei)).toEqual(['zwei/ZweiHelm']);
+    expect(b.map((t) => t.datei)).toEqual(['ironward/IronwardHelmet']);
+  });
+
+  it('ein Set ohne Figurangabe passt zu jedem Körper, den canWearArmor erlaubt', () => {
+    const daten = {
+      ...DATEN,
+      equipmentSets: [
+        {
+          id: 'frei',
+          parts: [
+            {
+              itemId: 'FreiHelm',
+              model: 'frei/FreiHelm.glb',
+              regions: ['Head'],
+              appearanceSlot: 'kopf',
+            },
+          ],
+        },
+      ],
+    } as unknown as AussehenDaten;
+    expect(ruestungAusStuecken(daten, 'wikinger', alle(['FreiHelm']))).toHaveLength(1);
+    expect(ruestungAusStuecken(daten, 'wikingerin', alle(['FreiHelm']))).toHaveLength(1);
+  });
+
+  it('ein Stück der anderen Figur bleibt draußen', () => {
+    expect(ruestungAusStuecken(DATEN, 'wikingerin', alle(['IronwardHelmet']))).toEqual([]);
+  });
+});
+
+describe('Nachbesserung N1: kaputte Daten', () => {
+  it('planFuerRecke wirft nicht bei fehlenden oder falsch typisierten Feldern', () => {
+    const kaputt = {
+      klasse: null,
+      figur: 3,
+      frisur: null,
+      haarfarbe: undefined,
+      augenfarbe: {},
+    } as unknown as FigurAussehen;
+    expect(() => planFuerRecke(DATEN, kaputt, 'x' as never)).not.toThrow();
+    expect(planFuerRecke(DATEN, kaputt).koerper).toBe('wikingerin/WikingerinKoerper');
+  });
+
+  it('wirft der Plan, meldet ladeAlles den Fehler (ohne Körperadresse) und lehnt nicht ab', async () => {
+    const { steuerung, fehler } = aufbau();
+    await steuerung.starte(LEINWAND);
+    const wirft = (): LadePlan => {
+      throw new Error('Plan kaputt');
+    };
+    expect(await steuerung.ladeAlles(wirft)).toBe(false);
+    const f = fehler.at(-1);
+    expect(f?.art).toBe('laden');
+    expect(f && 'url' in f ? f.url : 'x').toBe('');
+  });
+
+  it('scheitert der Körper, nennt der Fehler dessen Adresse', async () => {
+    const { steuerung, engines, fehler } = aufbau();
+    await steuerung.starte(LEINWAND);
+    engines[0].vorKoerper = async () => {
+      throw new Error('404');
+    };
+    expect(await steuerung.ladeAlles(planKrieger)).toBe(false);
+    const f = fehler.at(-1);
+    expect(f && 'url' in f ? f.url : '').toBe('/assets/models/wikinger/WikingerKoerper.glb');
+  });
+});
+
+describe('Nachbesserung N1: ein unpassendes Rüstungsteil (k134)', () => {
+  const voll = DATEN.equipmentSets?.[0]?.parts.map((p) => ({ kennung: p.itemId })) ?? [];
+
+  it('nur der Platz des Teils bleibt leer; Figur steht, Meldung kommt, die übrigen Teile sind gesetzt', async () => {
+    const teilFehler: string[] = [];
+    const meldungen: string[] = [];
+    const steuerung = new FigurSteuerung(
+      {
+        hatWebGL: () => true,
+        warteBilder: async () => {},
+        ladeBuendel: async () => ({ Vorschau: Attrappe as unknown as BuendelModul['Vorschau'] }),
+      },
+      {
+        beiFertig: (f) => meldungen.push(`fertig ${f}`),
+        beiTeilFehler: (slot, datei) => teilFehler.push(`${slot} ${datei}`),
+      },
+    );
+    const eng: Attrappe[] = [];
+    const orig = Attrappe.prototype.setzeWurzel;
+    Attrappe.prototype.setzeWurzel = async function (this: Attrappe, u: string) {
+      eng.push(this);
+      this.wirftBei.add('ironward/IronwardHelmet');
+      return orig.call(this, u);
+    };
+    try {
+      await steuerung.starte(LEINWAND);
+      const plan = () => planFuerRecke(DATEN, MANN, voll);
+      expect(await steuerung.ladeAlles(plan)).toBe(true);
+    } finally {
+      Attrappe.prototype.setzeWurzel = orig;
+    }
+    expect(meldungen.at(-1)).toBe('fertig true');
+    expect(teilFehler).toEqual(['klassenruestung-0 ironward/IronwardHelmet']);
+    const rufe = eng[0].aufrufe;
+    expect(rufe.at(rufe.lastIndexOf('setze klassenruestung-0 null'))).toBe(
+      'setze klassenruestung-0 null',
+    );
+    expect(rufe.filter((r) => /^setze klassenruestung-[1-6] \w/.test(r)).length).toBe(6);
+  });
+
+  it('die werfende Fassung für das Rückschalten der Erstellung bleibt werfend', async () => {
+    const { steuerung, engines } = aufbau();
+    await steuerung.starte(LEINWAND);
+    engines[0].wirftBei.add('ironward/IronwardHelmet');
+    await expect(steuerung.zeigeRuestung(() => planFuerRecke(DATEN, MANN, voll))).rejects.toThrow(
+      /Incompatible/,
+    );
+  });
+});
+
+describe('Nachbesserung N1: Lebenszyklus', () => {
+  it('zwei gleichzeitige starte() ergeben eine Engine', async () => {
+    let gib!: () => void;
+    const warten = new Promise<void>((r) => {
+      gib = r;
+    });
+    const { steuerung, engines, geladen } = aufbau({ buendelWarte: warten });
+    const a = steuerung.starte(LEINWAND);
+    const b = steuerung.starte(LEINWAND);
+    gib();
+    expect(await a).toBe(true);
+    expect(await b).toBe(true);
+    expect(engines).toHaveLength(1);
+    expect(geladen()).toBe(1);
+    steuerung.dispose();
+    expect(engines[0].entsorgt).toBe(1);
+  });
+
+  it('der Fehler eines veralteten Laufs wird nicht gemeldet', async () => {
+    const { steuerung, engines, fehler } = aufbau();
+    await steuerung.starte(LEINWAND);
+    let los!: () => void;
+    engines[0].vorKoerper = () =>
+      new Promise<void>((resolve, reject) => {
+        los = () => reject(new Error('alter Lauf'));
+        void resolve;
+      });
+    const alt = steuerung.ladeAlles(planKrieger);
+    await Promise.resolve();
+    engines[0].vorKoerper = null;
+    const neu = steuerung.ladeAlles(planKrieger);
+    los();
+    expect(await alt).toBe(false);
+    expect(await neu).toBe(true);
+    expect(fehler.filter((f) => f !== null)).toEqual([]);
+  });
+
+  it('von zwei gleichzeitigen Rüstungsläufen gewinnt der letzte', async () => {
+    const { steuerung } = aufbau();
+    await steuerung.starte(LEINWAND);
+    const erster = steuerung.zeigeRuestung(planKrieger);
+    const zweiter = steuerung.zeigeRuestung(planKrieger);
+    expect(await erster).toBe(false);
+    expect(await zweiter).toBe(true);
+    const e1 = steuerung.zeigeRuestungNachsichtig(planKrieger);
+    const e2 = steuerung.zeigeRuestungNachsichtig(planKrieger);
+    expect([await e1, await e2]).toEqual([false, true]);
+  });
+
+  it('nach dispose() läuft ein angehaltener Ladevorgang ins Leere: keine Aufrufe, kein „fertig“', async () => {
+    const { steuerung, engines, meldungen } = aufbau();
+    await steuerung.starte(LEINWAND);
+    let weiter!: () => void;
+    engines[0].vorKoerper = () =>
+      new Promise<void>((r) => {
+        weiter = r;
+      });
+    const lauf = steuerung.ladeAlles(planKrieger);
+    await Promise.resolve();
+    steuerung.dispose();
+    weiter();
+    expect(await lauf).toBe(false);
+    expect(engines[0].nachEntsorgen).toEqual([]);
+    expect(meldungen).not.toContain('fertig true');
   });
 });

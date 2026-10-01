@@ -150,6 +150,8 @@ const AUSNAHMEN = [
   { pfad: 'wov-web/src/lib/domain-verdrahtung.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
   { pfad: 'wov-web/src/lib/devlog.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
   { pfad: 'wov-web/src/lib/reckenVorschauKern.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
+  { pfad: 'wov-web/src/lib/reckenVorschau.dom.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
+  { pfad: 'wov-web/src/lib/reckenVorschau.ssr.test.ts', art: 'vitest-web', grund: 'Vitest-Test der Webseite, läuft per `npm test` in `wov-web` im CI-Job `web`, nicht im Node-Runner der Wurzel' },
   // ── Rot bei erfüllten Voraussetzungen, nicht eingetragen ──
   {
     pfad: 'server/test/f2-locations.ts',

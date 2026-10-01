@@ -59,6 +59,11 @@ export const ARMORY_SCHRITT_MS = 2;
 const ARMORY_SEITE_ZEILEN = 500;
 const ARMORY_LAUF = 2048;
 const ARMORY_MISCH_MASKE = 2047;
+const ARMORY_INDEX_MASKE = 1023;
+/** Ergebnis-Puffer der Suche je Speicherstand: Eintraege und Gesamtzahl der Positionen. */
+const ARMORY_SUCH_CACHE_MAX = 256;
+const ARMORY_SUCH_CACHE_INTS = 2_000_000;
+const LEER = new Int32Array(0);
 /** Immer ausgeschlossen, auch wenn die Konfiguration keinen `standard-konto`-Block hat. */
 const FESTE_STANDARDKONTEN = ['gast', 'guest', 'admin'];
 /** Laengste `ruestung`-Zeichenkette, die wir dekodieren (echte Werte sind unter 500 Zeichen). */
@@ -153,6 +158,11 @@ interface Aufnahme {
   /** Gefaltete Namen, gleiche Reihenfolge wie `zeilen`. */
   gefaltet: string[];
   nachId: Map<number, ArmoryZeile>;
+  /** Suchindex: je Buchstabenpaar (UTF-16) die aufsteigenden Positionen in `zeilen`, mit in Haeppchen gebaut. */
+  index: Map<string, Int32Array>;
+  /** Ergebnisse je normalisiertem `q` (Positionen in `zeilen`); lebt und stirbt mit dem Stand. */
+  suchCache: Map<string, Int32Array>;
+  suchCacheZahl: number;
   /** Fingerabdruck der Sichtbarkeit beim Bau. */
   stempel: string;
   gebaut: number;
@@ -169,7 +179,9 @@ export class Armory {
   /** Groesse der Drosselkarte; Tests verkleinern sie. */
   drosselKarteMax = DROSSEL_KARTE_MAX;
   /** Messwerte des Neubaus in Haeppchen (fuer Tests und Betriebsanzeige). */
-  readonly statistik = { schritte: 0, laengsterSchrittMs: 0 };
+  readonly statistik = { schritte: 0, laengsterSchrittMs: 0, neubauten: 0, suchKandidaten: 0, suchTreffer: 0 };
+  /** Nach einem Fehler des Neubaus fruehestens ab diesem Zeitpunkt (ms, `uhr`) ein neuer Versuch. */
+  private sperreBis = 0;
   /** Der laufende Neubau des Speicherstands (in Haeppchen), sonst null. */
   private lauf: Generator<void, Aufnahme> | null = null;
   /** Benutzernamen, die nie erscheinen: die der Konfiguration PLUS die fest eingebauten. */
@@ -215,23 +227,71 @@ export class Armory {
 
   /** `seiteRoh` und `qRoh` sind die ungeprueften Query-Werte. Wirft nie bei Eingaben; null, solange der erste Speicherstand noch gebaut wird. */
   liste(seiteRoh: unknown, qRoh: unknown): ArmoryListe | null {
-    const a = this.aktuelleAufnahme();
-    if (!a) return null; // der erste Aufbau laeuft noch
+    const lage = this.aktuelleAufnahme();
+    if (!lage) return null; // der erste Aufbau laeuft noch, oder ein Fehler sperrt kurz
+    const a = lage.stand;
     const suche = bereinigeSuche(qRoh);
-    let treffer: ArmoryZeile[];
-    if (suche === '') treffer = a.zeilen;
-    else {
-      treffer = [];
-      for (let i = 0; i < a.zeilen.length; i++) if (a.gefaltet[i].includes(suche)) treffer.push(a.zeilen[i]);
-    }
-    const seiten = Math.max(1, Math.ceil(treffer.length / ARMORY_SEITENGROESSE));
+    const treffer = suche === '' ? null : this.sucheIn(a, suche);
+    const gesamt = treffer ? treffer.length : a.zeilen.length;
+    const seiten = Math.max(1, Math.ceil(gesamt / ARMORY_SEITENGROESSE));
     // Die Seite wird auf den gueltigen Bereich begrenzt, bevor irgendetwas von ihr abhaengt.
     const seite = Math.min(bereinigeSeite(seiteRoh), seiten);
     const von = (seite - 1) * ARMORY_SEITENGROESSE;
-    return {
-      eintraege: treffer.slice(von, von + ARMORY_SEITENGROESSE).map(baueEintrag),
-      seite, seitenGroesse: ARMORY_SEITENGROESSE, gesamt: treffer.length, seiten,
-    };
+    const bis = Math.min(gesamt, von + ARMORY_SEITENGROESSE);
+    let zeilen: ArmoryZeile[] = [];
+    for (let p = von; p < bis; p++) zeilen.push(a.zeilen[treffer ? treffer[p] : p]);
+    // Ist bekannt, dass sich die Sichtbarkeit seit dem Bau des Stands geaendert hat (Loeschen, Bann, neuer Charakter),
+    // wird jeder ausgelieferte Eintrag vor der Antwort gegen die Datenbank geprueft: Geloeschte und Gebannte erscheinen
+    // nie, auch wenn der Stand uralt ist. Die Zahlen (`gesamt`, `seiten`) bleiben die des Stands.
+    if (lage.unsicher) {
+      const jetzt = this.uhr();
+      zeilen = zeilen.filter((z) => this.db.armoryEinzeln(z.id, jetzt) !== null);
+    }
+    return { eintraege: zeilen.map(baueEintrag), seite, seitenGroesse: ARMORY_SEITENGROESSE, gesamt, seiten };
+  }
+
+  /**
+   * Positionen aller Namen, die `q` (schon gefaltet) enthalten. Aus dem Ergebnis-Puffer, sonst ueber den Paar-Index:
+   * die kuerzeste Liste der Buchstabenpaare von `q` liefert die Kandidaten, nur die werden geprueft. Einzelne
+   * Zeichen werden gescannt (es gibt nur wenige verschiedene, ihr Ergebnis steht dann im Puffer).
+   */
+  private sucheIn(a: Aufnahme, q: string): Int32Array {
+    const alt = a.suchCache.get(q);
+    if (alt) {
+      this.statistik.suchTreffer += 1;
+      return alt;
+    }
+    let ergebnis: Int32Array;
+    if (q.length < 2) {
+      const l: number[] = [];
+      this.statistik.suchKandidaten += a.gefaltet.length;
+      for (let i = 0; i < a.gefaltet.length; i++) if (a.gefaltet[i].includes(q)) l.push(i);
+      ergebnis = Int32Array.from(l);
+    } else {
+      let kleinste: Int32Array | undefined;
+      for (let i = 0; i + 2 <= q.length; i++) {
+        const p = a.index.get(q.slice(i, i + 2));
+        if (!p) { kleinste = LEER; break; }
+        if (!kleinste || p.length < kleinste.length) kleinste = p;
+      }
+      const kandidaten = kleinste ?? LEER;
+      if (q.length === 2) ergebnis = kandidaten; // das Paar IST die Suche
+      else {
+        this.statistik.suchKandidaten += kandidaten.length;
+        const l: number[] = [];
+        for (const pos of kandidaten) if (a.gefaltet[pos].includes(q)) l.push(pos);
+        ergebnis = Int32Array.from(l);
+      }
+    }
+    if (ergebnis.length <= ARMORY_SUCH_CACHE_INTS) {
+      if (a.suchCache.size >= ARMORY_SUCH_CACHE_MAX || a.suchCacheZahl + ergebnis.length > ARMORY_SUCH_CACHE_INTS) {
+        a.suchCache.clear();
+        a.suchCacheZahl = 0;
+      }
+      a.suchCache.set(q, ergebnis);
+      a.suchCacheZahl += ergebnis.length;
+    }
+    return ergebnis;
   }
 
   /** Das Profil, oder null (unbekannt, geloescht, gebannt, Standardkonto). */
@@ -268,27 +328,30 @@ export class Armory {
   }
 
   /**
-   * Der gueltige Speicherstand, oder null vor dem allerersten. Ist ein Neubau faellig, wird er in Haeppchen
-   * gestartet (siehe `bauePlan`); bis er fertig ist, gilt der alte Stand. So blockiert kein Neubau den Faden
-   * des Spielservers, auch nicht bei 100 000 Charakteren.
+   * Der Speicherstand und ob bekannt ist, dass sich die Sichtbarkeit seit seinem Bau geaendert hat (`unsicher`);
+   * null vor dem allerersten Stand. Ist ein Neubau faellig, wird er in Haeppchen gestartet (siehe `bauePlan`); bis er
+   * fertig ist, gilt der alte Stand, bei `unsicher` nur mit Pruefung jedes ausgelieferten Eintrags. So blockiert
+   * kein Neubau den Faden des Spielservers, auch nicht bei 100 000 Charakteren, und ein geloeschter oder gebannter
+   * Charakter erscheint nie laenger als etwa ARMORY_NEUBAU_MIN_MS, auch nach einer Stunde ohne Aufruf.
    */
-  private aktuelleAufnahme(): Aufnahme | null {
+  private aktuelleAufnahme(): { stand: Aufnahme; unsicher: boolean } | null {
     const jetzt = this.uhr();
     const alt = this.aufnahme;
     if (!alt) {
-      if (!this.lauf) this.starteNeubau(jetzt, this.db.armoryStempel());
+      if (!this.lauf && jetzt >= this.sperreBis) this.starteNeubau(jetzt, this.db.armoryStempel());
       return null;
     }
-    if (this.lauf) return alt;
-    // Wer Charaktere anlegt und loescht, soll Neubauten nicht je Anfrage erzwingen koennen: hoechstens einer je
-    // ARMORY_NEUBAU_MIN_MS, auch bei geaendertem Stempel.
-    if (alt.bis > jetzt && jetzt - alt.gebaut < ARMORY_NEUBAU_MIN_MS) return alt;
+    // Hoechstens ein Neubau je ARMORY_NEUBAU_MIN_MS: wer Charaktere anlegt und loescht, soll Neubauten nicht
+    // je Anfrage erzwingen koennen. Ein Stand, der juenger ist, gilt ohne Pruefung des Stempels.
+    if (alt.bis > jetzt && jetzt - alt.gebaut < ARMORY_NEUBAU_MIN_MS) return { stand: alt, unsicher: false };
     const stempel = this.db.armoryStempel();
-    if (alt.bis <= jetzt || alt.stempel !== stempel) this.starteNeubau(jetzt, stempel);
-    return alt;
+    const geaendert = stempel !== alt.stempel;
+    if (!this.lauf && (alt.bis <= jetzt || geaendert) && jetzt >= this.sperreBis) this.starteNeubau(jetzt, stempel);
+    return { stand: alt, unsicher: geaendert };
   }
 
   private starteNeubau(jetzt: number, stempel: string): void {
+    this.statistik.neubauten += 1;
     this.lauf = this.bauePlan(jetzt, stempel);
     setImmediate(() => this.schritt());
   }
@@ -314,7 +377,8 @@ export class Armory {
         if (performance.now() - t0 >= ARMORY_SCHRITT_MS) break;
       }
     } catch (e) {
-      this.lauf = null; // der alte Stand bleibt; der naechste Aufruf versucht es erneut
+      this.lauf = null; // der alte Stand bleibt; ein neuer Versuch fruehestens nach ARMORY_NEUBAU_MIN_MS
+      this.sperreBis = this.uhr() + ARMORY_NEUBAU_MIN_MS;
       console.error('[Armory] Neubau des Speicherstands fehlgeschlagen:', e);
       return;
     }
@@ -377,7 +441,27 @@ export class Armory {
       nachId.set(zeilen[i].id, zeilen[i]);
       if ((i & ARMORY_MISCH_MASKE) === ARMORY_MISCH_MASKE) yield;
     }
-    return { zeilen, gefaltet, nachId, stempel, gebaut: jetzt, bis: jetzt + ARMORY_CACHE_MS };
+    // Suchindex: je Buchstabenpaar die Positionen (aufsteigend, je Name hoechstens einmal).
+    const bau = new Map<string, number[]>();
+    for (let i = 0; i < gefaltet.length; i++) {
+      const g = gefaltet[i];
+      for (let c = 0; c + 2 <= g.length; c++) {
+        const paar = g.slice(c, c + 2);
+        const l = bau.get(paar);
+        if (!l) bau.set(paar, [i]);
+        else if (l[l.length - 1] !== i) l.push(i);
+      }
+      if ((i & ARMORY_INDEX_MASKE) === ARMORY_INDEX_MASKE) yield;
+    }
+    const index = new Map<string, Int32Array>();
+    let n = 0;
+    for (const [paar, l] of bau) {
+      index.set(paar, Int32Array.from(l));
+      if ((++n & ARMORY_INDEX_MASKE) === ARMORY_INDEX_MASKE) yield;
+    }
+    return {
+      zeilen, gefaltet, nachId, index, suchCache: new Map(), suchCacheZahl: 0, stempel, gebaut: jetzt, bis: jetzt + ARMORY_CACHE_MS,
+    };
   }
 }
 

@@ -495,6 +495,25 @@ try {
     assert.equal((await profil(o8.id)).daten.waffe, null, 'nach dem Neubau kein alter Profil-Puffer mehr');
   }
 
+  // ── 12c. Ein uralter Stand zeigt keine Geloeschten und Gebannten (N2-2) ─
+  {
+    const schlaf = konto('Schlafkonto');
+    const schlafFigur = figur(schlaf, 'Schlaf Sven');
+    const schlafBann = konto('Schlafbannkonto');
+    figur(schlafBann, 'Schlaf Bert');
+    const schlafBleibt = figur(konto('Schlafbleibtkonto'), 'Schlaf Clara');
+    assert.equal((await listeFrisch('?q=schlaf')).daten.gesamt, 3, 'Stand mit allen dreien');
+    db.charakterLoeschen(schlaf, schlafFigur.id);
+    db.bannSetzen('konto', String(schlafBann), { grund: 'Test' });
+    jetzt += 3_600_000; // eine Stunde ohne Aufruf
+    const erster = await liste('?q=schlaf'); // EIN Aufruf, ohne auf den Neubau zu warten
+    assert.equal(erster.status, 200);
+    assert.deepEqual(namen(erster.daten), ['Schlaf Clara'], 'der erste Aufruf nach der Pause zeigt weder den geloeschten noch den gebannten Charakter');
+    assert.ok(schlafBleibt.id > 0);
+    await api.armory.bereit();
+    assert.equal((await liste('?q=schlaf')).daten.gesamt, 1, 'danach der neue Stand');
+  }
+
   // ── 13. Suche und Unicode-Form (B7), feste Standardkonten (B9) ─────
   figur(konto('Nfdkonto'), 'Zoe\u0308 Nfd');
   assert.deepEqual(namen((await listeFrisch('?q=zo%C3%AB')).daten), ['Zoe\u0308 Nfd'], 'NFC-Suche findet einen NFD-Namen');
@@ -568,7 +587,18 @@ try {
       '/accounts/./armory', '/accounts/%2e/armory', '/accounts/x%5c..%5carmory', '/accounts/x%5C..%5Carmory', '/accounts/x/..%2farmory',
       '/accounts/armory/..', '/accounts/x\\..\\status', '/accounts/x/../status', '/accounts/%00x', '/accounts/x%zz',
       'http://evil.example/accounts/x\\..\\armory', 'http://evil.example/accounts/x/%2e%2e/armory',
+      // N2-1: nginx fasst `//` zusammen und waehlt eine andere location, `new URL` liest den ersten Teil als Host.
+      '//accounts/accounts/armory', `//accounts/accounts/armory/${ulf.id}`, '///accounts/accounts/armory', '//ws/accounts/armory',
+      `//ws/accounts/armory/${ulf.id}`, '//%61ccounts/accounts/armory', '//a@b/accounts/armory', '//accounts:1/accounts/armory',
+      '//accounts%2faccounts/armory', '//x/accounts/status', '////accounts/accounts/armory',
     ];
+    // Wege, die nach dem Parsen gar nicht mehr zur KontoApi gehoeren: nur kein 200 mit Daten.
+    const fremd = ['/\\accounts/armory', 'http://evil//accounts/accounts/armory', 'http://evil.example//ws/accounts/armory', '\\\\accounts\\armory'];
+    for (const p of fremd) {
+      const r = await rohAnfrage(p);
+      assert.notEqual(r.status, 200, `${JSON.stringify(p)} liefert nichts (war ${r.status})`);
+      assert.ok(!r.text.includes('eintraege') && !r.text.includes('kennung'), `${JSON.stringify(p)}: keine Daten`);
+    }
     for (const p of umgehungen) {
       const r = await rohAnfrage(p);
       assert.equal(r.status, 400, `${JSON.stringify(p)} wird abgelehnt (400), war ${r.status}`);
@@ -635,14 +665,48 @@ try {
         roh3.prepare('UPDATE charaktere SET zuletzt_gespielt = ? WHERE id = ?').run((i * 7919) % 100_003, r.charakter.id);
       }
       roh3.exec('COMMIT');
+      // Luecken in den Ids (jede dritte Zeile weg): Seiten nach Id-ABSTAND statt nach der letzten Id lieferten doppelte oder fehlende Zeilen.
+      roh3.exec('DELETE FROM charaktere WHERE id % 3 = 0');
+      const erwartet = ((db3 as any).db.prepare('SELECT COUNT(*) AS n FROM charaktere').get() as { n: number }).n; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const letzterName = ((db3 as any).db.prepare('SELECT name FROM charaktere ORDER BY id DESC LIMIT 1').get() as { name: string }).name; // eslint-disable-line @typescript-eslint/no-explicit-any
       let t3 = 5_000_000;
       const gross = new Armory(db3, []);
       gross.uhr = () => t3;
       assert.equal(gross.liste('1', ''), null, 'vor dem ersten Speicherstand: noch nichts, kein Warten am Stueck');
       await gross.bereit();
       const l1 = gross.liste('1', '')!;
-      assert.equal(l1.gesamt, N, 'kein Charakter fehlt (keine stille Obergrenze)');
-      assert.equal(gross.liste('1', 'gross 19999')!.gesamt, 1);
+      assert.equal(l1.gesamt, erwartet, 'kein Charakter fehlt (keine stille Obergrenze)');
+      assert.equal(gross.liste('1', letzterName.toLowerCase())!.gesamt, 1);
+      {
+        const alle: { id: number; name: string }[] = [];
+        for (let p = 1; p <= l1.seiten; p++) alle.push(...gross.liste(String(p), '')!.eintraege);
+        assert.equal(alle.length, erwartet, 'alle Seiten zusammen: genau so viele Zeilen wie Charaktere');
+        assert.equal(new Set(alle.map((e) => e.id)).size, erwartet, 'keine doppelten Zeilen ueber Id-Luecken hinweg');
+        // N2-4: die Suche ueber den Paar-Index liefert dasselbe wie ein Durchlauf ueber alle Namen.
+        const gesucht = ['g', 'gr', 'gro', 'gros', 'gross 1', 'ross 19', 's 199', '1', '19', '99', 'zzz', 'ö', letzterName.toLowerCase(), '  GROSS  ', 'ss 1', ' 1', '9 ', 'gross 12'];
+        for (const q of gesucht) {
+          const soll = alle.filter((e) => e.name.normalize('NFC').toLowerCase().includes(q.trim().normalize('NFC').toLowerCase()));
+          const ist = gross.liste('1', q)!;
+          assert.equal(ist.gesamt, soll.length, `Suche ${JSON.stringify(q)}: Trefferzahl`);
+          assert.deepEqual(ist.eintraege.map((e) => e.id), soll.slice(0, ARMORY_SEITENGROESSE).map((e) => e.id), `Suche ${JSON.stringify(q)}: erste Seite in Anzeigereihenfolge`);
+          if (ist.seiten > 1) {
+            assert.deepEqual(gross.liste(String(ist.seiten), q)!.eintraege.map((e) => e.id), soll.slice((ist.seiten - 1) * ARMORY_SEITENGROESSE).map((e) => e.id), `Suche ${JSON.stringify(q)}: letzte Seite`);
+          }
+        }
+        // Selektive Suche prueft nur wenige Kandidaten; dieselbe Suche noch einmal kommt aus dem Ergebnis-Puffer.
+        const k0 = gross.statistik.suchKandidaten;
+        const h0 = gross.statistik.suchTreffer;
+        gross.liste('1', 'gross 12345');
+        const kandidaten = gross.statistik.suchKandidaten - k0;
+        assert.ok(kandidaten > 0 && kandidaten < erwartet / 10, `selektive Suche prueft wenige Kandidaten (${kandidaten} von ${erwartet})`);
+        gross.liste('1', 'gross 12345');
+        assert.equal(gross.statistik.suchKandidaten - k0, kandidaten, 'zweiter Aufruf: aus dem Puffer, keine Kandidaten');
+        assert.equal(gross.statistik.suchTreffer - h0, 1, 'Pufferzugriff gezaehlt');
+        // Der Ergebnis-Puffer bleibt begrenzt, auch bei wechselnden Suchbegriffen.
+        for (let i = 0; i < 700; i++) gross.liste('1', `gross ${i}x`);
+        const sc = ((gross as unknown as { aufnahme: { suchCache: Map<string, unknown> } }).aufnahme).suchCache;
+        assert.ok(sc.size <= 256, `Ergebnis-Puffer begrenzt (${sc.size})`);
+      }
       // Sortierung: zuletzt gespielt absteigend.
       const zeiten = gross.liste('1', '')!.eintraege.map((e) => e.zuletztGespielt as number);
       assert.deepEqual([...zeiten].sort((x, y) => y - x), zeiten, 'Reihenfolge nach dem Haeppchen-Sortieren stimmt');
@@ -658,6 +722,45 @@ try {
       assert.ok((gross as unknown as { lauf: unknown }).lauf !== null, 'der Neubau ist noch nicht fertig, der Faden war frei');
       await gross.bereit();
       assert.equal(gross.liste('1', 'neu dazu')!.gesamt, 1, 'danach der neue Stand');
+
+      // N2-3 (Q12): laeuft ein Neubau nur wegen des Alters, antwortet die Liste weiter mit dem alten Stand, nie mit 503.
+      // N2-3 (Q6): ein zweiter Aufruf waehrend des laufenden Neubaus startet keinen zweiten (sonst wird er bei Dauerlast nie fertig).
+      {
+        const lauf = (): unknown => (gross as unknown as { lauf: unknown }).lauf;
+        const vor = gross.statistik.neubauten;
+        t3 += ARMORY_CACHE_MS + 1;
+        assert.ok(gross.liste('1', '') !== null, 'Ablauf der Frist: alter Stand, kein 503');
+        assert.ok(lauf() !== null);
+        for (let i = 0; i < 20_000 && lauf() !== null; i++) {
+          assert.ok(gross.liste('1', '') !== null, 'waehrend des Neubaus: alter Stand, kein 503');
+          await new Promise<void>((ok) => setImmediate(ok));
+        }
+        assert.equal(lauf(), null, 'der Neubau wird auch bei Dauerlast fertig');
+        assert.equal(gross.statistik.neubauten - vor, 1, 'genau ein Neubau, kein zweiter waehrend des ersten');
+      }
+      // N2-3 (Q9) und H2: ein Fehler im Neubau laesst den alten Stand stehen, setzt den Lauf zurueck und sperrt kurz.
+      {
+        const lauf = (): unknown => (gross as unknown as { lauf: unknown }).lauf;
+        const echt = console.error;
+        console.error = () => undefined;
+        try {
+          (db3 as unknown as { armorySeite: () => never }).armorySeite = () => { throw new Error('Testfehler'); };
+          const vor = gross.statistik.neubauten;
+          t3 += ARMORY_CACHE_MS + 1;
+          assert.ok(gross.liste('1', '') !== null);
+          for (let i = 0; i < 2_000 && lauf() !== null; i++) await new Promise<void>((ok) => setImmediate(ok));
+          assert.equal(lauf(), null, 'nach einem Fehler ist der Lauf zurueckgesetzt');
+          assert.equal(gross.statistik.neubauten - vor, 1);
+          assert.ok(gross.liste('1', '') !== null, 'der alte Stand bleibt');
+          for (let i = 0; i < 50; i++) gross.liste('1', '');
+          assert.equal(gross.statistik.neubauten - vor, 1, 'nach einem Fehler: kein neuer Versuch ohne Abstand');
+          delete (db3 as unknown as { armorySeite?: unknown }).armorySeite;
+          t3 += ARMORY_NEUBAU_MIN_MS + 1;
+          gross.liste('1', '');
+          await gross.bereit();
+          assert.equal(gross.statistik.neubauten - vor, 2, 'nach dem Abstand ein neuer Versuch, der gelingt');
+        } finally { console.error = echt; }
+      }
     } finally { rmSync(ordner3, { recursive: true, force: true }); }
   }
 

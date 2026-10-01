@@ -281,7 +281,14 @@ export class KontoApi {
    * can fall back to its previous behaviour (the 426).
    */
   behandle(req: IncomingMessage, res: ServerResponse): boolean {
-    const pfad = new URL(req.url ?? '/', 'http://x').pathname.replace(/\/+$/, '');
+    let pfad: string;
+    try {
+      pfad = new URL(req.url ?? '/', 'http://x').pathname.replace(/\/+$/, '');
+    } catch {
+      // Ein Pfad, den `new URL` gar nicht lesen kann (`//accounts%2fx/…`: Host mit ungueltigem Zeichen), ist kein Weg dieser API.
+      this.json(res, 400, { error: 'bad-path' });
+      return true;
+    }
     if (!pfad.startsWith('/accounts')) return false;
     // Der ROHE Pfad entscheidet, nicht der geparste: `new URL` macht aus `/accounts/x\..\armory` den Pfad
     // `/accounts/armory`, nachdem ein Vorschalter (nginx) die Anfrage schon nach dem rohen Text eingeordnet hat.
@@ -1139,7 +1146,8 @@ export class KontoApi {
  * Die WHATWG-URL behandelt `\` wie `/` und loest `.`/`..` auch in der Form `%2e` auf; nginx tut beides nicht
  * (sein `location` waehlt nach dem Text). Wer so einen Pfad schickt, kann eine Sperre im Vorschalter umgehen
  * (`/accounts/x\..\armory`). Deshalb: kein Rueckwaertsstrich, kein `.`/`..`-Segment (roh oder prozentkodiert),
- * kein Steuerzeichen, keine kaputte Prozentfolge. Gilt fuer ALLE Wege der KontoApi. Die absolute Form
+ * kein Steuerzeichen, keine kaputte Prozentfolge, genau ein fuehrender Schraegstrich, roher gleich geparster Pfad.
+ * Gilt fuer ALLE Wege der KontoApi. Die absolute Form
  * (`http://host/pfad`) wird auf ihren Pfad gekuerzt.
  */
 export function rohPfadUnzulaessig(url: string): boolean {
@@ -1147,6 +1155,14 @@ export function rohPfadUnzulaessig(url: string): boolean {
   const absolut = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i.exec(pfad);
   if (absolut) pfad = pfad.slice(absolut[0].length);
   pfad = pfad.split(/[?#]/, 1)[0];
+  // Genau EIN fuehrender Schraegstrich: `//accounts/accounts/armory` macht `new URL` zu Host `accounts` und Pfad
+  // `/accounts/armory`, nginx fasst `//` zusammen und waehlt eine ganz andere location (`/accounts/`, `/ws`).
+  if (!pfad.startsWith('/') || pfad.startsWith('//')) return true;
+  // Der rohe Pfad muss dem geparsten gleichen: jede Abweichung (Host-Deutung, Normalisierung, Kodierung) ist eine
+  // Stelle, an der ein Vorschalter und dieser Server verschiedene Wege sehen.
+  let geparst: string;
+  try { geparst = new URL(url, 'http://x').pathname; } catch { return true; }
+  if (geparst !== pfad) return true;
   if (pfad.includes('\\')) return true;
   let dekodiert: string;
   try { dekodiert = decodeURIComponent(pfad); } catch { return true; }

@@ -909,7 +909,7 @@ export class Kontendatenbank {
   armoryStempel(): string {
     this.armoryStempelAbfrage ??= this.db.prepare(`SELECT
       (SELECT COUNT(*) FROM charaktere) AS cn, (SELECT COALESCE(MAX(id), 0) FROM charaktere) AS cm,
-      (SELECT COALESCE(group_concat(art || ':' || wert || ':' || gesetzt || ':' || COALESCE(bis, ''), '|'), '')
+      (SELECT COALESCE(group_concat(art || ':' || wert || ':' || gesetzt || ':' || COALESCE(bis, ''), '|' ORDER BY art, wert), '')
          FROM banns WHERE art IN ('konto', 'spieler')) AS bs`);
     const z = this.armoryStempelAbfrage.get() as Record<string, number | string>;
     return `${z.cn}:${z.cm}:${z.bs}`;

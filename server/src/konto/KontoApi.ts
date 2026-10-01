@@ -330,9 +330,12 @@ export class KontoApi {
     if (pfad === '/accounts/password' && m === 'POST') return this.passwortAendern(req, res);
     if (pfad === '/accounts/delete' && m === 'POST') return this.kontoLoeschen(req, res);
 
-    if (pfad === '/accounts/armory' && m === 'GET') return this.armoryListe(req, res);
+    // Die Ruestkammer-Wege beantwortet NUR ein Loopback-Peer (die Webseite ruft ueber 127.0.0.1; nginx sperrt sie von aussen).
+    // Der Spielserver lauscht auf allen Schnittstellen: von einer anderen Adresse gilt der Weg als nicht vorhanden (404 wie unten).
+    const lokal = istLoopbackPeer(req);
+    if (lokal && pfad === '/accounts/armory' && m === 'GET') return this.armoryListe(req, res);
     const armoryProfil = /^\/accounts\/armory\/(\d{1,9})$/.exec(pfad);
-    if (armoryProfil && m === 'GET') return this.armoryEinzeln(req, res, Number(armoryProfil[1]));
+    if (lokal && armoryProfil && m === 'GET') return this.armoryEinzeln(req, res, Number(armoryProfil[1]));
 
     const melden = /^\/accounts\/characters\/(\d+)\/report$/.exec(pfad);
     if (melden && m === 'POST') return this.profilMelden(req, res, Number(melden[1]));
@@ -1138,6 +1141,12 @@ export class KontoApi {
     });
     res.end(text);
   }
+}
+
+/** Kommt die Verbindung selbst (Socket-Peer, nicht ein Kopf) von Loopback? */
+export function istLoopbackPeer(req: IncomingMessage): boolean {
+  const peer = (req.socket?.remoteAddress ?? '').toLowerCase();
+  return peer === '127.0.0.1' || peer === '::1' || peer === '::ffff:127.0.0.1';
 }
 
 /**

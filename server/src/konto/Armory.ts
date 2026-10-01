@@ -205,7 +205,9 @@ export class Armory {
   /** Groesse der Drosselkarte; Tests verkleinern sie. */
   drosselKarteMax = DROSSEL_KARTE_MAX;
   /** Messwerte des Neubaus in Haeppchen (fuer Tests und Betriebsanzeige). */
-  readonly statistik = { schritte: 0, laengsterSchrittMs: 0, neubauten: 0, suchKandidaten: 0, suchTreffer: 0, indexBytes: 0 };
+  readonly statistik = { schritte: 0, laengsterSchrittMs: 0, neubauten: 0, suchKandidaten: 0, suchTreffer: 0, indexBytes: 0, einzelpruefungen: 0 };
+  /** Ergebnisse der Einzelpruefung bei unsicherem Stand, gueltig fuer genau einen Stempel. */
+  private pruefung: { stempel: string; ergebnis: Map<number, boolean> } | null = null;
   /** Nach einem Fehler des Neubaus fruehestens ab diesem Zeitpunkt (ms, `uhr`) ein neuer Versuch. */
   private sperreBis = 0;
   /** Der laufende Neubau des Speicherstands (in Haeppchen), sonst null. */
@@ -273,9 +275,22 @@ export class Armory {
     // Ist bekannt, dass sich die Sichtbarkeit seit dem Bau des Stands geaendert hat (Loeschen, Bann, neuer Charakter),
     // wird jeder ausgelieferte Eintrag vor der Antwort gegen die Datenbank geprueft: Geloeschte und Gebannte erscheinen
     // nie, auch wenn der Stand uralt ist. Die Zahlen (`gesamt`, `seiten`) bleiben die des Stands.
+    // Die Pruefung wird je Stempel einmal gemacht und gepuffert (bis der Neubau fertig ist): 300 Anfragen, ein Durchgang.
     if (lage.unsicher) {
       const jetzt = this.uhr();
-      zeilen = zeilen.filter((z) => this.db.armoryEinzeln(z.id, jetzt) !== null);
+      if (!this.pruefung || this.pruefung.stempel !== lage.stempel || this.pruefung.ergebnis.size > 4096) {
+        this.pruefung = { stempel: lage.stempel, ergebnis: new Map() };
+      }
+      const erg = this.pruefung.ergebnis;
+      zeilen = zeilen.filter((z) => {
+        let sichtbar = erg.get(z.id);
+        if (sichtbar === undefined) {
+          sichtbar = this.db.armoryEinzeln(z.id, jetzt) !== null;
+          erg.set(z.id, sichtbar);
+          this.statistik.einzelpruefungen += 1;
+        }
+        return sichtbar;
+      });
     }
     return { eintraege: zeilen.map(baueEintrag), seite, seitenGroesse: ARMORY_SEITENGROESSE, gesamt, seiten, suche, suche_gekuerzt: ergebnis?.gekuerzt ?? false };
   }
@@ -360,7 +375,7 @@ export class Armory {
    * kein Neubau den Faden des Spielservers, auch nicht bei 100 000 Charakteren, und ein geloeschter oder gebannter
    * Charakter erscheint nie laenger als etwa ARMORY_NEUBAU_MIN_MS, auch nach einer Stunde ohne Aufruf.
    */
-  private aktuelleAufnahme(): { stand: Aufnahme; unsicher: boolean } | null {
+  private aktuelleAufnahme(): { stand: Aufnahme; unsicher: boolean; stempel: string } | null {
     const jetzt = this.uhr();
     const alt = this.aufnahme;
     if (!alt) {
@@ -369,11 +384,11 @@ export class Armory {
     }
     // Hoechstens ein Neubau je ARMORY_NEUBAU_MIN_MS: wer Charaktere anlegt und loescht, soll Neubauten nicht
     // je Anfrage erzwingen koennen. Ein Stand, der juenger ist, gilt ohne Pruefung des Stempels.
-    if (alt.bis > jetzt && jetzt - alt.gebaut < ARMORY_NEUBAU_MIN_MS) return { stand: alt, unsicher: false };
+    if (alt.bis > jetzt && jetzt - alt.gebaut < ARMORY_NEUBAU_MIN_MS) return { stand: alt, unsicher: false, stempel: alt.stempel };
     const stempel = this.db.armoryStempel();
     const geaendert = stempel !== alt.stempel;
     if (!this.lauf && (alt.bis <= jetzt || geaendert) && jetzt >= this.sperreBis) this.starteNeubau(jetzt, stempel);
-    return { stand: alt, unsicher: geaendert };
+    return { stand: alt, unsicher: geaendert, stempel };
   }
 
   private starteNeubau(jetzt: number, stempel: string): void {
@@ -396,6 +411,7 @@ export class Armory {
         }
         if (r.done) {
           this.aufnahme = r.value;
+          this.pruefung = null;
           this.profile.clear();
           this.lauf = null;
           return;
@@ -504,9 +520,22 @@ export class Armory {
   }
 }
 
-/** Anzeigereihenfolge: zuletzt gespielt absteigend (nie Gespielte zuletzt), dann neuere zuerst, dann Id. */
+/** `zuletztGespielt` wird nach aussen nur auf volle Stunden abgerundet gezeigt (ms-Wert der Stunde): so ist die Reihenfolge innerhalb einer Stunde nicht ablesbar. */
+export const ARMORY_ZEIT_RASTER_MS = 3_600_000;
+function aufStunde(ms: number | null): number | null {
+  return ms === null ? null : Math.floor(ms / ARMORY_ZEIT_RASTER_MS) * ARMORY_ZEIT_RASTER_MS;
+}
+
+/**
+ * Anzeigereihenfolge: nach dem GERUNDETEN `zuletztGespielt` absteigend (nie Gespielte zuletzt), bei Gleichstand nach Name,
+ * dann nach Id. Sortiert wird nach dem, was auch ausgeliefert wird; sonst verriete die Reihenfolge den genauen Zeitpunkt.
+ */
 function anzeigeReihenfolge(a: ArmoryZeile, b: ArmoryZeile): number {
-  return (b.zuletztGespielt ?? 0) - (a.zuletztGespielt ?? 0) || b.erstellt - a.erstellt || b.id - a.id;
+  const za = aufStunde(a.zuletztGespielt) ?? 0;
+  const zb = aufStunde(b.zuletztGespielt) ?? 0;
+  if (za !== zb) return zb - za;
+  if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+  return a.id - b.id;
 }
 
 const GRAPHEME = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
@@ -546,7 +575,7 @@ export function baueEintrag(z: ArmoryZeile): ArmoryEintrag {
     klasse: z.klasse,
     aussehen: { figur: z.figur, frisur: z.frisur, haarfarbe: z.haarfarbe, augenfarbe: z.augenfarbe },
     erstellt: z.erstellt,
-    zuletztGespielt: z.zuletztGespielt,
+    zuletztGespielt: aufStunde(z.zuletztGespielt),
   };
 }
 

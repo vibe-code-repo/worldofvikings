@@ -104,6 +104,8 @@ type Form = 'w' | Form[] | { [k: string]: Form };
 const STAT: Form = { damage: 'w', armor: 'w', strength: 'w', vitality: 'w', agility: 'w' };
 const STUECK: Form = { kennung: 'w', name: 'w', textKey: 'w', seltenheit: 'w', itemStufe: 'w', qualitaet: 'w', werte: STAT, symbol: 'w' };
 const ASPEKT: Form = { figur: 'w', frisur: 'w', haarfarbe: 'w', augenfarbe: 'w' };
+/** Eine Stunde in ms: `zuletztGespielt` wird nach aussen auf volle Stunden abgerundet. */
+const H = 3_600_000;
 const EINTRAG: Form = { id: 'w', name: 'w', klasse: 'w', aussehen: ASPEKT, erstellt: 'w', zuletztGespielt: 'w' };
 const SLOTS = ['kopf', 'halskette', 'hemd', 'hose', 'schuhe', 'armreif', 'ring1', 'ring2', 'schultern', 'unterarme', 'haende'];
 const FORM_LISTE: Form = { eintraege: [EINTRAG], seite: 'w', seitenGroesse: 'w', gesamt: 'w', seiten: 'w', suche: 'w', suche_gekuerzt: 'w' };
@@ -150,8 +152,8 @@ try {
   const ulf = figur(alrun, 'Ärger-Ulf', 'jaeger');
   const bjorn = figur(bjarne, 'Björn Eisenfaust');
   const ohneZeit = figur(bjarne, 'Nie Gespielt');
-  zuletzt(ulf.id, 5_000);
-  zuletzt(bjorn.id, 9_000);
+  zuletzt(ulf.id, 5 * H);
+  zuletzt(bjorn.id, 9 * H);
 
   const ausruestet = {
     name: 'Ärger-Ulf',
@@ -223,7 +225,7 @@ try {
   const massen: number[] = [];
   for (let i = 0; i < 30; i++) {
     const f = figur(masse, `Massenrecke ${String(i).padStart(2, '0')}`);
-    zuletzt(f.id, 100 + i);
+    zuletzt(f.id, (100 + i) * H);
     massen.push(f.id);
   }
   const s1 = (await listeFrisch('?q=massenrecke')).daten;
@@ -281,7 +283,7 @@ try {
   assert.deepEqual(p.daten, {
     id: ulf.id, name: 'Ärger-Ulf', klasse: 'jaeger',
     aussehen: { figur: 'wikingerin', frisur: 'H_01', haarfarbe: 'mittelbraun', augenfarbe: 'fjordblau' },
-    erstellt: (await listeFrisch('?q=ulf')).daten.eintraege[0].erstellt, zuletztGespielt: 5_000,
+    erstellt: (await listeFrisch('?q=ulf')).daten.eintraege[0].erstellt, zuletztGespielt: 5 * H,
     ausruestung: {
       kopf: stueckVon('IronwardHelmet', 1), hemd: stueckVon('IronwardCuirass', 3), hose: stueckVon('IronwardLeggings', 2),
     },
@@ -664,7 +666,7 @@ try {
       for (let i = 0; i < N; i++) {
         const r = db3.charakterAnlegen(k3.konto.id, `Gross ${i}`, { ...aussehen, klasse: 'krieger' });
         assert.ok(r.ok);
-        roh3.prepare('UPDATE charaktere SET zuletzt_gespielt = ? WHERE id = ?').run((i * 7919) % 100_003, r.charakter.id);
+        roh3.prepare('UPDATE charaktere SET zuletzt_gespielt = ? WHERE id = ?').run(((i * 7919) % 100_003) * H, r.charakter.id);
       }
       roh3.exec('COMMIT');
       // Luecken in den Ids (jede dritte Zeile weg): Seiten nach Id-ABSTAND statt nach der letzten Id lieferten doppelte oder fehlende Zeilen.
@@ -903,20 +905,101 @@ try {
     } finally { rmSync(ordner5, { recursive: true, force: true }); }
   }
 
+  // ── 21. N7: nur Loopback-Peers (A2), Stempel in fester Reihenfolge (A1), Stundenraster (F1), Pruefung gepuffert (F6) ─
+  {
+    // A2: ein Nicht-Loopback-Peer (der Spielserver lauscht auf allen Schnittstellen) bekommt die Ruestkammer-Wege nicht, andere Wege schon.
+    const peerAnfrage = (peer: string | undefined, pfad: string): { status: number; text: string } => {
+      const res = { status: 0, text: '', setHeader() { /* leer */ }, writeHead(c: number) { this.status = c; return this; }, end(t?: string) { this.text = t ?? ''; } };
+      const req = { url: pfad, method: 'GET', headers: { 'x-forwarded-for': '127.0.0.1' }, socket: { remoteAddress: peer } };
+      assert.equal(api.behandle(req as never, res as never), true);
+      return { status: res.status, text: res.text };
+    };
+    for (const pfad of ['/accounts/armory', '/accounts/armory?q=ab', `/accounts/armory/${ulf.id}`]) {
+      for (const peer of ['10.1.2.3', '192.168.0.9', '::ffff:10.0.0.1', '2001:db8::1', 'fe80::1', undefined]) {
+        const r = peerAnfrage(peer, pfad);
+        assert.equal(r.status, 404, `${pfad} von ${String(peer)}: 404 wie ein unbekannter Weg`);
+        assert.equal(r.text, JSON.stringify({ error: 'unknown-endpoint' }));
+      }
+      for (const peer of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) {
+        assert.equal(peerAnfrage(peer, pfad).status, 200, `${pfad} von ${peer}: erlaubt`);
+      }
+    }
+    assert.equal(peerAnfrage('10.1.2.3', '/accounts/status').status, 200, 'andere Wege der KontoApi bleiben unveraendert');
+    assert.equal(peerAnfrage('10.1.2.3', `/accounts/characters/${ulf.id}`).status, 200);
+
+    // A1: derselbe Bestand an Banns ergibt denselben Stempel, auch wenn die Zeilen in anderer Reihenfolge stehen.
+    {
+      const insert = (wert: string): void => { roh.prepare("INSERT INTO banns (art, wert, grund, gesetzt_von, gesetzt, bis) VALUES ('konto', ?, '', '', 2000, NULL)").run(wert); };
+      insert('987001');
+      insert('987002');
+      const vorher = db.armoryStempel();
+      roh.prepare("DELETE FROM banns WHERE art = 'konto' AND wert = '987001'").run();
+      insert('987001'); // jetzt die zweite Zeile im Speicher
+      assert.equal(db.armoryStempel(), vorher, 'gleicher Bestand, andere Zeilenfolge: gleicher Stempel');
+      roh.prepare("DELETE FROM banns WHERE art = 'konto' AND wert IN ('987001', '987002')").run();
+    }
+
+    // F1: zuletztGespielt wird auf volle Stunden abgerundet; sortiert wird nach dem gerundeten Wert, bei Gleichstand nach Name.
+    {
+      const rk = konto('Rasterkonto');
+      const zeta = figur(rk, 'Raster Zeta');
+      const alpha = figur(rk, 'Raster Alpha');
+      const spaet = figur(rk, 'Raster Spaet');
+      const feste = 8_000_000 * H; // frei gewaehlte Stunde, hinter allen anderen Testwerten
+      zuletzt(zeta.id, feste + 3_000_000); // roh spaeter als Alpha: nach dem genauen Zeitpunkt laege Zeta vorn
+      zuletzt(alpha.id, feste + 5); // roh frueher innerhalb derselben Stunde
+      zuletzt(spaet.id, feste + H + 17); // naechste Stunde
+      const l1 = (await listeFrisch('?q=raster')).daten;
+      assert.deepEqual(namen(l1), ['Raster Spaet', 'Raster Alpha', 'Raster Zeta'], 'neuere Stunde zuerst, innerhalb der Stunde nach Name (nicht nach dem genauen Zeitpunkt)');
+      assert.deepEqual(l1.eintraege.map((e: Json) => e.zuletztGespielt), [feste + H, feste, feste], 'volle Stunden');
+      assert.equal((await profil(alpha.id)).daten.zuletztGespielt, feste, 'auch im Profil');
+      assert.equal((await profil(spaet.id)).daten.zuletztGespielt, feste + H);
+      for (const e of l1.eintraege as Json[]) assert.equal((e.zuletztGespielt as number) % H, 0);
+    }
+  }
+
+  // ── 21b. F6: die Einzelpruefung bei unsicherem Stand laeuft einmal je Stempel (nicht je Anfrage) ─
+  {
+    const ordner6 = mkdtempSync(join(tmpdir(), 'wov-konto-armory-f-'));
+    try {
+      const db6 = new Kontendatenbank(join(ordner6, 'konten.db'));
+      const k = db6.kontoAnlegen('Sechskonto', 's@example.org', passwortEinlagernSync('geheimespasswort1'));
+      assert.ok(k.ok);
+      for (let i = 0; i < 60; i++) assert.ok(db6.charakterAnlegen(k.konto.id, `Sechs ${String(i).padStart(2, '0')}`, { ...aussehen, klasse: 'krieger' }).ok);
+      let t6 = 12_000_000;
+      const a6 = new Armory(db6, []);
+      a6.uhr = () => t6;
+      a6.liste('1', '');
+      await a6.bereit();
+      assert.equal(a6.liste('1', '')!.eintraege.length, ARMORY_SEITENGROESSE);
+      // Sichtbarkeit aendert sich; ohne Zwischenpause (kein await) kann der Neubau nicht fertig werden: der Stand bleibt unsicher.
+      assert.ok(db6.charakterAnlegen(k.konto.id, 'Sechs Neu', { ...aussehen, klasse: 'krieger' }).ok);
+      t6 += ARMORY_NEUBAU_MIN_MS + 1;
+      const vor = a6.statistik.einzelpruefungen;
+      for (let i = 0; i < 300; i++) assert.equal(a6.liste('1', '')!.eintraege.length, ARMORY_SEITENGROESSE);
+      assert.equal(a6.statistik.einzelpruefungen - vor, ARMORY_SEITENGROESSE, '300 Anfragen, ein Pruefdurchgang (24 Eintraege)');
+      // Eine neue Aenderung (neuer Stempel) fuehrt zu einem neuen Durchgang.
+      assert.ok(db6.charakterAnlegen(k.konto.id, 'Sechs Neuer', { ...aussehen, klasse: 'krieger' }).ok);
+      for (let i = 0; i < 50; i++) a6.liste('1', '');
+      assert.equal(a6.statistik.einzelpruefungen - vor, 2 * ARMORY_SEITENGROESSE, 'anderer Stempel: einmal neu pruefen');
+      await a6.bereit();
+    } finally { rmSync(ordner6, { recursive: true, force: true }); }
+  }
+
   // ── 8. Puffer ─────────────────────────────────────────────────────
-  zuletzt(ulf.id, 5_000);
+  zuletzt(ulf.id, 5 * H);
   jetzt += ARMORY_CACHE_MS + 1;
   await liste('?q=ulf'); // Ablauf der Frist startet den Neubau, der alte Stand gilt bis er fertig ist
   await api.armory.bereit();
   const erste = await liste('?q=ulf');
-  assert.equal(erste.daten.eintraege[0].zuletztGespielt, 5_000);
-  zuletzt(ulf.id, 7_777);
+  assert.equal(erste.daten.eintraege[0].zuletztGespielt, 5 * H);
+  zuletzt(ulf.id, 7 * H);
   jetzt += ARMORY_CACHE_MS - 5_000;
-  assert.equal((await liste('?q=ulf')).daten.eintraege[0].zuletztGespielt, 5_000, 'innerhalb der Frist: gepufferte Antwort');
+  assert.equal((await liste('?q=ulf')).daten.eintraege[0].zuletztGespielt, 5 * H, 'innerhalb der Frist: gepufferte Antwort');
   jetzt += 5_001;
   await liste('?q=ulf');
   await api.armory.bereit();
-  assert.equal((await liste('?q=ulf')).daten.eintraege[0].zuletztGespielt, 7_777, 'nach der Frist: frisch aus der Datenbank');
+  assert.equal((await liste('?q=ulf')).daten.eintraege[0].zuletztGespielt, 7 * H, 'nach der Frist: frisch aus der Datenbank');
 
   assert.equal((await profil(ulf.id)).daten.waffe.kennung, 'SwordNorth');
   zustand(ulf.spielerId, { ...ausruestet, inventar: [], ruestung: '' }, 'welt-a', 99);

@@ -34,6 +34,7 @@
  * Profiltext nie gepuffert. Eine Drossel je Herkunft (`erlaubt`) ist die zweite
  * Linie; nginx sperrt den Weg von aussen (deploy/nginx/wov-lab.conf).
  */
+import { performance } from 'node:perf_hooks';
 import {
   AUSRUESTUNG_SLOTS, KEINE_WERTE, STAT_IDS, SLOT_VORGABE, ausgehenderNahkampfSchaden, decodeArmor, findItem,
   istAugenfarbe, istAusruestungsSlot, istFigur, istFrisur, istHaarfarbe, istRarity, lebensmaximum, summiereWerte, waffenSchaden, werteFuerRuestungsteil,
@@ -53,6 +54,11 @@ export const ARMORY_CACHE_MAX = 256;
 export const ARMORY_DROSSEL_MAX = 300;
 export const ARMORY_DROSSEL_FENSTER_MS = 10_000;
 const DROSSEL_KARTE_MAX = 4096;
+/** Hoechstdauer eines Arbeitsstuecks des Neubaus, danach gibt der Faden frei (Ziel: Takt des Spiels unter 20 ms). */
+export const ARMORY_SCHRITT_MS = 3;
+const ARMORY_SEITE_ZEILEN = 500;
+const ARMORY_LAUF = 2048;
+const ARMORY_MISCH_MASKE = 4095;
 /** Immer ausgeschlossen, auch wenn die Konfiguration keinen `standard-konto`-Block hat. */
 const FESTE_STANDARDKONTEN = ['gast', 'guest', 'admin'];
 /** Laengste `ruestung`-Zeichenkette, die wir dekodieren (echte Werte sind unter 500 Zeichen). */
@@ -160,6 +166,12 @@ export class Armory {
   /** Fertige Profile ohne Profiltext, je ARMORY_CACHE_MS gueltig; fliegen auch mit einer neuen Aufnahme hinaus. */
   private readonly profile = new Map<number, { bis: number; wert: ArmoryProfil }>();
   private readonly drosselung = new Map<string, { anzahl: number; bis: number }>();
+  /** Groesse der Drosselkarte; Tests verkleinern sie. */
+  drosselKarteMax = DROSSEL_KARTE_MAX;
+  /** Messwerte des Neubaus in Haeppchen (fuer Tests und Betriebsanzeige). */
+  readonly statistik = { schritte: 0, laengsterSchrittMs: 0 };
+  /** Der laufende Neubau des Speicherstands (in Haeppchen), sonst null. */
+  private lauf: Generator<void, Aufnahme> | null = null;
   /** Benutzernamen, die nie erscheinen: die der Konfiguration PLUS die fest eingebauten. */
   private readonly ausgeschlossen: ReadonlySet<string>;
 
@@ -179,13 +191,18 @@ export class Armory {
    */
   erlaubt(herkunft: string): boolean {
     const jetzt = this.uhr();
-    if (this.drosselung.size >= DROSSEL_KARTE_MAX) {
+    if (this.drosselung.size >= this.drosselKarteMax && !this.drosselung.has(herkunft)) {
       for (const [k, e] of this.drosselung) if (e.bis <= jetzt) this.drosselung.delete(k);
-      while (this.drosselung.size >= DROSSEL_KARTE_MAX) {
-        const aeltester = this.drosselung.keys().next();
-        if (aeltester.done) break;
-        this.drosselung.delete(aeltester.value);
+      // Gesperrte Herkuenfte werden nie verdraengt: sonst setzte eine Flut fremder Schluessel eine Sperre zurueck.
+      // Verdraengt wird der aelteste NICHT gesperrte Eintrag.
+      if (this.drosselung.size >= this.drosselKarteMax) {
+        for (const [k, e] of this.drosselung) {
+          if (e.anzahl <= ARMORY_DROSSEL_MAX) { this.drosselung.delete(k); break; }
+        }
       }
+      // Notbremse: besteht die Karte nur noch aus gesperrten Herkuenften, kommt keine neue hinein
+      // und jede unbekannte Herkunft wird abgewiesen, bis ein Fenster ablaeuft.
+      if (this.drosselung.size >= this.drosselKarteMax) return false;
     }
     const e = this.drosselung.get(herkunft);
     if (!e || e.bis <= jetzt) {
@@ -196,9 +213,10 @@ export class Armory {
     return e.anzahl <= ARMORY_DROSSEL_MAX;
   }
 
-  /** `seiteRoh` und `qRoh` sind die ungeprueften Query-Werte. Wirft nie bei Eingaben. */
-  liste(seiteRoh: unknown, qRoh: unknown): ArmoryListe {
+  /** `seiteRoh` und `qRoh` sind die ungeprueften Query-Werte. Wirft nie bei Eingaben; null, solange der erste Speicherstand noch gebaut wird. */
+  liste(seiteRoh: unknown, qRoh: unknown): ArmoryListe | null {
     const a = this.aktuelleAufnahme();
+    if (!a) return null; // der erste Aufbau laeuft noch
     const suche = bereinigeSuche(qRoh);
     let treffer: ArmoryZeile[];
     if (suche === '') treffer = a.zeilen;
@@ -244,27 +262,128 @@ export class Armory {
     return ergebnis;
   }
 
-  private aktuelleAufnahme(): Aufnahme {
+  /** Wartet, bis kein Neubau mehr laeuft (fuer Tests und geordnetes Beenden). */
+  async bereit(): Promise<void> {
+    while (this.lauf) await new Promise<void>((ok) => setImmediate(ok));
+  }
+
+  /**
+   * Der gueltige Speicherstand, oder null vor dem allerersten. Ist ein Neubau faellig, wird er in Haeppchen
+   * gestartet (siehe `bauePlan`); bis er fertig ist, gilt der alte Stand. So blockiert kein Neubau den Faden
+   * des Spielservers, auch nicht bei 100 000 Charakteren.
+   */
+  private aktuelleAufnahme(): Aufnahme | null {
     const jetzt = this.uhr();
     const alt = this.aufnahme;
-    // Ein Neubau kostet bei grossem Bestand zig Millisekunden; wer Charaktere anlegt und loescht, soll ihn nicht
-    // je Anfrage erzwingen koennen. Daher hoechstens einer je ARMORY_NEUBAU_MIN_MS, auch bei geaendertem Stempel.
-    if (alt && alt.bis > jetzt && jetzt - alt.gebaut < ARMORY_NEUBAU_MIN_MS) return alt;
+    if (!alt) {
+      if (!this.lauf) this.starteNeubau(jetzt, this.db.armoryStempel());
+      return null;
+    }
+    if (this.lauf) return alt;
+    // Wer Charaktere anlegt und loescht, soll Neubauten nicht je Anfrage erzwingen koennen: hoechstens einer je
+    // ARMORY_NEUBAU_MIN_MS, auch bei geaendertem Stempel.
+    if (alt.bis > jetzt && jetzt - alt.gebaut < ARMORY_NEUBAU_MIN_MS) return alt;
     const stempel = this.db.armoryStempel();
-    if (alt && alt.stempel === stempel && alt.bis > jetzt) return alt;
-    const zeilen = this.db.armoryAlle(jetzt).filter((z) => !this.ausgeschlossen.has(falte(z.kontoName)));
-    const neu: Aufnahme = {
-      zeilen,
-      gefaltet: zeilen.map((z) => falte(z.name)),
-      nachId: new Map(zeilen.map((z) => [z.id, z])),
-      stempel,
-      gebaut: jetzt,
-      bis: jetzt + ARMORY_CACHE_MS,
-    };
-    this.aufnahme = neu;
-    this.profile.clear();
-    return neu;
+    if (alt.bis <= jetzt || alt.stempel !== stempel) this.starteNeubau(jetzt, stempel);
+    return alt;
   }
+
+  private starteNeubau(jetzt: number, stempel: string): void {
+    this.lauf = this.bauePlan(jetzt, stempel);
+    setImmediate(() => this.schritt());
+  }
+
+  /** Ein Zeitstueck Arbeit (hoechstens ARMORY_SCHRITT_MS), dann gibt der Faden frei. */
+  private schritt(): void {
+    const lauf = this.lauf;
+    if (!lauf) return;
+    const t0 = performance.now();
+    try {
+      for (;;) {
+        const r = lauf.next();
+        if (r.done || performance.now() - t0 >= ARMORY_SCHRITT_MS) {
+          this.statistik.schritte += 1;
+          this.statistik.laengsterSchrittMs = Math.max(this.statistik.laengsterSchrittMs, performance.now() - t0);
+        }
+        if (r.done) {
+          this.aufnahme = r.value;
+          this.profile.clear();
+          this.lauf = null;
+          return;
+        }
+        if (performance.now() - t0 >= ARMORY_SCHRITT_MS) break;
+      }
+    } catch (e) {
+      this.lauf = null; // der alte Stand bleibt; der naechste Aufruf versucht es erneut
+      console.error('[Armory] Neubau des Speicherstands fehlgeschlagen:', e);
+      return;
+    }
+    setImmediate(() => this.schritt());
+  }
+
+  /**
+   * Der Neubau als Generator: jedes `yield` ist eine Stelle, an der der Faden freigegeben werden darf. Die Zeilen
+   * kommen seitenweise nach Id (Primaerschluessel, billig), dann wird in Laeufen sortiert und die Laeufe werden
+   * schrittweise gemischt; jedes Stueck Arbeit liegt im Bereich von Millisekunden, unabhaengig vom Bestand.
+   * Eine Obergrenze gibt es nicht.
+   */
+  private *bauePlan(jetzt: number, stempel: string): Generator<void, Aufnahme> {
+    const gebannt = this.db.armoryBanns(jetzt);
+    const roh: ArmoryZeile[] = [];
+    for (let nach = 0; ;) {
+      const teil = this.db.armorySeite(nach, ARMORY_SEITE_ZEILEN);
+      if (teil.length === 0) break;
+      for (const z of teil) {
+        if (gebannt.konten.has(String(z.kontoId)) || gebannt.spieler.has(z.spielerId.toLowerCase())) continue;
+        if (this.ausgeschlossen.has(falte(z.kontoName))) continue;
+        roh.push(z);
+      }
+      nach = teil[teil.length - 1].id;
+      yield;
+    }
+    let laeufe: ArmoryZeile[][] = [];
+    for (let i = 0; i < roh.length; i += ARMORY_LAUF) {
+      const lauf = roh.slice(i, i + ARMORY_LAUF);
+      lauf.sort(anzeigeReihenfolge);
+      laeufe.push(lauf);
+      yield;
+    }
+    while (laeufe.length > 1) {
+      const gemischt: ArmoryZeile[][] = [];
+      for (let i = 0; i < laeufe.length; i += 2) {
+        if (i + 1 === laeufe.length) { gemischt.push(laeufe[i]); continue; }
+        const x = laeufe[i];
+        const y = laeufe[i + 1];
+        const m: ArmoryZeile[] = new Array<ArmoryZeile>(x.length + y.length);
+        let p = 0;
+        let q = 0;
+        let k = 0;
+        while (p < x.length && q < y.length) {
+          m[k++] = anzeigeReihenfolge(x[p], y[q]) <= 0 ? x[p++] : y[q++];
+          if ((k & ARMORY_MISCH_MASKE) === 0) yield;
+        }
+        while (p < x.length) { m[k++] = x[p++]; if ((k & ARMORY_MISCH_MASKE) === 0) yield; }
+        while (q < y.length) { m[k++] = y[q++]; if ((k & ARMORY_MISCH_MASKE) === 0) yield; }
+        gemischt.push(m);
+        yield;
+      }
+      laeufe = gemischt;
+    }
+    const zeilen = laeufe[0] ?? [];
+    const gefaltet: string[] = [];
+    const nachId = new Map<number, ArmoryZeile>();
+    for (let i = 0; i < zeilen.length; i++) {
+      gefaltet.push(falte(zeilen[i].name));
+      nachId.set(zeilen[i].id, zeilen[i]);
+      if ((i & ARMORY_MISCH_MASKE) === ARMORY_MISCH_MASKE) yield;
+    }
+    return { zeilen, gefaltet, nachId, stempel, gebaut: jetzt, bis: jetzt + ARMORY_CACHE_MS };
+  }
+}
+
+/** Anzeigereihenfolge: zuletzt gespielt absteigend (nie Gespielte zuletzt), dann neuere zuerst, dann Id. */
+function anzeigeReihenfolge(a: ArmoryZeile, b: ArmoryZeile): number {
+  return (b.zuletztGespielt ?? 0) - (a.zuletztGespielt ?? 0) || b.erstellt - a.erstellt || b.id - a.id;
 }
 
 /** Namensvergleich ohne Rücksicht auf Schreibung und Unicode-Form (NFC, klein). */

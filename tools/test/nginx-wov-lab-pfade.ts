@@ -338,6 +338,30 @@ function main(): void {
     Rüstkammer R1: auch die beiden anderen Konfigurationen, die `/accounts/` durchreichen
     (Live-Container und Proxy-Manager-Vorlage des Testgestades), sperren den Weg.
   */
+  /*
+    Rüstkammer R1 (N1-3): die Drossel des Spielservers zählt je Besucher. Dafür muss die Besucheradresse bis
+    zur Webseite kommen: `location /` setzt real_ip NUR dort (nicht auf der server-Ebene, sonst ändert sich
+    `$remote_addr` für den Netz-Riegel von `/api/`), und die systemd-Unit liest den Kopf (ADDRESS_HEADER).
+  */
+  {
+    const wurzelBlock = block(ohneKomm, /location\s+\/(?=\s*\{)/);
+    const innen = wurzelBlock?.inhalt ?? '';
+    const real =
+      /set_real_ip_from\s+10\.10\.10\.10\s*;/.test(innen) && /real_ip_header\s+X-Forwarded-For\s*;/.test(innen) &&
+      /real_ip_recursive\s+on\s*;/.test(innen) && /proxy_set_header\s+X-Forwarded-For\s+\$remote_addr\s*;/.test(innen);
+    console.log(`${real ? 'OK  ' : 'FEHL'}  location / setzt real_ip (nur der Proxy Manager) und reicht X-Forwarded-For weiter`);
+    if (!real) fehler++;
+    const serverEbene = server?.inhalt.replace(/location[\s\S]*$/, '') ?? '';
+    const global = /set_real_ip_from/.test(serverEbene) || /real_ip_header/.test(serverEbene);
+    console.log(`${!global ? 'OK  ' : 'FEHL'}  real_ip steht NICHT auf der server-Ebene ($remote_addr bleibt fuer den Netz-Riegel von /api/)`);
+    if (global) fehler++;
+    let einheit = '';
+    try { einheit = ohneKommentare(readFileSync(resolve(WURZEL, 'deploy/systemd/wov-web.service'), 'utf-8')); } catch { /* leer */ }
+    const unit = /^Environment=ADDRESS_HEADER=x-forwarded-for\s*$/m.test(einheit) && /^Environment=XFF_DEPTH=1\s*$/m.test(einheit);
+    console.log(`${unit ? 'OK  ' : 'FEHL'}  wov-web.service liest die Besucheradresse (ADDRESS_HEADER, XFF_DEPTH=1)`);
+    if (!unit) fehler++;
+  }
+
   for (const datei of ['deploy/nginx-live.conf', 'deploy/npm-play-dev.conf']) {
     let ok = false;
     try {

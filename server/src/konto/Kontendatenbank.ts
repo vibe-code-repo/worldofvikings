@@ -190,9 +190,6 @@ export interface ArmoryZeile {
 const ARMORY_AUSWAHL = `SELECT c.id, c.konto_id, c.spieler_id, c.name, c.klasse, c.figur, c.frisur, c.haarfarbe,
   c.augenfarbe, c.erstellt, c.zuletzt_gespielt, k.benutzername FROM charaktere c JOIN konten k ON k.id = c.konto_id`;
 
-/** Obergrenze der Ruestkammer-Liste, nur als Notbremse. */
-const ARMORY_ZEILEN_MAX = 100_000;
-
 function zuArmoryZeile(z: Record<string, unknown>): ArmoryZeile {
   return {
     id: Number(z.id),
@@ -851,37 +848,31 @@ export class Kontendatenbank {
   // ── Ruestkammer: Lesewege (nur lesen) ───────────────────────────────
 
   /**
-   * ALLE Charaktere, die die oeffentliche Ruestkammer zeigen duerfte: ohne
-   * wirksamen Bann auf Konto oder Spieler (`jetzt` in ms). Geloeschte Konten
-   * sind schon deshalb weg, weil ihre Charaktere mit ihnen geloescht werden.
-   * Die Standardkonten filtert Armory.ts (es kennt die Namen).
-   *
-   * Eine Abfrage ohne Suchtext: Armory.ts haelt das Ergebnis kurz im Speicher
-   * und sucht dort. Sortierung: zuletzt gespielt absteigend (nie Gespielte ans
-   * Ende), dann neuere zuerst, dann Id; stabil, damit Seiten sich nicht
-   * ueberlappen. Gelesen wird KEIN `spielerzustand`. Die Grenze schuetzt vor
-   * einem ausser Kontrolle geratenen Bestand.
+   * Die gerade wirksamen Konto- und Spielerbanns (kleingeschrieben), `jetzt` in ms. Geloeschte Konten sind schon
+   * deshalb nicht in der Ruestkammer, weil ihre Charaktere mit ihnen geloescht werden.
    */
-  armoryAlle(jetzt: number): ArmoryZeile[] {
-    // Banns sind wenige: einmal holen und in JS abgleichen, statt je Zeile eine Unterabfrage zu fahren.
-    const gebannteKonten = new Set<string>();
-    const gebannteSpieler = new Set<string>();
+  armoryBanns(jetzt: number): { konten: Set<string>; spieler: Set<string> } {
+    const aus = { konten: new Set<string>(), spieler: new Set<string>() };
     for (const z of this.db
       .prepare(`SELECT art, wert FROM banns WHERE art IN ('konto', 'spieler') AND (bis IS NULL OR bis > ?)`)
       .all(jetzt) as { art: string; wert: string }[]) {
-      (z.art === 'konto' ? gebannteKonten : gebannteSpieler).add(String(z.wert).toLowerCase());
+      (z.art === 'konto' ? aus.konten : aus.spieler).add(String(z.wert).toLowerCase());
     }
-    return (
-      this.db
-        .prepare(`${ARMORY_AUSWAHL}
-          ORDER BY COALESCE(c.zuletzt_gespielt, 0) DESC, c.erstellt DESC, c.id DESC LIMIT ${ARMORY_ZEILEN_MAX}`)
-        .all() as Record<string, unknown>[]
-    )
-      .map(zuArmoryZeile)
-      .filter((z) => !gebannteKonten.has(String(z.kontoId)) && !gebannteSpieler.has(z.spielerId.toLowerCase()));
+    return aus;
   }
 
-  /** Ein Charakter nach Id mit denselben Bann-Regeln wie `armoryAlle`, oder null. */
+  /**
+   * Eine Seite Charaktere nach Id (Primaerschluessel, ohne Sortierung nach Spielzeit): Armory.ts baut seinen
+   * Speicherstand daraus in kleinen Stuecken, ohne den Faden lange zu belegen. Banns und Standardkonten filtert
+   * der Aufrufer. Eine Obergrenze gibt es nicht.
+   */
+  armorySeite(nachId: number, limit: number): ArmoryZeile[] {
+    this.armorySeiteAbfrage ??= this.db.prepare(`${ARMORY_AUSWAHL} WHERE c.id > ? ORDER BY c.id LIMIT ?`);
+    return (this.armorySeiteAbfrage.all(nachId, limit) as Record<string, unknown>[]).map(zuArmoryZeile);
+  }
+  private armorySeiteAbfrage: ReturnType<DatabaseSync['prepare']> | null = null;
+
+  /** Ein Charakter nach Id mit denselben Bann-Regeln wie `armoryBanns`, oder null. */
   armoryEinzeln(id: number, jetzt: number): ArmoryZeile | null {
     this.armoryEinzelnAbfrage ??= this.db.prepare(`${ARMORY_AUSWAHL} WHERE c.id = ?
       AND NOT EXISTS (SELECT 1 FROM banns b WHERE b.art = 'konto' AND b.wert = CAST(c.konto_id AS TEXT) AND (b.bis IS NULL OR b.bis > ?))

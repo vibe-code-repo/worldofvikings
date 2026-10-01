@@ -283,6 +283,12 @@ export class KontoApi {
   behandle(req: IncomingMessage, res: ServerResponse): boolean {
     const pfad = new URL(req.url ?? '/', 'http://x').pathname.replace(/\/+$/, '');
     if (!pfad.startsWith('/accounts')) return false;
+    // Der ROHE Pfad entscheidet, nicht der geparste: `new URL` macht aus `/accounts/x\..\armory` den Pfad
+    // `/accounts/armory`, nachdem ein Vorschalter (nginx) die Anfrage schon nach dem rohen Text eingeordnet hat.
+    if (rohPfadUnzulaessig(req.url ?? '')) {
+      this.json(res, 400, { error: 'bad-path' });
+      return true;
+    }
 
     const ursprung = req.headers.origin;
     if (ursprung && ERLAUBTE_URSPRUENGE.has(ursprung)) {
@@ -670,7 +676,9 @@ export class KontoApi {
   private armoryListe(req: IncomingMessage, res: ServerResponse): void {
     if (!this.armory.erlaubt(this.herkunft(req))) return this.json(res, 429, { error: 'rate-limited' });
     const abfrage = new URL(req.url ?? '/', 'http://x').searchParams;
-    this.json(res, 200, this.armory.liste(abfrage.get('seite'), abfrage.get('q')));
+    const liste = this.armory.liste(abfrage.get('seite'), abfrage.get('q'));
+    if (!liste) return this.json(res, 503, { error: 'warming-up' }); // der erste Speicherstand wird gerade gebaut
+    this.json(res, 200, liste);
   }
 
   /** Ruestkammer, Profil: 404 fuer unbekannte, geloeschte, gebannte und Standardkonto-Charaktere. */
@@ -1123,6 +1131,27 @@ export class KontoApi {
     });
     res.end(text);
   }
+}
+
+/**
+ * Gibt es im ROHEN Pfad einer Anfrage etwas, das ein Vorschalter anders deutet als `new URL`?
+ *
+ * Die WHATWG-URL behandelt `\` wie `/` und loest `.`/`..` auch in der Form `%2e` auf; nginx tut beides nicht
+ * (sein `location` waehlt nach dem Text). Wer so einen Pfad schickt, kann eine Sperre im Vorschalter umgehen
+ * (`/accounts/x\..\armory`). Deshalb: kein Rueckwaertsstrich, kein `.`/`..`-Segment (roh oder prozentkodiert),
+ * kein Steuerzeichen, keine kaputte Prozentfolge. Gilt fuer ALLE Wege der KontoApi. Die absolute Form
+ * (`http://host/pfad`) wird auf ihren Pfad gekuerzt.
+ */
+export function rohPfadUnzulaessig(url: string): boolean {
+  let pfad = url;
+  const absolut = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i.exec(pfad);
+  if (absolut) pfad = pfad.slice(absolut[0].length);
+  pfad = pfad.split(/[?#]/, 1)[0];
+  if (pfad.includes('\\')) return true;
+  let dekodiert: string;
+  try { dekodiert = decodeURIComponent(pfad); } catch { return true; }
+  if (dekodiert.includes('\\') || /[\u0000-\u001f\u007f]/.test(dekodiert)) return true;
+  return dekodiert.split('/').some((s) => s === '.' || s === '..');
 }
 
 /**

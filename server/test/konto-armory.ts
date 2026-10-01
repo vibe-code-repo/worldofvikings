@@ -24,15 +24,17 @@
  */
 import { strict as assert } from 'node:assert';
 import { createServer } from 'node:http';
+import { connect as netConnect } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ausgehenderNahkampfSchaden, findItem, lebensmaximum, replaceDataItems } from '@wov/shared';
-import { KontoApi } from '../src/konto/KontoApi.js';
+import { KontoApi, rohPfadUnzulaessig } from '../src/konto/KontoApi.js';
+import { herkunftErmitteln } from '../src/net/Herkunft.js';
 import { Kontendatenbank } from '../src/konto/Kontendatenbank.js';
 import {
   ARMORY_CACHE_MAX, ARMORY_CACHE_MS, ARMORY_NEUBAU_MIN_MS, ARMORY_DROSSEL_FENSTER_MS, ARMORY_DROSSEL_MAX, ARMORY_SEITENGROESSE, ARMORY_SUCHE_MAX,
-  bereinigeSuche,
+  Armory, bereinigeSuche,
 } from '../src/konto/Armory.js';
 import { geheimnisErzeugen } from '../src/net/Identitaet.js';
 import { passwortEinlagernSync } from '../src/konto/Passwort.js';
@@ -64,7 +66,13 @@ async function hole(pfad: string, herkunft?: string): Promise<{ status: number; 
 }
 const liste = (abfrage = '', herkunft?: string) => hole(`/accounts/armory${abfrage}`, herkunft);
 /** Die Liste baut sich nach einer Aenderung der Sichtbarkeit hoechstens einmal je ARMORY_NEUBAU_MIN_MS neu: erst die Frist verstreichen lassen. */
-const listeFrisch = (abfrage = '', herkunft?: string) => { jetzt += ARMORY_NEUBAU_MIN_MS + 1; return liste(abfrage, herkunft); };
+/** Wie `liste`, aber nach Ablauf der Neubau-Frist UND nachdem der in Haeppchen laufende Neubau fertig ist (der erste Aufruf kann 503 oder den alten Stand liefern). */
+const listeFrisch = async (abfrage = '', herkunft?: string) => {
+  jetzt += ARMORY_NEUBAU_MIN_MS + 1;
+  await liste(abfrage, herkunft);
+  await api.armory.bereit();
+  return liste(abfrage, herkunft);
+};
 const profil = (id: number | string) => hole(`/accounts/armory/${id}`);
 const namen = (d: Json): string[] => (d.eintraege as Json[]).map((e) => e.name as string);
 
@@ -338,6 +346,7 @@ try {
   assert.equal((await profil(bjorn.id)).status, 404, 'und aus dem Profil');
   db.bannAufheben('konto', String(bjarne));
   assert.equal((await profil(bjorn.id)).status, 200, 'Aufheben bringt es zurueck');
+  assert.equal((await listeFrisch('?q=eisenfaust')).daten.gesamt, 1, 'und auch in der Liste (neuer Stand gebaut)');
   db.bannSetzen('spieler', bjorn.spielerId, { grund: 'Test' });
   assert.equal((await profil(bjorn.id)).status, 404, 'Spielerbann');
   assert.equal((await listeFrisch('?q=eisenfaust')).daten.gesamt, 0, 'Spielerbann versteckt auch in der Liste');
@@ -473,6 +482,19 @@ try {
     assert.equal(b.name, '<script>x</script>');
   } finally { replaceDataItems([]); }
 
+  // ── 12b. Der Profil-Puffer ueberlebt keinen Neubau des Speicherstands (O8) ─
+  {
+    const o8 = figur(konto('Puffer8konto'), 'Puffer Acht');
+    zustand(o8.spielerId, { waffe: 'SwordNorth', inventar: [stueck('SwordNorth')] });
+    await listeFrisch(); // Charakter ist neu: Stand mit ihm
+    assert.equal((await profil(o8.id)).daten.waffe.kennung, 'SwordNorth');
+    zustand(o8.spielerId, { waffe: '', inventar: [] });
+    assert.equal((await profil(o8.id)).daten.waffe.kennung, 'SwordNorth', 'gepuffert');
+    figur(konto('Puffer8zwei'), 'Puffer Acht Zwei'); // aendert die Sichtbarkeit => Neubau
+    await listeFrisch();
+    assert.equal((await profil(o8.id)).daten.waffe, null, 'nach dem Neubau kein alter Profil-Puffer mehr');
+  }
+
   // ── 13. Suche und Unicode-Form (B7), feste Standardkonten (B9) ─────
   figur(konto('Nfdkonto'), 'Zoe\u0308 Nfd');
   assert.deepEqual(namen((await listeFrisch('?q=zo%C3%AB')).daten), ['Zoe\u0308 Nfd'], 'NFC-Suche findet einen NFD-Namen');
@@ -482,13 +504,15 @@ try {
     // Ohne `standard-konto` in der Konfiguration: gast/admin bleiben trotzdem draussen.
     const api3 = new KontoApi(db, geheimnis, () => ({ spieler: 0, plaetze: 1, tag: 1, welt: 't' }));
     api3.armory.uhr = () => jetzt;
-    assert.equal(api3.armory.liste('1', 'gastrecke').gesamt, 0);
-    assert.equal(api3.armory.liste('1', 'adminrecke').gesamt, 0);
+    assert.equal(api3.armory.liste('1', 'gastrecke'), null, 'vor dem ersten Speicherstand: noch nichts');
+    await api3.armory.bereit();
+    assert.equal(api3.armory.liste('1', 'gastrecke')!.gesamt, 0);
+    assert.equal(api3.armory.liste('1', 'adminrecke')!.gesamt, 0);
     assert.equal(api3.armory.profil(gastFigur.id), null);
     assert.equal(api3.armory.profil(adminFigur.id), null);
   }
   // Das in der Konfiguration genannte Standardkonto fehlt ebenfalls.
-  figur(db.kontoNachName('testgast')?.id ?? konto('testgast'), 'Testgast Tilda');
+  figur(konto('TestGast'), 'Testgast Tilda'); // Schreibung weicht von der Konfiguration ('testgast') ab
   assert.equal((await listeFrisch('?q=tilda')).daten.gesamt, 0, 'Standardkonto aus der Konfiguration');
 
   // ── 14. Last: keine Zustandsbildung je Anfrage (B1) und Drossel ────
@@ -504,13 +528,13 @@ try {
     // Neubau hoechstens einmal je ARMORY_NEUBAU_MIN_MS, auch wenn sich die Sichtbarkeit aendert (Schutz vor Anlegen/Loeschen in Schleife).
     const schnellKonto = konto('Schnellkonto');
     figur(schnellKonto, 'Schnell Anna');
-    jetzt += ARMORY_NEUBAU_MIN_MS + 1;
-    const vorher = (await liste()).daten.gesamt; // baut neu (Anna ist neu)
+    const vorher = (await listeFrisch()).daten.gesamt; // baut neu (Anna ist neu)
     const schnell = figur(schnellKonto, 'Schnell Sven');
+    await liste();
+    await api.armory.bereit();
     assert.equal((await liste()).daten.gesamt, vorher, 'innerhalb der Frist: noch der alte Stand');
     assert.equal((await profil(schnell.id)).status, 200, 'das Profil prueft die Sichtbarkeit aber immer sofort');
-    jetzt += ARMORY_NEUBAU_MIN_MS + 1;
-    assert.equal((await liste()).daten.gesamt, vorher + 1, 'danach neu gebaut');
+    assert.equal((await listeFrisch()).daten.gesamt, vorher + 1, 'danach neu gebaut');
     const fuell = konto('Fuellkonto');
     const fuellIds: number[] = [];
     for (let i = 0; i < ARMORY_CACHE_MAX + 50; i++) fuellIds.push(figur(fuell, `Fuell ${i}`).id);
@@ -527,15 +551,129 @@ try {
     assert.ok(a.drosselung.size < 4096);
   }
 
+  // ── 15. Pfade, die ein Vorschalter anders liest als `new URL` (N1-1) ─
+  {
+    const rohAnfrage = (pfad: string): Promise<{ status: number; text: string }> => new Promise((ok, fehler) => {
+      const port = (server.address() as { port: number }).port;
+      const s = netConnect(port, '127.0.0.1');
+      let d = '';
+      s.on('data', (b) => { d += b; });
+      s.on('end', () => ok({ status: Number(d.split(' ')[1]), text: d.split('\r\n\r\n').slice(1).join('') }));
+      s.on('error', fehler);
+      s.write(`GET ${pfad} HTTP/1.1\r\nHost: x\r\nConnection: close\r\nX-Forwarded-For: 192.0.2.${(++anfragen % 250) + 1}\r\n\r\n`);
+    });
+    const umgehungen = [
+      '/accounts/x\\..\\armory', `/accounts/x\\..\\armory\\${ulf.id}`, '/accounts/x/..\\armory', '/accounts/x\\%2e%2e\\armory',
+      '/accounts/x/../armory', '/accounts/x/%2e%2e/armory', '/accounts/x/%2E%2E/armory', '/accounts/x/%2e./armory', '/accounts/x/.%2e/armory',
+      '/accounts/./armory', '/accounts/%2e/armory', '/accounts/x%5c..%5carmory', '/accounts/x%5C..%5Carmory', '/accounts/x/..%2farmory',
+      '/accounts/armory/..', '/accounts/x\\..\\status', '/accounts/x/../status', '/accounts/%00x', '/accounts/x%zz',
+      'http://evil.example/accounts/x\\..\\armory', 'http://evil.example/accounts/x/%2e%2e/armory',
+    ];
+    for (const p of umgehungen) {
+      const r = await rohAnfrage(p);
+      assert.equal(r.status, 400, `${JSON.stringify(p)} wird abgelehnt (400), war ${r.status}`);
+      assert.ok(!r.text.includes('eintraege') && !r.text.includes('kennung'), `${JSON.stringify(p)}: keine Daten in der Antwort`);
+    }
+    // Rohpruefung als Funktion, auch fuer Wege, die nicht armory heissen.
+    for (const p of ['/accounts/armory', '/accounts/armory?q=a%20b&seite=2', '/accounts/armory/12', '/accounts/characters/3', '/accounts/status',
+      '/accounts/armory?q=%5C', '/accounts/armory?q=../..', '/accounts/armory#..']) {
+      assert.equal(rohPfadUnzulaessig(p), false, `${p} ist ein normaler Pfad`);
+    }
+    for (const p of umgehungen) assert.equal(rohPfadUnzulaessig(p), true, `${p}`);
+    assert.equal((await rohAnfrage('/accounts/armory?q=a')).status === 400, false, 'normale Anfragen gehen weiter');
+    assert.equal((await rohAnfrage('/accounts/status')).status, 200, 'andere Wege der KontoApi ebenfalls');
+  }
+
+  // ── 16. Herkunft: nur von Loopback ein Weiterleitungskopf (N1-3a) ─
+  {
+    const fake = (peer: string, kopf: Record<string, string>): never =>
+      ({ socket: { remoteAddress: peer }, headers: kopf }) as never;
+    assert.equal(herkunftErmitteln(fake('203.0.113.9', { 'x-forwarded-for': '6.6.6.6' })), '203.0.113.9', 'fremder Peer: Kopf wird ignoriert');
+    assert.equal(herkunftErmitteln(fake('10.10.10.10', { 'x-forwarded-for': '6.6.6.6', 'x-real-ip': '7.7.7.7' })), '10.10.10.10');
+    assert.equal(herkunftErmitteln(fake('127.0.0.1', { 'x-forwarded-for': '6.6.6.6, 198.51.100.4' })), '198.51.100.4', 'Loopback: letzter, vom Vorschalter gesetzter Eintrag');
+    assert.equal(herkunftErmitteln(fake('::1', { 'x-forwarded-for': 'unknown' })), '::1', 'kaputter Kopf: Peer');
+    assert.equal(herkunftErmitteln(fake('127.0.0.1', { 'x-forwarded-for': 'evil text' })), '127.0.0.1');
+  }
+
+  // ── 17. Drossel: gesperrte Herkuenfte bleiben gesperrt, die Karte bleibt klein (N1-4) ─
+  {
+    let t = 1_000_000;
+    const a = new Armory(db, []);
+    a.uhr = () => t;
+    a.drosselKarteMax = 50;
+    for (let i = 0; i < ARMORY_DROSSEL_MAX + 5; i++) a.erlaubt('angreifer');
+    assert.equal(a.erlaubt('angreifer'), false, 'gesperrt');
+    for (let i = 0; i < 400; i++) a.erlaubt(`fremd-${i}`);
+    assert.equal(a.erlaubt('angreifer'), false, 'eine Flut fremder Schluessel setzt die Sperre nicht zurueck');
+    const karte = (a as unknown as { drosselung: Map<string, unknown> }).drosselung;
+    assert.ok(karte.size <= 50, `Karte bleibt begrenzt (${karte.size})`);
+    // Notbremse: nur noch gesperrte Herkuenfte in der Karte => keine neue Herkunft kommt hinein.
+    const b = new Armory(db, []);
+    b.uhr = () => t;
+    b.drosselKarteMax = 5;
+    for (let h = 0; h < 5; h++) for (let i = 0; i < ARMORY_DROSSEL_MAX + 1; i++) b.erlaubt(`gesperrt-${h}`);
+    assert.equal(b.erlaubt('neu'), false, 'Notbremse: die Karte ist voll von Gesperrten, unbekannte Herkuenfte werden abgewiesen');
+    assert.equal(b.erlaubt('gesperrt-0'), false);
+    t += ARMORY_DROSSEL_FENSTER_MS + 1;
+    assert.equal(b.erlaubt('neu'), true, 'nach dem Fenster wieder frei');
+  }
+
+  // ── 18. Neubau in Haeppchen: der Faden bleibt frei, der alte Stand gilt (N1-2) ─
+  {
+    const ordner3 = mkdtempSync(join(tmpdir(), 'wov-konto-armory-c-'));
+    try {
+      const db3 = new Kontendatenbank(join(ordner3, 'konten.db'));
+      const k3 = db3.kontoAnlegen('Grosskonto', 'g@example.org', passwortEinlagernSync('geheimespasswort1'));
+      assert.ok(k3.ok);
+      const N = 20_000;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const roh3 = (db3 as any).db as { exec(s: string): void; prepare(s: string): { run(...a: unknown[]): unknown } };
+      roh3.exec('BEGIN');
+      for (let i = 0; i < N; i++) {
+        const r = db3.charakterAnlegen(k3.konto.id, `Gross ${i}`, { ...aussehen, klasse: 'krieger' });
+        assert.ok(r.ok);
+        roh3.prepare('UPDATE charaktere SET zuletzt_gespielt = ? WHERE id = ?').run((i * 7919) % 100_003, r.charakter.id);
+      }
+      roh3.exec('COMMIT');
+      let t3 = 5_000_000;
+      const gross = new Armory(db3, []);
+      gross.uhr = () => t3;
+      assert.equal(gross.liste('1', ''), null, 'vor dem ersten Speicherstand: noch nichts, kein Warten am Stueck');
+      await gross.bereit();
+      const l1 = gross.liste('1', '')!;
+      assert.equal(l1.gesamt, N, 'kein Charakter fehlt (keine stille Obergrenze)');
+      assert.equal(gross.liste('1', 'gross 19999')!.gesamt, 1);
+      // Sortierung: zuletzt gespielt absteigend.
+      const zeiten = gross.liste('1', '')!.eintraege.map((e) => e.zuletztGespielt as number);
+      assert.deepEqual([...zeiten].sort((x, y) => y - x), zeiten, 'Reihenfolge nach dem Haeppchen-Sortieren stimmt');
+      assert.ok(gross.statistik.schritte >= 10, `der Neubau lief in vielen Haeppchen (${gross.statistik.schritte})`);
+      assert.ok(gross.statistik.laengsterSchrittMs < 25, `kein Haeppchen blockiert den Faden lange (${gross.statistik.laengsterSchrittMs.toFixed(1)} ms)`);
+      // Waehrend des Neubaus gilt der alte Stand.
+      const k4 = db3.kontoAnlegen('Zweitgross', 'z@example.org', passwortEinlagernSync('geheimespasswort1'));
+      assert.ok(k4.ok);
+      db3.charakterAnlegen(k4.konto.id, 'Neu Dazu', { ...aussehen, klasse: 'krieger' });
+      t3 += ARMORY_NEUBAU_MIN_MS + 1;
+      const waehrend = gross.liste('1', 'neu dazu')!;
+      assert.equal(waehrend.gesamt, 0, 'der Neubau laeuft: der alte Stand gilt');
+      assert.ok((gross as unknown as { lauf: unknown }).lauf !== null, 'der Neubau ist noch nicht fertig, der Faden war frei');
+      await gross.bereit();
+      assert.equal(gross.liste('1', 'neu dazu')!.gesamt, 1, 'danach der neue Stand');
+    } finally { rmSync(ordner3, { recursive: true, force: true }); }
+  }
+
   // ── 8. Puffer ─────────────────────────────────────────────────────
   zuletzt(ulf.id, 5_000);
   jetzt += ARMORY_CACHE_MS + 1;
+  await liste('?q=ulf'); // Ablauf der Frist startet den Neubau, der alte Stand gilt bis er fertig ist
+  await api.armory.bereit();
   const erste = await liste('?q=ulf');
   assert.equal(erste.daten.eintraege[0].zuletztGespielt, 5_000);
   zuletzt(ulf.id, 7_777);
   jetzt += ARMORY_CACHE_MS - 5_000;
   assert.equal((await liste('?q=ulf')).daten.eintraege[0].zuletztGespielt, 5_000, 'innerhalb der Frist: gepufferte Antwort');
   jetzt += 5_001;
+  await liste('?q=ulf');
+  await api.armory.bereit();
   assert.equal((await liste('?q=ulf')).daten.eintraege[0].zuletztGespielt, 7_777, 'nach der Frist: frisch aus der Datenbank');
 
   assert.equal((await profil(ulf.id)).daten.waffe.kennung, 'SwordNorth');

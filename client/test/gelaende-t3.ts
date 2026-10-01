@@ -696,7 +696,8 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   const rohQ = rohHoehenQuelle(mitAllem.welt.geo)!;
   let rohAbw = 0;
   for (const [x, z] of raster(14)) if (rohQ(x, z) !== roh.getGroundHeight(x, z)) rohAbw++;
-  pruefe(rohAbw === 0, `10: Rohhöhe = Welt ohne Sockel und ohne Korrektur, bitgleich (${rohAbw} Abweichungen auf 841 Punkten, obwohl das Layout Sockel und Korrektur trägt)`);
+  for (const [x, z] of [[18, -22], [19, -22], [17, -22], [18, -21]] as const) if (rohQ(x, z) !== roh.getGroundHeight(x, z)) rohAbw++;
+  pruefe(rohAbw === 0, `10: Rohhöhe = Welt ohne Sockel und ohne Korrektur, bitgleich (${rohAbw} Abweichungen auf 845 Punkten, darunter die beiden korrigierten, obwohl das Layout Sockel und Korrektur trägt)`);
   pruefe(Math.abs(mitAllem.welt.getGroundHeight(18, -22) - roh.getGroundHeight(18, -22)) > 4 && rohHoehenQuelle({}) === null, '10: … die sichtbare Höhe weicht dort ab, ein Nicht-Layout-Gelände gibt keine Rohquelle');
 }
 

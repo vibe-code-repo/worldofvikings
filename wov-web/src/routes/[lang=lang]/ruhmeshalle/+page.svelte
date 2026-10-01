@@ -25,7 +25,11 @@
   const zeilen = $derived(tafelZeilen(tafel, data.eintraege));
 </script>
 
-<Kopfdaten titel={t['hall_of_fame.title']} beschreibung={t['hall_of_fame.description']} />
+<Kopfdaten
+  titel={t['hall_of_fame.title']}
+  beschreibung={t['hall_of_fame.description']}
+  noindex={data.fehler === 'start' || data.fehler === 'limit'}
+/>
 
 <main class="mitte seite hall-page">
   <span class="runen kicker" aria-hidden="true">ᚱᚢᚺᛗ</span>

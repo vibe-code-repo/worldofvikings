@@ -45,6 +45,7 @@
   titel={gewaehlt ? `${gewaehlt.name} — ${t['armory.title']}` : t['armory.title']}
   beschreibung={t['armory.description']}
   abfrage={gewaehlt ? `?reck=${gewaehlt.id}` : ''}
+  noindex={data.fehler === 'start' || data.fehler === 'limit'}
 />
 
 <main class="mitte seite armory-page">

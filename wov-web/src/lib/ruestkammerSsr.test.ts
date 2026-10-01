@@ -179,6 +179,8 @@ beschreibe('Rüstkammer ohne JavaScript (gebauter Stand)', () => {
     modus = () => listeAntwort([eintrag(1, 'Ragnar'), eintrag(2, 'Sigrid')]);
     const r = await frage('/de/ruestkammer');
     expect(r.status).toBe(200);
+    // Die gewöhnliche Liste bleibt im Index.
+    expect(r.html).not.toContain('content="noindex"');
     expect(r.text.length).toBeGreaterThan(150);
     expect(r.text).toContain('Ragnar');
     expect(r.text).toContain('Sigrid');
@@ -371,6 +373,8 @@ beschreibe('Rüstkammer ohne JavaScript (gebauter Stand)', () => {
         expect(r.status, `${status} ${pfad}`).toBe(200);
         expect(r.text, `${status} ${pfad}`).toMatch(text);
         expect(r.text).not.toMatch(/noch niemand|Noch niemand|verschlossen|verhängt/);
+        // Eine vorübergehende Hinweisseite gehört nicht in den Index.
+        expect(r.html, `${status} ${pfad}`).toMatch(/<meta name="robots" content="noindex"/);
       }
       expect((await frage('/en/armory')).text).toMatch(
         status === 503 ? /prepared/ : /Too many requests/,

@@ -9,7 +9,8 @@
  *  4. Live (Server B läuft): ein zweiter Kreis wird in die Weltdatei geschrieben, binnen Sekunden sind die Objekte weg
  *     (ohne Neustart), das Entfernen steht in der Löschliste an die Clients, die Quittung zählt es.
  *  5. Neue Zone nach der Live-Änderung: der Nachfilter nutzt den neuen Kreis (Prüfer ausgetauscht).
- *  6. Obergrenze live: mehr als `VEGETATION_LIVE_MAX` Treffer ⇒ abgelehnt, nichts gelöscht.
+ *  6. Obergrenze live: mehr als `VEGETATION_LIVE_MAX` Treffer ⇒ Vegetation nichts gelöscht, aber die Platzierung im selben
+ *     Speichern kommt an (die Ablehnung blockiert den übrigen Abgleich nicht).
  *
  * Lauf: npx tsx server/test/vegetation-live.ts   (aus der Projektwurzel)
  */
@@ -214,11 +215,13 @@ try {
   }
   const vorher6 = streuZdos(b).length;
   stumm();
-  const hash6 = schreibe(dokument([K1, K2, K3, K4]));
+  const mitPlatzierung = { ...dokument([K1, K2, K3, K4]), placements: [{ id: 'pl1', prefab: 'Beech1', x: 60, z: 20 }] };
+  const hash6 = schreibe(mitPlatzierung);
   await warteAuf(() => quittungLesen(QUITTUNG)?.hash === hash6);
   const q6 = quittungLesen(QUITTUNG);
   laut();
-  check(`Obergrenze: ${VEGETATION_LIVE_MAX + 1} Treffer ⇒ abgelehnt, nichts gelöscht`, q6?.ergebnis === 'nicht-angewendet' && q6.grund === 'zu-viele-aenderungen' && streuZdos(b).length === vorher6, `${q6?.grund} ${q6?.detail}`);
+  check(`Obergrenze: ${VEGETATION_LIVE_MAX + 1} Treffer ⇒ nichts gelöscht, Quittung nennt es`, q6?.ergebnis === 'angewendet' && /Vegetation nicht geräumt: 20001/.test(q6.detail ?? '') && streuZdos(b).length === vorher6, `${q6?.ergebnis} ${q6?.grund} ${q6?.detail}`);
+  check('B6: die Platzierung im selben Speichern ist angekommen', b.zdos.getAllZDOs().some((z) => z.getString('layoutId') === 'pl1'));
   b.stop();
   await warte(300);
 } finally {

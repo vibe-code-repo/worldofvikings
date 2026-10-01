@@ -163,6 +163,8 @@ export function bereinigeBeimBoot(
   dokument: unknown,
   log: { log: (t: string) => void; warn: (t: string) => void; error: (t: string) => void } = console
 ): BereinigungsErgebnis | VegetationProblem | null {
+  // Stand „zuletzt geräumt“: leer, bis das Räumen gelungen ist (beschädigtes Feld, Fehler ⇒ leer).
+  geraeumt.set(zdos, []);
   try {
     const roh = (dokument as { vegetationEntfernt?: unknown } | null)?.vegetationEntfernt;
     const problem = vegetationProblem(roh);
@@ -180,6 +182,7 @@ export function bereinigeBeimBoot(
     const kreise = sanitizeVegetationEntfernt(roh);
     if (kreise.length === 0) return null;
     const e = bereinigeVegetation(zdos, kreise);
+    geraeumt.set(zdos, kreise);
     (e.ungemarkt > 0 ? log.warn : log.log)(bereinigungsZeile('Boot', e));
     return e;
   } catch (fehler) {
@@ -187,6 +190,14 @@ export function bereinigeBeimBoot(
     return null;
   }
 }
+
+/**
+ * Stand „zuletzt geräumt“ je ZDO-Raum: die Kreise, deren Objekte dieser Server wirklich geräumt hat. Der Vegetationsast
+ * vergleicht gegen DIESEN Stand, nicht gegen das zuletzt angewendete Dokument der Wache: Ein Boot mit beschädigtem Feld
+ * hat nichts geräumt (Stand leer), obwohl der Sanitizer die gültigen Kreise im Dokument behält; nach der Reparatur
+ * räumt der erste Live-Abgleich deshalb ALLE Kreise. Ein wegen der Obergrenze abgelehnter Kreis kommt nicht hinein.
+ */
+const geraeumt = new WeakMap<ZDOManager, readonly VegetationEntferntKreis[]>();
 
 /** Die Kreise von `neu`, die `alt` nicht hat (als Mehrfachmenge, Reihenfolge von `neu`). */
 export function hinzugekommeneKreise(
@@ -219,9 +230,14 @@ export type VegetationLive =
 
 /**
  * Der Live-Ast (eigener Ast der Layout-Wache, KEINE Geo-Änderung und nicht gegen `AENDERUNGEN_MAX`):
- *  - `trocken = true`: nur zählen, ob die hinzugekommenen Kreise unter der Obergrenze bleiben (nichts geschieht);
- *  - `trocken = false`: löschen und den Prüfer des `ZoneManager` auf den neuen Stand setzen (auch wenn nur ein
- *    Kreis entfernt wurde: neue Zonen gelten nach dem neuen Stand).
+ * räumt die Kreise von `neu`, die gegenüber dem Stand „zuletzt geräumt“ (`geraeumt`, Vorgabe ohne Boot: das
+ * Dokument `alt` beim ersten Aufruf) hinzugekommen sind, und setzt den Prüfer des `ZoneManager` auf den neuen Stand (auch wenn nur ein
+ * Kreis entfernt wurde: neue Zonen gelten nach dem neuen Stand).
+ *
+ * Über der Obergrenze (`zuViele`) wird NICHTS gelöscht, der Prüfer neuer Zonen aber trotzdem gesetzt, und der Stand
+ * „zuletzt geräumt“ bleibt: Der Aufrufer muss davon den übrigen Abgleich nicht abhängig machen (Platzierungen laufen
+ * weiter), nur die Vegetation bleibt ungeräumt, bis der Kreis kleiner wird oder der Neustart sie räumt.
+ * `trocken`: nur zählen, nichts ändern.
  */
 export function vegetationLive(
   kontext: { zdos: ZDOManager; zones: Pick<ZoneManager, 'setzeVegetationEntfernt'> },
@@ -229,10 +245,18 @@ export function vegetationLive(
   neu: WorldLayout,
   trocken: boolean
 ): VegetationLive {
-  if (!kreiseGeaendert(alt, neu)) return { art: 'unveraendert' };
-  const neue = hinzugekommeneKreise(alt.vegetationEntfernt, neu.vegetationEntfernt);
+  let stand = geraeumt.get(kontext.zdos);
+  if (!stand) {
+    // Ohne Boot-Stand (Tests ohne Spielserver): Vorgabe ist der Stand des Dokuments, einmal festgehalten.
+    stand = alt.vegetationEntfernt ?? [];
+    geraeumt.set(kontext.zdos, stand);
+  }
+  const jetzt = neu.vegetationEntfernt ?? [];
+  if (JSON.stringify(stand) === JSON.stringify(jetzt)) return { art: 'unveraendert' };
+  const neue = hinzugekommeneKreise(stand, jetzt);
   const e = bereinigeVegetation(kontext.zdos, neue, { grenze: VEGETATION_LIVE_MAX, trocken });
-  if (e.art === 'zuViele') return { art: 'zuViele', anzahl: e.anzahl };
   if (!trocken) kontext.zones.setzeVegetationEntfernt(neu.vegetationEntfernt);
+  if (e.art === 'zuViele') return { art: 'zuViele', anzahl: e.anzahl };
+  if (!trocken) geraeumt.set(kontext.zdos, jetzt);
   return { art: 'ok', ergebnis: e };
 }

@@ -137,6 +137,8 @@ console.log('\n[A] Bereinigung:');
   const a: VegetationEntferntKreis = { x: 1, z: 2, r: 3 };
   const b: VegetationEntferntKreis = { x: 1, z: 2, r: 3, nur: 'baeume' };
   check('hinzugekommene Kreise: Mehrfachmenge, `nur` unterscheidet', hinzugekommeneKreise([a], [a, b, a]).length === 2 && hinzugekommeneKreise([a, b], [b]).length === 0);
+  // B2: gleiche Lage, einer mit `nur`, einer ohne: der eine ist NICHT der andere
+  check('B2: gleiche Lage, einer mit `nur`, einer ohne: jeder zählt als hinzugekommen', hinzugekommeneKreise([a], [b]).length === 1 && hinzugekommeneKreise([b], [a]).length === 1 && hinzugekommeneKreise([a], [a, b]).length === 1);
 }
 
 // ── B. Boot ─────────────────────────────────────────────────────────────
@@ -169,6 +171,15 @@ for (const kaputt of [[{ x: 100, z: 50, r: -3 }], 'kaputt', [{ x: 100, z: 50, r:
   const baum = setze(zdos, BAUM.prefabHash, 100, 50);
   const s = stumm();
   check('ohne Feld: nichts, still', bereinigeBeimBoot(zdos, {}, s.log) === null && bereinigeBeimBoot(zdos, null, s.log) === null && s.zeilen.length === 0 && lebt(zdos, baum.zdoid));
+}
+{
+  // B3: der Boot beachtet `nur: 'baeume'`: Busch bleibt, Baum geht
+  const zdos = new ZDOManager(1n);
+  const baum = setze(zdos, BAUM.prefabHash, 100, 50);
+  const busch = setze(zdos, BUSCH.prefabHash, 105, 55);
+  const s = stumm();
+  const e = bereinigeBeimBoot(zdos, { vegetationEntfernt: [{ ...KREIS, nur: 'baeume' }] }, s.log);
+  check('B3 Boot mit `nur: baeume`: Baum weg, Busch bleibt stehen', !lebt(zdos, baum.zdoid) && lebt(zdos, busch.zdoid) && e !== null && 'geloescht' in e && e.geloescht === 1, s.zeilen.join(' | '));
 }
 {
   const zdos = new ZDOManager(1n);
@@ -258,15 +269,56 @@ const logStumm = <T>(f: () => T): T => {
   check('100 Kreise in einem Vorgang: angewendet (kein AENDERUNGEN_MAX, kein geo)', q?.ergebnis === 'angewendet' && q.grund === null && !lebt(t.zdos, baumIn.zdoid), `${q?.ergebnis} ${q?.grund}`);
 }
 {
+  // Obergrenze (B6): nur die Vegetation wird abgelehnt, der übrige Abgleich läuft weiter
   const t = live(basis());
-  const ids = [];
-  for (let i = 0; i < VEGETATION_LIVE_MAX + 1; i++) ids.push(setze(t.zdos, BAUM.prefabHash, 100 + (i % 200) * 0.1, 50 + Math.floor(i / 200) * 0.01).zdoid);
+  for (let i = 0; i < VEGETATION_LIVE_MAX + 1; i++) setze(t.zdos, BAUM.prefabHash, 100 + (i % 200) * 0.1, 50 + Math.floor(i / 200) * 0.01);
+  const klein: VegetationEntferntKreis = { x: 500, z: 500, r: 5 };
+  const nebenan = setze(t.zdos, BAUM.prefabHash, 500, 500);
   const q = logStumm(() => t.tick(basis({ vegetationEntfernt: [KREIS] })));
   check(
-    `Obergrenze (${VEGETATION_LIVE_MAX + 1} Treffer): abgelehnt, nichts gelöscht, nichts angewendet`,
-    q?.ergebnis === 'nicht-angewendet' && q.grund === 'zu-viele-aenderungen' && t.zdos.getAllZDOs().length === VEGETATION_LIVE_MAX + 1 && t.stand().angewendet === 0 && t.gesetzt.length === 0,
-    `${q?.grund} ${q?.detail}`
+    `Obergrenze (${VEGETATION_LIVE_MAX + 1} Treffer): Vegetation nichts gelöscht, Dokument trotzdem angewendet (Quittung nennt es)`,
+    q?.ergebnis === 'angewendet' && t.zdos.getAllZDOs().length === VEGETATION_LIVE_MAX + 2 && t.stand().angewendet === 1 && /Vegetation nicht geräumt: 20001/.test(q.detail ?? '') && q.zaehler?.vegetationAbgelehnt === VEGETATION_LIVE_MAX + 1,
+    `${q?.ergebnis} ${q?.grund} ${q?.detail}`
   );
+  check('B6: Prüfer neuer Zonen trotzdem gesetzt (gilt in neuen Zonen)', t.gesetzt.length === 1 && t.gesetzt[0]?.length === 1);
+  // B6: eine Platzierungsänderung im Folgespeichern kommt an, obwohl der große Kreis noch drin steht
+  const q2 = logStumm(() => t.tick(basis({ vegetationEntfernt: [KREIS], placements: [{ id: 'pl1', prefab: 'Beech1', x: 10, z: 10 }] })));
+  check('B6: Platzierungsänderung im Folgespeichern wird angewendet (große Vegetation blockiert nicht)', q2?.ergebnis === 'angewendet' && t.stand().angewendet === 2, `${q2?.ergebnis} ${q2?.grund} ${q2?.detail} ${t.stand().angewendet}`);
+  // B1: der abgelehnte Kreis steht NICHT im Stand „zuletzt geräumt“: mit einem kleinen dazu zählt er wieder mit und lehnt erneut ab
+  const q3 = logStumm(() => t.tick(basis({ vegetationEntfernt: [KREIS, klein] })));
+  check('B1: abgelehnter Kreis gilt nicht als geräumt (mit kleinem Kreis dazu wieder abgelehnt, nebenan bleibt stehen)', q3?.ergebnis === 'angewendet' && lebt(t.zdos, nebenan.zdoid) && /Vegetation nicht geräumt/.test(q3.detail ?? ''), q3?.detail);
+  // der große Kreis fällt weg, der kleine bleibt: jetzt wird der kleine geräumt
+  const q4 = logStumm(() => t.tick(basis({ vegetationEntfernt: [klein] })));
+  check('B1: Kreis entfernt, nur der kleine ist neu: er räumt (und nur er)', q4?.ergebnis === 'angewendet' && !lebt(t.zdos, nebenan.zdoid) && t.zdos.getAllZDOs().length === VEGETATION_LIVE_MAX + 1, `${q4?.detail} ${t.zdos.getAllZDOs().length}`);
+}
+{
+  // B1: Boot mit [A gültig, B kaputt], danach live repariert ⇒ A UND B geräumt (nicht nur das reparierte B)
+  const A: VegetationEntferntKreis = { x: 100, z: 50, r: 10 };
+  const B: VegetationEntferntKreis = { x: 200, z: 50, r: 10 };
+  const kaputt = basis({ vegetationEntfernt: [A, { ...B, r: -1 }] });
+  const t = live(kaputt);
+  const inA = setze(t.zdos, BAUM.prefabHash, 100, 50);
+  const inB = setze(t.zdos, BAUM.prefabHash, 200, 50);
+  const s = stumm();
+  bereinigeBeimBoot(t.zdos, kaputt, s.log);
+  check('B1 Boot mit beschädigtem Feld: nichts geräumt (auch A nicht)', lebt(t.zdos, inA.zdoid) && lebt(t.zdos, inB.zdoid));
+  const q = logStumm(() => t.tick(basis({ vegetationEntfernt: [A, B] })));
+  check('B1 live repariert: A UND B geräumt', q?.ergebnis === 'angewendet' && !lebt(t.zdos, inA.zdoid) && !lebt(t.zdos, inB.zdoid), `${q?.detail} ${JSON.stringify(q?.zaehler)}`);
+}
+{
+  // B2 live: gleiche Lage, `nur` vorhanden, dann ohne `nur` dazu: der Busch wird jetzt geräumt
+  const N: VegetationEntferntKreis = { ...KREIS, nur: 'baeume' };
+  const t = live(basis({ vegetationEntfernt: [N] }));
+  const busch = setze(t.zdos, BUSCH.prefabHash, 105, 55);
+  logStumm(() => t.tick(basis({ vegetationEntfernt: [N, KREIS] })));
+  check('B2 live: Kreis gleicher Lage OHNE `nur` kommt zu einem MIT `nur`: der Busch wird geräumt', !lebt(t.zdos, busch.zdoid));
+}
+{
+  // B4: der Hinweis auf ungemarkte Kandidaten steht in der Quittung (Detail und Zähler), nicht nur im Log
+  const t = live(basis());
+  const ungemarkt = setze(t.zdos, BAUM.prefabHash, 100, 50, { streu: false });
+  const q = logStumm(() => t.tick(basis({ vegetationEntfernt: [KREIS] })));
+  check('B4 Quittung nennt ungemarkte Kandidaten (Detail + Zähler), sie bleiben stehen', q?.ergebnis === 'angewendet' && /1 Kandidaten in 1 Zone\(n\) ohne Marke nicht gelöscht/.test(q.detail ?? '') && q.zaehler?.vegetationUngemarkt === 1 && lebt(t.zdos, ungemarkt.zdoid), `${q?.detail} ${JSON.stringify(q?.zaehler)}`);
 }
 {
   // nur HINZUGEKOMMENE Kreise räumen; ein entfernter Kreis bringt nichts zurück

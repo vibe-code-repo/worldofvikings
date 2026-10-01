@@ -188,6 +188,30 @@ try {
     const heil = await anfrage('POST', dokument({ vegetationEntfernt: [{ x: 1, z: 1, r: 5 }] }), `"${erwartet}"`);
     check('8 Reparatur mit dem genannten Hash: 200', heil.status === 200, `${heil.status} ${JSON.stringify(heil.daten).slice(0, 160)}`);
   }
+
+  // 9 (B5, Angriff #195): der Hash kommt aus DEMSELBEN Lesevorgang wie der Befund, ohne zweites Lesen.
+  {
+    const { createHash } = await import('node:crypto');
+    const { LayoutVegetationUngueltig, layoutLesenMitHash } = await import('@wov/shared/src/worldlayout/layoutDatei.js');
+    writeFileSync(WELT_DATEI, JSON.stringify(dokument({ vegetationEntfernt: [{ x: 1, z: 1, r: -4 }] }), null, 2));
+    const sha = createHash('sha256').update(readFileSync(WELT_DATEI)).digest('hex');
+    let fehlerObjekt: unknown = null;
+    try {
+      layoutLesenMitHash(WELT_DATEI);
+    } catch (e) {
+      fehlerObjekt = e;
+    }
+    check('9 Lesen einer beschädigten Datei: der Fehler trägt den Hash der gelesenen Bytes', fehlerObjekt instanceof LayoutVegetationUngueltig && fehlerObjekt.hash === sha, String((fehlerObjekt as { hash?: string } | null)?.hash).slice(0, 16));
+    const quelle = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf-8');
+    const stelle = quelle.indexOf('error instanceof LayoutVegetationUngueltig');
+    check('9 admin/src/main.ts: die 422-Antwort liest die Datei nicht ein zweites Mal (kein layoutDateiHash in der Fehlerbehandlung)', stelle > 0 && !quelle.slice(stelle - 600, stelle + 600).includes('layoutDateiHash('), '');
+    // Datei fehlt: saubere Antwort (404), nie 500
+    const vorher = readFileSync(WELT_DATEI);
+    rmSync(WELT_DATEI);
+    const weg = await fetch(BASIS, { headers: { 'x-wov-token': TOKEN } });
+    check('9 Datei fehlt: saubere Antwort 404, kein 500', weg.status === 404, String(weg.status));
+    writeFileSync(WELT_DATEI, vorher);
+  }
 } finally {
   (dienst as ChildProcess | null)?.kill('SIGTERM');
   await new Promise((f) => setTimeout(f, 300));

@@ -83,6 +83,7 @@ import {
   LayoutGesperrt,
   LayoutUngueltig,
   LayoutVeraltet,
+  LayoutVegetationUngueltig,
   LayoutZuVielePlatzierungen,
   layoutDateiHash,
   layoutLesenMitHash,
@@ -1505,7 +1506,8 @@ async function behandeln(
         if (answer) {
           // Beschaedigte Kreise: die Antwort nennt den Hash der Bytes auf der Platte, damit eine Reparatur
           // (Kreise korrigieren, mit If-Match speichern) ohne Handarbeit moeglich ist.
-          const aktuell = error.vegetationProblem ? layoutDateiHash(LAYOUT_DATEI) : null;
+          // Der Hash kommt aus denselben Bytes wie der Befund (`LayoutVegetationUngueltig.hash`), kein zweites Lesen.
+          const aktuell = error instanceof LayoutVegetationUngueltig ? (error.hash ?? null) : null;
           return aktuell ? { ...answer, kopf: { ETag: `"${aktuell}"` }, daten: { ...answer.daten, hash: aktuell } } : answer;
         }
       }

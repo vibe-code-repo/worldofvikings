@@ -476,17 +476,6 @@ export class LayoutWache {
         return;
       }
     }
-    // Vegetation, Vorprobe: Der Vorgang gilt ganz oder gar nicht. Würden die neuen Kreise mehr als die Obergrenze
-    // löschen, wird abgelehnt, bevor irgendetwas angewendet ist (nichts teilweise).
-    if (this.angewendet && this.d.vegetationLive) {
-      const probe = this.d.vegetationLive(this.angewendet, neuBericht.layout, true);
-      if (probe.art === 'zuViele') {
-        const detail = `Vegetation: ${probe.anzahl} Objekte würden gelöscht (Grenze ${VEGETATION_LIVE_MAX})`;
-        console.warn(`[WoV] Layout-Wache: ${detail}, nichts angewendet — die Datei gilt ab dem nächsten Neustart`);
-        this.quittiere(hash, 'nicht-angewendet', 'zu-viele-aenderungen', null, detail, { bestaetigung });
-        return;
-      }
-    }
     const ergebnis = this.d.anwenden(roh, { neu: neuBericht, alt: this.angewendet, grabsteine: this.grabsteine, bestaetigt: false, geschuetzteIds: sperre?.aktive });
     if (ergebnis.art === 'abgelehnt') {
       this.quittiere(hash, 'nicht-angewendet', 'abgelehnt', null, ergebnis.grund, { bestaetigung });
@@ -515,8 +504,9 @@ export class LayoutWache {
       this.quittiere(hash, 'nicht-angewendet', 'abgelehnt', null, 'unerwartetes Ergebnis', { bestaetigung });
       return;
     }
-    // Vegetation, Ausführung (nach den Objekten, vor dem Übernehmen): löscht die gespeicherten Streu-Objekte in den
-    // hinzugekommenen Kreisen und tauscht den Prüfer neuer Zonen aus. Gleicher Takt: kein Spielzustand dazwischen.
+    // Vegetation (nach den Objekten, vor dem Übernehmen): löscht die gespeicherten Streu-Objekte in den seit dem
+    // letzten Räumen hinzugekommenen Kreisen und tauscht den Prüfer neuer Zonen aus. Gleicher Takt: kein Spielzustand
+    // dazwischen. Eine Ablehnung (Obergrenze) betrifft nur die Vegetation.
     let zaehler = ergebnis.zaehler;
     let detail = ergebnis.detail;
     if (this.angewendet && this.d.vegetationLive) {
@@ -530,8 +520,12 @@ export class LayoutWache {
           detail = detail ? `${detail}; ${hinweis}` : hinweis;
         }
       } else if (v.art === 'zuViele') {
-        // Nach der Vorprobe nicht zu erwarten (gleicher Takt); nichts gelöscht, laut melden.
-        console.error(`[WoV] Layout-Wache: Vegetation: ${v.anzahl} Objekte, Grenze ${VEGETATION_LIVE_MAX} — nach der Vorprobe nicht gelöscht`);
+        // Die Vegetation allein wird abgelehnt (nichts teilweise gelöscht), die Platzierungen sind angewendet: Eine
+        // Ablehnung hier blockiert den übrigen Abgleich nicht. Der Editor sieht es im Detail der Quittung.
+        const hinweis = `Vegetation nicht geräumt: ${v.anzahl} Objekte würden gelöscht (Grenze ${VEGETATION_LIVE_MAX}); gilt ab dem nächsten Neustart`;
+        console.warn(`[WoV] Layout-Wache: ${hinweis}`);
+        zaehler = { ...zaehler, vegetationAbgelehnt: v.anzahl };
+        detail = detail ? `${detail}; ${hinweis}` : hinweis;
       }
     }
     this.d.uebernehmen(roh);

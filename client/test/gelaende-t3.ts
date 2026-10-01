@@ -241,6 +241,9 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   const st = new Strich(k2, 'v');
   for (let i = 0; i < 6; i++) st.stempel(eingabe(0, 0, { werkzeug: 'ebnen', ziel: 5, hoehe: h2 }), false);
   pruefe(h2(0, 0) === 5 && h2(1, 0) > 4.9, `1: sechs Stempel: Mitte genau 5 m (${h2(0, 0)}), Nachbar ${h2(1, 0).toFixed(3)}`);
+  // with the raw height (the flight's way): the same falloff, the correction goes a fraction w of the way to Ziel − Rohhöhe
+  const mitRoh = berechneStempel(new DeltaKarte(), eingabe(0, 0, { werkzeug: 'ebnen', ziel: 5, hoehe: () => 3, roh: () => 3 }));
+  pruefe(mitRoh.find((q) => q.index === 32 * 64 + 32)?.neu === 200 && mitRoh.find((q) => q.index === 32 * 64 + 35)?.neu === Math.round(200 * 0.5625) && !mitRoh.some((q) => q.index === 32 * 64 + 38), '1: mit Rohhöhe: Mitte auf Ziel − Rohhöhe, Randabfall wie sonst, am Rand nichts');
   pruefe(wirkRadius('ebnen', 6, 1) === 6 && wirkRadius('zuruecksetzen', 6, 1) === 6 && wirkRadius('anheben', 6, 1) < 6, '1: Wirkradius: Ebnen und Zurücksetzen voll, Anheben schwach schmaler');
   pruefe(klemmeZiel(1.23456) === 1.23 && klemmeZiel(99999) === 2000 && klemmeZiel(-99999) === -200 && klemmeZiel(Number.NaN) === 0, '1: klemmeZiel rundet auf cm und klemmt');
 }

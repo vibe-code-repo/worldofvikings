@@ -327,7 +327,7 @@ function viele4097(): Kreis[] {
   const sp = readFileSync(resolve(HIER, '../src/editor/SpawnPanel.ts'), 'utf-8');
   pruefe(/new BewuchsVorschau\([\s\S]*?vegetationKreiseAusEntwurf\(persistenz\.laden\(\)\)/.test(tf), '8: Testflug.ts: die Vorschau bekommt die Kreise aus dem ENTWURF');
   pruefe(/vegetationPinsel\?\.stand/.test(tf) && /vegetationPinsel\?\.strichKreise\(\)/.test(tf), '8: Testflug.ts: Änderungsmarke und Kreise des offenen Strichs gehen in die Vorschau');
-  pruefe(/verlaufEntscheid\(e, panel\.istGelaendeModus, tipptImFeld\(e\)\)[\s\S]{0,400}panel\.vegetationEinstellung\.aktiv \? vegPinsel : gelaende/.test(tf), '8: Testflug.ts: Strg+Z/Y gehen durch dieselbe Prüfung (Reiter offen, nicht im Textfeld) an das gewählte Werkzeug');
+  pruefe(/verlaufEntscheid\(e, panel\.istGelaendeModus, tipptImFeld\(e\)\)[\s\S]{0,400}panel\.vegetationEinstellung\.aktiv\) void \(verlauf\.aktion === 'rueckgaengig' \? vegPinsel\.rueckgaengig\(\) : vegPinsel\.wiederholen\(\)\);\s*else if \(verlauf\.aktion\) void/.test(tf), '8: Testflug.ts: Strg+Z/Y gehen durch dieselbe Prüfung (Reiter offen, nicht im Textfeld) an das gewählte Werkzeug');
   pruefe(/gelaende\.beenden\(\);\s*vegPinsel\.beenden\(\);/.test(tf), '8: Testflug.ts: Werkzeugende (Esc, Rechtsklick, Loslassen) schließt auch den Bewuchs-Strich');
   pruefe(/vegPinsel\.druecken\(gp\)/.test(tf) && /vegPinsel\.bewegen\(p\)/.test(tf), '8: Testflug.ts: Drücken und Bewegen gehen an den Bewuchs-Pinsel, wenn er gewählt ist');
   pruefe(/vegetationEinstellung\.aktiv\) return;\s*gelaende\.tick/.test(tf), '8: Testflug.ts: ein stehender Zeiger stempelt nicht nach (Gelände-Takt gilt nicht für den Bewuchs-Pinsel)');

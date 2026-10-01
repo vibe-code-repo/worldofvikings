@@ -650,7 +650,9 @@ export class SpawnPanel implements NeustartOberflaeche {
       this.vegetationEinstellung.nurBaeume = baeumeBox.checked;
       if (this.vegetationEinstellung.aktiv) this.aufGelaende?.();
     };
-    baeumeZeile.append(baeumeBox, document.createTextNode(t('testflug.gelaende.vegetation.nur_baeume')));
+    const baeumeText = document.createElement('span');
+    baeumeText.textContent = t('testflug.gelaende.vegetation.nur_baeume');
+    baeumeZeile.append(baeumeBox, baeumeText);
     block.appendChild(baeumeZeile);
     this.werkzeugMarkieren();
 

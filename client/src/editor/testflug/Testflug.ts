@@ -923,11 +923,9 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // nur bei offenem Reiter, nicht im Textfeld, gehaltene Taste = ein Schritt).
       const verlauf = verlaufEntscheid(e, panel.istGelaendeModus, tipptImFeld(e));
       if (verlauf.verhindern) e.preventDefault();
-      if (verlauf.aktion) {
-        // Der Verlauf gehört dem Werkzeug, das gerade gewählt ist (Gelände-Striche und Bewuchs-Striche haben je einen Stapel).
-        const werkzeugSteuerung = panel.vegetationEinstellung.aktiv ? vegPinsel : gelaende;
-        void (verlauf.aktion === 'rueckgaengig' ? werkzeugSteuerung.rueckgaengig() : werkzeugSteuerung.wiederholen());
-      }
+      // Der Verlauf gehört dem Werkzeug, das gerade gewählt ist (Gelände-Striche und Bewuchs-Striche haben je einen Stapel).
+      if (verlauf.aktion && panel.vegetationEinstellung.aktiv) void (verlauf.aktion === 'rueckgaengig' ? vegPinsel.rueckgaengig() : vegPinsel.wiederholen());
+      else if (verlauf.aktion) void (verlauf.aktion === 'rueckgaengig' ? gelaende.rueckgaengig() : gelaende.wiederholen());
       if (verlauf.verhindern) return;
       // Pipette: Taste H liest die Bodenhöhe unter dem Zeiger in das Zielfeld (H ist im Flug frei; Strg wäre im Baumodus die Sinktaste).
       // Nur bei offenem Reiter und nicht im Textfeld (ein „h“ im Namensfeld bleibt ein „h“).

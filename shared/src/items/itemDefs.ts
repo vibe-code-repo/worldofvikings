@@ -118,6 +118,8 @@ const ITEM_DEFS_ROH: readonly ItemRoh[] = [
     weight: 3,
     spawnOnHitTerrain: 'digg',
     toolTier: 0,
+    // Harvest level: breaks rocks up to level 1 (the server reads this field, not the name).
+    ernte: { fels: 1 },
     // Griff in der Faust, Kopf schräg nach vorne-oben (per Auge justiert).
     holdPosition: [0, -0.05, 0.12],
     holdRotation: [-1.9, 0, 0],
@@ -362,6 +364,8 @@ const ITEM_DEFS_ROH: readonly ItemRoh[] = [
     maxStackSize: 1,
     weight: 2.5,
     toolTier: 1,
+    // Harvest level: fells trees up to level 1 (the server reads this field, not the name).
+    ernte: { baum: 1 },
     holdPosition: [0, -0.05, 0.12],
     holdRotation: [-1.9, 0, 0],
     maxDurability: 200,

@@ -6,8 +6,8 @@ export function grantStarterSet(inventory: Inventory, classId: string, figure: s
   const set = starterSetForClass(classId, figure);
   // A future compatible set can still be delivered on a later login.
   if (!set) return '';
-  const staged = new Inventory(inventory.width, inventory.height);
-  staged.load(inventory.serialize());
+  // A copy that carries the kept raw stacks too (serialize/load would drop the ones without a definition).
+  const staged = inventory.kopie();
   for (const part of set.parts) {
     const definition = findItem(part.item);
     if (!definition) throw new Error(`Missing starter item: ${part.item}`);
@@ -15,6 +15,6 @@ export function grantStarterSet(inventory: Inventory, classId: string, figure: s
     if (staged.countOf(part.item)) continue;
     if (staged.addItem(definition, 1) !== 0) return '';
   }
-  inventory.load(staged.serialize());
+  inventory.uebernimm(staged);
   return set.id;
 }

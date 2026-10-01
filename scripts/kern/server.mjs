@@ -390,6 +390,17 @@ export default [
   ['server', 'test/g9-editor-verbindung.ts'],
   // A guest keeps state and ownership only with their token; nobody inherits a saved state by typing its name, and guests cannot wear an account name.
   ['server', 'test/gaeste-besitz.ts'],
+  // G2 (item data at run time): harvest by the field `ernte` (Holzaxt 6 blows, flint axe 4), crafting without a station, the live watch with its receipt (10 -> 12 within 2 s, broken file, discarded entries, confirmation for held items, lock held by a second process). Real WebSocket, ~40 s.
+  ['server', 'test/gegenstaende-g2-live.ts'],
+  // G2 N1: the confirmation covers only the hash and the ids of the receipt (more copies of the same id are removed too); `Inventory.rebind` splits an over-stack, keeps the excess if no slot is free.
+  ['server', 'test/gegenstaende-g2-n1.ts'],
+  ['server', 'test/gegenstaende-g2-n2.ts'],
+  // G2 N3: kept raw stacks count against the chest size, own their cell, come back at `rebind()`; no silent gap at the start (broken last good state + missing file); `stop()` resets the keep switch.
+  ['server', 'test/gegenstaende-g2-n3.ts'],
+  // G2 N4: no silent gap when working copy and last good state are both missing (first start settles itself); `rebind()` brings back only usable stacks; a chest list loses no known stack beside raw ones.
+  ['server', 'test/gegenstaende-g2-n4.ts'],
+  // G2: the start with a broken, gone or partly discarded working copy loads the LAST GOOD state; player and chest keep their data items over three restarts and saves.
+  ['server', 'test/gegenstaende-g2-start.ts'],
   // Terrain T4b: save (layoutSchreibenAsync with base) -> boot from the same work copy -> getGroundHeight = base + delta;
   // damaged heightDeltas refused at save, work copy byte-identical. No network, no assets.
   ['server', 'test/gelaende-speichern-neustart.ts'],

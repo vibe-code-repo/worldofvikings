@@ -35,7 +35,7 @@
  * zu D9.
  */
 
-import { Inventory } from './Inventory.js';
+import { Inventory, repariereStapel, unbekannteWerdenVerwahrt } from './Inventory.js';
 import { findItem } from './itemDefs.js';
 import type { SavedItemStack } from './ItemData.js';
 
@@ -48,7 +48,7 @@ export const CONTAINER_HEIGHT = 2;
 export const CONTAINER_SLOTS = CONTAINER_WIDTH * CONTAINER_HEIGHT;
 
 /** [Name, Menge, Haltbarkeit, Qualität] — s. Kopfkommentar. */
-type PackedStack = [name: string, stack: number, durability: number, quality: number];
+type PackedStack = [name: string, stack: number, durability: number | null, quality: number];
 
 /** Neue, leere Truhen-Inventory (feste Größe, s. CONTAINER_WIDTH/HEIGHT). */
 export function neueTruheInventory(): Inventory {
@@ -57,12 +57,11 @@ export function neueTruheInventory(): Inventory {
 
 /** Truhen-Inhalt → kompakte Zeichenkette für den ZDO-Member. */
 export function packContainer(inv: Inventory): string {
-  const packed: PackedStack[] = inv.all.map((it) => [
-    it.shared.name,
-    it.stack,
-    it.durability,
-    it.quality,
-  ]);
+  const packed: PackedStack[] = [
+    ...inv.all.map((it): PackedStack => [it.shared.name, it.stack, it.durability ?? null, it.quality]),
+    // Stacks kept without a definition (item watch, start without a last good state) stay in the chest.
+    ...inv.verwahrte.map((s): PackedStack => [s.name, s.stack, s.durability ?? null, s.quality]),
+  ];
   return JSON.stringify(packed);
 }
 
@@ -86,28 +85,36 @@ export function unpackContainer(json: string): Inventory {
   }
   if (!Array.isArray(roh)) return inv;
 
-  const saved: SavedItemStack[] = [];
-  // Deckel auf CONTAINER_SLOTS: Inventory.load() ignoriert Positionen
-  // ausserhalb des Rasters ohnehin nicht selbst — der Deckel hier ist die
-  // Absicherung gegen manipulierte/fremde Daten mit mehr Einträgen, als
-  // ein Container je legitim erreichen kann (s. Kopfkommentar).
-  for (let i = 0; i < roh.length && saved.length < CONTAINER_SLOTS; i++) {
-    const eintrag = roh[i];
+  // Order of the list does not matter: the first CONTAINER_SLOTS usable known stacks lie in the grid (list order), everything
+  // else (raw, unusable, known ones beyond the grid) is kept raw on a cell behind them. Nothing is cut, and no known
+  // stack lies outside the grid, where `removeByName` and the client would miss it.
+  const imRaster: SavedItemStack[] = [];
+  const verwahrt: SavedItemStack[] = [];
+  for (const eintrag of roh) {
     if (!Array.isArray(eintrag) || eintrag.length !== 4) continue;
     const [name, stack, durability, quality] = eintrag as unknown[];
-    if (typeof name !== 'string' || typeof stack !== 'number' || stack <= 0) continue;
-    if (!findItem(name)) continue; // unbekanntes Item (alter/fremder Save) — verwerfen
-    const slot = saved.length;
-    saved.push({
+    if (typeof name !== 'string') continue;
+    const bekannt = findItem(name) !== undefined;
+    if (!bekannt && !unbekannteWerdenVerwahrt()) continue; // unbekanntes Item (alter/fremder Save) — verwerfen
+    const s = {
       name,
-      stack,
-      durability: typeof durability === 'number' ? durability : 0,
+      stack: stack as number,
+      // A missing durability stays missing (`null` in the list): `repariereStapel` gives a maximum only to items that have one.
+      durability: (typeof durability === 'number' ? durability : undefined) as number,
       quality: typeof quality === 'number' ? quality : 1,
-      gridX: slot % CONTAINER_WIDTH,
-      gridY: (slot / CONTAINER_WIDTH) | 0,
+      gridX: 0,
+      gridY: 0,
       equipped: false,
-    });
+    };
+    const shared = findItem(name);
+    const r = shared ? repariereStapel(s, shared) : null;
+    if (r?.repariert) console.warn(`[Container] unpack: ${name} repaired (stack ${String(stack)} -> ${r.stack.stack})`);
+    if (r && imRaster.length < CONTAINER_SLOTS) imRaster.push(r.stack); // repaired like `load` does, so it takes the cell it will keep
+    else verwahrt.push(s);
   }
+  const zelle = (n: number): { gridX: number; gridY: number } => ({ gridX: n % CONTAINER_WIDTH, gridY: (n / CONTAINER_WIDTH) | 0 });
+  const saved = imRaster.map((s, n) => ({ ...s, ...zelle(n) }));
   inv.load(saved);
+  verwahrt.forEach((s, n) => inv.verwahreStapel({ ...s, ...zelle(imRaster.length + n) }));
   return inv;
 }

@@ -718,7 +718,10 @@ pruefe(gegenstandsRepoDatei('/srv/wov') === '/srv/wov/shared/data/gegenstaende.j
 // ── 14. Code items unchanged ─────────────────────────────────────────
 console.log('Gegenstandsdaten — Code-Items unveraendert');
 pruefe(hash() === hashVorher, `ITEM_DEFS-Hash nach allen Laeufen gleich (${hash()})`);
-pruefe(findItem('AxeFlint') === axtVorher && ITEM_DEFS.every((d) => d.datenItem === undefined && d.ernte === undefined && d.modellSkala === undefined && !('nameSchluessel' in d)), 'Code-Items tragen keines der neuen Felder');
+// G2: exactly two code items carry the harvest level now (the server decides by this field, not by the name).
+const ernteCode = ITEM_DEFS.filter((d) => d.ernte !== undefined).map((d) => `${d.name}:${JSON.stringify(d.ernte)}`).sort().join();
+pruefe(ernteCode === 'AxeFlint:{"baum":1},PickaxeAntler:{"fels":1}', `nur AxeFlint (baum 1) und PickaxeAntler (fels 1) tragen ernte (${ernteCode})`);
+pruefe(findItem('AxeFlint') === axtVorher && ITEM_DEFS.every((d) => d.datenItem === undefined && d.modellSkala === undefined && !('nameSchluessel' in d)), 'Code-Items tragen keines der neuen Felder (ausser ernte an den zwei Werkzeugen)');
 
 if (fehler > 0) {
   console.error(`\n${fehler} von ${geprueft} Pruefungen FEHLGESCHLAGEN`);

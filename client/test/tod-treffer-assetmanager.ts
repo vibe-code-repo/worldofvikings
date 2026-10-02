@@ -61,7 +61,7 @@ async function main(): Promise<void> {
   if (!inst) return;
   const gruppen = scene.animationGroups.filter((g) => !container.animationGroups.includes(g));
   const finde = (liste: readonly AnimationGroup[], n: string): AnimationGroup | undefined => liste.find((g) => g.name === n);
-  check('the instance carries its own animation groups (48 clips)', gruppen.length === 48, `${gruppen.length}`);
+  check('the instance carries its own animation groups (56 clips)', gruppen.length === 56, `${gruppen.length}`);
 
   const rohTod = wurzel(finde(roh.animationGroups, 'tod_hinten')!);
   const instTod = wurzel(finde(gruppen, 'tod_hinten')!);

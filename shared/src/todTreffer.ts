@@ -10,7 +10,7 @@
  *    (`animEinmal` = `<clip>#<n>`, plus `anim` = the death clip while the body lies).
  *
  * Clip names are the animation groups of the shipped body models
- * (WikingerKoerper.glb / WikingerinKoerper.glb, 48 clips).
+ * (WikingerKoerper.glb / WikingerinKoerper.glb, 56 clips).
  */
 
 /** How long a dead player lies before the server revives him (ms). One knob for the whole game. */

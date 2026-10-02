@@ -110,6 +110,16 @@ export default [
   ['client', 'test/d5-beute-modelle.ts', brauchtModelle('assets/models/HolzTruhe.glb')],
   // D5: E finds loot on the ground even when its model never loaded.
   ['client', 'test/d5-beute-ziel.ts'],
+  /*
+    D3-K2: die acht Clips fuer Block und Rolle auf den ECHTEN Koerpern (56 Clips): Reihenfolge, Laengen (die Rollen-Laenge ist
+    das Unverwundbarkeitsfenster), Haltepose und Nahtstellen (<= 1 Grad), Wurzelweg je Clip, beide Koerper gleich. In der CI
+    ohne Assets uebersprungen.
+  */
+  [
+    'client',
+    'test/d3-clips.ts',
+    brauchtModelle('assets/models/wikinger/WikingerKoerper.glb', 'assets/models/wikingerin/WikingerinKoerper.glb'),
+  ],
   // Account hand-off from wov-web: the legacy connection panel must be
   // absent from the static HTML, online entry requires a session, and
   // failures return to the one remaining login on the public website.
@@ -707,7 +717,7 @@ export default [
   */
   ['client', 'test/tod-treffer-assetmanager.ts', brauchtModelle('assets/models/wikinger/WikingerKoerper.glb')],
   /*
-    Tod und Treffer sichtbar: AvatarRig auf den ECHTEN Koerpern (48 Clips): Zustaende unveraendert, Tod liegt bei 0,12 m,
+    Tod und Treffer sichtbar: AvatarRig auf den ECHTEN Koerpern (56 Clips): Zustaende unveraendert, Tod liegt bei 0,12 m,
     Treffer-Schicht nur Oberkoerper, Mindestabstand. In der CI ohne Assets uebersprungen.
   */
   [
@@ -738,7 +748,7 @@ export default [
   ['client', 'test/tod-treffer-meldung.ts'],
   /*
     Tod und Treffer sichtbar: Wurzelbewegung der Liege-/Bueck-Clips (A4: nie die Hoehe festnageln, die 28 alten Clips bitgleich)
-    auf den ECHTEN Koerpern (48 Clips). In der CI ohne Assets uebersprungen.
+    auf den ECHTEN Koerpern (56 Clips). In der CI ohne Assets uebersprungen.
   */
   [
     'client',

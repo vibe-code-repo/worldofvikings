@@ -5427,7 +5427,7 @@ function messeDungeonAttrappe(): Aufzeichnung {
       // regen
       for (const z of ['dungeon regen e2', 'dungeon regen dc', 'dungeon regen d1 99', 'dungeon regen d1', 'dungeon regen d1 abc', 'dungeon regen d1 -7.9', 'dungeon regen dfail 5']) ex(z);
       // steinkit: the document and one room, the reset, every key, values outside the range, unknown keys
-      for (const z of ['dungeon steinkit e2 reset', 'dungeon steinkit d1 wand=stein_clean', 'dungeon steinkit d1 wand=stein_clean decke=stein_moos boden=stein_wet moos=2 frost=9 nass=1 kachel=2 deckenkachel=3', 'dungeon steinkit d1 wand=foo', 'dungeon steinkit d1 bogus', 'dungeon steinkit d1 x=1', 'dungeon steinkit d1 =v', 'dungeon steinkit d1 moos=abc', 'dungeon steinkit d1', 'dungeon steinkit d1 room=x', 'dungeon steinkit d1 room=1.5', 'dungeon steinkit d1 room=9 moos=1', 'dungeon steinkit d1 room=-1 moos=1', 'dungeon steinkit d1 room=3 moos=1', 'dungeon steinkit d1 room=0 boden=stein_frost moos=3', 'dungeon steinkit d1 room=2 room=1 frost=4', 'dungeon steinkit d1 room=0 reset', 'dungeon steinkit d1 reset extra', 'dungeon steinkit d1 reset', 'dungeon steinkit dc kachel=0', 'dungeon steinkit dc kachel=999 deckenkachel=-1', 'dungeon steinkit dc nass=-3 moos=4.5', 'dungeon steinkit dc decke=/assets/models/stein_moos.png', 'dungeon steinkit dc wand=STEIN_MOOS', 'dungeon steinkit dc reset']) { ex(z); docs(); }
+      for (const z of ['dungeon steinkit e2 reset', 'dungeon steinkit d1 wand=stein_clean', 'dungeon steinkit d1 wand=stein_clean decke=stein_moos boden=stein_wet moos=2 frost=9 nass=1 kachel=2 deckenkachel=3', 'dungeon steinkit d1 wand=foo', 'dungeon steinkit d1 bogus', 'dungeon steinkit d1 x=1', 'dungeon steinkit d1 =v', 'dungeon steinkit d1 wand=', 'dungeon steinkit d1 moos=', 'dungeon steinkit d1 room=', 'dungeon steinkit d1 moos=abc', 'dungeon steinkit d1', 'dungeon steinkit d1 room=x', 'dungeon steinkit d1 room=1.5', 'dungeon steinkit d1 room=9 moos=1', 'dungeon steinkit d1 room=-1 moos=1', 'dungeon steinkit d1 room=3 moos=1', 'dungeon steinkit d1 room=0 boden=stein_frost moos=3', 'dungeon steinkit d1 room=2 room=1 frost=4', 'dungeon steinkit d1 room=0 reset', 'dungeon steinkit d1 reset extra', 'dungeon steinkit d1 reset', 'dungeon steinkit dc kachel=0', 'dungeon steinkit dc kachel=999 deckenkachel=-1', 'dungeon steinkit dc nass=-3 moos=4.5', 'dungeon steinkit dc decke=/assets/models/stein_moos.png', 'dungeon steinkit dc wand=STEIN_MOOS', 'dungeon steinkit dc reset']) { ex(z); docs(); }
       // licht
       for (const z of ['dungeon licht e2 0.5', 'dungeon licht d1', 'dungeon licht dfail', 'dungeon licht d1 0.5', 'dungeon licht d1', 'dungeon licht d1 1', 'dungeon licht d1 2', 'dungeon licht d1 3', 'dungeon licht d1 abc', 'dungeon licht d1 -1', 'dungeon licht d1 99', 'dungeon licht d1 Infinity', 'dungeon licht d1 0x1', 'dungeon licht d1 1e0', 'dungeon licht d1 reset', 'dungeon licht d1', 'dungeon licht dfail RESET', 'dungeon licht dfail reset']) { ex(z); docs(); }
       // reset, delete
@@ -5435,6 +5435,10 @@ function messeDungeonAttrappe(): Aufzeichnung {
       // the handler itself checks no rights: called directly as a guest (the registry is the gate)
       const h = (reg as unknown as { handlers: Map<string, Handler> }).handlers.get('dungeon');
       for (const z of ['list', 'create cave 3', 'licht d1 0.4', 'delete d1']) befehlB(a, h, z, gastD(a));
+      // arguments the registry never produces (it splits at white space), straight into the handler: the handler's own guards
+      for (const args of [['licht', 'd1', ''], ['licht', 'd1', ' '], ['steinkit', 'd1', ''], ['create', ''], ['assign', ''], ['enter', '']]) {
+        try { a.notizen.push(`> direct ${JSON.stringify(args)} = ${JSON.stringify(h?.(ich(), [...args]))}`); } catch (e) { a.ausnahmen.push((e as Error).name); a.notizen.push(`> direct ${JSON.stringify(args)} throws ${(e as Error).name}`); }
+      }
       docs();
       // members replaced AFTER the registration: the handler reads kd.<member> at every call, never a copy
       const neu: Record<string, unknown> = {};
@@ -5531,28 +5535,28 @@ const SOLL_DUNGEON_ATTRAPPE: Aufzeichnung = {
  "paket": [],
  "aufrufe": {
   "k.adminCommands": 1,
-  "k.dungeons": 195,
+  "k.dungeons": 204,
   "dungeons.listDocuments": 7,
   "dungeons.listDokumente2": 7,
   "dungeons.listEntrances": 4,
-  "k.resolveDungeonBase": 16,
-  "resolveDungeonBase": 14,
+  "k.resolveDungeonBase": 17,
+  "resolveDungeonBase": 15,
   "dungeons.erzeugeDungeon2": 11,
-  "dungeons.findEntranceNear": 7,
+  "dungeons.findEntranceNear": 8,
   "k.leaveDungeon": 5,
   "leaveDungeon": 3,
   "k.enterDungeon": 7,
   "enterDungeon": 5,
   "dungeons.hatDokument": 6,
-  "dungeons.getDocument": 54,
-  "dungeons.destroyInstance": 28,
+  "dungeons.getDocument": 60,
+  "dungeons.destroyInstance": 29,
   "dungeons.deleteDocument": 4,
   "dungeons.getInstance": 12,
   "dungeons.eingangZuDungeon": 4,
   "dungeons.setzeEingangsModus": 4,
   "dungeons.createGenerated": 16,
   "dungeons.assignEntrance": 4,
-  "dungeons.saveDocument": 22,
+  "dungeons.saveDocument": 23,
   "dungeonsNeu.listDocuments": 1,
   "dungeonsNeu.listDokumente2": 1,
   "enterDungeonNeu": 1,
@@ -5928,6 +5932,20 @@ const SOLL_DUNGEON_ATTRAPPE: Aufzeichnung = {
   "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
   "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":2,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
   "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 wand= (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Textur \\\"\\\" — erlaubt: stein_clean, stein_decke, stein_fels, stein_moos, stein_frost, stein_tripo_rock, stein_wet\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":2,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":0,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 moos= (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Steinmaterial gesetzt — {\\\"wandTextur\\\":\\\"/assets/models/stein_clean.png\\\",\\\"deckeTextur\\\":\\\"/assets/models/stein_moos.png\\\",\\\"bodenTextur\\\":\\\"/assets/models/stein_wet.png\\\",\\\"verwitterung\\\":{\\\"moos\\\":0,\\\"frost\\\":4,\\\"nass\\\":1},\\\"kachelM\\\":2,\\\"deckeKachelM\\\":3}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":0,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 room= (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Nichts Gültiges angegeben — nichts geändert\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":0,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
   "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}}]",
   "  call dungeons.destroyInstance [\"d1\"]",
   "> dungeon steinkit d1 moos=abc (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Steinmaterial gesetzt — {\\\"wandTextur\\\":\\\"/assets/models/stein_clean.png\\\",\\\"deckeTextur\\\":\\\"/assets/models/stein_moos.png\\\",\\\"bodenTextur\\\":\\\"/assets/models/stein_wet.png\\\",\\\"verwitterung\\\":{\\\"frost\\\":4,\\\"nass\\\":1},\\\"kachelM\\\":2,\\\"deckeKachelM\\\":3}\"}",
@@ -6142,6 +6160,17 @@ const SOLL_DUNGEON_ATTRAPPE: Aufzeichnung = {
   "  call dungeons.deleteDocument [\"d1\"]",
   "> [\"delete\",\"d1\"] = {\"ok\":true,\"active\":false,\"message\":\"Dungeon d1 gelöscht\"} args=[\"d1\"]",
   "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> direct [\"licht\",\"d1\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Keine Zahl: \"}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> direct [\"licht\",\"d1\",\" \"] = {\"ok\":false,\"active\":false,\"message\":\"Keine Zahl:  \"}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> direct [\"steinkit\",\"d1\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe:  — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "  call resolveDungeonBase \"\" receiver=context",
+  "> direct [\"create\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon create <basis> [seed] [räume] [zone] — Basis z. B. forestcrypt, sunkencrypt, cave; räume/zone leer = Kit-Vorgabe\"}",
+  "> direct [\"assign\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: \"}",
+  "  call dungeons.findEntranceNear [{\"x\":1,\"y\":2,\"z\":3},16]",
+  "> direct [\"enter\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Kein Dungeon-Eingang in der Nähe\"}",
   "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2}]},\"zoneSize\":64,\"ambientLicht\":0.4},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64}}",
   "  call dungeonsNeu.listDocuments []",
   "  call dungeonsNeu.listDokumente2 []",

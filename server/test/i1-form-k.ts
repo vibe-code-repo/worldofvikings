@@ -1220,18 +1220,59 @@ const AUFRUF_STELLEN_C: readonly AufrufStelle1A[] = [
 ];
 
 console.log('\n[1d] Step 1C: the place of the three calls in the constructor (the check of [1c])');
-if (!MESSEN_BASIS) {
+{
+  // the table names exactly the three calls of C (a missing entry would leave its call unwatched; attack H-2)
+  check('[1d] AUFRUF_STELLEN_C names exactly registerTeleportCommand, registerSpielerCommand, registerDungeonCommand, in this order', same(AUFRUF_STELLEN_C.map((x) => x.name), ['registerTeleportCommand', 'registerSpielerCommand', 'registerDungeonCommand']), AUFRUF_STELLEN_C.map((x) => x.name).join(', '));
+  // self-test on an invented constructor, as [1c] does (no anchor in the real text, nothing can throw; attack H-1)
+  const gut = [
+    'export class WovServer {',
+    '  constructor() {',
+    '    this.adminListe = new AdminListe(',
+    "      'x'",
+    '    );',
+    '    this.registerTeleportCommand();',
+    '    this.registerSpielerCommand();',
+    '    this.registerDungeonCommand();',
+    '    this.registerSpawnCommand();',
+    '    this.registerAbbauCommand();',
+    '  }',
+    '',
+    '  private registerTeleportCommand(): void {',
+    '    return registerTeleportCommand(this);',
+    '  }',
+    '',
+    '  private registerSpielerCommand(): void {',
+    '    return registerSpielerCommand(this);',
+    '  }',
+    '',
+    '  private registerDungeonCommand(): void {}',
+    '}',
+    '',
+  ].join('\n');
   const pr = (t: string): string[] => pruefeAufrufStellen1A(t, AUFRUF_STELLEN_C, {});
-  check(`WovServer.ts: the ${AUFRUF_STELLEN_C.length} calls of step 1C stand directly in the constructor between their frozen neighbours, once each`, pr(klassenText).length === 0, show(pr(klassenText)));
-  const ersetze = (a: string, b: string): string => { if (!klassenText.includes(a)) throw new Error('fault anchor missing: ' + a); return klassenText.replace(a, b); };
-  const fehler1d: [string, string][] = [
-    ['teleport and spieler swapped', ersetze('    this.registerTeleportCommand();\n    this.registerSpielerCommand();', '    this.registerSpielerCommand();\n    this.registerTeleportCommand();')],
-    ['teleport registered after spawn', ersetze('    this.registerTeleportCommand();\n    this.registerSpielerCommand();\n    this.registerDungeonCommand();\n    this.registerSpawnCommand();', '    this.registerSpielerCommand();\n    this.registerDungeonCommand();\n    this.registerSpawnCommand();\n    this.registerTeleportCommand();')],
-    ['dungeon only with world features', ersetze('    this.registerDungeonCommand();', '    if (this.config.worldFeatures) this.registerDungeonCommand();')],
-    ['spieler called twice', ersetze('    this.registerDungeonCommand();', '    this.registerDungeonCommand();\n    this.registerSpielerCommand();')],
-    ['teleport in a nested block', ersetze('    this.registerTeleportCommand();', '    {\n      this.registerTeleportCommand();\n    }')],
+  check('[1d] green: the three calls in the frozen form (invented constructor)', pr(gut).length === 0, show(pr(gut)));
+  // each fault names the entry whose finding it must produce: the finding has to start with that name
+  const fehler1d: [string, string, string, string][] = [
+    ['teleport and spieler swapped', 'registerTeleportCommand', '    this.registerTeleportCommand();\n    this.registerSpielerCommand();', '    this.registerSpielerCommand();\n    this.registerTeleportCommand();'],
+    ['teleport registered after spawn', 'registerTeleportCommand', '    this.registerTeleportCommand();\n    this.registerSpielerCommand();\n    this.registerDungeonCommand();\n    this.registerSpawnCommand();', '    this.registerSpielerCommand();\n    this.registerDungeonCommand();\n    this.registerSpawnCommand();\n    this.registerTeleportCommand();'],
+    ['teleport in a nested block', 'registerTeleportCommand', '    this.registerTeleportCommand();', '    {\n      this.registerTeleportCommand();\n    }'],
+    ['teleport not called', 'registerTeleportCommand', '    this.registerTeleportCommand();\n', ''],
+    ['teleport called through void', 'registerTeleportCommand', '    this.registerTeleportCommand();', '    void this.registerTeleportCommand();'],
+    ['spieler called twice', 'registerSpielerCommand', '    this.registerDungeonCommand();', '    this.registerDungeonCommand();\n    this.registerSpielerCommand();'],
+    ['spieler with an argument', 'registerSpielerCommand', '    this.registerSpielerCommand();', '    this.registerSpielerCommand(1 as never);'],
+    ['dungeon only with world features', 'registerDungeonCommand', '    this.registerDungeonCommand();', '    if (this.config.worldFeatures) this.registerDungeonCommand();'],
+    ['dungeon after spawn', 'registerDungeonCommand', '    this.registerDungeonCommand();\n    this.registerSpawnCommand();', '    this.registerSpawnCommand();\n    this.registerDungeonCommand();'],
   ];
-  for (const [name, t] of fehler1d) check(`red (real text): ${name}`, pr(t).length > 0, show(pr(t)) || 'no finding');
+  for (const [name, eintrag, a, b] of fehler1d) {
+    // a missing anchor in the invented text is a finding of this check, not an exception: the test runs on
+    if (!gut.includes(a)) { check(`[1d] red: ${name} (anchor of the fault present)`, false, a.slice(0, 50)); continue; }
+    const f = pr(gut.replace(a, b));
+    check(`[1d] red: ${name}, found at its entry ${eintrag}`, f.some((x) => x.startsWith(`${eintrag}:`)), show(f) || 'no finding');
+  }
+  // the real constructor (in the measuring mode the old stand has other calls; there this check is skipped)
+  if (!MESSEN_BASIS) {
+    check(`WovServer.ts: the ${AUFRUF_STELLEN_C.length} calls of step 1C stand directly in the constructor between their frozen neighbours, once each`, pr(klassenText).length === 0, show(pr(klassenText)));
+  }
 }
 
 // ── [2] Behaviour ──────────────────────────────────────────────────────

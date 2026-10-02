@@ -11,14 +11,15 @@
  *   npx tsx tools/test/store-lab-katalog.ts
  */
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STORE_PREFAB_DEFS } from '@wov/shared';
 import { STORE_KATALOG_NACH_ID } from '@wov/shared/src/storeKatalogDaten.js';
 import { repoText } from '@wov/shared/src/texte.js';
 // @ts-expect-error — .mjs ohne Typen
-import { MATERIALNAMEN, MODELLE, glbLesen, glbSchreiben, umbauen } from '../store-pflanzen-quellen.mjs';
+import { MATERIALNAMEN, MODELLE, glbLesen, glbSchreiben, pflanzenHolen, umbauen } from '../store-pflanzen-quellen.mjs';
 
 const WURZEL = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 let fehler = 0;
@@ -159,6 +160,64 @@ try {
   meldung = (e as Error).message;
 }
 check('Unbekanntes Material wird mit Namen abgewiesen', meldung.includes('unbekanntes Material Unbekannt 7'), meldung);
+
+// Die Ausgangsdateien, die Mike in den Speicher kopieren muss (`assets/store/vegetation-export/`).
+check(
+  'Ausgangsdateien heissen flower-1a4.glb, flower-1a12.glb, fern-1a1.glb',
+  JSON.stringify((MODELLE as { quelle: string }[]).map((m) => m.quelle)) === JSON.stringify(['flower-1a4.glb', 'flower-1a12.glb', 'fern-1a1.glb'])
+);
+
+// ── pflanzenHolen: Weichen und Wiederholbarkeit (Temp-Ordner) ─────────
+const tmp = mkdtempSync(join(tmpdir(), 'grauklamm-k1-holen-'));
+try {
+  const ziel = join(tmp, 'lab');
+  const katalog = join(tmp, 'katalog.json');
+  const leise = console.warn;
+  let warnungen = '';
+  console.warn = (m: string) => {
+    warnungen += m;
+  };
+  const keine = pflanzenHolen({ quelle: join(tmp, 'gibt-es-nicht'), ziel, katalog });
+  console.warn = leise;
+  check('Quelle fehlt: 0 Modelle, Warnung statt Fehler', keine === 0 && warnungen.includes('WARNUNG'), warnungen);
+  check('Quelle fehlt: nichts geschrieben', !existsSync(katalog) && !existsSync(ziel));
+
+  const quelle = join(tmp, 'roh');
+  mkdirSync(quelle);
+  const modelle = MODELLE as { quelle: string }[];
+  writeFileSync(join(quelle, modelle[0].quelle), exportGlb('Flowers_A 1').glb);
+  let unvollstaendig = '';
+  try {
+    pflanzenHolen({ quelle, ziel, katalog });
+  } catch (e) {
+    unvollstaendig = (e as Error).message;
+  }
+  check('Quelle unvollständig: Fehler nennt die fehlenden Dateien', unvollstaendig.includes(modelle[1].quelle) && unvollstaendig.includes(modelle[2].quelle), unvollstaendig);
+
+  writeFileSync(join(quelle, modelle[1].quelle), exportGlb('Flowers_A 1').glb);
+  writeFileSync(join(quelle, modelle[2].quelle), exportGlb('Plant_Leaves_1A3 1').glb);
+  const stumm = console.log;
+  console.log = () => undefined;
+  const n1 = pflanzenHolen({ quelle, ziel, katalog });
+  const json1 = readFileSync(katalog, 'utf8');
+  const glb1 = readFileSync(join(ziel, `${(MODELLE as { id: string }[])[2].id}.glb`));
+  const n2 = pflanzenHolen({ quelle, ziel, katalog });
+  console.log = stumm;
+  check('Quelle vollständig: drei Modelle gebaut', n1 === 3 && n2 === 3);
+  check('Zielordner: Modelle und Texturen', existsSync(join(ziel, 'fern-1a1.glb')) && existsSync(join(ziel, 'flower-1a4.glb')) && existsSync(join(ziel, 'textures')));
+  check('zweiter Lauf: Messliste und Modell byteidentisch', readFileSync(katalog, 'utf8') === json1 && readFileSync(join(ziel, 'fern-1a1.glb')).equals(glb1));
+  check('Messliste ist kanonisch formatiert (2 Leerzeichen, ein Zeilenende)', json1 === `${JSON.stringify(JSON.parse(json1), null, 2)}\n`);
+  check('Messliste ist sortiert und führt drei Einträge', (JSON.parse(json1).eintraege as { id: string }[]).map((e) => e.id).join() === 'vegetation/fern-1a1,vegetation/flower-1a12,vegetation/flower-1a4');
+} finally {
+  rmSync(tmp, { recursive: true, force: true });
+}
+
+// ── Der Rollout-Hook in store-vegetation-aufbereiten.mjs ─────────────
+const aufbereiten = readFileSync(join(WURZEL, 'tools/store-vegetation-aufbereiten.mjs'), 'utf8');
+check(
+  'Aufbereitung ruft pflanzenHolen() nur im Standardlauf (nicht bei --nur-pruefen, nicht bei Probeziel)',
+  /if \(!NUR_PRUEFEN && ZIEL === resolve\(WURZEL, ZIEL_STANDARD\) && QUELLE === resolve\(WURZEL, QUELLE_STANDARD\)\) \{\s*const \{ pflanzenHolen \} = await import\('\.\/store-pflanzen-quellen\.mjs'\);\s*console\.log\(''\);\s*pflanzenHolen\(\);/.test(aufbereiten)
+);
 
 if (fehler > 0) {
   console.error(`\n${fehler} Prüfung(en) rot`);

@@ -144,6 +144,21 @@ try {
   rmSync(tmp, { recursive: true, force: true });
 }
 
+// Labor-Modelle liegen unter `assets/store-lab/` (Messliste eingecheckt), nicht im Speicher.
+/**
+ * Labor-Modell ohne Datei: TOT nur, wenn seine Ausgangsdatei im Speicher liegt
+ * (`vegetation-export/`, dann hätte `store:aufbereiten` es bauen müssen). Fehlt
+ * auch sie, hat Mike sie noch nicht kopiert: Warnung, kein Befund.
+ */
+function labDateiTot(pfad: string): boolean {
+  const roh = join(STORE, 'vegetation-export', pfad.replace(/^vegetation\//, ''));
+  if (!existsSync(roh)) console.warn(`WARN ${pfad}: weder im Labor noch als Ausgangsdatei im Speicher (vegetation-export/)`);
+  return existsSync(roh);
+}
+const labPfade = new Set(
+  (JSON.parse(readFileSync(join(WURZEL, 'tools/store-lab-katalog.json'), 'utf8')) as { eintraege: { pfad: string }[] }).eintraege.map((l) => l.pfad)
+);
+
 // ── 3. Jeder Modellpfad zeigt auf eine echte Datei ────────────────────
 /*
   Der Pfad wird ZURÜCKGERECHNET, nicht neu gebaut: `model` ist
@@ -160,7 +175,9 @@ for (const def of STORE_PREFAB_DEFS) {
   }
   const basis = def.model.startsWith('store-lab/') ? STORE_LAB : STORE;
   const rest = def.model.replace(/^store(-lab)?\//, '');
-  if (!existsSync(join(basis, `${rest}.glb`))) totePfade.push(`${def.name} → ${def.model}.glb`);
+  if (!existsSync(join(basis, `${rest}.glb`)) && !(basis === STORE_LAB && labPfade.has(`${rest}.glb`) && !labDateiTot(`${rest}.glb`))) {
+    totePfade.push(`${def.name} → ${def.model}.glb`);
+  }
 }
 check(
   `alle ${STORE_PREFAB_DEFS.length} model-Pfade zeigen auf eine vorhandene Datei`,
@@ -169,13 +186,10 @@ check(
 );
 
 // ── 4. Auch der Katalog beschreibt nur Vorhandenes ────────────────────
-// Labor-Modelle liegen unter `assets/store-lab/` (Messliste eingecheckt), nicht im Speicher.
-const labPfade = new Set(
-  (JSON.parse(readFileSync(join(WURZEL, 'tools/store-lab-katalog.json'), 'utf8')) as { eintraege: { pfad: string }[] }).eintraege.map((l) => l.pfad)
-);
-const toteKatalogPfade = STORE_KATALOG.filter((e) =>
-  labPfade.has(e.pfad) ? !existsSync(join(STORE_LAB, e.pfad)) : !existsSync(join(STORE, e.pfad))
-);
+const toteKatalogPfade = STORE_KATALOG.filter((e) => {
+  if (!labPfade.has(e.pfad)) return !existsSync(join(STORE, e.pfad));
+  return !existsSync(join(STORE_LAB, e.pfad)) && labDateiTot(e.pfad);
+});
 check(
   `alle ${STORE_KATALOG.length} Katalogpfade zeigen auf eine vorhandene Datei`,
   toteKatalogPfade.length === 0,

@@ -433,8 +433,10 @@ export default [
   // ~2 s.
   // The same G1 metrics measured against the new grid path.
   ['tools', 'test/raster-generator-g4.ts'],
-  // Export-Zweig von store-boden-quellen.mjs: verlustfrei, mit Temp-Quellen (ohne Assets).
-  ['tools', 'test/store-boden-export.ts'],
+  // store-boden-quellen.mjs: verlustfrei (kein Palettenbild), Weichen je Quelle, mit Temp-Quellen (ohne Assets).
+  ['tools', 'test/store-boden-quellen.ts'],
+  // Die zwei Grauklamm-Bodentexturen im Speicher (Hash = Export); ohne sie uebersprungen.
+  ['tools', 'test/store-boden-texturen.ts', brauchtModelle('assets/store/textures/terrain-rock-grey.png')],
   ['tools', 'test/store-einsortierung.ts', brauchtModelle('assets/store')],
   ['tools', 'test/store-erzeugung.ts', brauchtStore()],
   /*
@@ -491,6 +493,8 @@ export default [
   ['tools', 'test/store-lab-katalog.ts'],
   // Die Binaerdateien dazu (Hash, GLB-Kopf, Textur): nur mit assets/store-lab.
   ['tools', 'test/store-lab-pflanzen-dateien.ts', brauchtModelle('assets/store-lab/vegetation/fern-1a1.glb')],
+  // Rollout-Weg: store:aufbereiten legt die Pflanzen aus vegetation-export/ wieder ins Labor (Wegwerf-Baum).
+  ['tools', 'test/store-lab-rollout.ts', brauchtModelle('assets/store/vegetation')],
   ['tools', 'test/store-quelle.ts', brauchtStore()],
   ['tools/test', 'store-vegetation.ts', brauchtModelle('assets/store')],
   // ── Stufe 2: die Bodenschichten des Vorbilds ──────────────────────

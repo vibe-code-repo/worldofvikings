@@ -1957,3 +1957,17 @@ if (ohneVorbild.size > 0) {
 } else {
   console.log('  ohne Vorbild: keines');
 }
+
+/*
+  Zum Schluss die drei Pflanzen aus dem Export-Ordner des Speichers
+  (`assets/store/vegetation-export/`), denn der Zielordner wurde oben
+  NEU aufgebaut und hat sie sonst nicht mehr. Nur beim echten Lauf in den
+  Standardordner: nicht bei `--nur-pruefen` und nicht bei einem
+  Probeziel (`--ziel`, so fährt `tools/test/store-vegetation.ts`).
+  Fehlt der Ordner, ist es eine Warnung und kein Abbruch.
+*/
+if (!NUR_PRUEFEN && ZIEL === resolve(WURZEL, ZIEL_STANDARD) && QUELLE === resolve(WURZEL, QUELLE_STANDARD)) {
+  const { pflanzenHolen } = await import('./store-pflanzen-quellen.mjs');
+  console.log('');
+  pflanzenHolen();
+}

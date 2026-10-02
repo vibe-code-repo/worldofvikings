@@ -30,16 +30,26 @@
   trägt die Modelle daraus in Katalog und Registry ein und läuft damit
   auf jedem Rechner zum selben Ergebnis, auch ohne die Binärdateien.
 
+  ── Woher die Ausgangsdateien kommen, und wer dieses Werkzeug ruft ──
+  Die rohen Export-GLBs liegen im Asset-Speicher: `assets/store/
+  vegetation-export/<id>.glb` (Mike kopiert sie dorthin, Liste im Bericht
+  Grauklamm K1). Der Ort lässt sich mit `WOV_EXPORT_MODELLE` überstimmen.
+
+  `store-vegetation-aufbereiten.mjs` ruft `pflanzenHolen()` am Ende
+  SELBST auf, weil es `assets/store-lab/vegetation/` bei jedem Lauf neu
+  aufbaut: Die Rollout-Kette (`tools/wov-update.sh` 5b: `npm run
+  store:aufbereiten`) braucht so keinen zweiten Schritt. Als Kommando
+  (`node tools/store-pflanzen-quellen.mjs`) läuft es ebenfalls.
+
   ── Die Weiche ───────────────────────────────────────────────────────
-  Fehlt der Export GANZ (CI, fremder Rechner), meldet der Lauf das und
-  endet mit Code 0. Fehlt eine einzelne Datei im vorhandenen Export, ist
-  das ein Befund (Code 2).
+  Fehlt der Ordner GANZ (Mike hat noch nicht kopiert, CI), meldet der
+  Lauf das als WARNUNG und endet mit Code 0; die eingecheckte Liste
+  bleibt unverändert, die drei Prefabs bleiben registriert, ihre Dateien
+  fehlen dann nur im Labor. Fehlt eine einzelne Datei im vorhandenen
+  Ordner, ist das ein Befund (Code 2).
 
   Aufruf:
     node tools/store-pflanzen-quellen.mjs
-
-  Ort des Exports: `WOV_EXPORT_MODELLE` (Vorgabe
-  `~/wov-assets/Assets/PrefabHierarchyObject`).
 
   Brings three plant models from the model export into assets/store-lab/
   and writes their measurements to the tracked tools/store-lab-katalog.json.
@@ -50,16 +60,15 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const QUELLE =
-  process.env.WOV_EXPORT_MODELLE ?? join(process.env.HOME ?? '', 'wov-assets/Assets/PrefabHierarchyObject');
+const QUELLE = process.env.WOV_EXPORT_MODELLE ?? join(WURZEL, 'assets/store/vegetation-export');
 const ZIEL = join(WURZEL, 'assets/store-lab/vegetation');
 const KATALOG = join(WURZEL, 'tools/store-lab-katalog.json');
 
-/** Quelldatei im Export → Kennung im Labor und Prefab. */
+/** Quelldatei im Speicher (`vegetation-export/`) → Kennung im Labor und Prefab. */
 export const MODELLE = [
-  { quelle: 'Flower_1A4.glb', id: 'flower-1a4', textKey: 'inhalt.prefab.vegetation_flower_1a4' },
-  { quelle: 'Flower_1A12.glb', id: 'flower-1a12', textKey: 'inhalt.prefab.vegetation_flower_1a12' },
-  { quelle: 'Fern_1A1.glb', id: 'fern-1a1', textKey: 'inhalt.prefab.vegetation_fern_1a1' },
+  { quelle: 'flower-1a4.glb', id: 'flower-1a4', textKey: 'inhalt.prefab.vegetation_flower_1a4' },
+  { quelle: 'flower-1a12.glb', id: 'flower-1a12', textKey: 'inhalt.prefab.vegetation_flower_1a12' },
+  { quelle: 'fern-1a1.glb', id: 'fern-1a1', textKey: 'inhalt.prefab.vegetation_fern_1a1' },
 ];
 
 /**
@@ -202,27 +211,31 @@ export function umbauen(buf, id, dateiname) {
 
 // ── Hauptlauf ────────────────────────────────────────────────────────
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  if (!existsSync(QUELLE)) {
-    console.log(
-      `[pflanzen-quellen] Modell-Export fehlt (${QUELLE}) — übersprungen.\n` +
-        '                   Die eingecheckte tools/store-lab-katalog.json bleibt unverändert.'
+/**
+ * Baut die Modelle aus `quelle` nach `ziel` und schreibt die Messliste.
+ * Gibt die Zahl der gebauten Modelle zurück (0 = Quelle fehlt, Warnung).
+ */
+export function pflanzenHolen({ quelle = QUELLE, ziel = ZIEL, katalog = KATALOG } = {}) {
+  if (!existsSync(quelle)) {
+    console.warn(
+      `[pflanzen-quellen] WARNUNG: ${quelle} fehlt — Blumen und Farn werden nicht gebaut.\n` +
+        '                   Die Prefabs bleiben registriert (tools/store-lab-katalog.json), ihre\n' +
+        '                   Dateien fehlen im Labor, bis die Export-GLBs im Speicher liegen.'
     );
-    process.exit(0);
+    return 0;
   }
-  const fehlt = MODELLE.filter((m) => !existsSync(join(QUELLE, m.quelle)));
+  const fehlt = MODELLE.filter((m) => !existsSync(join(quelle, m.quelle)));
   if (fehlt.length > 0) {
-    console.error(
-      '[pflanzen-quellen] Der Export ist unvollständig:\n  ' + fehlt.map((m) => join(QUELLE, m.quelle)).join('\n  ')
+    throw new Error(
+      '[pflanzen-quellen] Der Ordner ist unvollständig:\n  ' + fehlt.map((m) => join(quelle, m.quelle)).join('\n  ')
     );
-    process.exit(2);
   }
-  mkdirSync(join(ZIEL, 'textures'), { recursive: true });
+  mkdirSync(join(ziel, 'textures'), { recursive: true });
   const eintraege = [];
   for (const m of MODELLE) {
-    const r = umbauen(readFileSync(join(QUELLE, m.quelle)), m.id, m.quelle);
-    writeFileSync(join(ZIEL, `${m.id}.glb`), r.glb);
-    writeFileSync(join(ZIEL, 'textures', `${r.bildName}.png`), r.png);
+    const r = umbauen(readFileSync(join(quelle, m.quelle)), m.id, m.quelle);
+    writeFileSync(join(ziel, `${m.id}.glb`), r.glb);
+    writeFileSync(join(ziel, 'textures', `${r.bildName}.png`), r.png);
     eintraege.push({
       id: `vegetation/${m.id}`,
       pfad: `vegetation/${m.id}.glb`,
@@ -243,5 +256,15 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   }
   eintraege.sort((a, b) => (a.id < b.id ? -1 : 1));
   const neu = `${JSON.stringify({ schemaVersion: 1, eintraege }, null, 2)}\n`;
-  if (!existsSync(KATALOG) || readFileSync(KATALOG, 'utf8') !== neu) writeFileSync(KATALOG, neu);
+  if (!existsSync(katalog) || readFileSync(katalog, 'utf8') !== neu) writeFileSync(katalog, neu);
+  return eintraege.length;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    pflanzenHolen();
+  } catch (e) {
+    console.error(e.message);
+    process.exit(2);
+  }
 }

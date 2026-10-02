@@ -22,9 +22,13 @@ type AdminPaketeKontext = SpielKontext<'adminCommands' | 'net' | 'worldTime' | '
  */
 function handleAdminCommand(k: AdminPaketeKontext, peer: Peer, reader: Reader): void {
   const line = reader.readString();
-  const result = k.adminCommands.execute(peer, line);
 
-  const command = line.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+  const wort = line.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+  // `adminrechte` is the name of the live rights packet (`gleicheAdminrechteAb`), which the client takes as a grant or withdrawal. As a typed command the name is reserved: refused here, before the registry, for admins and guests alike. The answer is named `admin` with active = false, so no typed line can imitate that packet
+  const RESERVIERTER_BEFEHL = 'adminrechte';
+  const gesperrt = wort === RESERVIERTER_BEFEHL;
+  const result = gesperrt ? { ok: false, active: false, message: `Reserved name, not a command: ${RESERVIERTER_BEFEHL}` } : k.adminCommands.execute(peer, line);
+  const command = gesperrt ? 'admin' : wort;
   peer.sendPacketWith(PacketType.AdminEvent, (w) => {
     w.writeString(command);
     w.writeBool(result.active);

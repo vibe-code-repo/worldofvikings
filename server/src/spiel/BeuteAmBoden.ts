@@ -7,8 +7,9 @@
  * everybody. Uncollected loot vanishes after `BEUTE_LEBEN_MS`.
  *
  * ── Interface to F8 / card k145 (saving ground items) ─────────────────
- * Every loot ZDO carries these members (the prefab is the item's own ITEM_DROP prefab, so the existing
- * pick-up path `F.PICKABLE | F.ITEM_DROP` in `handleInteract` picks it up):
+ * Every loot ZDO carries these members (the prefab is the item's own ITEM_DROP prefab, or the neutral `BeuteStueck`
+ * for an item without one, `beutePrefabFuer`; the pick-up path in `handleInteract` knows loot by the marker below,
+ * before the prefab flags):
  *   beute          int 1     marker: this ZDO is loot (what `istBeute` tests)
  *   beute_item     string    item name to give on pick-up (itemDefs name)
  *   beute_menge    int       amount
@@ -17,6 +18,10 @@
  *                            it is a player's identifier, and no client reads it.
  *   beute_frei_ab  long      epoch ms from which anybody may pick it up
  *   beute_ablauf   long      epoch ms at which the server destroys it
+ *   beute_exklusiv int        1 while the exclusive window runs and the loot has an owner, 0 after (`tick` flips it, so a
+ *                            client needs no clock). SENT to every client except the owner (`verdeckteMember`): for a client
+ *                            that gets it, 1 means "exclusive to somebody else" and it skips the piece when aiming. No
+ *                            identifier of the owner goes out in any form.
  * The world save (`momentaufnahme`) leaves marked ZDOs out, and `WeltZdoSicherung` only takes containers
  * and building pieces, so loot is never written: after a restart it is gone (a loss, which is allowed),
  * never doubled (a picked-up item is in the inventory, which F8 saves at once).
@@ -27,7 +32,9 @@
  */
 import type { ZDO } from '../zdo/ZDO.js';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
-import { BEUTE_EXKLUSIV_MS, BEUTE_LEBEN_MS, Inventory, SERVER_MELDUNG_BEUTE_FREMD, findItem } from '@wov/shared';
+import {
+  BEUTE_EXKLUSIV_MEMBER, BEUTE_EXKLUSIV_MS, BEUTE_LEBEN_MS, Inventory, SERVER_MELDUNG_BEUTE_FREMD, beutePrefabFuer, findItem,
+} from '@wov/shared';
 import { getStableHash } from '../util/Hash.js';
 
 // The windows and the message keys live in `shared/src/beute.ts` (the client may need them); re-exported for the server.
@@ -41,6 +48,8 @@ export const BEUTE_MENGE = 'beute_menge';
 export const BEUTE_BESITZER = 'beute_besitzer';
 export const BEUTE_FREI_AB = 'beute_frei_ab';
 export const BEUTE_ABLAUF = 'beute_ablauf';
+/** What a client may see of the owner (D5 N3): see `shared/src/beute.ts`. Unlike `beute_besitzer` this one IS sent (not to the owner). */
+export const BEUTE_EXKLUSIV = BEUTE_EXKLUSIV_MEMBER;
 
 interface Anteile {
   zdo: ZDO;
@@ -148,13 +157,14 @@ export class BeuteAmBoden {
     const gelegt: BeuteStueck[] = [];
     for (const s of beute) {
       if (!s || s.amount <= 0) continue;
-      const zdo = raum.createZDO(getStableHash(s.name), { ...position });
+      const zdo = raum.createZDO(getStableHash(beutePrefabFuer(s.name)), { ...position });
       zdo.setInt(BEUTE_MARKE, 1);
       zdo.setString(BEUTE_ITEM, s.name);
       zdo.setInt(BEUTE_MENGE, s.amount);
       zdo.setString(BEUTE_BESITZER, besitzer);
       zdo.setLong(BEUTE_FREI_AB, BigInt(jetzt + BEUTE_EXKLUSIV_MS));
       zdo.setLong(BEUTE_ABLAUF, BigInt(jetzt + BEUTE_LEBEN_MS));
+      if (besitzer !== '') zdo.setInt(BEUTE_EXKLUSIV, 1);
       zdo.revision.reviseData();
       zdo.dirty = true;
       this.stuecke.set(zdo.zdoid.toString(), { zdo, raum });
@@ -170,12 +180,15 @@ export class BeuteAmBoden {
 
   /**
    * May the owner key `kennung` pick `zdo` up? Anything that is not loot: yes (the normal pick-up path decides).
-   * Loot: the owner, anybody when it has no owner, anybody after the exclusive time.
+   * Loot: the owner, anybody when it has no owner, anybody once the window is over. The window is read from the SAME state the
+   * clients see (`beute_exklusiv`, flipped to 0 by `tick` at the first server tick at or after `beute_frei_ab`), not from the clock:
+   * the server never frees a piece a client still aims past as foreign, apart from the sync of that one delta. The largest delay
+   * against the clock is one server tick (1/30 s, `update()`) plus that sync.
    */
   darfAufheben(zdo: ZDO, kennung: string): boolean {
     if (!this.istBeute(zdo)) return true;
     const besitzer = zdo.getString(BEUTE_BESITZER);
-    return besitzer === '' || besitzer === kennung || this.jetzt() >= Number(zdo.getLong(BEUTE_FREI_AB));
+    return besitzer === '' || besitzer === kennung || zdo.getInt(BEUTE_EXKLUSIV) === 0;
   }
 
   /**
@@ -198,6 +211,12 @@ export class BeuteAmBoden {
   /** Once a second: destroy loot past its life, forget picked-up loot and stale damage tallies. */
   tick(): void {
     const jetzt = this.jetzt();
+    // The window flip runs on EVERY call (30 per second), not only once a second: `darfAufheben` reads the flipped member.
+    for (const s of this.stuecke.values()) {
+      if (!s.zdo.destroyed && s.zdo.getInt(BEUTE_EXKLUSIV) === 1 && jetzt >= Number(s.zdo.getLong(BEUTE_FREI_AB))) {
+        s.zdo.setInt(BEUTE_EXKLUSIV, 0); // the window is over: the clients aim at it again (`setMember` revises the data and marks it dirty)
+      }
+    }
     if (jetzt - this.letzterTick < 1000 && jetzt >= this.letzterTick) return;
     this.letzterTick = jetzt;
     for (const [id, s] of this.stuecke) {

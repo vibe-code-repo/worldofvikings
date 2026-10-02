@@ -14,6 +14,20 @@ export const BEUTE_EXKLUSIV_MS = 120_000;
 export const BEUTE_LEBEN_MS = 300_000;
 
 /**
+ * What the client may know of the owner of a piece of loot: ONE member, `beute_exklusiv` (int, 1 while the exclusive window
+ * runs and the loot has an owner, else 0). The server hides it from the OWNER (`verdeckteMember` in WovServer.ts), so for
+ * every client that receives it, "1" means "exclusive to somebody else"; no identifier of the owner (neither `beute_besitzer`
+ * nor anything derived from it) goes to any client. The server stays the judge (`darfAufheben`); the client only uses this
+ * to aim at what it may take (D5 N3, B1).
+ */
+export const BEUTE_EXKLUSIV_MEMBER = 'beute_exklusiv';
+
+/** Is this loot exclusive to somebody else? The member reaches only clients that are not the owner. Unknown means "not foreign". */
+export function beuteFremdFuer(exklusiv: number | undefined): boolean {
+  return exklusiv === 1;
+}
+
+/**
  * The catalogue keys of the loot and inventory messages. ONE table: the constants below and the client test
  * (`client/test/beute-meldung.ts`, every key in both catalogues) read it, so a key cannot be sent and forgotten.
  */

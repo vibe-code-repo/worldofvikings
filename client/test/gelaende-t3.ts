@@ -421,6 +421,7 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   strich(d, [0, 0], [0, 0], 3);
   d.steuerung.druecken({ x: 20, z: 0 }, false);
   pruefe(d.steuerung.rueckgaengig() === false && d.steuerung.strichOffen, '5: bei offenem Strich tut Rückgängig nichts und reißt ihn nicht ab');
+  pruefe(d.steuerung.rueckgaengigMitGrund() === 'nicht-moeglich' && d.steuerung.strichOffen, '5: N4: bei offenem Strich ist der Grund „nicht möglich“, nicht „gesperrt“ (die Reihenfolge würde sonst einen gültigen Schritt verwerfen)');
   d.steuerung.loslassen();
   pruefe(d.steuerung.rueckgaengig() === true, '5: nach dem Loslassen geht es');
 
@@ -722,6 +723,7 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   pruefe(ebene(a) === S1 && hoehen(a) === hoch, '11: … die Ebene und der Boden sind unverändert (kein Podest, auch außerhalb des Hauskreises nichts zurückgenommen)');
   pruefe(a.meldungen.at(-1)!.includes('Schritt nicht möglich') && /\d+ Punkte/.test(a.meldungen.at(-1)!), `11: … das HUD sagt es („${a.meldungen.at(-1)}“)`);
   pruefe(a.steuerung.rueckgaengig() === false && ebene(a) === S1, '11: … ein zweites Strg+Z springt nicht still auf einen früheren Schritt (hier gibt es keinen) und ändert nichts');
+  pruefe(a.steuerung.rueckgaengigMitGrund() === 'gesperrt', '11: N4: die Sperre durch das Haus meldet den Grund „gesperrt“');
   hausDazu(a, []);
   pruefe(a.steuerung.rueckgaengig() === true && ebene(a) === 'null', '11: Haus wieder weg: derselbe Schritt lässt sich zurücknehmen (er war im Verlauf geblieben)');
   pruefe(abweichungen(a.welt, basisWelt(), raster(14)) === 0, '11: … der Boden ist wieder die Basis');

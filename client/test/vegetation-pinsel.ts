@@ -20,7 +20,8 @@ import { VEGETATION_KREISE_MAX, vegetationPruefer, type VegetationEntferntKreis 
 import { abgedeckt, stempelEntlang, vegStempelAbstand, VegetationStrich } from '../src/editor/testflug/vegetationPinsel';
 import { VegetationVerlauf, VEG_VERLAUF_MAX } from '../src/editor/testflug/vegetationVerlauf';
 import { VegetationAktionen, vegetationKreiseAusEntwurf, vegetationQuelleFuerVorschau } from '../src/editor/testflug/vegetationAktionen';
-import { VerlaufReihenfolge, REIHENFOLGE_MAX, type VerlaufQuelle } from '../src/editor/testflug/verlaufReihenfolge';
+import { GelaendeVerlauf } from '../src/editor/testflug/gelaendeVerlauf';
+import { VerlaufReihenfolge, REIHENFOLGE_MAX, type SchrittErgebnis, type VerlaufQuelle } from '../src/editor/testflug/verlaufReihenfolge';
 import { VegetationSteuerung } from '../src/editor/testflug/vegetationSteuerung';
 import type { EntwurfDokument } from '../src/editor/testflug/TestflugPersistenz';
 import { verlaufEntscheid } from '../src/editor/testflug/gelaendePinsel';
@@ -382,6 +383,9 @@ function viele4097(): Kreis[] {
         log.push(`y:${x}`);
         return true;
       },
+      rueckgaengigMitGrund(): SchrittErgebnis {
+        return q.rueckgaengig() ? 'ok' : 'gesperrt';
+      },
       verwirfRueckgaengig(): void {
         q.stapel.pop();
       },
@@ -439,6 +443,7 @@ function viele4097(): Kreis[] {
   // refused step stays
   const b3 = falsch('G');
   b3.rueckgaengig = (): boolean => false;
+  b3.rueckgaengigMitGrund = (): SchrittErgebnis => 'gesperrt';
   const r3 = new VerlaufReihenfolge();
   r3.verbinde({ gelaende: b3, vegetation: falsch('V') });
   b3.neu(); r3.neu('gelaende');
@@ -545,6 +550,7 @@ function viele4097(): Kreis[] {
       kannRueckgaengig: true,
       kannWiederholen: false,
       verwirfRueckgaengig: (): void => undefined,
+      rueckgaengigMitGrund: (): SchrittErgebnis => (q.rueckgaengig() ? 'ok' : 'nicht-moeglich'),
       rueckgaengig(): boolean {
         if (q.geleert) {
           q.stapel.length = 0;
@@ -571,7 +577,7 @@ function viele4097(): Kreis[] {
   pruefe(rr.rueckgaengig() === true && vv.stapel.length === 1 && rr.tiefe.rueckgaengig === 1, '10: R2: erst der NÄCHSTE Druck überspringt das tote Gelände-Tag und nimmt den Bewuchs-Strich zurück');
 
   // R3: die Kappe der Reihenfolge ist 200 Schritte
-  const a1 = { n: 0, kannRueckgaengig: true, kannWiederholen: false, verwirfRueckgaengig: (): void => undefined, rueckgaengig(): boolean { a1.n++; return true; }, wiederholen: (): boolean => false };
+  const a1 = { n: 0, kannRueckgaengig: true, kannWiederholen: false, verwirfRueckgaengig: (): void => undefined, rueckgaengigMitGrund: (): SchrittErgebnis => (a1.rueckgaengig() ? 'ok' : 'nicht-moeglich'), rueckgaengig(): boolean { a1.n++; return true; }, wiederholen: (): boolean => false };
   const r4 = new VerlaufReihenfolge();
   r4.verbinde({ gelaende: a1, vegetation: a1 });
   for (let i = 0; i < REIHENFOLGE_MAX + 50; i++) r4.neu(i % 2 ? 'gelaende' : 'vegetation');
@@ -616,6 +622,9 @@ function viele4097(): Kreis[] {
         q.stapel.push(q.vorn.pop()!);
         return true;
       },
+      rueckgaengigMitGrund(): SchrittErgebnis {
+        return q.rueckgaengig() ? 'ok' : q.verweigert ? 'gesperrt' : 'nicht-moeglich';
+      },
       verwirfRueckgaengig(): void {
         q.stapel.pop();
       },
@@ -645,6 +654,77 @@ function viele4097(): Kreis[] {
   // Verdrahtung
   const tf3 = readFileSync(resolve(HIER, '../src/editor/testflug/Testflug.ts'), 'utf-8');
   pruefe(/schritt_verworfen/.test(tf3) && /verwirfRueckgaengig\(\): void/.test(readFileSync(resolve(HIER, '../src/editor/testflug/GelaendeSteuerung.ts'), 'utf-8')) && /verwirfRueckgaengig\(\): void/.test(readFileSync(resolve(HIER, '../src/editor/testflug/vegetationSteuerung.ts'), 'utf-8')), '11: Z2: Testflug.ts meldet den verworfenen Schritt; beide Steuerungen können ihren Verlauf kürzen');
+}
+
+// ── 12. N4: „gerade nicht möglich“ ist keine Sperre ─────────────────────────────
+{
+  // Probe R4: Strich 1 gespeichert, Strich 2 offen (Maus unten), Strg+Z: nichts passiert, nichts wird verworfen
+  const bw = aufbau(undefined, undefined, () => reihenfolge.neu('vegetation'));
+  const reihenfolge = new VerlaufReihenfolge();
+  const verw: string[] = [];
+  const bode: VerlaufQuelle = { rueckgaengig: () => false, rueckgaengigMitGrund: () => 'nicht-moeglich', wiederholen: () => false, verwirfRueckgaengig: () => undefined, kannRueckgaengig: false, kannWiederholen: false };
+  reihenfolge.verbinde({ gelaende: bode, vegetation: bw.steuerung }, undefined, (w) => verw.push(w));
+  ziehe(bw, [0, 0], [30, 0]);
+  const strich1 = JSON.stringify(bw.e.kreise());
+  bw.steuerung.druecken({ x: 0, z: 60 });
+  bw.steuerung.bewegen({ x: 30, z: 60 });
+  pruefe(bw.steuerung.strichOffen && !reihenfolge.rueckgaengig() && verw.length === 0 && reihenfolge.tiefe.rueckgaengig === 1, '12: R4: Strg+Z bei offenem Strich tut nichts und verwirft den letzten gültigen Strich NICHT');
+  pruefe(bw.steuerung.rueckgaengigMitGrund() === 'nicht-moeglich', '12: R4: der Grund bei offenem Strich ist „nicht möglich“');
+  bw.steuerung.loslassen();
+  pruefe(reihenfolge.rueckgaengig() && JSON.stringify(bw.e.kreise()) === strich1, '12: R4: nach dem Loslassen nimmt Strg+Z Strich 2 zurück');
+  pruefe(reihenfolge.rueckgaengig() && bw.e.kreise().length === 0 && verw.length === 0, '12: R4: ein weiteres Strg+Z nimmt auch Strich 1 zurück (er blieb erhalten), nichts wurde verworfen');
+  // ein „nicht möglich“ aus anderem Grund (leerer Verlauf, Konflikt) verwirft ebenfalls nichts
+  const fg = aufbau();
+  const rf = new VerlaufReihenfolge();
+  const verw2: string[] = [];
+  rf.verbinde({ gelaende: bode, vegetation: fg.steuerung }, undefined, (w) => verw2.push(w));
+  ziehe(fg, [0, 0], [30, 0]);
+  rf.neu('vegetation');
+  fg.e.setzeFremd({ placements: [], vegetationEntfernt: [] }); // ein anderer Tab hat die Kreise entfernt: Konflikt
+  pruefe(!rf.rueckgaengig() && verw2.length === 0, '12: ein Konflikt (Kreise fehlen) ist „nicht möglich“ und löst kein Verwerfen aus');
+
+  // B6/B7: die echten Verläufe verwerfen den OBERSTEN Schritt (nicht den ältesten), und die Steuerung gibt das weiter
+  const gv = new GelaendeVerlauf();
+  const vg = (id: string): never => ({ vorgangId: id, aenderungen: [{ zx: 0, zz: 0, index: 0, alt: 0, neu: 1 }] }) as never;
+  gv.neu(vg('a'));
+  gv.neu(vg('b'));
+  gv.verwerfeRueckgaengig();
+  let gesehen = '';
+  gv.rueckgaengig((v) => {
+    gesehen = (v as unknown as { vorgangId: string }).vorgangId;
+    return v;
+  });
+  pruefe(gv.tiefe.rueckgaengig === 0 && gesehen === '~a', `12: B6: GelaendeVerlauf.verwerfeRueckgaengig nimmt den obersten Schritt (b), der ältere (a) bleibt (${gesehen})`);
+  const gv2 = new GelaendeVerlauf();
+  gv2.neu(vg('a'));
+  gv2.neu(vg('b'));
+  gv2.rueckgaengig((v) => v);
+  gv2.verwerfeRueckgaengig();
+  pruefe(gv2.tiefe.wiederholen === 1 && gv2.tiefe.rueckgaengig === 0, '12: B6: das Verwerfen lässt die Wiederholen-Linie unberührt');
+  const vv = new VegetationVerlauf();
+  vv.neu({ kreise: [{ x: 1, z: 1, r: 1 }] });
+  vv.neu({ kreise: [{ x: 2, z: 2, r: 1 }] });
+  vv.verwerfeRueckgaengig();
+  let rest = 0;
+  vv.rueckgaengig((v) => {
+    rest = v.kreise[0]!.x;
+    return true;
+  });
+  pruefe(rest === 1 && vv.tiefe.rueckgaengig === 0, `12: B7: VegetationVerlauf.verwerfeRueckgaengig nimmt den obersten Schritt, der ältere (x = 1) bleibt (${rest})`);
+  const sv = aufbau();
+  ziehe(sv, [0, 0], [20, 0]);
+  const e1 = JSON.stringify(sv.e.kreise());
+  ziehe(sv, [0, 50], [20, 50]);
+  sv.steuerung.verwirfRueckgaengig();
+  pruefe(sv.steuerung.rueckgaengig() && JSON.stringify(sv.e.kreise()).length > e1.length && sv.e.kreise().some((k) => k.z === 0) === false, '12: B7: VegetationSteuerung.verwirfRueckgaengig kürzt den echten Verlauf: der nächste Strg+Z nimmt den ERSTEN Strich (der zweite bleibt im Entwurf)');
+  // B8: der Grund erreicht den Hinweis: beide Steuerungen merken ihre letzte Meldung, der Hinweis bekommt sie als {grund}
+  const tf4 = readFileSync(resolve(HIER, '../src/editor/testflug/Testflug.ts'), 'utf-8');
+  pruefe((tf4.match(/letzteMeldung = text;/g) ?? []).length === 2 && /t\('testflug\.gelaende\.schritt_verworfen', \{ grund: letzteMeldung \}\)/.test(tf4), '12: B8: Gelände UND Bewuchs merken ihre letzte Meldung, der Hinweis „verworfen“ nennt sie als Grund');
+  for (const sp of ['de', 'en'] as const) {
+    const kat = JSON.parse(readFileSync(resolve(HIER, `../src/i18n/katalog/${sp}.json`), 'utf-8')) as Record<string, string>;
+    pruefe(/\{grund\}/.test(kat['testflug.gelaende.schritt_verworfen'] ?? ''), `12: B8: ${sp}.json: der Hinweis hat den Platzhalter {grund}`);
+  }
+  pruefe(t('testflug.gelaende.schritt_verworfen', { grund: 'XYZ-GRUND' }).includes('XYZ-GRUND'), '12: B8: t() setzt den Grund in den Hinweis ein');
 }
 
 // ── 8. Kern des Strichs, Tasten, Verdrahtung, Texte ─────────────────────────

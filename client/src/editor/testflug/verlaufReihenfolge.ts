@@ -9,8 +9,15 @@
  */
 export type Werkzeugart = 'gelaende' | 'vegetation';
 
+/**
+ * Result of an undo step: 'ok'; 'gesperrt' = refused on purpose (a plinth or building lies on the stroke); 'nicht-moeglich'
+ * = not possible right now (an open stroke, nothing to undo, a conflict, no draft). Only 'gesperrt' drops a step.
+ */
+export type SchrittErgebnis = 'ok' | 'gesperrt' | 'nicht-moeglich';
+
 export interface VerlaufQuelle {
   rueckgaengig(): boolean;
+  rueckgaengigMitGrund(): SchrittErgebnis;
   wiederholen(): boolean;
   readonly kannRueckgaengig: boolean;
   readonly kannWiederholen: boolean;
@@ -70,8 +77,8 @@ export class VerlaufReihenfolge {
     while (quelle.length > 0) {
       const w = quelle[quelle.length - 1]!;
       if (kann(w)) {
-        const ok = art === 'rueckgaengig' ? q[w].rueckgaengig() : q[w].wiederholen();
-        if (ok) {
+        const ergebnis: SchrittErgebnis = art === 'rueckgaengig' ? q[w].rueckgaengigMitGrund() : q[w].wiederholen() ? 'ok' : 'nicht-moeglich';
+        if (ergebnis === 'ok') {
           quelle.pop();
           gegen.push(w);
           return true;
@@ -79,7 +86,7 @@ export class VerlaufReihenfolge {
         // The attempt failed (lock, conflict) and said why. This key press ends here: it is NOT passed on to an older
         // stroke of the other tool. A history that emptied itself on the way leaves a stale tag, which goes.
         quelle.pop();
-        if (kann(w) && art === 'rueckgaengig') {
+        if (ergebnis === 'gesperrt' && kann(w) && art === 'rueckgaengig') {
           // A refused undo step would block every older step of BOTH tools for good: it leaves the order and its
           // history, the next Ctrl+Z takes the next older stroke. A refused redo blocks no undo and stays.
           q[w].verwirfRueckgaengig();

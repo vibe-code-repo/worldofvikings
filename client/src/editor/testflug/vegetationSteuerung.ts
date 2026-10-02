@@ -14,6 +14,7 @@ import { VEGETATION_KREISE_MAX, type VegetationEntferntKreis } from '@wov/shared
 import type { VegetationAktionen } from './vegetationAktionen';
 import { klemmeVegRadius, VegetationStrich } from './vegetationPinsel';
 import { VegetationVerlauf } from './vegetationVerlauf';
+import type { SchrittErgebnis } from './verlaufReihenfolge';
 import { t } from '../i18n';
 
 export interface VegetationAbh {
@@ -132,16 +133,21 @@ export class VegetationSteuerung {
   }
 
   rueckgaengig(): boolean {
+    return this.schritt('rueckgaengig') === 'ok';
+  }
+
+  /** Like `rueckgaengig`, but says WHY nothing happened ('nicht-moeglich': an open stroke, nothing to undo, a conflict). This brush has no lock. */
+  rueckgaengigMitGrund(): SchrittErgebnis {
     return this.schritt('rueckgaengig');
   }
 
   wiederholen(): boolean {
-    return this.schritt('wiederholen');
+    return this.schritt('wiederholen') === 'ok';
   }
 
-  private schritt(art: 'rueckgaengig' | 'wiederholen'): boolean {
+  private schritt(art: 'rueckgaengig' | 'wiederholen'): SchrittErgebnis {
     // An open stroke is not torn (the mouse is still down).
-    if (this.strich) return false;
+    if (this.strich) return 'nicht-moeglich';
     let grund: string | null = null;
     const anwenden = (v: { kreise: readonly VegetationEntferntKreis[] }): boolean => {
       const r = art === 'rueckgaengig' ? this.abh.aktionen.entfernen(v.kreise) : this.abh.aktionen.hinzufuegen(v.kreise);
@@ -156,10 +162,10 @@ export class VegetationSteuerung {
         // The list changed under the steps: they refer to circles that are gone.
         if (art === 'rueckgaengig') this.verlauf.leeren();
       } else this.abh.meldung(t(art === 'rueckgaengig' ? 'testflug.gelaende.nichts_rueckgaengig' : 'testflug.gelaende.nichts_wiederholen'));
-      return false;
+      return 'nicht-moeglich';
     }
     this.abh.meldung(t(art === 'rueckgaengig' ? 'testflug.gelaende.vegetation.rueckgaengig' : 'testflug.gelaende.vegetation.wiederholt', { n: v.kreise.length }));
-    return true;
+    return 'ok';
   }
 
   /** Tool ended while the mouse may still be down (Esc, right click, tab change): the open stroke is finished, not dropped. */

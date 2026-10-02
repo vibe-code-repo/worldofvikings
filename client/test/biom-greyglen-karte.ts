@@ -37,6 +37,7 @@ check('legend contains greyglen once', BIOME_ORDER.filter((b) => b === Biome.Gre
 check('every legend biome has colour, label, content, density and trees',
   BIOME_ORDER.every((b) => BIOME_COLOR[b] && BIOME_LABEL[b] && BIOME_INHALT[b] !== undefined && BIOME_TREE_DENSITY[b] !== undefined && BIOME_TREES[b]));
 check('label de/en through the key', biomLabel(Biome.Greyglen, 'de') === 'Grauklamm' && biomLabel(Biome.Greyglen, 'en') === 'Greyglen');
+check('unknown biome bit gets the dash, None its own label', biomLabel(99999, 'en') === '—' && biomLabel(Biome.None, 'en') === BIOME_LABEL[Biome.None]);
 check('other labels unchanged', biomLabel(Biome.Meadows, 'en') === 'Wiesen' && biomLabel(Biome.DeepNorth, 'de') === 'Tiefer Norden');
 
 const ton = BIOM_TON['greyglen'];

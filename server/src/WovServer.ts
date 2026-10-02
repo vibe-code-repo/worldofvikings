@@ -8,9 +8,9 @@
  * the blacklist, admin and whitelist sets.
  */
 
-import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, validArmorParts, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
+import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
-import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
+import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, SERVER_MELDUNG_BEUTE_FREMD, SERVER_MELDUNG_INVENTAR_VOLL, SERVER_MELDUNG_UNVERWUNDBAR, serverMeldungAufgesammelt, serverMeldungBesiegt, serverMeldungVollRest, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 import {
   EVENT_CHANCE,
@@ -51,7 +51,6 @@ import {
   istFrisur,
   istHaarfarbe,
   istAugenfarbe,
-  istRuestung,
   FRISUR_MEMBER,
   HAARFARBE_MEMBER,
   AUGENFARBE_MEMBER,
@@ -99,7 +98,7 @@ import { PrefabManager } from './prefab/PrefabManager.js';
 import type { Prefab } from './prefab/Prefab.js';
 import { ZoneManager } from './world/ZoneManager.js';
 import { setzeZonenZurueck } from './world/zonenRuecksetzer.js';
-import { SpawnSystem } from './world/SpawnSystem.js';
+import { SpawnSystem, type SpawnZielInfo } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
 import { befreieSpielerbauten, istSpielerbau, layoutAbgleich, type LayoutAbgleichErgebnis, type LayoutAbgleichKontext } from './world/layoutAbgleich.js';
 import { AggroSystem } from './world/AggroSystem.js';
@@ -111,7 +110,12 @@ import { WetterDienst, fuehreWetterBefehlAus, pruefeGeladeneWeltzeit } from './s
 import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
+import { bereinigeBeimBoot, vegetationLive } from './world/vegetationBereinigung.js';
 import { bootLoeschRegel, liveAbgleich, wuerdeEntfernen } from './world/layoutLiveAbgleich.js';
+import { GegenstandsWache } from './world/gegenstandsLive.js';
+import { entferneGehalten, zaehleGehalten, zaehleUnbekannteGehalten, type BestandsQuellen } from './spiel/Gegenstandsbestand.js';
+import { datenRezepte, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
+import { gegenstandsBestaetigenDatei, gegenstandsQuittungsDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 import { bestaetigungsZdos, sperreAbgleichen, sperreBestaetigenPlan, sperreErweitern, sperreFreigeben } from './world/layoutBootSchutz.js';
 import { layoutDateiHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { quittungsDatei } from '@wov/shared/src/worldlayout/quittung.js';
@@ -145,15 +149,15 @@ import {
   findItem, ITEM_DEFS,
   REZEPTE,
   packContainer,
+  fordereVerwahrenAn,
   unpackContainer,
   TRUHE_INHALT_MEMBER,
-  TRUHE_LOOTED_MEMBER,
 } from '@wov/shared';
 import { resolve } from 'path';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
-import { waehleChatEmpfaenger, kuerzeChatText } from './spiel/ChatReichweite.js';
+import { handleChatMessage } from './spiel/Chat.js';
 // G12: Betriebsmetriken (Tick-Dauer, ZDO-Anzahl, Sync-Bytes/s, Peers) --
 // eigenes schmales Modul, s. dessen Kopfkommentar fuer die Abgrenzung zu
 // Zeitmessung.ts.
@@ -169,13 +173,15 @@ import {
   ausdauerSchritt,
   AUSDAUER_REGEL,
 } from '@wov/shared/src/bewegung/ausdauer.js';
-import { pickableItem, ZWEIT_DROPS, wuerfleDrop, wuerfleTruhe } from './spiel/Beute.js';
-import { waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
+import { pickableItem, ZWEIT_DROPS, wuerfleDrop } from './spiel/Beute.js';
+import { BEUTE_BESITZER, BeuteAmBoden, passtNachEntnahme } from './spiel/BeuteAmBoden.js';
+import { kannErnten, waffeTragbar, wirksameWaffe } from './spiel/Waffe.js';
 import { liesSchlagMeldung, pruefeSchlag, verbucheSchlag, trefferAbstand, schreibeQuittung, SchlagErgebnis, TOLERANZ_MAX_M, type SchlagErgebnisWert } from './spiel/Treffer.js';
 import { EIKTHYR_HASH, BOSS_ENTRY, NPC_ENTRY } from './spiel/Sondereintraege.js';
 import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
 import { handleDungeonEditRequest, handleDungeonEditSave, handleDungeonModulBau, handleDungeonModulLoeschen } from './spiel/DungeonEditPakete.js';
 import { handleAdminCommand, handleSetTimeOfDay } from './spiel/AdminPakete.js';
+import { handleTruheOeffnen, sendeTruheInhalt, handleSetAussehen, handleSetFigur } from './spiel/Interaktion.js';
 // Tests import the weapon helpers from this file, so it keeps exporting them.
 export { gepruefteWaffe, waffeTragbar, WAFFE_PAKETNAME_OHNE_EQUIP, wirksameWaffe } from './spiel/Waffe.js';
 
@@ -312,6 +318,16 @@ export interface ServerConfig {
   /** Pfad des WorldLayout-Dokuments (nur worldMode 'layout'). */
   worldLayoutPath: string;
   /**
+   * Gegenstandsdaten (Karte G2): Arbeitsdatei, die die Live-Wache im 1-Sekunden-Takt beobachtet. Fehlt sie
+   * (Tests ohne Gegenstandsbezug), gibt es keine Wache. `gegenstandsStart` ist der Stand, den der Start
+   * angewendet hat (`ladeGegenstandsDatei` in main.ts).
+   */
+  gegenstandsDatei?: string;
+  gegenstandsStart?: readonly GegenstandsEintrag[];
+  gegenstandsStartQuittung?: { status: 'abgelehnt'; hash: string };
+  /** Der Start hatte keinen brauchbaren letzten guten Stand (`LadeErgebnis.ohneGutenStand`). */
+  gegenstandsOhneGutenStand?: boolean;
+  /**
    * F3 (Security-Review): Servergeheimnis fuer die SessionToken-Signatur.
    * NUR fuer Tests (deterministischer Lauf, zwei Server-Instanzen mit
    * gemeinsamem Geheimnis pruefen). Im echten Betrieb NIEMALS setzen —
@@ -428,6 +444,7 @@ export class WovServer {
   private readonly weltUmgebung: WeltUmgebung = {
     prefabName: (hash) => this.prefabs.getByHash(hash)?.name,
     kreaturTrifft: (pos, dmg, r, weltId, target) => this.applyCreatureAttack(pos, dmg, r, weltId, target),
+    vergesseSchadensanteile: (zdo) => this.beuteAmBoden.vergiss(zdo),
   };
 
   /**
@@ -540,7 +557,7 @@ export class WovServer {
   }
 
   /** Kurzform fuer den ZDO-Raum eines Peers — s. `welt()`. */
-  private zdosVon(peer: Peer): ZDOManager {
+  zdosVon(peer: Peer): ZDOManager {
     return this.welt(peer).zdos;
   }
   /** Roh-JSON des WorldLayouts (Layout-Modus) — geht in Phase 4 an Clients. */
@@ -619,6 +636,8 @@ export class WovServer {
   private spielerSicherung: SpielerSicherung | null = null;
   /** F8 N2: Behaelter-/Bau-ZDOs im selben Schreibvorgang wie der Spielerzustand. */
   private weltZdoSicherung: WeltZdoSicherung | null = null;
+  /** D5: loot on the ground (owner, 2 min exclusive, life), see spiel/BeuteAmBoden.ts. */
+  readonly beuteAmBoden = new BeuteAmBoden();
   /** Prefab-Hash -> ist Behaelter/Bauteil (persistent)? Nur fuer die ZDO-Sicherung. */
   private readonly weltZdoRelevantCache = new Map<number, boolean>();
   /** Kennung DIESER Welt (steht in der Weltdatei; die Zustandszeilen tragen sie als `welt_id`), s. bestimmeWeltKennung(). */
@@ -630,6 +649,8 @@ export class WovServer {
   private zdoSyncAccumulator: number;
   /** Datei-Wache des Weltdokuments (K5.0), im Layout-Modus nach dem Boot angelegt. */
   private layoutWache: LayoutWache | null = null;
+  /** Datei-Wache der Gegenstandsdaten (Karte G2), angelegt wenn `config.gegenstandsDatei` gesetzt ist. */
+  private gegenstandsWache: GegenstandsWache | null = null;
   /** Karte Z3 N1: Pfad der dauerhaften Löschsperre, neben der Quittung. */
   private readonly loeschsperrePfad: string;
   private timeSyncAccumulator: number;
@@ -1094,6 +1115,8 @@ export class WovServer {
       this.weltUmgebung
     );
     this.welten.set(HAUPTWELT_ID, this.hauptwelt);
+    // Kreaturen fragen dieselbe Kollisionswelt wie die Spieler (Felsen, Bauten).
+    if (this.hauptwelt.spawns) this.hauptwelt.spawns.kollision = this.kollisionswelt;
     console.log(`[WoV] Worldgen ready in ${Date.now() - t0}ms (seed "${this.config.worldSeed}")`);
 
     // Phase G: dungeon documents/entrances from disk, then wire the
@@ -1250,8 +1273,10 @@ export class WovServer {
     // nach dem Aufbau der Welt.
     const bootAnwendung = this.spawnLayoutPlacements('boot', this.worldLayoutRaw);
     if (this.config.worldMode === 'layout') {
+      bereinigeBeimBoot(this.zdos, this.worldLayoutRaw);
       this.layoutWache = new LayoutWache({
         boot: bootAnwendung,
+        vegetationLive: (alt, neu, trocken) => vegetationLive({ zdos: this.zdos, zones: this.zones }, alt, neu, trocken),
         pfad: this.config.worldLayoutPath,
         quittungsPfad: quittungsDatei(this.config.worldsDir, this.config.worldName),
         bestaetigenPfad: bestaetigenAnfrageDatei(this.config.worldsDir, this.config.worldName),
@@ -1280,7 +1305,63 @@ export class WovServer {
       });
     }
 
+    this.gegenstandsWache = this.baueGegenstandsWache();
+
     console.log('[WoV] Initialized');
+  }
+
+  /** Wache fuer die Gegenstandsdatei (Karte G2); `null` ohne konfigurierte Datei. */
+  private baueGegenstandsWache(): GegenstandsWache | null {
+    const pfad = this.config.gegenstandsDatei;
+    if (!pfad) return null;
+    return new GegenstandsWache({
+      pfad,
+      quittungsPfad: gegenstandsQuittungsDatei(pfad),
+      bestaetigenPfad: gegenstandsBestaetigenDatei(pfad),
+      angewendet: this.config.gegenstandsStart,
+      startQuittung: this.config.gegenstandsStartQuittung,
+      ohneGutenStand: this.config.gegenstandsOhneGutenStand,
+      unbekanntGehalten: (istBekannt) => zaehleUnbekannteGehalten(this.bestandsQuellen(), istBekannt),
+      verwahren: (an) => {
+        if (an) this.verwahrenFreigabe ??= fordereVerwahrenAn();
+        else this.verwahrenFreigabe?.(), (this.verwahrenFreigabe = null);
+      },
+      speichertGerade: () => this.speichertGerade,
+      gehalten: (ids) => zaehleGehalten(this.bestandsQuellen(), ids),
+      entfernen: (ids) => this.entferneGegenstaende(ids),
+      neuBinden: () => this.bindeInventareNeu(),
+    });
+  }
+
+  /** This server's request for the keep-unknown switch (`fordereVerwahrenAn`), while its item watch needs it. */
+  private verwahrenFreigabe: (() => void) | null = null;
+
+  private bestandsQuellen(): BestandsQuellen {
+    return {
+      online: () => this.net.getPeers().filter((p) => p.authenticated && !p.nurEditor).map((p) => ({ spielerId: p.spielerId, name: p.name, inventar: p.inventar })),
+      gespeichert: () => this.savedPlayers.values(),
+      zdos: () => [...this.welten.values()].flatMap((w) => w.zdos.getAllZDOs()),
+      beuteEntfernen: (zdo) => this.beuteAmBoden.entferne(zdo),
+    };
+  }
+
+  /** Alle Exemplare entfernter Datengegenstaende endgueltig raus: Inventare, gespeicherte Spieler, Truhen (Karte G2). */
+  private entferneGegenstaende(ids: ReadonlySet<string>): void {
+    const weg = entferneGehalten(this.bestandsQuellen(), ids, () => this.stempelZaehler().naechster());
+    console.log(`[Gegenstaende] entfernt: ${weg.lebend} Stapel in Inventaren, ${weg.gespeichert.length} gespeicherte(r) Spieler, ${weg.truhen.length} Truhe(n), ${weg.beute} Bodenstueck(e)`);
+    // Abwesende Spieler sofort in die Konten-SQLite, Truhen und Anwesende ueber den normalen Sicherungsweg.
+    if (weg.gespeichert.length > 0) this.spielerSicherung?.sichere(weg.gespeichert, 'admin');
+    this.sichereSpieler(this.net.getPeers(), 'gegenstaende', 'alle');
+    void this.saveWorldAsync();
+  }
+
+  /** Nach dem Tausch der Datengegenstaende: Inventare an die neuen Definitionen binden und allen Spielern schicken. */
+  private bindeInventareNeu(): void {
+    for (const peer of this.net.getPeers()) {
+      if (!peer.authenticated || peer.nurEditor) continue;
+      peer.inventar.rebind();
+      this.inventarSync(peer);
+    }
   }
 
   /**
@@ -1634,7 +1715,10 @@ export class WovServer {
   worldLayoutHash(): number | null {
     if (this.config.worldMode !== 'layout' || !this.worldLayoutRaw) return null;
     const sauber = sanitizeWorldLayout(this.worldLayoutRaw);
-    return sauber ? getStableHash(JSON.stringify(sauber)) : null;
+    if (!sauber) return null;
+    // Kreise entfernter Vegetation verschieben kein Gelände: nicht in den Hash (sonst Terrain-Warnung nach jeder Kreisänderung).
+    const { vegetationEntfernt: _kreise, ...ohneKreise } = sauber;
+    return getStableHash(JSON.stringify(ohneKreise));
   }
 
   /**
@@ -1799,6 +1883,10 @@ export class WovServer {
       console.error(`[WoV] net.stop fehlgeschlagen: ${err}`);
     }
 
+    // This server's item watch may have asked for the keep-unknown switch (F5): give back ITS request, nobody else's.
+    this.verwahrenFreigabe?.();
+    this.verwahrenFreigabe = null;
+
     console.log(`[WoV] Server stopped${gespeichert ? '' : ' (OHNE Endstand)'}`);
     return gespeichert;
   }
@@ -1819,6 +1907,7 @@ export class WovServer {
   private update(): void {
     this.tickWeltenMs = 0;
     this.tickSyncMs = 0;
+    this.beuteAmBoden.tick();
     const timeoutJetzt = Date.now();
     if (timeoutJetzt - this.letzteTimeoutPruefung > 5000) {
       this.letzteTimeoutPruefung = timeoutJetzt;
@@ -1854,6 +1943,7 @@ export class WovServer {
       // am Umkreis der Spieler. Eine leerstehende Instanz kostet nichts.
       const positionenJeWelt = new Map<string, Vector3[]>();
       const zieleJeWelt = new Map<string, Vector3[]>();
+      const zielInfoJeWelt = new Map<string, SpawnZielInfo[]>();
       const kennungenJeWelt = new Map<string, string[]>();
       for (const p of peers) {
         // A dead player stays in the position list (zones, spawns and routes keep
@@ -1869,6 +1959,10 @@ export class WovServer {
         const ziele = zieleJeWelt.get(p.worldId);
         if (ziele) ziele.push(p.position);
         else zieleJeWelt.set(p.worldId, [p.position]);
+        const info = { id: String(p.userId), blick: p.blickYaw };
+        const infos = zielInfoJeWelt.get(p.worldId);
+        if (infos) infos.push(info);
+        else zielInfoJeWelt.set(p.worldId, [info]);
       }
       const weltenStart = performance.now();
       for (const welt of this.welten.values()) {
@@ -1878,7 +1972,8 @@ export class WovServer {
           deltaSec,
           positionen,
           zieleJeWelt.get(welt.id) ?? [],
-          kennungenJeWelt.get(welt.id)
+          kennungenJeWelt.get(welt.id),
+          zielInfoJeWelt.get(welt.id)
         );
         if (neueZonen > 0) {
           console.log(
@@ -1928,6 +2023,7 @@ export class WovServer {
       // getaktet und nicht nur beim Befehl: s. gleicheAdminrechteAb().
       this.gleicheAdminrechteAb();
       this.layoutWache?.tick();
+      this.gegenstandsWache?.tick();
       // F9: Wetter je Spieler nachfuehren (Fenster-, Biom-, Admin-Wechsel).
       this.wetterDienst().takt(peers, this.worldTime);
       // Dungeon-Regeneration: leere Instanzen nach Ablauf abreißen.
@@ -2236,6 +2332,7 @@ export class WovServer {
 
   private static readonly TRUHE_INHALT_HASH = getStableHash(TRUHE_INHALT_MEMBER);
   private static readonly BESITZER_HASH = getStableHash('besitzer');
+  private static readonly BEUTE_BESITZER_HASH = getStableHash(BEUTE_BESITZER);
 
   /**
    * Ist `peer` selbst der ZDO-Owner (Satzkopf-Feld, heute nur beim
@@ -2254,16 +2351,22 @@ export class WovServer {
    * Hashes der Member, die `peer` von diesem ZDO NICHT bekommt (sonst
    * `undefined`). Heute der Truheninhalt und die Konto-Kennung des
    * Erbauers (`besitzer`) fremder Bauten; die Regel ist `darfBenutzen`,
-   * keine zweite daneben.
+   * keine zweite daneben. Dazu (D5) der Besitzer einer Beute am Boden
+   * (`beute_besitzer`, die userId): der geht an KEINEN Client, auch nicht
+   * an den Besitzer selbst, denn kein Client liest ihn, und fuer die
+   * Entscheidung "darf aufheben" ist allein der Server zustaendig.
    */
   private verdeckteMember(zdo: ZDO, peer: Peer): ReadonlySet<number> | undefined {
     const hatTruheInhalt = zdo.hasMember(WovServer.TRUHE_INHALT_HASH);
     const hatBesitzerMember = zdo.hasMember(WovServer.BESITZER_HASH);
-    if (!hatTruheInhalt && !hatBesitzerMember) return undefined;
-    if (this.darfBenutzen(zdo, peer)) return undefined;
+    const hatBeuteBesitzer = zdo.hasMember(WovServer.BEUTE_BESITZER_HASH);
+    if (!hatTruheInhalt && !hatBesitzerMember && !hatBeuteBesitzer) return undefined;
     const verdeckt = new Set<number>();
-    if (hatTruheInhalt) verdeckt.add(WovServer.TRUHE_INHALT_HASH);
-    if (hatBesitzerMember) verdeckt.add(WovServer.BESITZER_HASH);
+    if (hatBeuteBesitzer) verdeckt.add(WovServer.BEUTE_BESITZER_HASH);
+    if ((hatTruheInhalt || hatBesitzerMember) && !this.darfBenutzen(zdo, peer)) {
+      if (hatTruheInhalt) verdeckt.add(WovServer.TRUHE_INHALT_HASH);
+      if (hatBesitzerMember) verdeckt.add(WovServer.BESITZER_HASH);
+    }
     return verdeckt;
   }
 
@@ -2447,6 +2550,7 @@ export class WovServer {
       }
     }
     peer.starterSetGranted = grantStarterSet(peer.inventar, peer.klasse, peer.figur, peer.starterSetGranted);
+    peer.spielwerte.laden(saved); // Tode + Spielzeit: Spanne startet hier
     // Getragene Waffe (K2a): Spielstand, sonst ein als getragen markierter Stapel; inventarSync prueft sie.
     peer.waffe = typeof saved?.waffe === 'string'
       ? saved.waffe : peer.inventar.all.find((i) => i.equipped && !i.shared.ruestungsteil)?.shared.name ?? '';
@@ -2548,12 +2652,13 @@ export class WovServer {
     // and the next world save writes it to the players[] section.
     // F3 (Security-Review): geschluesselt ueber die stabile spielerId,
     // nicht mehr ueber den Namen — siehe Kopfkommentar von savedPlayers.
-    const stand = this.spielerStand(peer);
+    const stand = this.spielerStand(peer, true);
     this.savedPlayers.set(peer.spielerId, stand);
     // F8: der Abschlussstand geht sofort in die SQLite (Fehler laut, der
     // Weltspeicher hat ihn ohnehin in savedPlayers).
     this.spielerSicherung?.sichere([stand], 'abmelden');
     this.spielerSicherung?.abgemeldet(peer.spielerId);
+    peer.spielwerte.beende();
     // Destroy player character ZDO
     if (!peer.characterID.isNone()) {
       this.zdosVon(peer).destroyZDO(peer.characterID);
@@ -2869,46 +2974,7 @@ export class WovServer {
   }
 
   private handleChatMessage(peer: Peer, reader: Reader): void {
-    // An editor connection is not in the world and never speaks in it.
-    if (peer.nurEditor) return;
-    const chatType = reader.readInt32();
-    // Serverseitige Längengrenze (F14) — eine rein clientseitige Grenze
-    // hält einen manipulierten/zweiten Client nie auf. kuerzeChatText
-    // statt eines nackten .slice(), damit der Test dieselbe Funktion
-    // ruft wie hier.
-    const text = kuerzeChatText(reader.readString());
-    // Frequenzlimit (vormals hier als fester 300-ms-Cooldown, Review-Punkt
-    // 11): A4 (Security-Review) ersetzt das durch die Token-Bucket-
-    // Drosselung in NetManager.handlePacket, VOR diesem Handler — ein zu
-    // schnelles ChatMessage-Paket kommt hier gar nicht mehr an.
-
-    // Broadcast — aber nur an Empfänger in Reichweite (F14). Herleitung
-    // der drei Reichweiten (Whisper/Normal/Shout) im Kopfkommentar von
-    // ChatReichweite.ts. Der Absender ist über waehleChatEmpfaenger IMMER
-    // dabei, auch ohne Empfänger in der Nähe — sonst wirkt der Chat für
-    // ihn kaputt.
-    // Privacy fix (2026-09-27): this first field used to be the sender's
-    // userId (account identity), broadcast to every recipient. The client
-    // reads and discards it (main.ts, PacketType.ChatMessage handler) —
-    // senderName already carries what the UI shows — so it now carries a
-    // constant placeholder instead of an identity.
-    const writer = new Writer();
-    writer.writeString('0');
-    writer.writeString(peer.name);
-    writer.writeInt32(chatType);
-    writer.writeString(text);
-    writer.writeVector3(peer.position);
-    const payload = writer.toBuffer();
-
-    const senderId = peer.userId.toString();
-    const kandidaten = this.net
-      .getPeers()
-      .map((p) => ({ id: p.userId.toString(), worldId: p.worldId, position: p.position, peer: p }));
-    for (const empfaenger of waehleChatEmpfaenger(kandidaten, senderId, peer.worldId, peer.position, chatType)) {
-      empfaenger.peer.sendPacket(PacketType.ChatMessage, payload);
-    }
-
-    console.log(`[Chat] ${peer.name}: ${text}`);
+    return handleChatMessage(this, peer, reader);
   }
 
   /**
@@ -3033,13 +3099,14 @@ export class WovServer {
     for (const r of piece?.resources ?? []) {
       const menge = Math.floor(r.amount / 2);
       if (menge <= 0) continue;
-      this.gebeItem(peer, r.item, menge);
+      const rest = this.gebeItem(peer, r.item, menge);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(true);
         w.writeString(`Abgerissen — ${menge}× ${r.item} zurueck`);
         w.writeString(r.item);
         w.writeInt32(menge);
       });
+      this.legeRestAb(peer, r.item, rest);
     }
     this.sichereSpielerSofort(peer, 'abreissen', [ziel]);
   }
@@ -3236,7 +3303,7 @@ export class WovServer {
    * Nach jeder Aenderung der Ruestung: Legte man Vitalitaets-Ruestung ab, sinkt das Maximum, und Leben
    * darueber wird gekappt (kein Heilen durch An-/Ablegen: Anlegen hebt das Leben NICHT).
    */
-  private kappeLeben(peer: Peer): void {
+  kappeLeben(peer: Peer): void {
     const max = this.maxHealth(peer);
     const gekappt = peer.health > max;
     if (gekappt) peer.health = max;
@@ -3277,7 +3344,8 @@ export class WovServer {
   /** Craften server-autoritativ: Rezept + Zutaten prüfen, abziehen, geben. */
   private handleCraft(peer: Peer, reader: Reader): void {
     const ergebnis = reader.readString();
-    const rezept = REZEPTE.find((r) => r.ergebnis === ergebnis);
+    // Code recipes first (they win), then the recipes of the data items; no station for either.
+    const rezept = REZEPTE.find((r) => r.ergebnis === ergebnis) ?? datenRezepte().find((r) => r.ergebnis === ergebnis);
     const antwort = (ok: boolean, message: string) => {
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(ok);
@@ -3292,6 +3360,8 @@ export class WovServer {
         return antwort(false, `Zutat fehlt: ${z.menge}× ${z.item}`);
       }
     }
+    // The result must fit once the ingredients are out: otherwise refuse and leave the ingredients where they are.
+    if (!this.passtNach(peer, rezept.zutaten, rezept.ergebnis, rezept.menge)) return antwort(false, SERVER_MELDUNG_INVENTAR_VOLL);
     for (const z of rezept.zutaten) peer.inventar.removeByName(z.item, z.menge);
     const def = findItem(rezept.ergebnis);
     if (def) peer.inventar.addItem(def, rezept.menge);
@@ -3300,7 +3370,7 @@ export class WovServer {
   }
 
   /** Autoritativen Inventarstand an den Client schicken. */
-  private inventarSync(peer: Peer): void {
+  inventarSync(peer: Peer): void {
     const parts = decodeArmor(peer.ruestung);
     for (const [slot, id] of Object.entries(parts)) {
       const armor = ruestungZu(id);
@@ -3317,7 +3387,7 @@ export class WovServer {
     }
     this.pruefeWaffe(peer);
     peer.sendPacketWith(PacketType.InventorySync, (w) => {
-      w.writeString(JSON.stringify(peer.inventar.serialize()));
+      w.writeString(JSON.stringify(peer.inventar.syncStapel()));
     });
     this.sendeEquipStand(peer, false);
   }
@@ -3392,13 +3462,40 @@ export class WovServer {
    * Items vergeben — der EINZIGE Weg, auf dem Beute/Refunds ins Spiel
    * kommen (Review-Punkt 8): erst ins Server-Inventar, dann Sync. Der
    * Client addiert selbst nichts mehr.
+   *
+   * Liefert die Menge, die NICHT ins Inventar passte (wie `addItem`; 0 bei
+   * voller Vergabe, bei unbekanntem Item und bei `amount <= 0`).
    */
-  private gebeItem(peer: Peer, name: string, amount: number): void {
-    if (amount <= 0) return;
+  private gebeItem(peer: Peer, name: string, amount: number): number {
+    if (amount <= 0) return 0;
     const def = findItem(name);
-    if (!def) return;
-    peer.inventar.addItem(def, amount);
+    if (!def) return 0;
+    const rest = peer.inventar.addItem(def, amount);
     this.inventarSync(peer);
+    return rest;
+  }
+
+  /**
+   * What did not fit (`rest` of `gebeItem`) lies on the ground at the player, free for anybody, and the player
+   * is told "inventory full, N × item left behind": nothing that a harvest or a refund hands over may vanish silently.
+   */
+  private legeRestAb(peer: Peer, name: string, rest: number): void {
+    if (rest <= 0) return;
+    this.beuteAmBoden.legeHin(this.zdosVon(peer), peer.position, [{ name, amount: rest }]);
+    peer.sendPacketWith(PacketType.InteractResult, (w) => {
+      w.writeBool(false);
+      w.writeString(serverMeldungVollRest(name, rest));
+      w.writeString('');
+      w.writeInt32(0);
+    });
+  }
+
+  /**
+   * Would `name` × `amount` fit into the inventory of `peer` after `entfernen` was taken out of it? (asked on a copy,
+   * so a craft or a cooking can be refused BEFORE anything is taken; `true` for an unknown item, which gives nothing.)
+   */
+  private passtNach(peer: Peer, entfernen: ReadonlyArray<{ item: string; menge: number }>, name: string, amount: number): boolean {
+    return passtNachEntnahme(peer.inventar, entfernen, name, amount);
   }
 
   private handleEat(peer: Peer, reader: Reader): void {
@@ -3758,6 +3855,7 @@ export class WovServer {
     const jetzt = Date.now();
     const entscheid = pruefeSchlag(peer.schlag, meldung, jetzt, waffe);
     if (!entscheid.ok) return quittiere(0, entscheid.ergebnis);
+    const staminaVorher = { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht };
     const nachSchlag = ausdauerAbzug(
       { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
       schlagKosten(this.werteVon(peer).agility),
@@ -3789,6 +3887,7 @@ export class WovServer {
     let ziel: import('./zdo/ZDO.js').ZDO | null = null;
     // D2: Trefferkugel (0;1;1) um die Serverposition; der naechste Kandidat zur Kugelmitte gewinnt.
     let best = Number.POSITIVE_INFINITY;
+    let abgewehrt = false;
     for (const zdo of this.zdosVon(peer).getZDOsInRadius(von, WovServer.NAHKAMPF_REICHWEITE + TOLERANZ_MAX_M)) {
       const def = this.prefabs.getByHash(zdo.prefabHash);
       const flags = def?.flags ?? 0n;
@@ -3801,7 +3900,15 @@ export class WovServer {
       // Der Kegel steht VOR der Kugel: er ist billiger (kein 3D-Abstand) und hat den Mindestabstand.
       if (!this.imTrefferkegel(von, yaw, zdo.position)) continue;
       const d = trefferAbstand(von, yaw, zdo.position, this.spawns?.tempo(zdo) ?? 0);
-      if (d === null || d >= best) continue;
+      if (d === null) continue;
+      // Wer heimkehrt (aufgegeben, Leben gefüllt), ist kein Ziel: sonst träfe
+      // ein Spieler mit 3,5 m Reichweite den Wolf an der Leine ohne Risiko.
+      // Der Schlag gilt als abgewehrt (s. unten), nicht als Fehlschlag; nur in Reichweite.
+      if (this.spawns?.unverwundbar(zdo)) {
+        abgewehrt = true;
+        continue;
+      }
+      if (d >= best) continue;
       best = d;
       ziel = zdo;
     }
@@ -3815,7 +3922,21 @@ export class WovServer {
     */
     if (!ziel) {
       quittiere(entscheid.schritt, SchlagErgebnis.Fehl);
-      return this.handleHarvest(peer, von, waffe);
+      // Die Ernte läuft wie immer. Nur wenn der Schlag sonst nichts getroffen hätte und ein
+      // Heimkehrer im Kegel stand, kostet er keine Ausdauer und sagt, warum.
+      const geerntet = this.handleHarvest(peer, von, waffe);
+      if (!geerntet && abgewehrt) {
+        peer.stamina = staminaVorher.wert;
+        peer.staminaZuletztVerbraucht = staminaVorher.zuletztVerbraucht;
+        this.sendPlayerState(peer);
+        peer.sendPacketWith(PacketType.InteractResult, (w) => {
+          w.writeBool(false);
+          w.writeString(SERVER_MELDUNG_UNVERWUNDBAR);
+          w.writeString('');
+          w.writeInt32(0);
+        });
+      }
+      return;
     }
     quittiere(entscheid.schritt, SchlagErgebnis.Treffer);
     const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
@@ -3824,7 +3945,9 @@ export class WovServer {
     // `||`-Zweig greift nur noch für Wesen aus Saves von VOR dieser
     // Änderung — seit `stelleLebenSicher` bringt jede Kreatur ihre Punkte
     // vom Spawn mit, und `adoptPersisted` trägt sie den alten nach.
-    const hp = (ziel.getInt(HEALTH_MEMBER) || maxLeben(name)) - schaden;
+    const hpVorher = ziel.getInt(HEALTH_MEMBER) || maxLeben(name);
+    const hp = hpVorher - schaden;
+    this.beuteAmBoden.schaden(ziel, peer.userId.toString(), Math.min(schaden, hpVorher)); // D5: the owner of the loot (same key as the building owner)
     if (hp <= 0) {
       // Mit Todesclip bleibt der Koerper, bis der Clip gespielt ist — das
       // Spawnsystem raeumt ihn dann selbst weg. Ohne Clip wie bisher sofort.
@@ -3836,29 +3959,21 @@ export class WovServer {
       if (name === 'Eikthyr') {
         this.weltMarken.setzen(GlobalKey.defeated_eikthyr);
       }
+      // D5: the loot lies on the ground at the corpse (owner = most damage), it does not go into the inventory.
       const beute = wuerfleDrop(name);
-      if (beute) this.gebeItem(peer, beute.name, beute.amount);
+      const zweit = ZWEIT_DROPS[name];
+      this.beuteAmBoden.legeAb(this.zdosVon(peer), ziel, [beute, zweit ? { name: zweit[0], amount: zweit[1] } : null]);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(true);
-        w.writeString(beute ? `${name} besiegt — ${beute.amount}× ${beute.name}` : `${name} besiegt`);
-        w.writeString(beute?.name ?? '');
-        w.writeInt32(beute?.amount ?? 0);
+        w.writeString(serverMeldungBesiegt(name));
+        w.writeString('');
+        w.writeInt32(0);
       });
-      const zweit = ZWEIT_DROPS[name];
-      if (zweit) {
-        this.gebeItem(peer, zweit[0], zweit[1]);
-        peer.sendPacketWith(PacketType.InteractResult, (w) => {
-          w.writeBool(true);
-          w.writeString(`Trophäe erbeutet: ${zweit[0]}`);
-          w.writeString(zweit[0]);
-          w.writeInt32(zweit[1]);
-        });
-      }
     } else {
       ziel.setInt(HEALTH_MEMBER, hp);
       ziel.revision.reviseData();
       ziel.dirty = true;
-      this.spawns?.treffer(ziel);
+      this.spawns?.treffer(ziel, { id: String(peer.userId), schaden });
     }
   }
 
@@ -3870,15 +3985,17 @@ export class WovServer {
    * `waffe` kommt bereits geprüft von handleAttack (waffeFuerSchlag, K2a) —
    * kein zweiter Abgleich hier nötig.
    */
-  private handleHarvest(peer: Peer, pos: Vector3, waffe: string): void {
+  /** Erntet, was im Schlagbereich steht. Liefert false, wenn es nichts zu ernten gab (dann ist nichts geschehen). */
+  private handleHarvest(peer: Peer, pos: Vector3, waffe: string): boolean {
     const antwort = (message: string, itemName = '', amount = 0) => {
-      this.gebeItem(peer, itemName, amount);
+      const rest = this.gebeItem(peer, itemName, amount);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(true);
         w.writeString(message);
         w.writeString(itemName);
         w.writeInt32(amount);
       });
+      this.legeRestAb(peer, itemName, rest); // what did not fit lies on the ground, nothing vanishes
     };
     const F = PrefabFlag;
     let ziel: ZDO | null = null;
@@ -3905,14 +4022,16 @@ export class WovServer {
         art = a;
       }
     }
-    if (!ziel || !art) return;
+    if (!ziel || !art) return false;
 
     // Werkzeug-Pflicht wie im Original: Holz braucht die Axt, Stein die Spitzhacke.
-    if (art === 'baum' && waffe !== 'AxeFlint') {
-      return antwort('Zu hart — dafür braucht es eine Axt');
+    if (art === 'baum' && !kannErnten(waffe, 'baum')) {
+      antwort('Zu hart — dafür braucht es eine Axt');
+      return true;
     }
-    if (art === 'fels' && waffe !== 'PickaxeAntler') {
-      return antwort('Zu hart — dafür braucht es eine Spitzhacke');
+    if (art === 'fels' && !kannErnten(waffe, 'fels')) {
+      antwort('Zu hart — dafür braucht es eine Spitzhacke');
+      return true;
     }
 
     const startHp = art === 'baum' ? 60 : art === 'fels' ? 90 : 15;
@@ -3923,12 +4042,13 @@ export class WovServer {
       ziel.setInt(HEALTH_MEMBER, hp);
       ziel.revision.reviseData();
       ziel.dirty = true;
-      return;
+      return true;
     }
     this.zdosVon(peer).destroyZDO(ziel.zdoid);
     const menge = art === 'weich' ? 2 : 6 + ((Math.random() * 5) | 0);
     const item = art === 'fels' ? 'Stone' : 'Wood';
     antwort(`${art === 'baum' ? 'Baum gefällt' : art === 'fels' ? 'Fels zerbrochen' : 'Zerlegt'} — ${menge}× ${item}`, item, menge);
+    return true;
   }
 
   /** Kreaturen-Treffer auf Spieler (vom SpawnSystem gemeldet). */
@@ -4121,6 +4241,7 @@ export class WovServer {
    * belebeFaellige revives him afterwards at the bed / start point.
    */
   private stirb(peer: Peer, clip: TodClip): void {
+    peer.spielwerte.zaehleTod(); // every death passes here or `belebeNeu(.., true)`; BEFORE the 'tod' save of the revival, so the counter lands in the same row
     peer.totBis = Date.now() + this.liegezeitMs;
     peer.paradeBis = 0;
     peer.health = 0;
@@ -4153,6 +4274,7 @@ export class WovServer {
    */
   private belebeNeu(peer: Peer, sofort: boolean): void {
     const warTot = peer.totBis > 0;
+    if (sofort) peer.spielwerte.zaehleTod(); // immediate revival = a death without lying time (`stirb` was skipped)
     peer.totBis = 0;
     // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.
     peer.health = lebensmaximum(this.werteVon(peer).vitality, 0);
@@ -4199,14 +4321,18 @@ export class WovServer {
   private handleInteract(peer: Peer, reader: Reader): void {
     const pos = reader.readVector3();
     const prefabHash = reader.readInt32();
-    const antwort = (ok: boolean, message: string, itemName = '', amount = 0) => {
-      if (ok) this.gebeItem(peer, itemName, amount);
+    const senden = (ok: boolean, message: string, itemName = '', amount = 0) => {
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
         w.writeBool(ok);
         w.writeString(message);
         w.writeString(itemName);
         w.writeInt32(amount);
       });
+    };
+    const antwort = (ok: boolean, message: string, itemName = '', amount = 0) => {
+      const rest = ok ? this.gebeItem(peer, itemName, amount) : 0;
+      senden(ok, message, itemName, amount);
+      this.legeRestAb(peer, itemName, rest); // (the callers that hand over an item check the room first; this is the net below)
     };
 
     // Reichweiten-Check gegen die Serverposition des Spielers (Anti-Cheat light).
@@ -4216,8 +4342,14 @@ export class WovServer {
 
     let ziel = null as import('./zdo/ZDO.js').ZDO | null;
     let best = 2.5 * 2.5;
+    let fremdeBeute = false;
     for (const zdo of this.zdosVon(peer).getZDOsInRadius(pos, 3)) {
       if (zdo.prefabHash !== prefabHash) continue;
+      // D5: loot the player may not pick up yet does not block the next piece (but is told apart from "nothing there").
+      if (!this.beuteAmBoden.darfAufheben(zdo, peer.userId.toString())) {
+        fremdeBeute = true;
+        continue;
+      }
       const ddx = zdo.position.x - pos.x;
       const ddz = zdo.position.z - pos.z;
       const d = ddx * ddx + ddz * ddz;
@@ -4226,16 +4358,24 @@ export class WovServer {
         ziel = zdo;
       }
     }
-    if (!ziel) return antwort(false, 'Nichts in Reichweite');
+    if (!ziel) return antwort(false, fremdeBeute ? SERVER_MELDUNG_BEUTE_FREMD : 'Nichts in Reichweite');
 
     const def = this.prefabs.getByHash(ziel.prefabHash);
     const flags = def?.flags ?? 0n;
     const F = PrefabFlag;
+    // Loot on the ground is recognised by its mark BEFORE the prefab flags: the item of a data item has no prefab definition.
+    const boden = this.beuteAmBoden.aufheben(ziel); // D5: loot of a dead creature has an owner (asked above)
 
-    if ((flags & (F.PICKABLE | F.PICKABLE_ITEM | F.ITEM_DROP)) !== 0n) {
-      this.zdosVon(peer).destroyZDO(ziel.zdoid);
-      const item = pickableItem(def?.name ?? '');
-      return antwort(true, `Aufgesammelt: ${item?.name ?? def?.name ?? '?'}`, item?.name ?? '', item?.amount ?? 0);
+    if (boden || (flags & (F.PICKABLE | F.PICKABLE_ITEM | F.ITEM_DROP)) !== 0n) {
+      if (boden && !findItem(boden.name)) return senden(false, 'Nichts in Reichweite'); // the item no longer exists: leave the piece (the item watch removes it after its confirmation)
+      const item = boden ?? pickableItem(def?.name ?? '');
+      const menge = item?.amount ?? 0;
+      // Give first, take from the ZDO only what was really given: a full inventory leaves the piece lying there.
+      const rest = item ? this.gebeItem(peer, item.name, menge) : 0;
+      if (menge > 0 && rest >= menge) return senden(false, SERVER_MELDUNG_INVENTAR_VOLL);
+      if (rest > 0 && boden) this.beuteAmBoden.behalteRest(ziel, rest);
+      else this.zdosVon(peer).destroyZDO(ziel.zdoid);
+      return senden(true, serverMeldungAufgesammelt(item?.name ?? def?.name ?? '?', menge - rest, rest), item?.name ?? '', menge - rest);
     }
 
     if ((flags & F.DOOR) !== 0n) {
@@ -4318,9 +4458,12 @@ export class WovServer {
     // Feuerstelle brät: 1× RawMeat → 1× CookedMeat (server-autoritativ —
     // vorher tauschte der Client lokal, Review-Punkt 8).
     if ((flags & F.FIREPLACE) !== 0n) {
-      if (!peer.inventar.removeByName('RawMeat', 1)) {
+      if (peer.inventar.countOf('RawMeat') < 1) {
         return antwort(false, 'Kein rohes Fleisch dabei');
       }
+      // The cooked meat must fit once the raw meat is out, else nothing is taken (a full inventory with a stack of raw meat).
+      if (!this.passtNach(peer, [{ item: 'RawMeat', menge: 1 }], 'CookedMeat', 1)) return antwort(false, SERVER_MELDUNG_INVENTAR_VOLL);
+      peer.inventar.removeByName('RawMeat', 1);
       this.inventarSync(peer);
       return antwort(true, 'Fleisch gebraten — 1× CookedMeat', 'CookedMeat', 1);
     }
@@ -4351,172 +4494,20 @@ export class WovServer {
     return antwort(false, 'Damit kann man nichts machen');
   }
 
-  /**
-   * Truhe öffnen (F.CONTAINER, Roadmap F1) — ersetzt den früheren
-   * Ein-Bit-Schalter samt direkt an den Spieler ausgezahlter
-   * Zufallsbeute durch echten, entnehmbaren Inhalt (Container.ts).
-   *
-   * MIGRATION (Alt-Saves kennen nur TRUHE_LOOTED_MEMBER als Bit):
-   *  - Bit noch nicht gesetzt → erste Berührung seit diesem Umbau.
-   *    wuerfleTruhe() bleibt die EINZIGE Zufallsquelle (unverändert
-   *    gegenüber vorher) und befüllt jetzt die Truhe statt den Spieler
-   *    direkt zu beschenken. Das Bit wird SOFORT gesetzt — ein zweiter
-   *    Login oder ein zweiter Öffner würfelt nie ein zweites Mal, exakt
-   *    dieselbe Garantie wie vorher, nur eine Ebene tiefer (jetzt „hat
-   *    ihre Erstbefüllung schon", vorher „wurde geplündert").
-   *  - Bit bereits gesetzt (Alt-Save VOR diesem Umbau hatte die Truhe
-   *    schon per Direktauszahlung geplündert) → sie startet leer. Ihr
-   *    einziger Gegenstand ist damals schon beim Spieler gelandet, es
-   *    gibt nichts nachzuholen.
-   *
-   * Jede weitere Öffnung liest nur noch den vorhandenen Inhalt — die
-   * eigentliche Truhen-UI (nehmen/legen) läuft über ContainerAction
-   * (handleContainerAction).
-   */
   private handleTruheOeffnen(peer: Peer, ziel: ZDO, def: Prefab | undefined): void {
-    if (ziel.getInt(TRUHE_LOOTED_MEMBER) !== 1) {
-      ziel.setInt(TRUHE_LOOTED_MEMBER, 1);
-      const inv = unpackContainer(ziel.getString(TRUHE_INHALT_MEMBER));
-      const beute = wuerfleTruhe(def?.name ?? '');
-      const beuteDef = findItem(beute.name);
-      if (beuteDef) inv.addItem(beuteDef, beute.amount);
-      ziel.setString(TRUHE_INHALT_MEMBER, packContainer(inv));
-      ziel.revision.reviseData();
-      ziel.dirty = true;
-    }
-    peer.sendPacketWith(PacketType.InteractResult, (w) => {
-      w.writeBool(true);
-      w.writeString('Truhe geöffnet');
-      w.writeString('');
-      w.writeInt32(0);
-    });
-    this.sendeTruheInhalt(peer, ziel);
+    return handleTruheOeffnen(this, peer, ziel, def);
   }
 
-  /** Aktuellen Truheninhalt an GENAU diesen Peer schicken (s. PacketType.ContainerSync). */
-  private sendeTruheInhalt(peer: Peer, ziel: ZDO): void {
-    peer.sendPacketWith(PacketType.ContainerSync, (w) => {
-      w.writeString(ziel.zdoid.userId.toString());
-      w.writeInt32(ziel.zdoid.id);
-      w.writeString(ziel.getString(TRUHE_INHALT_MEMBER));
-    });
+  sendeTruheInhalt(peer: Peer, ziel: ZDO): void {
+    return sendeTruheInhalt(this, peer, ziel);
   }
 
-  /**
-   * Figurenwahl des Clients (Paket SetFigur).
-   *
-   * WAS HIER GEPRUEFT WIRD: Der Client schickt eine Kennung, und der
-   * Server glaubt sie NICHT — `istFigur()` entscheidet, ob sie in der
-   * gemeinsamen Liste steht. Ohne diese Pruefung landete ein beliebiger
-   * String am ZDO, und jeder andere Client versuchte, ihn als
-   * Modelldateinamen zu laden.
-   *
-   * WARUM DER WEG UEBER DAS ZDO: Der Member am Charakter-ZDO ist der
-   * einzige Ort, an dem die Wahl AUTOMATISCH bei allen ankommt, die den
-   * Spieler sehen — ZDOSync erledigt Verteilung und Nachzuegler. Ein
-   * eigenes Broadcast-Paket muesste beides selbst loesen und wuerde bei
-   * jemandem, der spaeter in Sichtweite kommt, schweigen.
-   *
-   * Ein Wechsel MITTEN IM SPIEL ist damit ebenfalls abgedeckt: Er
-   * aendert denselben Member, und der Sync traegt ihn weiter.
-   */
-  /**
-   * Frisur und Ruestung des Clients (Paket SetAussehen).
-   *
-   * Wie handleSetFigur: geprueft wird gegen die GEMEINSAME Liste
-   * (shared/aussehen.ts), aus der auch die Charaktererstellung ihre
-   * Auswahl baut — der Server glaubt dem Client nichts. Geschrieben wird
-   * an ZDO-Member, weil ZDOSync Verteilung und Nachzuegler von selbst
-   * loest; ein eigenes Broadcast-Paket muesste beides nachbauen und
-   * schwiege bei jedem, der spaeter in Sichtweite kommt.
-   *
-   * Leerstring ist gueltig und heisst "nichts angezogen".
-   */
   private handleSetAussehen(peer: Peer, reader: Reader): void {
-    const frisur = reader.readString();
-    const ober = reader.readString();
-    const beine = reader.readString();
-    // Vierter Wert, aber nur wenn er da ist: Ein Client von vor dem
-    // 23.08.2026 sendet drei Strings. `readString()` auf einem leeren
-    // Rest wuerfe und risse die Verbindung ab — fuer eine Haarfarbe.
-    const haarfarbe = reader.remaining() > 0 ? reader.readString() : peer.haarfarbe;
-    /*
-     * Zwei additive Protokollstaende muessen sich hier ueberlappen:
-     * Ruestungsclients von vor der Augenfarben-Auswahl schicken als
-     * fuenften String bereits das JSON der Zusatz-Slots. Neue Clients
-     * schicken erst die Augenfarbe und danach dieses JSON. Eine bekannte
-     * Augenfarben-Kennung unterscheidet beide Formen eindeutig.
-     */
-    const fuenfterWert = reader.remaining() > 0 ? reader.readString() : '';
-    const hatAugenfarbe = istAugenfarbe(fuenfterWert);
-    const augenfarbe = hatAugenfarbe
-      ? fuenfterWert
-      : istAugenfarbe(peer.augenfarbe) ? peer.augenfarbe : AUGENFARBE_VORGABE;
-    const ruestungsJson = hatAugenfarbe
-      ? reader.remaining() > 0 ? reader.readString() : ''
-      : fuenfterWert;
-    let extra: unknown = {};
-    try { if (ruestungsJson) extra = JSON.parse(ruestungsJson); }
-    catch { this.inventarSync(peer); return; }
-    if (!validArmorParts(extra, peer.figur)) { this.inventarSync(peer); return; }
-    const parts = { ...extra, oberkoerper: ober, beine };
-    if (!validArmorParts(parts, peer.figur) || Object.values(parts).some(id =>
-      id && ruestungZu(id)?.figure && !peer.inventar.all.some(i => i.shared.ruestungsteil === id))) {
-      this.inventarSync(peer); return;
-    }
-    if (
-      !istFrisur(frisur) ||
-      !istRuestung(ober) ||
-      !istRuestung(beine) ||
-      !istHaarfarbe(haarfarbe) ||
-      !istAugenfarbe(augenfarbe)
-    ) {
-      console.warn(
-        `[WoV] SetAussehen von "${peer.name}" abgelehnt: ` +
-          `frisur="${frisur.slice(0, 24)}" ober="${ober.slice(0, 24)}" ` +
-          `beine="${beine.slice(0, 24)}" haarfarbe="${haarfarbe.slice(0, 24)}" ` +
-          `augenfarbe="${augenfarbe.slice(0, 24)}" ` +
-          `— steht nicht in shared/aussehen.ts`
-      );
-      return;
-    }
-    peer.frisur = frisur;
-    peer.haarfarbe = haarfarbe;
-    peer.augenfarbe = augenfarbe;
-    peer.ruestung = encodeArmor(parts);
-    const remaining = new Set(Object.values(parts));
-    for (const item of peer.inventar.all) {
-      if (item.shared.ruestungsteil) item.equipped = remaining.delete(item.shared.ruestungsteil);
-    }
-    const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
-    if (charZDO) {
-      charZDO.setString(FRISUR_MEMBER, frisur);
-      charZDO.setString(HAARFARBE_MEMBER, haarfarbe);
-      charZDO.setString(AUGENFARBE_MEMBER, augenfarbe);
-      charZDO.setString(RUESTUNG_MEMBER, peer.ruestung);
-    }
-    this.kappeLeben(peer);
-    // F8: Ausruestungswechsel geht sofort auf die Platte.
-    this.sichereSpielerSofort(peer, 'ausruestung');
+    return handleSetAussehen(this, peer, reader);
   }
 
   private handleSetFigur(peer: Peer, reader: Reader): void {
-    const gewuenscht = reader.readString();
-    if (!istFigur(gewuenscht)) {
-      console.warn(
-        `[WoV] SetFigur von "${peer.name}" abgelehnt: "${gewuenscht.slice(0, 40)}" ` +
-          `steht nicht in FIGUREN (shared/figuren.ts)`
-      );
-      return;
-    }
-    if (peer.figur === gewuenscht) return;
-    peer.figur = gewuenscht;
-    const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
-    if (charZDO) charZDO.setString(FIGUR_MEMBER, gewuenscht);
-    // Teile, die zur neuen Figur nicht passen, fallen ab (dieselbe Pruefung wie sonst), Werte werden neu gerechnet.
-    this.inventarSync(peer);
-    this.sichereSpielerSofort(peer, 'figur'); // F8
-    console.log(`[WoV] "${peer.name}" spielt jetzt als "${gewuenscht}"`);
+    return handleSetFigur(this, peer, reader);
   }
 
   /**
@@ -5529,13 +5520,13 @@ export class WovServer {
         if ((target?.figur ?? record?.[1].figur) !== 'wikinger') return { ok: false, active: false, message: `${label} benötigt den männlichen Wikinger-Körper` };
         const snapshot = target?.inventar.serialize() ?? record?.[1].inventar;
         if (!snapshot) return { ok: false, active: false, message: 'Kein gespeichertes Inventar vorhanden' };
-        const staged = new Inventory(); staged.load(snapshot); let added = 0;
+        const staged = target ? target.inventar.kopie() : Inventory.ausSpeicherstand(snapshot); let added = 0;
         for (const part of parts) {
           if (staged.countOf(part.item)) continue;
           if (staged.addItem(findItem(part.item)!, 1)) return { ok: false, active: false, message: 'Nicht genug Platz für das vollständige Set; nichts verändert' };
           added++;
         }
-        if (target) { target.inventar.load(staged.serialize()); this.inventarSync(target); this.sichereSpielerSofort(target, 'admin'); }
+        if (target) { target.inventar.uebernimm(staged); this.inventarSync(target); this.sichereSpielerSofort(target, 'admin'); }
         else {
           // F8 N2 (B4): ein Eingriff an einem ABWESENDEN Spieler bekommt einen neuen
           // Stempel und geht sofort in die Konten-SQLite: sonst gewinnt beim
@@ -6338,7 +6329,7 @@ export class WovServer {
    * Phase G: fuer Peers in einem Dungeon zaehlt der Rueckkehrpunkt der
    * Oberwelt — Instanzen ueberleben keinen Neustart.
    */
-  private spielerStand(peer: Peer): SavedPlayer {
+  private spielerStand(peer: Peer, exakt = false): SavedPlayer {
     return {
       name: peer.name,
       spielerId: peer.spielerId,
@@ -6353,6 +6344,7 @@ export class WovServer {
       augenfarbe: peer.augenfarbe,
       klasse: peer.klasse,
       starterSetGranted: peer.starterSetGranted,
+      ...peer.spielwerte.stand(exakt),
       ruestung: peer.ruestung,
       waffe: peer.waffe || undefined,
       inventar: peer.inventar.serialize(),
@@ -6368,7 +6360,7 @@ export class WovServer {
    */
   private sichereSpieler(peers: readonly Peer[], grund: string, welt: 'alle' | readonly ZDO[] | null = null): void {
     if (!this.spielerSicherung) return;
-    const staende = peers.filter((p) => p.authenticated && !p.nurEditor && p.spielerId).map((p) => this.spielerStand(p));
+    const staende = peers.filter((p) => p.authenticated && !p.nurEditor && p.spielerId).map((p) => this.spielerStand(p, grund === 'tod' || grund === 'stopp'));
     // F8 N2: die geaenderten Behaelter-/Bau-ZDOs kommen in DERSELBEN Transaktion
     // mit auf die Platte ('alle' = Vollabtastung im Takt, sonst nur die
     // beruehrten ZDOs eines Ereignisses).
@@ -6381,7 +6373,7 @@ export class WovServer {
   }
 
   /** F8: Ereignis, das sofort auf die Platte muss (Ausruestung, Schlafplatz, ...). */
-  private sichereSpielerSofort(peer: Peer, grund: string, welt: readonly ZDO[] | null = null): void {
+  sichereSpielerSofort(peer: Peer, grund: string, welt: readonly ZDO[] | null = null): void {
     this.sichereSpieler([peer], grund, welt);
   }
 
@@ -6705,6 +6697,7 @@ export class WovServer {
       .filter(
         (z) =>
           z.prefabHash !== playerHash &&
+          !this.beuteAmBoden.istBeute(z) && // D5: loot on the ground is never saved (no doubling after a restart)
           // Gespeichert wird die HAUPTWELT. Instanz-ZDOs tauchen hier gar
           // nicht mehr auf: Die Quelle dieser Liste ist `this.zdos`, und
           // das ist der ZDO-Raum der Hauptwelt. Vorher stand hier ein
@@ -6740,7 +6733,7 @@ export class WovServer {
       // Schluessel); der bleibt unbenutzt liegen. Was tatsaechlich auf die Platte geht, sind nur die WERTE
       // (players[] ist ein Array) — der Map-Schluessel selbst ist reiner
       // Laufzeitzustand.
-      players.set(peer.spielerId, this.spielerStand(peer));
+      players.set(peer.spielerId, this.spielerStand(peer, true));
     }
 
     return {

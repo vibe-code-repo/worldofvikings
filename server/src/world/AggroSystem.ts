@@ -51,13 +51,19 @@ import {
   naechstesEinmal,
   SPAWN_SIM_RADIUS,
   SPIELER_FRAKTION,
-  aggroSchritt,
+  VERFOLGUNG_ANTEIL,
+  kiSchritt,
+  neuerKiZustand,
+  npcKampf,
+  npcSteckbrief,
   hatKampfwerte,
   haltungZwischen,
   loeseNpcAuf,
   yawQuaternion,
   type AnimZustand,
-  type NpcKampf,
+  type KiSteckbrief,
+  type KiZiel,
+  type KiZustand,
 } from '@wov/shared';
 import type { ZDO } from '../zdo/ZDO.js';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
@@ -89,12 +95,6 @@ interface AggroZustand {
   yaw: number;
   /** Zuletzt geschriebener Animationszustand. */
   anim: AnimZustand | null;
-  /**
-   * Sekunden im Band „zuschlagen" seit dem letzten Schlag. Bleibt beim
-   * Verlassen des Bandes stehen (wie `attackAccum` der Kreaturen) und
-   * verfällt erst, wenn der NPC den Spieler ganz loslässt.
-   */
-  schlagAkku: number;
 }
 
 export interface AggroSystemOptionen {
@@ -104,6 +104,10 @@ export interface AggroSystemOptionen {
 
 export class AggroSystem {
   private readonly zustand = new Map<string, AggroZustand>();
+  /** Die KI-Zustandsmaschine je NPC, solange er jemanden im Blick hat. */
+  private readonly ki = new Map<string, KiZustand>();
+  /** Steckbrief je Prefab — aus den Kampfwerten, einmal gebaut. */
+  private readonly steckbriefe = new Map<string, KiSteckbrief>();
   /**
    * NPCs, die gerade jemanden ins Auge gefasst haben. Der RoutenLaeufer
    * liest diese Menge und lässt sie in Ruhe — sonst schriebe er im selben
@@ -147,7 +151,11 @@ export class AggroSystem {
     return this.gesperrt.size;
   }
 
-  update(deltaSec: number, peerPositions: readonly Vector3[]): void {
+  /**
+   * `zielInfo` (optional) ist parallel zu `peerPositions`: die stabile Kennung je Spieler. Ohne sie zählt der Listenindex,
+   * und dann erbt der Spieler, der nach dem Abmelden eines anderen auf dessen Platz rutscht, dessen Aggro.
+   */
+  update(deltaSec: number, peerPositions: readonly Vector3[], zielInfo: readonly { readonly id: string }[] = []): void {
     this.accum += deltaSec;
     if (this.accum < this.pruefIntervallSec) return;
     // Die WIRKLICH vergangene Zeit, nicht das Intervall: Der Schritt des
@@ -167,13 +175,15 @@ export class AggroSystem {
     // auf und bekäme zwei widersprüchliche Blickrichtungen.
     const kandidaten = this.sucheKandidaten(peerPositions);
     const nochAktiv = new Set<string>();
+    const ziele: KiZiel[] = peerPositions.map((p, i) => ({ key: zielInfo[i]?.id ?? `p${i}`, x: p.x, z: p.z }));
 
     for (const { zdo, name } of kandidaten.values()) {
       const key = zdo.zdoid.toString();
-      // Die Entscheidung selbst fällt in shared/aggro.ts — derselbe Code,
-      // den der Editor-Testflug rechnet. Hier bleibt nur die Buchführung:
-      // Drosselung, ZDO-Member, Vorfahrt gegenüber dem RoutenLaeufer.
-      const w = aggroSchritt(name, zdo.position.x, zdo.position.z, peerPositions, vergangen);
+      // Die Entscheidung fällt in der Zustandsmaschine (shared/kiZustand.ts):
+      // bemerkt (hindrehen) → anrennen (nachsetzen) → kämpfen (schlagen), mit
+      // denselben Staffeln wie `aggroSchritt` der Editor-Vorschau. Hier bleibt
+      // die Buchführung: Drosselung, ZDO-Member, Vorfahrt gegenüber dem RoutenLaeufer.
+      const w = this.entscheide(key, name, zdo, ziele, vergangen);
       if (!w) {
         this.loese(key, zdo);
         continue;
@@ -192,9 +202,9 @@ export class AggroSystem {
         continue;
       }
       nochAktiv.add(key);
-      const z = this.setze(key, zdo, w.yaw, w.anim);
+      this.setze(key, zdo, w.yaw, w.anim);
       if (w.bewegt) this.ruecke(zdo, w.x, w.z);
-      if (w.anim === 'attack' && hatKampfwerte(name)) this.zuschlagen(z, zdo, w.kampf, vergangen);
+      if (w.schlag && hatKampfwerte(name)) this.zuschlagen(zdo, w.schaden, w.angriff);
     }
 
     // Wer diesmal nicht dabei war, ist ausser Reichweite oder weg. Auch der
@@ -204,32 +214,73 @@ export class AggroSystem {
       if (!nochAktiv.has(key)) {
         this.gesperrt.delete(key);
         this.zustand.delete(key);
+        this.ki.delete(key);
       }
     }
   }
 
   /**
-   * Der Takt des Schlags. Im Band „zuschlagen" läuft die Uhr, ist eine
-   * Taktlänge voll, geht EIN Schlag raus.
-   *
-   * Der Rest über die Taktlänge bleibt stehen, statt auf null zu gehen:
-   * Der Prüfschritt fällt nur alle rund 0,27 s (viermal je Sekunde, auf
-   * Tickgrenzen gerundet), und ein Zurücksetzen auf null machte aus zwei
-   * Sekunden Takt im Mittel gut 2,1. Gedeckelt auf eine Taktlänge, damit
-   * ein hängender Tick nicht zwei Schläge auf einmal auslöst.
+   * Ein Schlag ist fällig (der Takt läuft in der Zustandsmaschine).
    *
    * Der Schlag trifft jeden Spieler im Radius der Angriffsreichweite um den
    * NPC, nicht nur den nächsten — dieselbe Regel wie bei den Kreaturen. Wer
    * dabei pariert, bekommt keinen Schaden (`applyCreatureAttack`).
    */
-  private zuschlagen(z: AggroZustand, zdo: ZDO, kampf: NpcKampf, vergangen: number): void {
-    z.schlagAkku += vergangen;
-    if (z.schlagAkku < kampf.takt) return;
-    z.schlagAkku = Math.min(z.schlagAkku - kampf.takt, kampf.takt);
+  private zuschlagen(zdo: ZDO, schaden: number, angriff: number): void {
     // One-shot event: the client plays the swing once per blow, in step with
     // the damage — the state `attack` alone would be a loop.
     zdo.setString(ANIM_EINMAL_MEMBER, naechstesEinmal(zdo.getString(ANIM_EINMAL_MEMBER), 'attack'));
-    this.onSchlag?.(zdo.position, kampf.schaden, kampf.angriff);
+    this.onSchlag?.(zdo.position, schaden, angriff);
+  }
+
+  /**
+   * Was dieser NPC jetzt tut, oder null (kein Ziel: loslassen). Die Schritte
+   * und Anzeigen der drei Phasen entsprechen den Bändern von `aggroSchritt`.
+   */
+  private entscheide(
+    key: string,
+    name: string,
+    zdo: ZDO,
+    ziele: readonly KiZiel[],
+    vergangen: number
+  ): { yaw: number; anim: AnimZustand; bewegt: boolean; x: number; z: number; schlag: boolean; schaden: number; angriff: number } | null {
+    let steck = this.steckbriefe.get(name);
+    const kampf = npcKampf(name);
+    if (!steck) {
+      steck = npcSteckbrief(kampf, VERFOLGUNG_ANTEIL);
+      this.steckbriefe.set(name, steck);
+    }
+    let ki = this.ki.get(key);
+    if (!ki) {
+      ki = neuerKiZustand();
+      this.ki.set(key, ki);
+    }
+    const p = zdo.position;
+    const b = kiSchritt(
+      ki,
+      steck,
+      { x: p.x, z: p.z, yaw: 0, homeX: p.x, homeZ: p.z, ziele },
+      vergangen,
+      () => 0.5
+    );
+    if (b.phase === 'wandern') {
+      this.ki.delete(key);
+      return null;
+    }
+    const yaw = Math.atan2(b.blickX, b.blickZ);
+    const anim: AnimZustand = b.phase === 'kaempfen' ? 'attack' : b.phase === 'anrennen' ? 'walk' : 'idle';
+    let x = p.x;
+    let z = p.z;
+    let bewegt = false;
+    if (b.bewegung === 'laeuft') {
+      const weg = Math.min(kampf.tempo * vergangen, b.maxWeg);
+      if (weg > 0) {
+        x += b.dirX * weg;
+        z += b.dirZ * weg;
+        bewegt = true;
+      }
+    }
+    return { yaw, anim, bewegt, x, z, schlag: b.schlag, schaden: kampf.schaden, angriff: kampf.angriff };
   }
 
   /**
@@ -282,7 +333,7 @@ export class AggroSystem {
   private setze(key: string, zdo: ZDO, yaw: number, anim: AnimZustand): AggroZustand {
     let z = this.zustand.get(key);
     if (!z) {
-      z = { yaw: Number.NaN, anim: null, schlagAkku: 0 };
+      z = { yaw: Number.NaN, anim: null };
       this.zustand.set(key, z);
     }
     this.gesperrt.add(key);
@@ -313,6 +364,7 @@ export class AggroSystem {
   private loese(key: string, zdo: ZDO): void {
     const z = this.zustand.get(key);
     this.gesperrt.delete(key);
+    this.ki.delete(key);
     if (!z) return;
     if (z.anim !== null && z.anim !== 'idle') {
       z.anim = 'idle';
@@ -329,6 +381,7 @@ export class AggroSystem {
       else {
         this.gesperrt.delete(key);
         this.zustand.delete(key);
+        this.ki.delete(key);
       }
     }
   }

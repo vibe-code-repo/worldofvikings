@@ -11,12 +11,16 @@
  * `node:path` (same reason as instanz.ts).
  */
 
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { weltArbeitsOrdner } from '../instanz.js';
 
 /** Fixed file names. The data are the same for every instance, so no instance name in them. */
 export const GEGENSTAENDE_DATEI = 'gegenstaende.json';
 export const GEGENSTAENDE_BASIS_DATEI = 'gegenstaende.basis';
+/** The receipt the game server's watch writes next to the working copy (read by the admin route). */
+export const GEGENSTAENDE_QUITTUNG_DATEI = 'gegenstaende.quittung.json';
+/** The confirmation request (`{hash, zeit, id}`, same form as `POST /api/welt/bestaetigen`) the admin route leaves next to the working copy; the watch consumes it. */
+export const GEGENSTAENDE_BESTAETIGEN_DATEI = 'gegenstaende.bestaetigen.json';
 
 /** The accepted repo state (in Git): read and compare, never write at run time. `wurzel` is the project root. */
 export function gegenstandsRepoDatei(wurzel: string): string {
@@ -31,4 +35,24 @@ export function gegenstandsArbeitsDatei(wurzel: string, roh: string | undefined 
 /** The basis file next to the working copy: hash of the repo state it was last created or updated from. */
 export function gegenstandsBasisDatei(wurzel: string, roh: string | undefined = process.env.WOV_WELT_VERZEICHNIS): string {
   return resolve(weltArbeitsOrdner(wurzel, roh), GEGENSTAENDE_BASIS_DATEI);
+}
+
+/** A file next to the working copy (`arbeitsDatei` is the path from `gegenstandsArbeitsDatei`): receipt, confirmation request. */
+export function gegenstandsNebenDatei(arbeitsDatei: string, name: string): string {
+  return resolve(dirname(arbeitsDatei), name);
+}
+
+export function gegenstandsQuittungsDatei(arbeitsDatei: string): string {
+  return gegenstandsNebenDatei(arbeitsDatei, GEGENSTAENDE_QUITTUNG_DATEI);
+}
+
+export function gegenstandsBestaetigenDatei(arbeitsDatei: string): string {
+  return gegenstandsNebenDatei(arbeitsDatei, GEGENSTAENDE_BESTAETIGEN_DATEI);
+}
+
+/** The last state the watch applied successfully (same form as the working copy); the start falls back to it if the working copy is broken or gone. */
+export const GEGENSTAENDE_LETZTER_GUTER_DATEI = 'gegenstaende.letzter-guter.json';
+
+export function gegenstandsLetzterGuterDatei(arbeitsDatei: string): string {
+  return gegenstandsNebenDatei(arbeitsDatei, GEGENSTAENDE_LETZTER_GUTER_DATEI);
 }

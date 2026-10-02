@@ -172,6 +172,7 @@ function hoehenPunkte(l: WorldLayout): Map<string, number> {
  *    zählen, `[P]` enthält `[P, P]` nicht. Bei Platzierungen bleibt das Feld
  *    `id` außen vor: Es ist eine Kennung, kein Inhalt, und Stände von vor
  *    dem Feld tragen keine, Ring-Einträge und `layoutMitPlatzierung` schon.
+ *  - Entfernte Vegetation (`vegetationEntfernt`) als Multimenge der Kreise, wie Seen und Routen.
  *  - Handkorrektur (`heightDeltas`) punktweise: Jeder Rasterpunkt von `klein`
  *    muss in `gross` mit demselben Delta stehen. Ein Dokument ohne Handkorrektur
  *    verlangt nichts (für Entwürfe ohne `heightDeltas` ändert sich das Ergebnis
@@ -239,6 +240,9 @@ export function enthaelt(gross: WorldLayout, klein: WorldLayout): boolean {
     multimenge(gross.rivers, klein.rivers) &&
     multimenge(gross.lakes, klein.lakes) &&
     multimenge(gross.routes, klein.routes) &&
+    // Entfernte Vegetation: wie die übrigen Listen als Multimenge. Ein Entwurf, der Kreise trägt, wird nur von einem
+    // Stand enthalten, der sie (noch) hat — sonst ginge beim Verdrängen ein Strich still verloren.
+    multimenge(gross.vegetationEntfernt, klein.vegetationEntfernt) &&
     hoehe()
   );
 }
@@ -452,6 +456,11 @@ export type SchreibAntwort =
       sperrHinweis?: string | null;
       /** Test flight: the count of locked objects in the receipt's `loeschsperre` (0 or missing: none). */
       sperrAnzahl?: number;
+      /**
+       * Hinweise der Vegetation aus `zaehler` der Quittung (Obergrenze: Kreise nicht geräumt; Zonen ohne Marke: nicht
+       * geräumt), in der Sprache des Editors; `null`/fehlt: nichts zu sagen.
+       */
+      vegetationHinweis?: string | null;
       /** Test flight: `message` without the hold-back sentence the service appended itself (same as `message` when there is none). */
       messageOhneSperre?: string;
     }
@@ -598,10 +607,22 @@ export async function schreibeWeltdokument(
       zurueck: d.zaehler && typeof d.zaehler === 'object' && Number.isFinite(Number((d.zaehler as Record<string, unknown>).zurueck)) ? Number((d.zaehler as Record<string, unknown>).zurueck) : 0,
       sperrAnzahl: gesperrt,
       messageOhneSperre: (typeof d.message === 'string' ? ohneDienstSperrsatz(d.message, gesperrt) : (d.message ?? 'Gespeichert')) + (hoehenText ? ` — ${hoehenText}` : '') + hinweis,
+      vegetationHinweis: vegetationHinweis(d.zaehler, sichereSprache(locale)),
       sperrHinweis: gesperrt > 0 && d.grund !== 'bestaetigung-noetig' ? lockMessage(d.angewendet === true ? 'lock.applied' : 'lock.open', { count: gesperrt }, sichereSprache(locale)) : null,
     };
   }
   return { art: 'fehler', message: d.message ?? d.fehler ?? `HTTP ${antwort.status}` };
+}
+
+/** Die Sätze zu Vegetationskreisen aus den Zählern der Quittung (`vegetationAbgelehnt`, `vegetationUngemarkt`); `null`: keine. */
+export function vegetationHinweis(zaehler: unknown, sprache: string): string | null {
+  if (!zaehler || typeof zaehler !== 'object') return null;
+  const z = zaehler as Record<string, unknown>;
+  const zahl = (k: string): number => (Number.isFinite(Number(z[k])) ? Number(z[k]) : 0);
+  const teile: string[] = [];
+  if (zahl('vegetationAbgelehnt') > 0) teile.push(lockMessage('vegetation.abgelehnt', { kreise: zahl('vegetationAbgelehnt'), objekte: zahl('vegetationAbgelehntObjekte') }, sprache));
+  if (zahl('vegetationUngemarkt') > 0) teile.push(lockMessage('vegetation.ungemarkt', { anzahl: zahl('vegetationUngemarkt'), zonen: zahl('vegetationUngemarktZonen') }, sprache));
+  return teile.length > 0 ? teile.join(' ') : null;
 }
 
 /**
@@ -611,6 +632,7 @@ export async function schreibeWeltdokument(
  */
 export function wirkungsText(a: Extract<SchreibAntwort, { art: 'ok' }>): string {
   const sperre = a.sperrHinweis ? ` ${a.sperrHinweis}` : '';
+  if (a.angewendet === true && a.vegetationHinweis) return `${wirkungsText({ ...a, vegetationHinweis: null })} ${a.vegetationHinweis}`;
   if (a.angewendet === true) {
     // Z5a: Ein Grabstein hat ein Neusetzen verschluckt (Objekt gelöscht, dann derselbe Eintrag wieder da): angewendet,
     // aber das Objekt kam nicht wieder. Das sagt der Satz mit, mit den ids aus `detail`.
@@ -804,6 +826,21 @@ export function vergleiche(server: WorldLayout, entwurf: WorldLayout): Unterschi
     });
   }
 
+  // Entfernte Vegetation: ein Kreis, den der SERVER hat und der Entwurf nicht, ist ein verlorener Strich (schwer);
+  // reines Hinzufügen nicht. Gleiche Haltung wie bei der Handkorrektur oben.
+  const sKreise = new Set((server.vegetationEntfernt ?? []).map((k) => JSON.stringify(k)));
+  const eKreise = new Set((entwurf.vegetationEntfernt ?? []).map((k) => JSON.stringify(k)));
+  const kreisVerloren = [...sKreise].some((k) => !eKreise.has(k));
+  if (sKreise.size !== eKreise.size || kreisVerloren) {
+    zeilen.push({
+      art: 'zeile',
+      feld: 'Entfernte Vegetation (Kreise)',
+      server: String(sKreise.size),
+      entwurf: String(eKreise.size),
+      schwer: kreisVerloren,
+    });
+  }
+
   // Regionen namentlich: Zahlen allein verschleiern den Fall „eine
   // gelöscht, eine neu" — der Zähler bleibt gleich, die Welt nicht.
   const sRegionen = new Map(server.regions.map((r) => [r.id, JSON.stringify(r)]));
@@ -864,5 +901,18 @@ export function importPruefen(text: string, locale?: string): { layout: WorldLay
     layout: null, fehlerhaft,
     message: heightResponseMessage({ heightProblem: report.heightProblem, fehlerhaft }, sichereSprache(locale))!,
   };
+  // Same for the removed-vegetation circles: a damaged list is refused, not imported without its bad entries.
+  if (report.vegetationProblem) {
+    const p = report.vegetationProblem;
+    const de = sichereSprache(locale) === 'de';
+    return {
+      layout: null, fehlerhaft,
+      message: p.reason === 'limit'
+        ? (de ? `${p.anzahl} Kreise in vegetationEntfernt — mehr als ${p.grenze} nimmt das Weltdokument nicht auf; nichts importiert`
+              : `${p.anzahl} circles in vegetationEntfernt — the world document takes at most ${p.grenze}; nothing imported`)
+        : (de ? `${p.fehlerhaft.length} Fehler in vegetationEntfernt — nichts importiert`
+              : `${p.fehlerhaft.length} error(s) in vegetationEntfernt — nothing imported`),
+    };
+  }
   return { layout: report.layout, fehlerhaft };
 }

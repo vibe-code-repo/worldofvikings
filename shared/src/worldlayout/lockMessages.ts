@@ -2,7 +2,7 @@ import de from '../../data/worldlayout/de.json';
 import en from '../../data/worldlayout/en.json';
 
 /** Deletion-lock texts (Z3): catalog lookup only, no DOM, filesystem or application-wide i18n state. */
-export type LockMessageKey = Extract<keyof typeof de, `lock.${string}` | `confirm.${string}`>;
+export type LockMessageKey = Extract<keyof typeof de, `lock.${string}` | `confirm.${string}` | `vegetation.${string}`>;
 
 export function lockMessage(key: LockMessageKey, vars: Record<string, unknown> = {}, locale = 'de'): string {
   const catalog: Record<keyof typeof de, string> = locale === 'en' ? en : de;

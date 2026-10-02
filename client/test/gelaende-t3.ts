@@ -421,6 +421,7 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   strich(d, [0, 0], [0, 0], 3);
   d.steuerung.druecken({ x: 20, z: 0 }, false);
   pruefe(d.steuerung.rueckgaengig() === false && d.steuerung.strichOffen, '5: bei offenem Strich tut Rückgängig nichts und reißt ihn nicht ab');
+  pruefe(d.steuerung.rueckgaengigMitGrund() === 'nicht-moeglich' && d.steuerung.strichOffen, '5: N4: bei offenem Strich ist der Grund „nicht möglich“, nicht „gesperrt“ (die Reihenfolge würde sonst einen gültigen Schritt verwerfen)');
   d.steuerung.loslassen();
   pruefe(d.steuerung.rueckgaengig() === true, '5: nach dem Loslassen geht es');
 
@@ -564,7 +565,7 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
 {
   const tf = readFileSync(resolve(HIER, '../src/editor/testflug/Testflug.ts'), 'utf-8');
   const sp = readFileSync(resolve(HIER, '../src/editor/SpawnPanel.ts'), 'utf-8');
-  pruefe(/verlaufEntscheid\(e, panel\.istGelaendeModus, tipptImFeld\(e\)\)/.test(tf) && tf.includes("verlauf.aktion === 'rueckgaengig' ? gelaende.rueckgaengig() : gelaende.wiederholen()"), '9: Strg+Z/Y im Reiter laufen über verlaufEntscheid (Reiter offen, Textfeld)');
+  pruefe(/verlaufEntscheid\(e, panel\.istGelaendeModus, tipptImFeld\(e\)\)/.test(tf) && tf.includes("verlauf.aktion === 'rueckgaengig' ? reihenfolge.rueckgaengig() : reihenfolge.wiederholen()"), '9: Strg+Z/Y im Reiter laufen über verlaufEntscheid (Reiter offen, Textfeld) und die gemeinsame Reihenfolge der Verläufe (V3 N1)');
   pruefe(sp.includes("['ebnen', 'testflug.gelaende.werkzeug.ebnen']") && sp.includes("['zuruecksetzen', 'testflug.gelaende.werkzeug.zuruecksetzen']"), '9: das Panel hat die Knöpfe Ebnen und Zurücksetzen');
   pruefe(sp.includes("ziel.type = 'number'") && sp.includes('setzeZiel(hoehe: number)'), '9: das Panel hat das Zahlenfeld für die Zielhöhe');
   const de = JSON.parse(readFileSync(resolve(HIER, '../src/i18n/katalog/de.json'), 'utf-8')) as Record<string, string>;
@@ -722,6 +723,7 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   pruefe(ebene(a) === S1 && hoehen(a) === hoch, '11: … die Ebene und der Boden sind unverändert (kein Podest, auch außerhalb des Hauskreises nichts zurückgenommen)');
   pruefe(a.meldungen.at(-1)!.includes('Schritt nicht möglich') && /\d+ Punkte/.test(a.meldungen.at(-1)!), `11: … das HUD sagt es („${a.meldungen.at(-1)}“)`);
   pruefe(a.steuerung.rueckgaengig() === false && ebene(a) === S1, '11: … ein zweites Strg+Z springt nicht still auf einen früheren Schritt (hier gibt es keinen) und ändert nichts');
+  pruefe(a.steuerung.rueckgaengigMitGrund() === 'gesperrt', '11: N4: die Sperre durch das Haus meldet den Grund „gesperrt“');
   hausDazu(a, []);
   pruefe(a.steuerung.rueckgaengig() === true && ebene(a) === 'null', '11: Haus wieder weg: derselbe Schritt lässt sich zurücknehmen (er war im Verlauf geblieben)');
   pruefe(abweichungen(a.welt, basisWelt(), raster(14)) === 0, '11: … der Boden ist wieder die Basis');
@@ -730,6 +732,18 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   pruefe(a.steuerung.wiederholen() === false && ebene(a) === 'null' && a.meldungen.at(-1)!.includes('Schritt nicht möglich'), '11: Haus nach dem Rückgängig gesetzt: Wiederholen wird abgelehnt, nichts ändert sich');
   hausDazu(a, []);
   pruefe(a.steuerung.wiederholen() === true && ebene(a) === S1, '11: Haus weg: Wiederholen stellt den Strich bitgleich wieder her');
+
+  // N5: a failing write path is not a lock: the answer is 'nicht-moeglich' and the step STAYS (the shared order must not drop it)
+  const w = aufbau(LAYOUT as unknown as Record<string, unknown>);
+  w.ein.werkzeug = 'anheben';
+  w.ein.radius = 6;
+  strich(w, [0, 0], [0, 0], 4);
+  const wS1 = ebene(w);
+  w.entwurf.setze({ ...w.entwurf.doc(), heightDeltas: 'kaputt' }); // the draft field is unusable: `strichAbschliessen` refuses
+  pruefe(w.steuerung.rueckgaengigMitGrund() === 'nicht-moeglich', '11: N5: schlägt das Schreiben in den Entwurf fehl, ist der Grund „nicht möglich“, NICHT „gesperrt“');
+  pruefe(w.steuerung.kannRueckgaengig && w.steuerung.rueckgaengig() === false, '11: N5: der Schritt bleibt im Verlauf stehen (kein Verwerfen)');
+  w.entwurf.setze({ ...w.entwurf.doc(), heightDeltas: JSON.parse(wS1) });
+  pruefe(w.steuerung.rueckgaengig() === true && ebene(w) === 'null', '11: N5: ist der Entwurf wieder brauchbar, lässt sich derselbe Schritt zurücknehmen');
 
   // two strokes, a house over the second one: refused whole, the stroke before is NOT undone instead
   const b = aufbau(LAYOUT as unknown as Record<string, unknown>);

@@ -70,6 +70,7 @@ import {
 import { BAUSATZ_INSTANZEN_MAX } from '../bausatz/types.js';
 import { bausatzInstanzenFehler, bausatzInstanzenFehlerText, type BausatzInstanzFehler } from '../bausatz/sanitize.js';
 import type { WorldLayout } from './types.js';
+import { vegetationProblem, type VegetationProblem } from './vegetationEntfernt.js';
 import { heightResponseMessage } from './heightMessages.js';
 
 /**
@@ -88,6 +89,8 @@ export const SICHERUNGEN_BEHALTEN = 10;
  */
 export class LayoutUngueltig extends Error {
   heightProblem?: HeightProblem;
+  /** Gesetzt bei `LayoutVegetationUngueltig`: der Befund für die 422-Antwort des Betriebsdienstes. */
+  vegetationProblem?: VegetationProblem;
   placementErrors?: readonly PlatzierungsFehler[];
   constructor(meldung: string) {
     super(meldung);
@@ -174,6 +177,35 @@ export class LayoutHoehenkorrekturUngueltig extends LayoutUngueltig {
     super(`${fehlerhaft.length} Fehler in heightDeltas — nichts gespeichert`);
     this.name = 'LayoutHoehenkorrekturUngueltig';
   }
+}
+
+/**
+ * Das Dokument enthält in `vegetationEntfernt` fehlerhafte Einträge (Kreis mit Radius außerhalb 0,5…50 m, Koordinate
+ * außerhalb des Weltrahmens oder nicht endlich, unbekannter Schlüssel, `nur` ungleich `'baeume'`, kein Objekt, kein Array)
+ * oder mehr als `VEGETATION_KREISE_MAX` Kreise. Wie bei Höhenkorrektur und Platzierungen: Der Betriebsdienst antwortet
+ * 422 mit dem Befund und schreibt nichts. Ein stilles Bereinigen ließe einen Kreis fehlen, ohne dass es jemand merkt,
+ * und die Bäume wüchsen dort wieder.
+ */
+export class LayoutVegetationUngueltig extends LayoutUngueltig {
+  /** Hash der Bytes, aus denen der Befund gelesen wurde (nur beim Lesen einer Datei): eine Lesung, kein zweites Lesen. */
+  constructor(readonly problem: VegetationProblem, readonly hash?: string) {
+    super(
+      problem.reason === 'limit'
+        ? `${problem.anzahl} Kreise in vegetationEntfernt — mehr als ${problem.grenze} nimmt das Weltdokument nicht auf; nichts gespeichert`
+        : `${problem.fehlerhaft.length} Fehler in vegetationEntfernt (${problem.fehlerhaft
+            .slice(0, 20)
+            .map((f) => `${f.eintrag} ${f.feld}=${JSON.stringify(f.wert)}`)
+            .join(', ')}${problem.fehlerhaft.length > 20 ? ` … (+${problem.fehlerhaft.length - 20})` : ''}) — nichts gespeichert`
+    );
+    this.name = 'LayoutVegetationUngueltig';
+    this.vegetationProblem = problem;
+  }
+}
+
+/** Wirft `LayoutVegetationUngueltig`, wenn `vegetationEntfernt` im ROHEN Dokument beschädigt oder zu groß ist. */
+function rejectVegetation(input: Record<string, unknown>, hash?: string): void {
+  const problem = vegetationProblem(input.vegetationEntfernt);
+  if (problem) throw new LayoutVegetationUngueltig(problem, hash);
 }
 
 /**
@@ -284,7 +316,7 @@ export function layoutLesen(pfad: string): WorldLayout {
  * könnten dazwischen einen fremden Schreibvorgang erwischen.
  */
 export function layoutLesenMitHash(pfad: string, optionen: { preserveRawHeight?: boolean } = {}): {
-  layout: WorldLayout; hash: string; rawHeight?: unknown;
+  layout: WorldLayout; hash: string; rawHeight?: unknown; rawVegetation?: unknown;
 } {
   let bytes: Buffer;
   let roh: unknown;
@@ -295,11 +327,16 @@ export function layoutLesenMitHash(pfad: string, optionen: { preserveRawHeight?:
     throw new LayoutUngueltig(`${basename(pfad)} nicht lesbar: ${(fehler as Error).message}`);
   }
   const object = roh && typeof roh === 'object' && !Array.isArray(roh) ? roh as Record<string, unknown> : null;
-  if (!optionen.preserveRawHeight && object) rejectHeight(object);
+  if (!optionen.preserveRawHeight && object) {
+    rejectHeight(object);
+    rejectVegetation(object, layoutHash(bytes));
+  }
   // PATCH never consumes the correction: exclude it before sanitizing unrelated fields.
-  const sauber = sanitizeWorldLayout(optionen.preserveRawHeight && object ? { ...object, heightDeltas: undefined } : roh);
+  // Ebenso die Kreise der entfernten Vegetation: ein PATCH ändert sie nie, der Sanitizer dürfte sie weder kürzen noch verwerfen.
+  const sauber = sanitizeWorldLayout(optionen.preserveRawHeight && object ? { ...object, heightDeltas: undefined, vegetationEntfernt: undefined } : roh);
   if (!sauber) throw new LayoutUngueltig(`${basename(pfad)} ist kein gültiges WorldLayout`);
-  return { layout: sauber, hash: layoutHash(bytes), ...(object && Object.hasOwn(object, 'heightDeltas') ? { rawHeight: object.heightDeltas } : {}) };
+  return { layout: sauber, hash: layoutHash(bytes), ...(object && Object.hasOwn(object, 'heightDeltas') ? { rawHeight: object.heightDeltas } : {}),
+    ...(optionen.preserveRawHeight && object && Object.hasOwn(object, 'vegetationEntfernt') ? { rawVegetation: object.vegetationEntfernt } : {}) };
 }
 
 /** Preserve the established exception types, but carry both diagnostic lists. */
@@ -474,6 +511,12 @@ export interface SchreibOptionen {
    * abgeschickt hat.
    */
   heightDeltasUnberuehrt?: boolean;
+  /**
+   * Wie `heightDeltasUnberuehrt`, für `vegetationEntfernt`: Das Feld gilt als unberührt vom Schreibvorgang. Es wird nicht
+   * geprüft und nicht bereinigt, sondern roh (wie gelesen) zurückgeschrieben. NUR für den PATCH-Weg (`weltOps.ts`), der
+   * die Kreise nie ändert; sonst nirgends (POST, Import, MCP prüfen das Feld selbst, sonst ginge ein Tippfehler durch).
+   */
+  vegetationUnberuehrt?: boolean;
   sperreWartenMs?: number;
   /** Frist für eine Sperre ohne lesbare Besitzangabe (Vorgabe `SPERRE_VERALTET_MS`). */
   sperreVeraltetMs?: number;
@@ -1065,7 +1108,13 @@ function schreibenVorbereiten(eingabe: unknown, leereWelt = false, optionen: Sch
   if (instanzen > BAUSATZ_INSTANZEN_MAX) throw new LayoutZuVieleBausaetze(instanzen);
   const raw = typeof eingabe === 'object' && eingabe !== null && !Array.isArray(eingabe) ? eingabe as Record<string, unknown> : null;
   if (!optionen.heightDeltasUnberuehrt && raw) rejectHeight(raw);
-  const bericht = sanitizeWorldLayoutMitBericht(optionen.heightDeltasUnberuehrt && raw ? { ...raw, heightDeltas: undefined } : eingabe);
+  // Auch auf dem PATCH-Weg: Die Kreise sind ein gewöhnliches Feld des bereinigten Dokuments, kein rohes Durchreichen.
+  if (raw && !optionen.vegetationUnberuehrt) rejectVegetation(raw);
+  const bericht = sanitizeWorldLayoutMitBericht(
+    raw && (optionen.heightDeltasUnberuehrt || optionen.vegetationUnberuehrt)
+      ? { ...raw, ...(optionen.heightDeltasUnberuehrt ? { heightDeltas: undefined } : {}), ...(optionen.vegetationUnberuehrt ? { vegetationEntfernt: undefined } : {}) }
+      : eingabe
+  );
   if (!bericht) throw new LayoutUngueltig('Kein gültiges WorldLayout — verworfen');
   const layout = bericht.layout;
   // ── Warum diese zusätzliche Hürde ──────────────────────────────────
@@ -1136,9 +1185,12 @@ function schreibenVorbereiten(eingabe: unknown, leereWelt = false, optionen: Sch
     if (instanzFehler.length > 0) throw new LayoutBausaetzeUngueltig(instanzFehler);
   }
   // Raw height is an opaque JSON value on PATCH, never a sanitized WorldLayout field.
-  const document = optionen.heightDeltasUnberuehrt && raw && Object.hasOwn(raw, 'heightDeltas')
-    ? { ...layout, heightDeltas: raw.heightDeltas } : layout;
-  const text = optionen.heightDeltasUnberuehrt ? JSON.stringify(document, null, 2) : layoutText(layout);
+  const document = {
+    ...layout,
+    ...(optionen.heightDeltasUnberuehrt && raw && Object.hasOwn(raw, 'heightDeltas') ? { heightDeltas: raw.heightDeltas } : {}),
+    ...(optionen.vegetationUnberuehrt && raw && Object.hasOwn(raw, 'vegetationEntfernt') ? { vegetationEntfernt: raw.vegetationEntfernt } : {}),
+  };
+  const text = optionen.heightDeltasUnberuehrt || optionen.vegetationUnberuehrt ? JSON.stringify(document, null, 2) : layoutText(layout);
   return { layout, text, verworfen, verworfenJeFeld, zusammengefasst, zusammengefasstJeFeld };
 }
 

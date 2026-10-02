@@ -37,6 +37,10 @@ import {
   freiflaechenAusPlatzierungen,
   freiflaechenFuerZone,
   freiflaechenHuellen,
+  vegetationPruefer,
+  streuArt,
+  type VegetationEntferntKreis,
+  type VegetationPruefer,
   FEATURES,
   RegionGeo,
   layoutBounds,
@@ -324,6 +328,21 @@ export class ZoneManager {
   private readonly layoutBiomeMask: number | null = null;
   /** Clear areas of all layout placements (empty unless `platzierungenFreihalten`). */
   private readonly platzierungsFreiflaechen: readonly ClearArea[] = [];
+  /**
+   * Kreise `WorldLayout.vegetationEntfernt`: Nachfilter im Ablegen der Streuung (nicht als clearArea, damit der
+   * Zufallsstrom und alle übrigen Pflanzen bitgleich bleiben). Null ohne Kreise oder ohne Layout.
+   */
+  private vegetationEntfernt: VegetationPruefer | null = null;
+
+  /**
+   * Tauscht den Prüfer der Streuung aus (Live-Änderung von `vegetationEntfernt`): Zonen, die nach dem Tausch
+   * erzeugt werden (auch der Zonen-Rücksetzer), streuen mit den neuen Kreisen. Schon erzeugte Zonen ändert das
+   * nicht; die räumt `vegetationBereinigung.ts`.
+   */
+  setzeVegetationEntfernt(kreise: readonly VegetationEntferntKreis[] | undefined): void {
+    const pruefer = vegetationPruefer(kreise);
+    this.vegetationEntfernt = pruefer.leer ? null : pruefer;
+  }
 
   constructor(
     private readonly geo: GeoManager,
@@ -353,6 +372,8 @@ export class ZoneManager {
         maske |= BIOME_BY_NAME.get(region.biome) ?? 0;
       }
       this.layoutBiomeMask = maske;
+      const pruefer = vegetationPruefer(this.regionGeo.layout.vegetationEntfernt);
+      if (!pruefer.leer) this.vegetationEntfernt = pruefer;
       if (options.platzierungenFreihalten) {
         this.platzierungsFreiflaechen = freiflaechenAusPlatzierungen(
           this.regionGeo.layout,
@@ -701,6 +722,8 @@ export class ZoneManager {
       heightmap,
       clearAreas,
       (fund) => {
+        // Entfernte Vegetation: Nachfilter NACH allen Zufallszuegen, nichts anderes aendert sich.
+        if (this.vegetationEntfernt?.istEntfernt(fund.position.x, fund.position.z, streuArt(fund.prefabName))) return;
         // Instantiate the prefab at the position + set rotation
         const zdo = this.zdos.createZDO(fund.prefabHash, fund.position, fund.rotation);
 

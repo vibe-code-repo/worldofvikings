@@ -32,6 +32,7 @@ import {
   type Werkzeug,
 } from './gelaendePinsel';
 import { GelaendeVerlauf } from './gelaendeVerlauf';
+import type { SchrittErgebnis } from './verlaufReihenfolge';
 import { loseIndizes, platzierungenNahe } from './gelaendeLose';
 import { rohHoehenQuelle } from './gelaendeRoh';
 import { gesperrtDurch, punktGesperrt, sperrKreise, type SperrKatalog, type SperrKreis, type SperrPlatzierung } from './gelaendeSperre';
@@ -70,6 +71,8 @@ export interface GelaendeAbh {
   nachStrich(lose: number[] | 'alle'): void;
   jetztMs(): number;
   vorgangId(): string;
+  /** A stroke is now in the draft and in this history (the shared order of undo steps with the vegetation brush). */
+  strichGemacht?(): void;
 }
 
 /** How long the lock circles of the draft are reused (placements only change through other tools). */
@@ -199,6 +202,19 @@ export class GelaendeSteuerung {
   private loseNachfuehren(aenderungen: readonly Aenderung[]): void {
     if (this.listeGeaendert()) this.abh.nachStrich('alle');
     else this.abh.nachStrich(loseIndizes(this.abh.platzierungen(), this.abh.katalog, aenderungen));
+  }
+
+  get kannRueckgaengig(): boolean {
+    return this.verlauf.kannRueckgaengig;
+  }
+
+  /** The shared order drops the refused step from this history too. */
+  verwirfRueckgaengig(): void {
+    this.verlauf.verwerfeRueckgaengig();
+  }
+
+  get kannWiederholen(): boolean {
+    return this.verlauf.kannWiederholen;
   }
 
   get strichOffen(): boolean {
@@ -370,6 +386,7 @@ export class GelaendeSteuerung {
       this.abh.meldung(t('testflug.gelaende.strich_gespeichert', { n: v.aenderungen.length }));
       // The ground under loose objects moved: put them back on it (buildings are locked and did not move).
       this.verlauf.neu(v);
+      this.abh.strichGemacht?.();
       this.loseNachfuehren(v.aenderungen);
       return;
     }
@@ -405,17 +422,22 @@ export class GelaendeSteuerung {
 
   /** Ctrl+Z: takes back the last stroke (draft, live ground and loose objects). `true` = a stroke was taken back. */
   rueckgaengig(): boolean {
+    return this.schritt('rueckgaengig') === 'ok';
+  }
+
+  /** Like `rueckgaengig`, but says WHY nothing happened: 'gesperrt' = a plinth or building lies on the stroke, 'nicht-moeglich' = anything else (open stroke, nothing to undo, draft refused). */
+  rueckgaengigMitGrund(): SchrittErgebnis {
     return this.schritt('rueckgaengig');
   }
 
   /** Ctrl+Y / Ctrl+Shift+Z: puts the last taken-back stroke in again, bit-equal to before. */
   wiederholen(): boolean {
-    return this.schritt('wiederholen');
+    return this.schritt('wiederholen') === 'ok';
   }
 
-  private schritt(art: 'rueckgaengig' | 'wiederholen'): boolean {
+  private schritt(art: 'rueckgaengig' | 'wiederholen'): SchrittErgebnis {
     // A stroke that is open is finished first (the mouse is still down): undo never tears it.
-    if (this.strich || !this.karte) return false;
+    if (this.strich || !this.karte) return 'nicht-moeglich';
     // Compare with the draft first: a foreign change empties the history (nothing to undo then).
     this.abgleichen();
     const karte = this.karte;
@@ -425,12 +447,14 @@ export class GelaendeSteuerung {
     // stroke before. The lock circles are read fresh, not from the cache.
     this.kreiseZeit = -Infinity;
     const kreise = this.sperrkreiseHolen();
+    let gesperrtGrund = false;
     const anwenden = (v: GelaendeVorgang): GelaendeVorgang | null => {
       const gesperrt = v.aenderungen.filter((a) => {
         const p = punktWelt(a);
         return punktGesperrt(kreise, p.x, p.z);
       }).length;
       if (gesperrt > 0) {
+        gesperrtGrund = true;
         this.abh.meldung(t('testflug.gelaende.verlauf_gesperrt', { n: gesperrt }));
         return null;
       }
@@ -448,14 +472,14 @@ export class GelaendeSteuerung {
       // (a refused or conflicting step has already said why)
       if (!this.verlauf.kannRueckgaengig && art === 'rueckgaengig') this.abh.meldung(t('testflug.gelaende.nichts_rueckgaengig'));
       if (!this.verlauf.kannWiederholen && art === 'wiederholen') this.abh.meldung(t('testflug.gelaende.nichts_wiederholen'));
-      return false;
+      return gesperrtGrund ? 'gesperrt' : 'nicht-moeglich';
     }
     this.neuBauenJeZone(angewandt.aenderungen);
     // Everything near the change is put on the ground again, buildings too: a placement has no height of its own and the
     // server stands it on the ground, so none may keep showing the old one.
     this.alleNachfuehren(angewandt.aenderungen);
     this.abh.meldung(t(art === 'rueckgaengig' ? 'testflug.gelaende.rueckgaengig' : 'testflug.gelaende.wiederholt', { n: angewandt.aenderungen.length }));
-    return true;
+    return 'ok';
   }
 
   /** Tool ended while the mouse may still be down (Esc, right click, other tab): the open stroke is finished, not dropped. */

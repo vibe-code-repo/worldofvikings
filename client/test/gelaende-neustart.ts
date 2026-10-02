@@ -350,7 +350,7 @@ async function main(): Promise<void> {
   const de = JSON.parse(lies('../src/i18n/katalog/de.json')) as Record<string, string>;
   const en = JSON.parse(lies('../src/i18n/katalog/en.json')) as Record<string, string>;
   const schluessel = Object.keys(de).filter((k) => k.startsWith('testflug.neustart.') || k.startsWith('testflug.gelaende.hoehe.') || k.startsWith('testflug.gelaende.verworfen.') || k === 'testflug.gelaende.speichern_neustart');
-  pruefe(schluessel.length === 37, '9: 37 neue Schlüssel', String(schluessel.length));
+  pruefe(schluessel.length === 38, '9: 38 neue Schlüssel', String(schluessel.length));
   pruefe(schluessel.every((k) => typeof en[k] === 'string' && en[k] !== de[k]), '9: jeder Schlüssel in en vorhanden und übersetzt');
   const quelle = lies('../src/editor/testflug/neustart.ts') + lies('../src/editor/testflug/entwurfSpeichern.ts') + lies('../src/editor/testflug/LocalStoragePersistenz.ts') + lies('../src/editor/testflug/neustartSteuerung.ts') + lies('../src/editor/testflug/speichernVerdrahtung.ts') + testflug + panel;
   pruefe(schluessel.every((k) => quelle.includes(`'${k}'`)), '9: jeder neue Schlüssel wird im Quelltext benutzt');
@@ -675,6 +675,7 @@ async function main(): Promise<void> {
       ['lakes', { lakes: [{ id: 's', x: 'a', z: 0, radius: 50 }] }, 'lakes'],
       ['routes', { routes: [{ id: 'r', points: [[0, 0], [1, 'x']], mode: 'loop' }] }, 'routes'],
       ['bausaetze', { bausaetze: [null, {}] }, 'bausaetze'],
+      ['vegetationEntfernt', { vegetationEntfernt: [{ x: 1, z: 1, r: 500 }] }, 'vegetationEntfernt'],
       ['defaultSpawn', { defaultSpawn: [null, {}] }, 'defaultSpawn'],
     ];
     pruefe(GEPRUEFTE_SAMMLUNGEN.every((f) => jeSammlung.some(([, , x]) => x === f)), 'R3: jede geprüfte Sammlung hat einen Zeugen im Test', GEPRUEFTE_SAMMLUNGEN.join());

@@ -14,7 +14,7 @@
  *      a cow one metre from the player does no damage while the wolf does.
  *  [3] The REAL packet path: a WebSocket client on a running server hits a cow
  *      and a wolf with fist, sword and axe, they die after the counted number
- *      of hits, and the loot lands in the inventory.
+ *      of hits, and the loot lies on the ground (D5).
  *
  * Every claim carries the number that proves it. Ports are ephemeral
  * (`portVon`, scripts/testport.mjs).
@@ -40,8 +40,10 @@ import {
   istEigenesModell,
   maxLeben,
   type SpawnEntry,
+  yawQuaternion,
   type Vector3,
 } from '@wov/shared';
+import { steckbriefFuer } from '../src/spiel/KreaturenSteckbriefe.js';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
 import { SpawnSystem } from '../src/world/SpawnSystem.js';
@@ -132,7 +134,7 @@ function buildWorld(rngSeed: number, table: readonly SpawnEntry[]) {
   const heightmaps = new HeightmapProvider(geo, { blendSmoothStep: true, bilinearSampling: false });
   const zdos = new ZDOManager(1n);
   const zones = new ZoneManager(geo, heightmaps, zdos, SEED, { worldFeatures: false, worldVegetation: false });
-  const spawns = new SpawnSystem(zdos, geo, heightmaps, zones, { rng: new XorShiftRandom(rngSeed), table });
+  const spawns = new SpawnSystem(zdos, geo, heightmaps, zones, { rng: new XorShiftRandom(rngSeed), table, kiUeberschreibung: { rueckzugNach: 0 } });
   return { geo, heightmaps, zdos, zones, spawns };
 }
 function generateAround(zones: ZoneManager, pos: Vector3): void {
@@ -285,6 +287,11 @@ console.log('\n[2c] The cow does not attack; the wolf does (peer one metre / ten
   // WOLF: 10 m away, chases at run speed, then strikes.
   const peerW = { ...wald };
   const wolf = einzelnes('Wolf', peerW, 10);
+  // D4: a wolf only notices what lies in its 230 degree view cone, and stands
+  // `bemerktSec` before it runs. Face the wolf at the peer (it spawned with a
+  // random heading) and leave the noticing pause out of the running samples.
+  wolf.zdo.rotation = yawQuaternion(Math.atan2(peerW.x - wolf.zdo.position.x, peerW.z - wolf.zdo.position.z));
+  const bemerktPause = (steckbriefFuer('Wolf')!.ki!.bemerktSec) + 0.1;
   const treffer: { t: number; schaden: number; radius: number }[] = [];
   let simT = 0;
   wolf.spawns.onCreatureAttack = (_p, schaden, radius) => {
@@ -301,7 +308,7 @@ console.log('\n[2c] The cow does not attack; the wolf does (peer one metre / ten
     simT += 0.05;
     const d = dist2d(wolf.zdo.position, peerW);
     if (d > 1.7 + 1e-6) {
-      animAufDemWeg.add(wolf.zdo.getString(ANIM_MEMBER));
+      if (simT > bemerktPause) animAufDemWeg.add(wolf.zdo.getString(ANIM_MEMBER));
       if (letzterAbstand - d > 1e-9) schritte.push((letzterAbstand - d) / 0.05);
     } else {
       // The state is written from the distance BEFORE the step, so the first tick
@@ -320,7 +327,8 @@ console.log('\n[2c] The cow does not attack; the wolf does (peer one metre / ten
   check('wolf: plays `attack` once in range', animImAngriff.size === 1 && animImAngriff.has('attack'), [...animImAngriff].join(','));
   check('wolf: strikes with 8 damage in 2.4 m (the creature numbers of the game)', treffer.length > 0 && treffer.every((t) => t.schaden === 8 && t.radius === 2.4), `${treffer.length} strikes`);
   const luecken = treffer.slice(1).map((t, i) => t.t - treffer[i].t);
-  check('wolf: one strike every 2 s', luecken.length >= 4 && luecken.every((l) => Math.abs(l - 2) < 0.11), luecken.map((l) => f(l)).join(', '));
+  const takt = steckbriefFuer('Wolf')!.ki!.taktSec;
+  check(`wolf: one strike every ${takt} s (species profile)`, luecken.length >= 4 && luecken.every((l) => Math.abs(l - takt) < 0.11), luecken.map((l) => f(l)).join(', '));
 }
 
 // ── [3] The real packet path ─────────────────────────────────────
@@ -413,6 +421,10 @@ async function main(): Promise<void> {
     worldVegetation: false,
   });
   server.start();
+  // D4: the wolf now retreats after three strikes with a 40 % chance (random, time-seeded
+  // on the real server), which would turn the fixed hit counts below into coin flips.
+  // The retreat is tested in ki-zustaende.ts; here it is switched off for this server.
+  (server.spawns as unknown as { kiUeberschreibung: Record<string, number> }).kiUeberschreibung = { rueckzugNach: 0 };
   const PORT = portVon(server);
 
   try {
@@ -454,7 +466,9 @@ async function main(): Promise<void> {
       return zdo;
     }
     const vorn = (von: Vector3, abstand: number): Vector3 => ({ x: von.x, y: von.y, z: von.z - abstand });
-    const beute = (): number => peer!.inventar.countOf('RawMeat');
+    // D5: loot lies on the ground at the corpse now; `beute()` counts what is in the inventory plus the RawMeat on the ground.
+    const bodenFleisch = (): number => server.zdos.getAllZDOs().filter((z) => server.beuteAmBoden.istBeute(z) && z.getString('beute_item') === 'RawMeat').reduce((a, z) => a + z.getInt('beute_menge'), 0);
+    const beute = (): number => peer!.inventar.countOf('RawMeat') + bodenFleisch();
 
     /** Hit with `waffe` until the animal is gone; returns the hits, the HP after each and the loot. */
     async function erschlage(zdo: ZDO, mitte: Vector3, waffe: string, halteFest = false): Promise<{ schlaege: number; hpReihe: number[]; fleisch: number; meldung: string }> {
@@ -508,7 +522,7 @@ async function main(): Promise<void> {
       const r = await erschlage(kuh, mitte, waffe, true);
       const soll = Math.ceil(30 / schaden);
       check(`cow, ${waffe === '' ? 'fist' : waffe} (${schaden}): dead after ${soll} hits`, r.schlaege === soll && kuh.destroyed, `hits ${r.schlaege}, HP ${r.hpReihe.join(' -> ')}`);
-      check(`cow, ${waffe === '' ? 'fist' : waffe}: loot 2-3 RawMeat in the inventory and in the message`, r.fleisch >= 2 && r.fleisch <= 3 && r.meldung === `Kuh besiegt — ${r.fleisch}× RawMeat`, `${r.fleisch}× / "${r.meldung}"`);
+      check(`cow, ${waffe === '' ? 'fist' : waffe}: loot 2-3 RawMeat on the ground (not in the inventory) and the kill message`, r.fleisch >= 2 && r.fleisch <= 3 && r.meldung === '@beute.besiegt|{"kreatur":"Kuh"}' && peer.inventar.countOf('RawMeat') === 0, `${r.fleisch}× / "${r.meldung}"`);
     }
 
     // [3c] Wolf: strikes back, dies, drops.
@@ -536,7 +550,7 @@ async function main(): Promise<void> {
     check('wolf anim member on the real server: run then attack', animSicht.has('run') && animSicht.has('attack'), [...animSicht].join(','));
     const gegen = await erschlage(wolf, mitte, 'AxeFlint');
     check('wolf, flint axe: dead after 2 hits', gegen.schlaege === 2 && wolf.destroyed, `hits ${gegen.schlaege}, HP ${gegen.hpReihe.join(' -> ')}`);
-    check('wolf: loot 1-2 RawMeat', gegen.fleisch >= 1 && gegen.fleisch <= 2 && gegen.meldung === `Wolf besiegt — ${gegen.fleisch}× RawMeat`, `${gegen.fleisch}× / "${gegen.meldung}"`);
+    check('wolf: loot 1-2 RawMeat on the ground', gegen.fleisch >= 1 && gegen.fleisch <= 2 && gegen.meldung === '@beute.besiegt|{"kreatur":"Wolf"}' && peer.inventar.countOf('RawMeat') === 0, `${gegen.fleisch}× / "${gegen.meldung}"`);
 
     mitte = await neuerPlatz(geoAnker.wald);
     const wolf2 = setze('Wolf', vorn(mitte, 3));
@@ -548,6 +562,131 @@ async function main(): Promise<void> {
     await warte(1200);
     const schw = await erschlage(wolf3, mitte, 'SwordNorth');
     check('wolf, north sword (12): dead after 3 hits', schw.schlaege === 3 && wolf3.destroyed, `hits ${schw.schlaege}, HP ${schw.hpReihe.join(' -> ')}`);
+
+    // [3d] D4 N1 (B5): a wolf beyond its leash goes home at full health and cannot be hit on the way
+    // (the player's 3.5 m reach against the wolf's 1.7 m made a free kill at the leash).
+    console.log('\n[3d] Wolf beyond its leash: home at full HP, not hittable on the way (real handleAttack)');
+    mitte = await neuerPlatz(geoAnker.wald);
+    const ankerFern = { x: mitte.x, y: mitte.y, z: mitte.z + 15 }; // 15 m behind the player: beyond the 12 m leash
+    const wolf4 = setze('Wolf', ankerFern);
+    const dort = { ...vorn(mitte, 2), y: wolf4.position.y };
+    server.zdos.updateZDOZone(wolf4, dort);
+    const hpSicht: number[] = [wolf4.getInt(HEALTH_MEMBER)];
+    // N4 (N1-2): this player already did 20 damage to the wolf before it went home (D5 tally); another one comes later.
+    server.beuteAmBoden.schaden(wolf4, peer.userId.toString(), 20);
+    let unverwundbarGesehen = false;
+    // N2 (N1-3): a blow on a creature that is going home costs no stamina, harvests nothing and says why.
+    let abgewehrtGeprueft = 0;
+    let abgewehrtFehler = '';
+    for (let i = 0; i < 2 && !wolf4.destroyed; i++) {
+      peer.stamina = 100;
+      server.zdos.updateZDOZone(wolf4, dort); // keep it in reach; the test counts hits, it does not chase
+      await blicke(ws, 0, 100);
+      const heim = spawns.unverwundbar(wolf4);
+      const zeitVorher = peer.staminaZuletztVerbraucht;
+      meldungen.length = 0;
+      sendAttack(ws, mitte, 'AxeFlint', 0);
+      await warte(420);
+      if (!wolf4.destroyed && spawns.unverwundbar(wolf4)) unverwundbarGesehen = true;
+      if (heim && !wolf4.destroyed) {
+        abgewehrtGeprueft++;
+        if (peer.stamina !== 100) abgewehrtFehler += ` stamina ${peer.stamina};`;
+        if (peer.staminaZuletztVerbraucht !== zeitVorher) abgewehrtFehler += ' Zeitstempel verändert;';
+        if (meldungen.length !== 1 || meldungen[0] !== '@kampf.unverwundbar') abgewehrtFehler += ` Meldungen [${meldungen.join('|')}];`;
+      }
+      hpSicht.push(wolf4.destroyed ? 0 : wolf4.getInt(HEALTH_MEMBER));
+    }
+    check(
+      'wolf beyond the leash: two flint-axe hits (15 each, 30 HP) do not kill it — it goes home, HP is full again',
+      !wolf4.destroyed && wolf4.getInt(HEALTH_MEMBER) === maxLeben('Wolf') && unverwundbarGesehen,
+      `HP ${hpSicht.join(' -> ')}, unverwundbar gesehen ${unverwundbarGesehen}`
+    );
+    check(
+      'blows on the homing wolf: no stamina cost (value and timestamp), exactly one message "@kampf.unverwundbar", no harvest message',
+      abgewehrtGeprueft >= 1 && abgewehrtFehler === '',
+      `${abgewehrtGeprueft} blows checked${abgewehrtFehler}`
+    );
+
+    // N3 (N2-1 d): a homing wolf BEHIND the player is outside the blow's cone: the blow is an ordinary one
+    // (costs stamina, no "unhittable" message).
+    const hinten = { ...vorn(mitte, -2), y: wolf4.position.y };
+    server.zdos.updateZDOZone(wolf4, hinten);
+    peer.stamina = 100;
+    await blicke(ws, 0, 100);
+    const heimHinten = !wolf4.destroyed && spawns.unverwundbar(wolf4);
+    meldungen.length = 0;
+    sendAttack(ws, mitte, 'AxeFlint', 0);
+    await warte(420);
+    check(
+      'homing wolf behind the player (outside the cone): the blow costs stamina and gives no "unhittable" message',
+      heimHinten && peer.stamina < 100 && !meldungen.includes('@kampf.unverwundbar'),
+      `homing ${heimHinten}, stamina ${peer.stamina}, messages [${meldungen.join('|')}]`
+    );
+
+    // N4: a homing wolf in the cone but out of reach (4.5 m) is not "hit" either: ordinary blow (stamina spent, no message).
+    server.zdos.updateZDOZone(wolf4, { ...vorn(mitte, 4.5), y: wolf4.position.y });
+    peer.stamina = 100;
+    await blicke(ws, 0, 100);
+    const heimFern = !wolf4.destroyed && spawns.unverwundbar(wolf4);
+    meldungen.length = 0;
+    sendAttack(ws, mitte, 'AxeFlint', 0);
+    await warte(420);
+    check(
+      'homing wolf in the cone but out of reach: the blow costs stamina and gives no "unhittable" message',
+      heimFern && peer.stamina < 100 && !meldungen.includes('@kampf.unverwundbar'),
+      `homing ${heimFern}, stamina ${peer.stamina}, messages [${meldungen.join('|')}]`
+    );
+
+    // N3 (N2-2): a homing wolf in the cone does not stop the harvest of a tree in reach: the tree takes the blow,
+    // the stamina is spent and there is no "unhittable" message.
+    const baum = server.zdos.createZDO(getStableHash('Beech_small1'), { ...vorn(mitte, 2.5), y: wolf4.position.y });
+    server.zdos.updateZDOZone(wolf4, dort);
+    peer.stamina = 100;
+    await blicke(ws, 0, 100);
+    const heimVorn = !wolf4.destroyed && spawns.unverwundbar(wolf4);
+    meldungen.length = 0;
+    sendAttack(ws, mitte, 'AxeFlint', 0);
+    await warte(420);
+    const baumHp = baum.destroyed ? 0 : baum.getInt(HEALTH_MEMBER);
+    check(
+      'homing wolf in the cone and a tree in reach: the tree takes the blow (HP < 60), stamina is spent, no "unhittable" message',
+      heimVorn && baumHp > 0 && baumHp < 60 && peer.stamina < 100 && !meldungen.includes('@kampf.unverwundbar'),
+      `homing ${heimVorn}, tree HP ${baumHp}, stamina ${peer.stamina}, messages [${meldungen.join('|')}]`
+    );
+    server.zdos.destroyZDO(baum.zdoid);
+    check(
+      'D5 tally: the damage dealt before the wolf went home is void; a later killer (10 damage against 20 before) owns the loot',
+      (server.beuteAmBoden.besitzer(wolf4) === '' && (server.beuteAmBoden.schaden(wolf4, 'anderer', 10), server.beuteAmBoden.besitzer(wolf4) === 'anderer')),
+      `owner ${server.beuteAmBoden.besitzer(wolf4)}`
+    );
+    // [3e] N5 (N4-1): the call `spawns.treffer(ziel, { id, schaden })` in handleAttack — the wolf knows its attacker.
+    // The wolf stands 2 m in front of the player and looks AWAY from him (it cannot see him): only the blow can make it notice him.
+    console.log('\n[3e] A blow puts the attacker into the wolf aggro table (real handleAttack)');
+    if (!wolf4.destroyed) server.zdos.destroyZDO(wolf4.zdoid); // no neighbour of [3d] that could call it
+    mitte = await neuerPlatz(geoAnker.wiese);
+    const wolf5 = setze('Wolf', vorn(mitte, 2));
+    wolf5.rotation = { x: 0, y: 1, z: 0, w: 0 }; // yaw pi: looks +z/−z away from the player (he stands behind it)
+    // The wolf must not wander (it would turn towards the player): idle for ever, standing where it was put.
+    const zustand = (spawns as unknown as { creatures: Map<string, { idleUntil: number; mode: string }> }).creatures.get(wolf5.zdoid.toString());
+    if (zustand) {
+      zustand.idleUntil = Number.POSITIVE_INFINITY;
+      zustand.mode = 'idle';
+    }
+    await warte(300);
+    const phaseVor = spawns.kiPhase(wolf5);
+    const tabelle = (): Map<string, { wert: number }> | undefined =>
+      (spawns as unknown as { creatures: Map<string, { zdo: ZDO; ki?: { tabelle: Map<string, { wert: number }> } }> }).creatures.get(wolf5.zdoid.toString())?.ki?.tabelle;
+    const vorher = tabelle()?.has(peer.userId.toString()) ?? false;
+    peer.stamina = 100;
+    await blicke(ws, 0, 100);
+    sendAttack(ws, mitte, 'AxeFlint', 0);
+    await warte(420);
+    const tabEintrag = tabelle()?.get(peer.userId.toString());
+    check(
+      'before the blow the wolf is unaware (phase wandern, no entry); after it the attacker is in the table with the damage (15) and the wolf has noticed him',
+      phaseVor === 'wandern' && !vorher && tabEintrag?.wert === 15 && spawns.kiPhase(wolf5) !== 'wandern',
+      `phase before ${phaseVor}, entry before ${vorher}, entry after ${tabEintrag?.wert}, phase after ${spawns.kiPhase(wolf5)}`
+    );
     ws.close();
   } finally {
     server.stop();

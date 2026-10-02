@@ -92,6 +92,11 @@ export default [
   // damit ein geänderter Wortlaut in pruefung.ts hier auffällt statt erst
   // als falsch gefärbte Zeile im Editor.
   ['client', 'test/befund-schwere.ts'],
+  /*
+    D5: die Beute- und Inventarmeldungen des Servers (`@key` oder `@key|{json}`): jeder Schluessel in beiden Katalogen,
+    Parameter fuellen die Platzhalter, Kreatur- und Itemnamen uebersetzt, kaputte Parameter verstecken die Meldung nicht.
+  */
+  ['client', 'test/beute-meldung.ts'],
   ['client', 'test/bewuchs-freiraum-vorschau.ts'],
   ['client', 'test/bewuchs-quellen.ts'],
   // Vegetation preview of the offline flight (K2.1): clears what the camera left, three levels, key L, client zone cache 1024. ~20 s.
@@ -686,6 +691,10 @@ export default [
   // verwendete Uebersetzungsschluessel in de.json UND en.json existiert
   // (faengt einen Tippfehler im Schluessel). DOM-frei, <1 s.
   ['client', 'test/testflug-texte-vollstaendig.ts'],
+  // Baeume entfernen V2 N3: der Speicherweg des Testflugs zeigt den Vegetationshinweis der Quittung wie der Editor. DOM-frei.
+  ['client', 'test/testflug-vegetation-hinweis.ts'],
+  // Textfeld-Fokus sperrt Spiel- und Testflug-Tasten (K, I, V, B, H, WASD): Helfer, echter InputManager mit Attrappen, Verdrahtung. DOM-frei.
+  ['client', 'test/texteingabe-tasten.ts'],
   /*
     Tod und Treffer N1: die Wurzelbewegungs-Zeile in AssetManager.instantiate (Liegeclips fremder Koerper) am ECHTEN Pfad: echter
     AssetManager, echter Koerper (v1), Bodenweg des Falls flach, Hoehenkeys wie im File. In der CI ohne Assets uebersprungen.
@@ -740,6 +749,15 @@ export default [
   // Nachbesserung N2 (F2/F3): zwei gleichzeitige getMasters() ergeben dieselbe Skala
   // (gebündelt), eine vorher gehaltene localMatrix-Referenz sieht eine spätere Änderung.
   ['client', 'test/upload-grundskala-neu-anwenden.ts'],
+  // Baeume entfernen V1: Vergleich, enthaelt, Import und Speicherschutz F1 kennen vegetationEntfernt.
+  ['client', 'test/vegetation-entfernt-dokument.ts'],
+  // Baeume entfernen V3: die Vorschau liest die Kreise aus dem ENTWURF und streut beim Malen/Rueckgaengig/Wiederholen neu; ausserhalb bitgleich.
+  ['client', 'test/vegetation-pinsel-vorschau.ts'],
+  // Baeume entfernen V3: Bewuchs-Pinsel im Gelaende-Reiter - Strich (Stempelabstand Radius/2, ein Vorgang), Abdeckung, "nur Baeume", Grenze 4096,
+  // Rueckgaengig/Wiederholen, offener Strich, unbrauchbarer Entwurf, Verdrahtung und Texte de/en. DOM-frei.
+  ['client', 'test/vegetation-pinsel.ts'],
+  // Baeume entfernen V2 N2: bei `angewendet` zeigt der Editor den Vegetationshinweis der Quittung (abgelehnte Kreise, Zonen ohne Marke), de/en.
+  ['client', 'test/vegetation-quittung-anzeige.ts'],
   // Die Grafikoption begrenzt die gemeinsamen Bild-/Schattenmatrizen der
   // Vegetation. Der reine Kreisfilter sichert den unveraenderten Standard
   // (0 = voll), den eingeschlossenen Rand und die X/Z-Distanz ab.

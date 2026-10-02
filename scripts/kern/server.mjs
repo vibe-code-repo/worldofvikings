@@ -144,6 +144,11 @@ export default [
   // kein Port, kein Socket. Haelt getGroundHeight(0,0) gegen den
   // D1-verifizierten Wert UND die Fallphysik-Konvergenz fest, damit ein
   // Rueckfall auf den alten Radial-Spawnpunkt sofort auffiele.
+  // D5 (Roadmap): Beute liegt bei der Leiche am Boden statt im Inventar des
+  // Toetenden — Besitzer = hoechster Schadensanteil, 2 min nur er, dann jeder,
+  // 5 min Lebensdauer, nach einem Neustart nicht doppelt; 1.000 Wuerfe +-3 %.
+  // Echter WebSocket, zwei Spieler, Zeit per Testhaken vorgespult. ~25 s.
+  ['server', 'test/d5-beute.ts'],
   ['server', 'test/d6-smoke.ts'],
   ['server', 'test/d6-zdo-delta.ts'],
   ['server', 'test/d8-save-async.ts'],
@@ -385,6 +390,17 @@ export default [
   ['server', 'test/g9-editor-verbindung.ts'],
   // A guest keeps state and ownership only with their token; nobody inherits a saved state by typing its name, and guests cannot wear an account name.
   ['server', 'test/gaeste-besitz.ts'],
+  // G2 (item data at run time): harvest by the field `ernte` (Holzaxt 6 blows, flint axe 4), crafting without a station, the live watch with its receipt (10 -> 12 within 2 s, broken file, discarded entries, confirmation for held items, lock held by a second process). Real WebSocket, ~40 s.
+  ['server', 'test/gegenstaende-g2-live.ts'],
+  // G2 N1: the confirmation covers only the hash and the ids of the receipt (more copies of the same id are removed too); `Inventory.rebind` splits an over-stack, keeps the excess if no slot is free.
+  ['server', 'test/gegenstaende-g2-n1.ts'],
+  ['server', 'test/gegenstaende-g2-n2.ts'],
+  // G2 N3: kept raw stacks count against the chest size, own their cell, come back at `rebind()`; no silent gap at the start (broken last good state + missing file); `stop()` resets the keep switch.
+  ['server', 'test/gegenstaende-g2-n3.ts'],
+  // G2 N4: no silent gap when working copy and last good state are both missing (first start settles itself); `rebind()` brings back only usable stacks; a chest list loses no known stack beside raw ones.
+  ['server', 'test/gegenstaende-g2-n4.ts'],
+  // G2: the start with a broken, gone or partly discarded working copy loads the LAST GOOD state; player and chest keep their data items over three restarts and saves.
+  ['server', 'test/gegenstaende-g2-start.ts'],
   // Terrain T4b: save (layoutSchreibenAsync with base) -> boot from the same work copy -> getGroundHeight = base + delta;
   // damaged heightDeltas refused at save, work copy byte-identical. No network, no assets.
   ['server', 'test/gelaende-speichern-neustart.ts'],
@@ -482,6 +498,13 @@ export default [
   ['server', 'test/kampf-waffe.ts'],
   // Kartenmodus `radial` und sein Altname: eine Warnung, dieselbe Welt bitgleich.
   ['server', 'test/kartenmodus-alias.ts'],
+  /*
+    D4 (30.09.2026): KI-Zustandsmaschine der Kreaturen. Reine Logik und das
+    SpawnSystem mit echten ZDOs auf flachem Gelaende, ohne Netz, ohne Assets:
+    Wanderradius, Sichtkegel 230 Grad, Leine, Verfolgungsende, Verfall,
+    Rueckzugswahrscheinlichkeit, Kettenaggro, Fels, Umlaufen. ~10 s.
+  */
+  ['server', 'test/ki-zustaende.ts'],
   /*
     Der Kugel-Sweep (11.09.2026): Ecken, Wandenden und die laterale
     Luecke, die die drei versetzten Strahlen davor gelassen haben. Sein
@@ -706,6 +729,7 @@ export default [
     Ephemerer Port, ~60 s.
   */
   ['server', 'test/spielerzustand-writebehind.ts'],
+  ['server', 'test/spielwerte.ts'],
   // Standardkonto: Ausprobieren ohne Registrierung (server.yml
   // `standard-konto:`) -- Konto+Charakter entstehen einmal, ein zweiter
   // Start legt nichts doppelt an und laesst das Passwort unveraendert,
@@ -775,6 +799,15 @@ export default [
   ['server', 'test/upload-grundskala-kollision.ts'],
   // Upload placements keep their ZDO (id, state) across a boot with an unreadable registry.
   ['server', 'test/upload-zdos-behalten.ts'],
+  // Baeume entfernen V2: Bereinigung gespeicherter Streu-ZDOs (Marke streu, ohne layoutId/spieler, nur-Baeume, Rand),
+  // Boot (gueltig/beschaedigt), Live-Ast der Layout-Wache (Obergrenze, nur neue Kreise), Pruefer-Austausch im ZoneManager,
+  // Messlauf 100 Zonen x 100 Kreise. Kein Server, Sekunden.
+  ['server', 'test/vegetation-bereinigung.ts'],
+  // Baeume entfernen V1: Nachfilter im Ablegen der Streuung (Server-Zone + Testflug-Vorschau), bitgleich ausserhalb.
+  ['server', 'test/vegetation-entfernt-zone.ts'],
+  // Baeume entfernen V2 am echten Spielserver: Boot mit Spielstand (gueltiger/beschaedigter Kreis), live ohne Neustart,
+  // Loeschliste an die Clients, neue Zone nach der Live-Aenderung, Obergrenze. Ephemerer Port. ~20 s.
+  ['server', 'test/vegetation-live.ts'],
   // A5 (Schlusskontrolle Paket 2): Deckel fuer offene, nie authentifizierte
   // Verbindungen (MAX_PENDING_CONNECTIONS in NetManager.ts). Vorher zaehlte
   // die "Server voll"-Pruefung nur onlinePeers — der Pre-Auth-Timeout liess

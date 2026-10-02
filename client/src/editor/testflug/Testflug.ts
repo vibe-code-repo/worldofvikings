@@ -54,7 +54,11 @@ import { ENTWURF_KEY } from '../weltdokument';
 import { verdrahteGrundskalaLive } from './grundskalaLive';
 import { GelaendeAktionen } from './GelaendeAktionen';
 import { GelaendeSteuerung, type Kasten } from './GelaendeSteuerung';
+import { VegetationAktionen, vegetationQuelleFuerVorschau } from './vegetationAktionen';
+import { VerlaufReihenfolge } from './verlaufReihenfolge';
+import { VegetationSteuerung } from './vegetationSteuerung';
 import { pipetteEntscheid, radiusSchritt, verlaufEntscheid } from './gelaendePinsel';
+import { istTexteingabeAktiv } from '../../engine/texteingabe';
 import { verdrahteEntwurfHoerer } from './gelaendeHoerer';
 import type { SperrKatalog } from './gelaendeSperre';
 
@@ -354,13 +358,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
      * Suchwort (Ursache von „B setzt nochmal"). Regler und Häkchen
      * schlucken keine Buchstaben, dort gelten die Kürzel weiter.
      */
-    const tipptImFeld = (e: KeyboardEvent): boolean =>
-      (e.target instanceof HTMLInputElement &&
-        // `number` seit den NPC-Feldern dabei: Im Stufenfeld ist die
-        // Tastatur Eingabe, nicht Steuerung — sonst schlösse ein
-        // Tastendruck darin das Panel oder platzierte.
-        (e.target.type === 'text' || e.target.type === 'number')) ||
-      e.target instanceof HTMLSelectElement;
+    const tipptImFeld = (e: KeyboardEvent): boolean => istTexteingabeAktiv(e);
     window.addEventListener('keydown', (e) => {
       if (tipptImFeld(e)) return;
       if (e.code === 'KeyB') {
@@ -391,7 +389,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       const player = kontext.player();
       if (e.code !== 'KeyV' || !player) return;
       // Tippt man gerade im Suchfeld des Panels, ist "v" ein Buchstabe.
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      if (tipptImFeld(e)) return;
       const an = !player.bauModus;
       player.setBauModus(an);
       hud.meldung(an ? t('testflug.baumodus_an') : t('testflug.baumodus_aus'));
@@ -536,6 +534,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     // Nur im Layout-Modus sinnvoll — ohne Region gibt es keine
     // Kuratierung und damit nichts vorzuschauen.
     const welt = kontext.world();
+    // Der Bewuchs-Pinsel (unten, Reiter Gelände) entsteht nach der Vorschau; die Vorschau liest ihn erst im Bild.
+    let vegetationPinsel: VegetationSteuerung | null = null;
     const bewuchs = welt?.regionGeo
       ? new BewuchsVorschau(
           { seed: welt.seed, geo: welt.geo, heightmaps: welt.heightmaps, regionGeo: welt.regionGeo },
@@ -546,8 +546,11 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           // Bereinigung wie auf dem Server (scale 0,2–5, einebnen 1–100),
           // sonst rechnet die Vorschau mit Rohwerten, die der Server klemmt.
           () => platzierungenFuerFreiflaechen(persistenz.laden()?.placements),
-          // Rohtext als Änderungsmarke: unverändert = nicht parsen, nicht rechnen.
-          persistenz.rohtext ? () => persistenz.rohtext!() : null
+          // Rohtext als Änderungsmarke: unverändert = nicht parsen, nicht rechnen. Dazu der Stand des Bewuchs-Pinsels:
+          // seine Kreise des offenen Strichs stehen noch nicht im Entwurf.
+          persistenz.rohtext ? () => `${persistenz.rohtext!()}#${vegetationPinsel?.stand ?? 0}` : null,
+          // Entfernte Vegetation: Kreise des ENTWURFS (nicht des Layouts der Welt) plus die des offenen Strichs.
+          () => vegetationQuelleFuerVorschau(persistenz.laden(), vegetationPinsel?.strichKreise() ?? [])
         )
       : null;
     if (bewuchs) {
@@ -795,6 +798,10 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     // `GelaendeSteuerung`/`gelaendePinsel`; hier hängen nur Zeiger, Tasten, Kreisvorschau
     // und der Neuaufbau der Kacheln daran. Ein Strich (Drücken bis Loslassen) = EIN Vorgang.
     const gelaendeAktionen = new GelaendeAktionen(persistenz);
+    // Strg+Z/Y über beide Werkzeuge: der zuletzt gemachte Strich zuerst (die Verläufe selbst bleiben getrennt).
+    const reihenfolge = new VerlaufReihenfolge();
+    /** Die letzte Meldung der Pinsel: ein verworfener Schritt hängt seinen Hinweis an den Grund der Verweigerung. */
+    let letzteMeldung = '';
     const foliageNamen: ReadonlySet<string> = new Set(FOLIAGE.map((f) => f.prefabName));
     const sperrKatalog: SperrKatalog = {
       def: (n) => findPrefabByName(n),
@@ -806,6 +813,28 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     const KREIS_GESPERRT = new Color3(0.95, 0.2, 0.2);
     const KREIS_SEGMENTE = 48;
     let kreisNetz: LinesMesh | null = null;
+    const kreisAnzeige = {
+      zeige: (x: number, z: number, r: number, gesperrt: boolean): void => {
+        const world = kontext.world();
+        if (!world) return;
+        const punkte: Vector3[] = [];
+        for (let i = 0; i <= KREIS_SEGMENTE; i++) {
+          const w = (i / KREIS_SEGMENTE) * Math.PI * 2;
+          const px = x + Math.cos(w) * r;
+          const pz = z + Math.sin(w) * r;
+          punkte.push(new Vector3(px, world.getGroundHeight(px, pz) + 0.25, pz));
+        }
+        kreisNetz = MeshBuilder.CreateLines(
+          'gelaendeKreis',
+          kreisNetz ? { points: punkte, instance: kreisNetz } : { points: punkte, updatable: true },
+          scene
+        );
+        kreisNetz.color = gesperrt ? KREIS_GESPERRT : KREIS_FREI;
+        kreisNetz.isPickable = false;
+        kreisNetz.setEnabled(true);
+      },
+      verberge: (): void => kreisNetz?.setEnabled(false),
+    };
     const gelaende = new GelaendeSteuerung({
       hoehe: (x, z) => kontext.world()?.getGroundHeight(x, z) ?? 0,
       geo: () => kontext.world()?.geo,
@@ -823,29 +852,11 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       katalog: sperrKatalog,
       aktionen: gelaendeAktionen,
       einstellung: () => panel.gelaendeEinstellung,
-      meldung: (text) => hud.meldung(text),
-      kreis: {
-        zeige: (x, z, r, gesperrt) => {
-          const world = kontext.world();
-          if (!world) return;
-          const punkte: Vector3[] = [];
-          for (let i = 0; i <= KREIS_SEGMENTE; i++) {
-            const w = (i / KREIS_SEGMENTE) * Math.PI * 2;
-            const px = x + Math.cos(w) * r;
-            const pz = z + Math.sin(w) * r;
-            punkte.push(new Vector3(px, world.getGroundHeight(px, pz) + 0.25, pz));
-          }
-          kreisNetz = MeshBuilder.CreateLines(
-            'gelaendeKreis',
-            kreisNetz ? { points: punkte, instance: kreisNetz } : { points: punkte, updatable: true },
-            scene
-          );
-          kreisNetz.color = gesperrt ? KREIS_GESPERRT : KREIS_FREI;
-          kreisNetz.isPickable = false;
-          kreisNetz.setEnabled(true);
-        },
-        verberge: () => kreisNetz?.setEnabled(false),
+      meldung: (text) => {
+        letzteMeldung = text;
+        hud.meldung(text);
       },
+      kreis: kreisAnzeige,
       // Der Boden unter losen Objekten hat sich bewegt: nur diese neu aufsetzen (Gebäude und Sockel bleiben, wie sie sind).
       pipetteAnzeige: (an) => panel.setzePipetteBereit(an),
       nachStrich: (lose) => {
@@ -859,7 +870,21 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       setzeZiel: (h) => panel.setzeZiel(h),
       jetztMs: () => performance.now(),
       vorgangId: () => `gelaende-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      strichGemacht: () => reihenfolge.neu('gelaende'),
     });
+    // Bewuchs entfernen: derselbe Reiter, derselbe Kreis; ein Strich = EIN Entwurfs-Schreibvorgang (`vegetationSteuerung.ts`).
+    vegetationPinsel = new VegetationSteuerung({
+      aktionen: new VegetationAktionen(persistenz),
+      einstellung: () => ({ radius: panel.gelaendeEinstellung.radius, nurBaeume: panel.vegetationEinstellung.nurBaeume }),
+      meldung: (text) => {
+        letzteMeldung = text;
+        hud.meldung(text);
+      },
+      kreis: kreisAnzeige,
+      strichGemacht: () => reihenfolge.neu('vegetation'),
+    });
+    const vegPinsel = vegetationPinsel;
+    reihenfolge.verbinde({ gelaende, vegetation: vegPinsel }, (art) => hud.meldung(t(art === 'rueckgaengig' ? 'testflug.gelaende.nichts_rueckgaengig' : 'testflug.gelaende.nichts_wiederholen')), () => hud.meldung(t('testflug.gelaende.schritt_verworfen', { grund: letzteMeldung })));
     /** Strich offen (Maustaste unten im Gelände-Reiter) und der letzte Zeigerpunkt, für den Halte-Takt. */
     let gelaendeUnten = false;
     let gelaendeZeiger: { x: number; y: number } | null = null;
@@ -874,6 +899,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     const gelaendeAus = (): void => {
       gelaendeUnten = false;
       gelaende.beenden();
+      vegPinsel.beenden();
     };
     panel.aufPipetteKnopf = () => gelaende.pipetteScharf();
     // Im Baumodus sinkt die Figur mit Strg; bei offenem Gelände-Reiter nicht (Strg+Z/Y gehören dem Verlauf).
@@ -896,7 +922,9 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // Ein geschlossener Reiter hat keine Ereignisse übernommen: jetzt angleichen (Zone für Zone, nur Unterschiede).
       gelaende.entwurfGeaendert();
       const e = panel.gelaendeEinstellung;
-      hud.meldung(t('testflug.gelaende.pinsel_an', { werkzeug: t(WERKZEUG_TEXT[e.werkzeug]), r: e.radius }));
+      if (panel.vegetationEinstellung.aktiv) {
+        hud.meldung(t(panel.vegetationEinstellung.nurBaeume ? 'testflug.gelaende.vegetation.pinsel_an_baeume' : 'testflug.gelaende.vegetation.pinsel_an', { r: e.radius }));
+      } else hud.meldung(t('testflug.gelaende.pinsel_an', { werkzeug: t(WERKZEUG_TEXT[e.werkzeug]), r: e.radius }));
     };
     window.addEventListener('keydown', (e) => {
       gelaendeShift = e.shiftKey;
@@ -904,7 +932,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       // nur bei offenem Reiter, nicht im Textfeld, gehaltene Taste = ein Schritt).
       const verlauf = verlaufEntscheid(e, panel.istGelaendeModus, tipptImFeld(e));
       if (verlauf.verhindern) e.preventDefault();
-      if (verlauf.aktion) void (verlauf.aktion === 'rueckgaengig' ? gelaende.rueckgaengig() : gelaende.wiederholen());
+      // Der zuletzt gemachte Strich kommt zuerst dran, egal welches Werkzeug gewählt ist (`verlaufReihenfolge.ts`).
+      if (verlauf.aktion) void (verlauf.aktion === 'rueckgaengig' ? reihenfolge.rueckgaengig() : reihenfolge.wiederholen());
       if (verlauf.verhindern) return;
       // Pipette: Taste H liest die Bodenhöhe unter dem Zeiger in das Zielfeld (H ist im Flug frei; Strg wäre im Baumodus die Sinktaste).
       // Nur bei offenem Reiter und nicht im Textfeld (ein „h“ im Namensfeld bleibt ein „h“).
@@ -948,6 +977,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     // Ein Bild lang stehende Maustaste: der Pinsel wiederholt seinen Stempel (StempelTakt bestimmt, wann).
     scene.onBeforeRenderObservable.add(() => {
       if (!gelaendeUnten || !gelaendeZeiger || !panel.istGelaendeModus) return;
+      // Der Bewuchs-Pinsel stempelt nach Weg, nicht nach Zeit: ein stehender Zeiger legt keinen weiteren Kreis.
+      if (panel.vegetationEinstellung.aktiv) return;
       gelaende.tick(bodenPunkt(gelaendeZeiger.x, gelaendeZeiger.y), gelaendeShift);
     });
 
@@ -1010,7 +1041,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
           gelaendeUnten = true;
           gelaendeZeiger = { x: e.offsetX, y: e.offsetY };
           gelaendeShift = e.shiftKey;
-          gelaende.druecken(gp, e.shiftKey);
+          if (panel.vegetationEinstellung.aktiv && !gelaende.pipetteBereit) vegPinsel.druecken(gp);
+          else gelaende.druecken(gp, e.shiftKey);
         }
         return;
       }
@@ -1131,7 +1163,10 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
         gelaendeShift = e.shiftKey;
         // Ging ein pointerup verloren (Maus außerhalb losgelassen), endet der Strich jetzt.
         if (gelaendeUnten && e.buttons !== 1) gelaendeAus();
-        if (gelaendeUnten) gelaende.bewegen(p, e.shiftKey);
+        if (panel.vegetationEinstellung.aktiv) {
+          if (gelaendeUnten) vegPinsel.bewegen(p);
+          else vegPinsel.vorschau(p);
+        } else if (gelaendeUnten) gelaende.bewegen(p, e.shiftKey);
         else gelaende.vorschau(p);
         return;
       }

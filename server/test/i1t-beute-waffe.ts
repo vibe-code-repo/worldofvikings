@@ -52,6 +52,22 @@
  *         sub-folder of `spiel/` makes the `.ts` files there CommonJS, and `module.require('../../WovServer.ts')`
  *         then goes through unseen (follow-up point X14, finding C2). `server/package.json` itself
  *         stays outside the scanned folder.
+ *         Subpath imports (`#name`, the `imports` field of `server/package.json`) are
+ *         resolved like any other specifier: one that leads to the class file is 2a, one that
+ *         leads to a helper follows the chains of 2b (a `.cjs` target is the X13 case). A
+ *         `#name` the scanner cannot resolve (not in `imports`, a target that is another
+ *         package or no path inside the package, no `imports` field at all) is a violation,
+ *         under `spiel/` (2a) and in a helper reached by value imports (2b). Attack on step 2,
+ *         finding I12-B2: `"imports": { "#lader": "./src/lader.cjs" }` loaded a second server
+ *         instance while the test stayed green.
+ *         Pattern keys (`#a/*`) are resolved like Node and TypeScript do: the longest matching
+ *         prefix wins, not the first key in the order of the file (attack on step 3, finding I13-B2). An
+ *         exact key matches only a specifier without a `*`; `#x/*` as a specifier is matched by the pattern
+ *         `#x/*` with the star standing for `*` (re-attack NA1, probe X44).
+ *     2d. No `node_modules` folder anywhere under `server/src`. A bare specifier
+ *         (`import lade from 'lader'`) resolves into `spiel/node_modules/lader` first, and the
+ *         scanner neither reads nor follows it (finding I12-B2, second way; the folder is
+ *         ignored by git, so it takes `git add -f`).
  *  3. Uniqueness, read on the syntax tree: each of the 14 names is declared
  *     exactly once under `server/src`, at module level, in the file the step
  *     put it in. Every other binding of such a name is a violation: a
@@ -77,7 +93,7 @@
  *  - Rule 2b follows imports inside `server/src` only. A detour through another
  *    package (`@wov/shared`, `@wov/admin`) or through a file outside
  *    `server/src` is not followed.
- *  - An alias (`paths` in a tsconfig) is not resolved. There is none today.
+ *  - An alias (`paths` in a tsconfig) is not resolved. There is none today. Subpath imports (`imports`) are (rule 2b).
  *  - Rule 3 reads declarations, not assignments: `globalThis.TRUHEN = …` is
  *    not seen.
  *  - A name built at run time is not seen (N2, finding B2): `process['getBuiltin' + 'Module']`,
@@ -91,7 +107,8 @@
  *
  * Run (from server/): npx tsx test/i1t-beute-waffe.ts
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
@@ -100,7 +117,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const SERVER_ROOT = resolve(HERE, '..');
 const REPO_ROOT = resolve(SERVER_ROOT, '..');
 /** Own package name: `@wov/server/src/…` reaches the same files through the workspace link in `node_modules`. */
-const PACKAGE = JSON.parse(readFileSync(resolve(SERVER_ROOT, 'package.json'), 'utf-8')) as { name: string; main?: string };
+const PACKAGE = JSON.parse(readFileSync(resolve(SERVER_ROOT, 'package.json'), 'utf-8')) as { name: string; main?: string; imports?: Record<string, unknown> };
 
 // Paths below are relative to the server package and use forward slashes: `src/spiel/Beute.ts`.
 const SRC = 'src';
@@ -184,7 +201,7 @@ interface Reference {
   readonly specifier: string | null;
 }
 interface Finding {
-  readonly rule: '2a' | '2b' | '2c' | '3';
+  readonly rule: '2a' | '2b' | '2c' | '2d' | '3';
   readonly file: string;
   readonly line: number;
   readonly text: string;
@@ -257,8 +274,63 @@ function moduleSystemNames(file: string, text: string): { line: number; name: st
   return out;
 }
 
-/** The files a specifier may mean, in the order they are tried. Empty for another package. */
-function candidates(from: string, specifier: string): string[] {
+/**
+ * The files a subpath import (`#name`) may mean by the `imports` field of `server/package.json` (I12-B2): one target or several (conditions, arrays),
+ * each a path inside the package, relative to it. `null` when the scanner cannot say: the key is not in `imports`, a target is not a path inside the
+ * package (another package, an absolute path), or there is no `imports` field at all.
+ */
+function subpathTargets(specifier: string, imports: Readonly<Record<string, unknown>> | undefined): string[] | null {
+  if (imports === undefined) return null;
+  const raw = specifier.replace(/\?.*$/, '');
+  // Node decodes `%xx` in the specifier and in the target (`%6Cader` is `lader`); the scanner does not decode, so a `%` anywhere means it cannot say what file is meant (NB1 of the second re-attack)
+  if (raw.includes('%')) return null;
+  let value: unknown;
+  let star = '';
+  // an exact key matches only a specifier WITHOUT a `*` (Node): `#x/*` as a specifier is a match of the PATTERN `#x/*` with the star standing for `*` (NA1 of the re-attack)
+  if (!raw.includes('*') && Object.prototype.hasOwnProperty.call(imports, raw)) value = imports[raw];
+  else {
+    // like Node (PATTERN_KEY_COMPARE): of all pattern keys that match, the one with the LONGEST part before the `*` wins, then the longer key (I13-B2);
+    // the first match in the order of the object would resolve `#a/l/lader` by `#a/*` where Node and TypeScript take `#a/l/*`
+    let best: { key: string; head: string } | null = null;
+    for (const [key, v] of Object.entries(imports)) {
+      const i = key.indexOf('*');
+      if (i < 0 || i !== key.lastIndexOf('*')) continue;
+      const head = key.slice(0, i);
+      const tail = key.slice(i + 1);
+      if (raw.length >= key.length && raw.startsWith(head) && raw.endsWith(tail) && (best === null || head.length > best.head.length || (head.length === best.head.length && key.length > best.key.length))) {
+        best = { key, head };
+        value = v;
+        star = raw.slice(head.length, raw.length - tail.length);
+      }
+    }
+  }
+  if (value === undefined) return null;
+  const leaves: unknown[] = [];
+  const collect = (v: unknown): void => {
+    if (Array.isArray(v)) v.forEach(collect);
+    else if (v !== null && typeof v === 'object') Object.values(v as Record<string, unknown>).forEach(collect);
+    else if (v !== null) leaves.push(v);
+  };
+  collect(value);
+  if (leaves.length === 0 || !leaves.every((l) => typeof l === 'string' && l.startsWith('./') && !l.includes('%') && !l.split('/').includes('node_modules'))) return null;
+  return (leaves as string[]).map((l) => posix.normalize(l.slice(2).replace(/\*/g, star)));
+}
+
+/** The files a specifier may mean, in the order they are tried. Empty for another package and for a subpath import the scanner cannot resolve. */
+function candidates(from: string, specifier: string, imports: Readonly<Record<string, unknown>> | undefined = PACKAGE.imports): string[] {
+  const expand = (base: string): string[] => {
+    const out = [base];
+    for (const [js, tsExts] of Object.entries(TS_FOR_JS)) {
+      if (base.endsWith(js)) for (const e of tsExts) out.push(base.slice(0, -js.length) + e);
+    }
+    for (const e of TRY_EXT) out.push(base + e);
+    for (const e of TRY_EXT) out.push(`${base}/index${e}`);
+    return out;
+  };
+  if (specifier.startsWith('#')) {
+    const targets = subpathTargets(specifier, imports);
+    return targets === null ? [] : targets.flatMap(expand);
+  }
   const clean = specifier.replace(/[?#].*$/, '');
   let base: string;
   if (clean === '.' || clean === '..' || clean.startsWith('./') || clean.startsWith('../')) {
@@ -270,17 +342,11 @@ function candidates(from: string, specifier: string): string[] {
   } else {
     return [];
   }
-  const out = [base];
-  for (const [js, tsExts] of Object.entries(TS_FOR_JS)) {
-    if (base.endsWith(js)) for (const e of tsExts) out.push(base.slice(0, -js.length) + e);
-  }
-  for (const e of TRY_EXT) out.push(base + e);
-  for (const e of TRY_EXT) out.push(`${base}/index${e}`);
-  return out;
+  return expand(base);
 }
 
-/** Rule 2a and 2b over a set of sources. */
-function direction(sources: Sources): Finding[] {
+/** Rule 2a and 2b over a set of sources. `imports` is the `imports` field of `server/package.json` (a parameter so that the self-test can give one). */
+function direction(sources: Sources, imports: Readonly<Record<string, unknown>> | undefined = PACKAGE.imports): Finding[] {
   const out: Finding[] = [];
   const refs = new Map<string, Reference[]>();
   for (const [file, text] of sources) refs.set(file, references(file, text));
@@ -299,7 +365,10 @@ function direction(sources: Sources): Finding[] {
   const hiddenLoad = (file: string): { line: number; what: string } | null => {
     if (!file.endsWith('.ts')) return { line: 1, what: 'is not a .ts file' };
     const r = (refs.get(file) ?? []).find((x) => x.specifier === null && (x.form === 'import()' || x.form === 'require()'));
-    return r ? { line: r.line, what: `${r.form} with a computed path` } : null;
+    if (r) return { line: r.line, what: `${r.form} with a computed path` };
+    // I12-B2: a subpath import the scanner cannot resolve leads anywhere
+    const u = (refs.get(file) ?? []).find((x) => x.specifier !== null && x.specifier.startsWith('#') && subpathTargets(x.specifier, imports) === null);
+    return u ? { line: u.line, what: `imports '${u.specifier}', a subpath import this scanner cannot resolve` } : null;
   };
 
   for (const file of inSpiel) {
@@ -317,7 +386,11 @@ function direction(sources: Sources): Finding[] {
         out.push({ rule: '2a', file, line: r.line, text: `${r.form} '${r.specifier}' imports the module system: createRequire is a require() this scanner cannot read` });
         continue;
       }
-      if (!candidates(file, r.specifier).includes(CLASS_FILE)) continue;
+      if (r.specifier.startsWith('#') && subpathTargets(r.specifier, imports) === null) {
+        out.push({ rule: '2a', file, line: r.line, text: `${r.form} '${r.specifier}' is a subpath import this scanner cannot resolve (not in "imports" of server/package.json, or not a path inside the package)` });
+        continue;
+      }
+      if (!candidates(file, r.specifier, imports).includes(CLASS_FILE)) continue;
       const specifier = r.specifier;
       const allowed = ALLOWED.some((a) => a.file === file && a.form === r.form && a.specifiers.includes(specifier));
       if (!allowed) out.push({ rule: '2a', file, line: r.line, text: `${r.form} '${r.specifier}' names WovServer.ts` });
@@ -331,7 +404,7 @@ function direction(sources: Sources): Finding[] {
     const edges: { to: string; line: number }[] = [];
     for (const r of refs.get(file) ?? []) {
       if (r.specifier === null || !VALUE_FORMS.includes(r.form)) continue;
-      const to = candidates(file, r.specifier).find((c) => sources.has(c));
+      const to = candidates(file, r.specifier, imports).find((c) => sources.has(c));
       if (to !== undefined) edges.push({ to, line: r.line });
     }
     return edges;
@@ -466,6 +539,11 @@ function packageJsonFindings(paths: readonly string[]): Finding[] {
   return paths.filter((p) => posix.basename(p) === 'package.json' && p.startsWith(`${SRC}/`)).map((p) => ({ rule: '2c' as const, file: p, line: 1, text: 'a package.json under server/src can turn the .ts files below it into CommonJS: not allowed' }));
 }
 
+/** Rule 2d (I12-B2): a `node_modules` folder anywhere under `server/src` holds packages that a bare specifier resolves to first, and the scanner does not read them. `paths` are relative to the server package. */
+function nodeModulesFindings(paths: readonly string[]): Finding[] {
+  return paths.filter((p) => p.startsWith(`${SRC}/`) && p.split('/').includes('node_modules')).map((p) => ({ rule: '2d' as const, file: p, line: 1, text: 'a node_modules folder under server/src can hold a package that loads WovServer.ts: not allowed' }));
+}
+
 /** Rule 3 over a set of sources. */
 function uniqueness(sources: Sources): Finding[] {
   const out: Finding[] = [];
@@ -574,6 +652,41 @@ console.log('\n[0] Self-test of the scanner on invented sources');
     ['a .cts helper two files away', { [X]: "import { a } from '../a.js';\nexport const w = a;", 'src/a.ts': "export { l as a } from './b.cjs';", 'src/b.cts': 'export const l = (p: string): unknown => require(p);' }, '2b'],
     ['a computed require() helper from a sub-folder of spiel/', { 'src/spiel/befehle/Y.ts': "import { l } from '../../lader.js';\nexport const w = l;", 'src/lader.ts': 'export const l = (p: string): unknown => require(p);' }, '2b'],
   ];
+  // subpath imports (I12-B2): `imports` of server/package.json is resolved; what cannot be resolved is a violation
+  const IMPORTS_PROBE: Record<string, unknown> = { '#lader': './src/lader.cjs', '#hilf': './src/hilf.ts', '#klasse': './src/WovServer.ts', '#paket': 'some-package', '#bedingt': { node: './src/lader.cjs', default: './src/hilf.ts' }, '#w/*': './src/w/*.ts', '#a/*': './src/spiel/*.ts', '#a/l/*': './src/*.cjs', '#a/k/*': './src/*.ts', '#x/*': './src/*.cjs', '#lp': './src/%6Cader.cjs' };
+  const redImports: [string, Record<string, string>, '2a' | '2b', Record<string, unknown> | undefined][] = [
+    ['subpath import of a .cjs helper that requires by a computed path (X8)', { [X]: "import lade from '#lader';\nexport const w = (): unknown => lade('./WovServer.ts');", 'src/lader.cjs': 'module.exports = (p) => require(p);' }, '2b', IMPORTS_PROBE],
+    ['subpath import that maps to the class file', { [X]: "import { WovServer } from '#klasse';" }, '2a', IMPORTS_PROBE],
+    ['subpath import of a .ts helper that imports the class', { [X]: "import { h } from '#hilf';", 'src/hilf.ts': "import { Wov } from './WovServer.js';\nexport const h = Wov;" }, '2b', IMPORTS_PROBE],
+    ['subpath import with conditions, one of them a .cjs helper', { [X]: "import { h } from '#bedingt';", 'src/lader.cjs': 'module.exports = { h: 1 };', 'src/hilf.ts': 'export const h = 1;' }, '2b', IMPORTS_PROBE],
+    ['subpath import by a wildcard to a helper that imports the class', { [X]: "import { h } from '#w/eins';", 'src/w/eins.ts': "import './../WovServer.js';\nexport const h = 1;" }, '2b', IMPORTS_PROBE],
+    // the longest pattern key wins, as in Node (I13-B2): `#a/l/*` (a .cjs helper) and `#a/k/*` (the class file) come AFTER the shorter `#a/*` in the object
+    ['the longest pattern key leads to a .cjs helper (X30)', { [X]: "import lade from '#a/l/lader';\nexport const w = (): unknown => lade('./WovServer.ts');", 'src/lader.cjs': 'module.exports = (p) => require(p);' }, '2b', IMPORTS_PROBE],
+    ['the longest pattern key leads to the class file (X32)', { [X]: "import { WovServer } from '#a/k/WovServer';\nexport const w = WovServer;" }, '2a', IMPORTS_PROBE],
+    ['an exact key with the star in the specifier reaches the file named `*.cjs` (X44)', { [X]: "import lade from '#x/*';\nexport const w = (): unknown => lade('./WovServer.ts');", 'src/*.cjs': 'module.exports = (p) => require(p);' }, '2b', IMPORTS_PROBE],
+    ['a target with a percent-encoded name reaches the file `lader.cjs` (X50)', { [X]: "import lade from '#lp';\nexport const w = (): unknown => lade('./WovServer.ts');", 'src/lader.cjs': 'module.exports = (p) => require(p);' }, '2a', IMPORTS_PROBE],
+    ['a percent-encoded specifier reaches the file `lader.cjs` through a pattern (X51)', { [X]: "import lade from '#a/%6Cader';\nexport const w = (): unknown => lade('./WovServer.ts');", 'src/spiel/lader.cjs': 'module.exports = (p) => require(p);' }, '2a', IMPORTS_PROBE],
+    ['subpath import that maps to another package', { [X]: "import p from '#paket';\nexport const q = p;" }, '2a', IMPORTS_PROBE],
+    ['subpath import that is not in imports', { [X]: "import p from '#unbekannt';\nexport const q = p;" }, '2a', IMPORTS_PROBE],
+    ['subpath import while server/package.json has an empty imports field', { [X]: "import p from '#lader';\nexport const q = p;" }, '2a', {}],
+    ['subpath import() of a name that is not in imports', { [X]: "export const p = import('#unbekannt');" }, '2a', IMPORTS_PROBE],
+    ['helper outside spiel/ with a subpath import the scanner cannot resolve', { [X]: "import { l } from '../lader.js';\nexport const w = l;", 'src/lader.ts': "import x from '#unbekannt';\nexport const l = x;" }, '2b', IMPORTS_PROBE],
+  ];
+  for (const [name, files, rule, imp] of redImports) {
+    const f = direction(set(files), imp);
+    check(`red: ${name}`, f.some((x) => x.rule === rule) && f.every((x) => x.rule === '2a' || x.rule === '2b'), show(f) || 'no finding');
+  }
+  const greenImports: [string, Record<string, string>][] = [
+    ['subpath import of a harmless .ts helper', { [X]: "import { h } from '#hilf';\nexport const q = h;", 'src/hilf.ts': 'export const h = 1;' }],
+    ['subpath import by a wildcard to a harmless .ts helper', { [X]: "import { h } from '#w/eins';\nexport const q = h;", 'src/w/eins.ts': 'export const h = 1;' }],
+    ['the shorter pattern key for a name the longer one does not match', { [X]: "import { h } from '#a/eins';\nexport const q = h;", 'src/spiel/eins.ts': 'export const h = 1;' }],
+    ['a subpath import over a type import only', { [X]: "import type { H } from '#lader';\nexport type Q = H;", 'src/lader.cjs': 'module.exports = 1;' }],
+  ];
+  for (const [name, files] of greenImports) {
+    const f = direction(set(files), IMPORTS_PROBE);
+    check(`green: ${name}`, f.length === 0, show(f));
+  }
+  check('subpathTargets: exact, wildcard, conditions, another package and an unknown key', JSON.stringify([subpathTargets('#hilf', IMPORTS_PROBE), subpathTargets('#w/eins', IMPORTS_PROBE), subpathTargets('#bedingt', IMPORTS_PROBE), subpathTargets('#paket', IMPORTS_PROBE), subpathTargets('#nein', IMPORTS_PROBE), subpathTargets('#a/l/lader', IMPORTS_PROBE), subpathTargets('#a/eins', IMPORTS_PROBE), subpathTargets('#a/k/WovServer', IMPORTS_PROBE), subpathTargets('#w/', IMPORTS_PROBE), subpathTargets('#x/*', IMPORTS_PROBE), subpathTargets('#x/eins', IMPORTS_PROBE), subpathTargets('#lp', IMPORTS_PROBE), subpathTargets('#a/%6Cader', IMPORTS_PROBE)]) === '[["src/hilf.ts"],["src/w/eins.ts"],["src/lader.cjs","src/hilf.ts"],null,null,["src/lader.cjs"],["src/spiel/eins.ts"],["src/WovServer.ts"],null,["src/*.cjs"],["src/eins.cjs"],null,null]');
   for (const [name, files, rule] of red) {
     const f = direction(set(files));
     check(`red: ${name}`, f.some((x) => x.rule === rule) && f.every((x) => x.rule === '2a' || x.rule === '2b') && (rule === '2b' || f.every((x) => x.rule === '2a')), show(f) || 'no finding');
@@ -609,6 +722,13 @@ console.log('\n[0] Self-test of the scanner on invented sources');
   for (const p of ['src/package.json', 'src/spiel/package.json', 'src/spiel/unter/package.json', 'src/world/dungeon/package.json']) {
     check(`red: ${p}`, packageJsonFindings([p]).length === 1 && packageJsonFindings([p])[0]!.rule === '2c', show(packageJsonFindings([p])) || 'no finding');
   }
+  // rule 2d (I12-B2): a node_modules folder under server/src, at any depth
+  for (const p of ['src/node_modules', 'src/spiel/node_modules', 'src/spiel/unter/node_modules', 'src/world/dungeon/node_modules/paket']) {
+    check(`red: ${p}`, nodeModulesFindings([p]).length === 1 && nodeModulesFindings([p])[0]!.rule === '2d', show(nodeModulesFindings([p])) || 'no finding');
+  }
+  check('green: no node_modules folder at all', nodeModulesFindings([]).length === 0);
+  check('green: names that only look similar', nodeModulesFindings(['src/spiel/node_modules_x', 'src/spiel/mynode_modules', 'src/node_module']).length === 0);
+  check('green: server/node_modules itself lies outside src', nodeModulesFindings(['node_modules', 'node_modules/typescript']).length === 0);
   check('green: no package.json at all', packageJsonFindings([]).length === 0);
   check('green: files with a similar name', packageJsonFindings(['src/spiel/package.json.txt', 'src/spiel/mypackage.json', 'src/spiel/Package.json']).length === 0);
   check('green: server/package.json itself lies outside src', packageJsonFindings(['package.json']).length === 0);
@@ -660,6 +780,7 @@ console.log('\n[0] Self-test of the scanner on invented sources');
 
 const links: string[] = [];
 const packageJsons: string[] = [];
+const nodeModulesDirs: string[] = [];
 function readSources(dir: string, out = new Map<string, string>()): Map<string, string> {
   let entries;
   try {
@@ -672,6 +793,7 @@ function readSources(dir: string, out = new Map<string, string>()): Map<string, 
     if (e.isSymbolicLink()) links.push(path);
     else if (e.isDirectory()) {
       if (e.name !== 'node_modules') readSources(path, out);
+      else nodeModulesDirs.push(path);
     } else if (SOURCE_EXT.test(e.name)) out.set(path, readFileSync(resolve(SERVER_ROOT, path), 'utf-8'));
     else if (e.name === 'package.json') packageJsons.push(path);
   }
@@ -725,6 +847,22 @@ console.log('\n[2] Direction: no module under server/src/spiel/ names or reaches
   check('2a: no file under spiel/ names WovServer.ts or the module system, only .ts files (one named exception: the context file, type-only)', direct.length === 0, show(direct));
   check('2b: no file under spiel/ reaches WovServer.ts, the module system, a non-.ts file or a computed import()/require() through value imports', chains.length === 0, show(chains));
   check('2c: no package.json under server/src', packageJsonFindings(packageJsons).length === 0, show(packageJsonFindings(packageJsons)));
+  check('2d: no node_modules folder under server/src', nodeModulesFindings(nodeModulesDirs).length === 0, show(nodeModulesFindings(nodeModulesDirs)));
+  {
+    // the reader itself (I12-B2): it collects a node_modules folder and does not read the files in it, so 2d has something to judge
+    const tmp = mkdtempSync(resolve(tmpdir(), 'i1t-nm-'));
+    try {
+      mkdirSync(resolve(tmp, 'spiel/node_modules/paket'), { recursive: true });
+      writeFileSync(resolve(tmp, 'spiel/node_modules/paket/index.js'), 'module.exports = 1;\n');
+      writeFileSync(resolve(tmp, 'spiel/a.ts'), 'export const a = 1;\n');
+      const vorher = nodeModulesDirs.length;
+      const gelesen = readSources(tmp);
+      const neu = nodeModulesDirs.splice(vorher); // no residue in the list the real check reads
+      check('the reader collects a node_modules folder and does not read into it', neu.length === 1 && neu[0]!.endsWith('/spiel/node_modules') && gelesen.size === 1 && [...gelesen.keys()].every((k) => !k.includes('node_modules')), `${neu.join(', ')}; ${[...gelesen.keys()].join(', ')}`);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  }
   for (const a of ALLOWED) {
     const used = sources.has(a.file) && references(a.file, sources.get(a.file)!).some((r) => r.specifier !== null && candidates(a.file, r.specifier).includes(CLASS_FILE));
     console.log(`  note: exception ${a.file} (${a.form}; ${a.reason}): ${sources.has(a.file) ? (used ? 'in use' : 'file exists, names no class file') : 'file does not exist'}`);

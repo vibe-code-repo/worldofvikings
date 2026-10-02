@@ -13,6 +13,7 @@
 export * from './constants.js';
 export * from './kreaturAnim.js';
 export * from './todTreffer.js';
+export * from './beute.js';
 export * from './types.js';
 export * from './protocol.js';
 export * from './hash.js';
@@ -63,6 +64,7 @@ export * from './npc.js';
 export * from './texte.js';
 export * from './leben.js';
 export * from './aggro.js';
+export * from './kiZustand.js';
 export * from './vegetation.js';
 export * from './flora.js';
 // Die Streutabelle der Store-Vegetation. Flach exportiert wie flora.js,

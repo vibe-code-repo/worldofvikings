@@ -65,6 +65,11 @@ export class GelaendeVerlauf {
     return angewandt;
   }
 
+  /** Drops the step that would be undone next (refused, e.g. by a plinth): the next older one is next. */
+  verwerfeRueckgaengig(): void {
+    this.zurueck.pop();
+  }
+
   /** The draft was changed from outside: what the steps refer to is gone. */
   leeren(): void {
     this.zurueck.length = 0;

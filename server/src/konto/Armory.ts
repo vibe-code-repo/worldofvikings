@@ -16,10 +16,10 @@
  * Konten erscheinen nicht (Regel in `Kontendatenbank.armoryZeilen`).
  *
  * ── Erweiterbar ohne Umbau ───────────────────────────────────────────
- * Stufe/Erfahrung, Fertigkeiten, Tode und Spielzeit gibt es im Spiel noch
- * nicht. `ArmoryProfil` fuehrt sie als OPTIONALE Felder; die Antwort laesst
- * sie weg, solange der Server sie nicht kennt. Kommen sie, setzt `baueProfil`
- * sie, und die Webseite liest `undefined` als "unbekannt".
+ * Tode und Spielzeit erfasst das Spiel (spiel/Spielwerte.ts), Stufe und
+ * Fertigkeiten kommen noch. `ArmoryProfil` fuehrt sie als OPTIONALE Felder; die
+ * Antwort laesst sie weg, solange der Spielstand sie nicht hat (`leseSpielwerte`),
+ * und die Webseite liest `undefined` als "unbekannt". Erfahrung (xp) geht nie raus.
  *
  * ── Speicherstand statt Puffer je Anfrage ───────────────────────────
  * Die Liste kommt aus EINEM Speicherstand aller sichtbaren Charaktere
@@ -42,6 +42,7 @@ import {
   type AusruestungsSlot, type ItemShared, type ItemStats, type Rarity, type Werte,
 } from '@wov/shared';
 import { PROFILTEXT_MAX, type ArmoryZeile, type Kontendatenbank } from './Kontendatenbank.js';
+import { SPIELZEIT_MAX_SEK, TODE_MAX, bereinigeZaehler } from '../spiel/Spielwerte.js';
 
 /** Eintraege je Seite der Liste (fest, der Aufrufer kann sie nicht waehlen). */
 export const ARMORY_SEITENGROESSE = 24;
@@ -166,7 +167,7 @@ export interface ArmoryProfil extends ArmoryEintrag {
   werte: ArmoryWerte;
   /** Profiltext, nur beim Avatar-Charakter des Kontos. */
   profil?: string;
-  // Folgt, sobald das Spiel es speichert; bis dahin fehlen die Felder in der Antwort.
+  // Optional: fehlen in der Antwort, solange der Spielstand sie nicht hat (Tode/Spielzeit: spiel/Spielwerte.ts).
   stufe?: number;
   erfahrung?: number;
   tode?: number;
@@ -626,7 +627,47 @@ export function baueProfil(z: ArmoryZeile, daten: string | null): ArmoryProfil {
     ),
     waffe,
     werte: leiteWerteAb(gespeichert.ruestung, waffe),
+    ...leseSpielwerte(gespeichert),
   };
+}
+
+/** Fertigkeits-Kennungen sind Teile von Uebersetzungsschluesseln (`fertigkeit.<id>`): nur harmlose Zeichen. */
+const FERTIGKEIT_ID = /^[A-Za-z0-9_-]{1,48}$/;
+const FERTIGKEITEN_MAX = 64;
+const STUFE_MAX = 999;
+
+/**
+ * Tode, Spielzeit, Stufe und Fertigkeiten aus dem Spielstand, jeweils nur wenn vorhanden und lesbar
+ * (ein fehlendes Feld bleibt weg, es wird nie zu 0). Erfahrung (xp, xpGesamt) wird absichtlich NICHT ausgegeben.
+ *
+ * Spielzeit: auf VOLLE STUNDEN abgerundet, in Minuten (Vielfache von 60). Das haelt die Zahl grob, verhindert aber NICHT,
+ * dass man ablesen kann, wann jemand online war: Ein Sprung der Spielzeit (eine Stunde weiter) oder der Tode verraet,
+ * dass der Charakter kurz davor verbunden war, auf etwa eine Minute genau (Sicherungstakt 30 s + Puffer 30 s; die
+ * Spielzeit selbst fliesst im normalen Takt in 5-Minuten-Stufen ein). Dieses Risiko ist entschieden und wird getragen
+ * (Mike, 01.10.2026: "so lassen, Text korrigieren"). Wer es ausschliessen will, muss Tode und Spielzeit aus einem
+ * Tagesstand liefern, den ein fester Zeitpunkt fuer alle Charaktere zieht.
+ * Weil beim Abmelden exakt gesichert wird, verraet der Stundensprung auch den Abmeldezeitpunkt.
+ */
+function leseSpielwerte(g: Record<string, unknown>): Partial<Pick<ArmoryProfil, 'stufe' | 'tode' | 'spielzeitMinuten' | 'fertigkeiten'>> {
+  const aus: Partial<Pick<ArmoryProfil, 'stufe' | 'tode' | 'spielzeitMinuten' | 'fertigkeiten'>> = {};
+  const tode = bereinigeZaehler(g.tode, TODE_MAX);
+  if (tode !== undefined) aus.tode = tode;
+  const sek = bereinigeZaehler(g.spielzeitSek, SPIELZEIT_MAX_SEK);
+  if (sek !== undefined) aus.spielzeitMinuten = Math.floor(sek / 3600) * 60;
+  const stufe = bereinigeZaehler(g.stufe, STUFE_MAX);
+  if (stufe !== undefined && stufe >= 1) aus.stufe = stufe;
+  const roh = g.fertigkeiten;
+  if (roh && typeof roh === 'object' && !Array.isArray(roh)) {
+    const liste: { name: string; stufe: number }[] = [];
+    for (const id of Object.keys(roh).sort().slice(0, FERTIGKEITEN_MAX)) {
+      if (!FERTIGKEIT_ID.test(id)) continue;
+      const eintrag = (roh as Record<string, unknown>)[id];
+      const rang = eintrag && typeof eintrag === 'object' ? bereinigeZaehler((eintrag as Record<string, unknown>).rang, STUFE_MAX) : undefined;
+      if (rang !== undefined && rang >= 1) liste.push({ name: `fertigkeit.${id}`, stufe: rang });
+    }
+    if (liste.length > 0) aus.fertigkeiten = liste;
+  }
+  return aus;
 }
 
 function liesZustand(daten: string | null): Record<string, unknown> {

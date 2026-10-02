@@ -206,5 +206,15 @@ for (const [wie, anwenden] of zustaende) {
 setzeUnbekannteVerwahren(false);
 wendeGegenstandsDatenAn([]);
 
+// ── 7. The callers read the new source ───────────────────────────────
+console.log('GD1 — Aufrufer lesen die neue Quelle');
+// Source checks without comments: the craft panel (DOM, no unit test) and the admin command `item give` (fallback).
+const ohneKommentare = (pfad: string): string =>
+  readFileSync(resolve(wurzel, pfad), 'utf-8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\s\/\/ .*$/gm, '');
+const panel = ohneKommentare('client/src/ui/CraftingPanel.ts');
+pruefe(/for \(const r of datenRezepte\(\)\)/.test(panel) && !/\bREZEPTE\b/.test(panel), 'CraftingPanel liest datenRezepte(), nicht REZEPTE');
+const spawn = ohneKommentare('server/src/spiel/befehle/Spawn.ts');
+pruefe(/\[\.\.\.ITEMS_BY_NAME\.values\(\)\]\.find\(/.test(spawn) && !/\bITEM_DEFS\b/.test(spawn), 'item give faellt auf alle Gegenstaende zurueck (ITEMS_BY_NAME), nicht auf ITEM_DEFS');
+
 console.log(`\n${fehler === 0 ? 'alle' : `${fehler} von`} ${geprueft} Pruefungen ${fehler === 0 ? 'bestanden' : 'FEHLGESCHLAGEN'}`);
 process.exit(fehler === 0 ? 0 : 1);

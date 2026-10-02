@@ -19,5 +19,7 @@
   "confirm.rejected": "Die Bestätigung wurde nicht ausgeführt ({reason}) — nichts gelöscht.",
   "confirm.done": "Zurückgehaltene Löschung ausgeführt.",
   "confirm.done-rest-pending": "Zurückgehaltene Löschung ausgeführt; der Rest des Dokuments ist noch nicht angewendet.",
-  "confirm.pending": "Bestätigungsanfrage geschrieben, aber (noch) nicht angewendet — die Wache übernimmt sie beim nächsten Takt."
+  "confirm.pending": "Bestätigungsanfrage geschrieben, aber (noch) nicht angewendet — die Wache übernimmt sie beim nächsten Takt.",
+  "vegetation.abgelehnt": "Vegetation nicht geräumt: {kreise} Kreis(e) mit {objekte} Objekten über der Grenze — gilt erst nach dem nächsten Neustart.",
+  "vegetation.ungemarkt": "Vegetation: {anzahl} Objekt(e) in {zonen} Zone(n) ohne Herkunftsmarke nicht geräumt."
 }

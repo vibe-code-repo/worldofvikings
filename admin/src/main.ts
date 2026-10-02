@@ -83,6 +83,7 @@ import {
   LayoutGesperrt,
   LayoutUngueltig,
   LayoutVeraltet,
+  LayoutVegetationUngueltig,
   LayoutZuVielePlatzierungen,
   layoutDateiHash,
   layoutLesenMitHash,
@@ -1502,7 +1503,13 @@ async function behandeln(
     } catch (error) {
       if (error instanceof LayoutUngueltig) {
         const answer = heightErrorAnswer(error) ?? vegetationErrorAnswer(error);
-        if (answer) return answer;
+        if (answer) {
+          // Beschaedigte Kreise: die Antwort nennt den Hash der Bytes auf der Platte, damit eine Reparatur
+          // (Kreise korrigieren, mit If-Match speichern) ohne Handarbeit moeglich ist.
+          // Der Hash kommt aus denselben Bytes wie der Befund (`LayoutVegetationUngueltig.hash`), kein zweites Lesen.
+          const aktuell = error instanceof LayoutVegetationUngueltig ? (error.hash ?? null) : null;
+          return aktuell ? { ...answer, kopf: { ETag: `"${aktuell}"` }, daten: { ...answer.daten, hash: aktuell } } : answer;
+        }
       }
       throw error;
     }

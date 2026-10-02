@@ -20,6 +20,7 @@ import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader';
 import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import '@babylonjs/loaders/glTF/2.0';
 import { AvatarRig } from '../src/player/AvatarRig.js';
@@ -103,8 +104,10 @@ async function main(): Promise<void> {
     // ── [1] clip choice ────────────────────────────────────────
     console.log('\n[1] Which clip carries the legs');
     {
-      const { rig, z, schritt } = await neuesRig(datei);
+      const { rig, scene, z, schritt } = await neuesRig(datei);
       check('the four block clips are known (start, halten, vor, rueck)', !!z.clipsBlock.start && !!z.clipsBlock.halten && !!z.clipsBlock.vor && !!z.clipsBlock.rueck);
+      const laufend = scene.animationGroups.filter((g) => g.isPlaying).map((g) => g.name);
+      check('after loading only `idle` plays (no block clip runs as a state)', laufend.join() === 'idle', laufend.join());
       check('before blocking: idle', z.aktiv?.grp.name === 'idle');
       rig.setzeBlock(true, 'steht');
       schritt(5);
@@ -140,12 +143,14 @@ async function main(): Promise<void> {
       // `block_start` plays once and stays short; a second block starts it again.
       const { rig, z, schritt } = await neuesRig(datei);
       rig.setzeBlock(true, 'steht');
-      schritt(10);
+      schritt(60); // longer than the 0.458 s of `block_start`: the first block ends in `block_halten`
       rig.setzeBlock(false, 'steht');
       schritt(60);
       rig.setzeBlock(true, 'steht');
       schritt(3);
-      check('a second block starts with `block_start` again', z.aktiv?.grp.name === 'block_start', z.aktiv?.grp.name);
+      check('a second block, after a long first one, starts with `block_start` again (the clock restarts)', z.aktiv?.grp.name === 'block_start', z.aktiv?.grp.name);
+      const start = z.aktiv as unknown as { grp: { loopAnimation: boolean; getCurrentFrame(): number; from: number } };
+      check('`block_start` plays ONCE (no loop) and from its first frame', start.grp.loopAnimation === false && start.grp.getCurrentFrame() - start.grp.from < 6, `loop ${start.grp.loopAnimation}, ${(start.grp.getCurrentFrame() - start.grp.from).toFixed(1)} frames in`);
       // Walking at once: no entry clip, straight to the walk.
       const { rig: r2, z: z2, schritt: s2 } = await neuesRig(datei);
       r2.setzeBlock(true, 'vor');
@@ -170,7 +175,9 @@ async function main(): Promise<void> {
       const ruheArme = arme.map((n) => knoten(n));
       const pose = paradePose(z, 0.5);
       rig.setzeBlock(true, 'steht');
-      schritt(60);
+      schritt(1);
+      check('the guard layer fades in, it does not jump (one 16 ms frame: between 0 and 1)', z.blockGewicht > 0.05 && z.blockGewicht < 0.5, `${z.blockGewicht.toFixed(3)}`);
+      schritt(59);
       check('(set-up) the guard layer is at full weight', z.blockGewicht === 1);
       const imBlock = arme.map((n) => knoten(n));
       const dp = arme.map((n, i) => winkel(imBlock[i]!, pose.get(n)!));
@@ -179,12 +186,33 @@ async function main(): Promise<void> {
       check('blocking: the arms are far from the idle arms (some bone over 20 deg)', Math.max(...dr) > 20, `max ${Math.max(...dr).toFixed(1)} deg`);
       check('standing in the block the spine is the one of `block_halten` (the full-body clip carries it): rumpf layer off', z.blockRumpfGewicht === 0);
       rig.setzeBlock(false, 'steht');
-      schritt(20); // 0.32 s > the 0.1 s fade
+      schritt(1);
+      check('and it fades out, it does not drop (one frame after the release: between 0 and 1)', z.blockGewicht > 0.4 && z.blockGewicht < 0.98, `${z.blockGewicht.toFixed(3)}`);
+      schritt(19); // 0.32 s > the 0.1 s fade
       check('0.3 s after the release the guard layer is gone', z.blockGewicht === 0, `${z.blockGewicht}`);
       const danach = arme.map((n, i) => winkel(knoten(n), ruheArme[i]!));
       // The idle clip itself breathes (a few degrees, and its phase differs from the snapshot), so the bound is 12 deg
       // against the 79 deg of the guard.
       check('… and the arms are back at the idle pose (within 12 deg; the guard was up to 79 deg away)', Math.max(...danach) < 12, `max ${Math.max(...danach).toFixed(2)} deg`);
+    }
+    {
+      // With a sword in the hand the arm layer (`arm_schwert`) holds the sword in front; the block pose must win over it
+      // and give the sword arm back after the release.
+      const { rig, scene, z, schritt, knoten } = await neuesRig(datei);
+      rig.setHeldItem(new TransformNode('schwert-attrappe', scene), 'schwert');
+      schritt(30);
+      const arme = ['Shoulder_R', 'Elbow_R', 'Hand_R'];
+      const pose = paradePose(z, 0.5);
+      const getragen = arme.map((n) => knoten(n));
+      check('(set-up) a sword in the hand: the arm is NOT in the guard pose before the block', arme.some((n, i) => winkel(getragen[i]!, pose.get(n)!) > 5), arme.map((n, i) => winkel(getragen[i]!, pose.get(n)!).toFixed(1)).join(' '));
+      rig.setzeBlock(true, 'steht');
+      schritt(60);
+      const imBlock = arme.map((n, i) => winkel(knoten(n), pose.get(n)!));
+      check('blocking with the sword: the sword arm is in the guard pose (within 1 deg), the arm layer yields', imBlock.every((w) => w < 1), imBlock.map((w) => w.toFixed(2)).join(' '));
+      rig.setzeBlock(false, 'steht');
+      schritt(40);
+      const danach = arme.map((n, i) => winkel(knoten(n), getragen[i]!));
+      check('after the release the sword arm is back in the carry pose (within 3 deg)', danach.every((w) => w < 3), danach.map((w) => w.toFixed(2)).join(' '));
     }
     {
       // Sideways: the walk cycle has an upright torso, the hold pose turns it: the torso layer carries it.

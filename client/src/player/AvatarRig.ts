@@ -938,12 +938,11 @@ export class AvatarRig {
       }
       // Death clips play only on demand: never as a state.
       for (const c of this.clipsTod.values()) c.grp.stop();
-      // D3: Block-Clips by name. They play only while blocking, never as a state.
+      // D3: Block-Clips by name. They play only while blocking, never as a state (the loader leaves all but `idle` stopped).
       const blockClip = (n: string): Clip | null => clips.find((k) => k.grp.name === n) ?? null;
       this.clipsBlock = {
         start: blockClip('block_start'), halten: blockClip('block_halten'), vor: blockClip('block_vor'), rueck: blockClip('block_rueck'),
       };
-      for (const c of Object.values(this.clipsBlock)) c?.grp.stop();
       this.blockRumpf = this.clipsBlock.halten ? this.baueMaskenSchicht(this.clipsBlock.halten, BLOCK_RUMPF) : null;
       this.blockRumpfGewicht = 0;
       this.blockGewicht = 0;
@@ -1767,7 +1766,8 @@ export class AvatarRig {
       const schlaegt = this.angriffRest > 0 && this.clipAngriff !== null;
 
       const springt = !schlaegt && inDerLuft && this.clipSprung !== null;
-      const blockZiel = this.blockAn && !schlaegt && !springt ? this.waehleBlockClip(bewegt) : null;
+      // Schlag und Sprung stehen in der Kette darunter VOR dem Block-Clip: Sie gehen vor.
+      const blockZiel = this.blockAn ? this.waehleBlockClip(bewegt) : null;
       const ziel = schlaegt
         ? this.clipAngriff
         : springt

@@ -143,7 +143,7 @@ console.log('\n[5] main.ts is wired to it');
   check('zeigerGefangen = the pointer lock element, fensterOffen = cursorNoetig()', /document\.pointerLockElement/.test(wert('zeigerGefangen')) && wert('fensterOffen') === 'cursorNoetig()', `${wert('zeigerGefangen')} / ${wert('fensterOffen')}`);
   check('dekorPlatzieren = dekoPlatzierung.aktiv, baumodus = player.bauModus', wert('dekorPlatzieren') === 'dekoPlatzierung.aktiv' && wert('baumodus') === 'player.bauModus');
   check('bauteilGewaehlt from the chosen piece, bauwerkzeug from `equipment.pieceTable`, gegenstandInHand from `equipment.rightItem`', /placement\?\.selectedPiece/.test(wert('bauteilGewaehlt')) && /equipment\?\.pieceTable/.test(wert('bauwerkzeug')) && /equipment\?\.rightItem/.test(wert('gegenstandInHand')), `${wert('bauteilGewaehlt')} / ${wert('bauwerkzeug')} / ${wert('gegenstandInHand')}`);
-  check('tot = the figure lies (avatar.liegt), imWasser = below WATER_LEVEL', /avatar\.liegt/.test(wert('tot')) && /WATER_LEVEL/.test(wert('imWasser')) && /position\.y/.test(wert('imWasser')), `${wert('tot')} / ${wert('imWasser')}`);
+  check('tot = the figure lies (avatar.liegt), imWasser = the feet below WATER_LEVEL', wert('tot') === 'player.avatar.liegt' && wert('imWasser') === 'player.position.y < WATER_LEVEL', `${wert('tot')} / ${wert('imWasser')}`);
   const setze = aufruf('player.setzeBlock');
   check('the controller gets the state once per frame: `player.setzeBlock(block.blockt)`', setze.length === 1 && text(setze[0]!.arguments[0]!) === 'block.blockt');
   check('an own swing ends the block: `block.schlag()` is called', aufruf('block.schlag').length === 1);

@@ -162,9 +162,35 @@ console.log('\n[2] The speed: client and server agree');
   ein3.tasten.add('KeyA');
   lauf(geh, 60);
   check('control: without the block, walking is 4.5 m/s', Math.abs(Math.hypot(geh.position.x, geh.position.z) - 4.5) < 0.05, `${Math.hypot(geh.position.x, geh.position.z).toFixed(3)} m`);
+  // The speed follows what really happens (`running`), not what the key asks: with no stamina left Shift does not run.
+  const { pc: leer, ein: ein4 } = neu();
+  ein4.tasten.add('KeyA');
+  ein4.tasten.add('ShiftLeft');
+  for (let i = 0; i < 60; i++) {
+    leer.setzeServerAusdauer(0); // the server's value keeps it empty
+    leer.update(1 / 60);
+  }
+  check('control: Shift with no stamina left walks at 4.5 m/s (the speed follows `running`, not the key)', Math.abs(Math.hypot(leer.position.x, leer.position.z) - 4.5) < 0.05, `${Math.hypot(leer.position.x, leer.position.z).toFixed(3)} m`);
 }
 
-console.log('\n[3] What goes to the server');
+console.log('\n[3] What goes to the rig and to the server');
+{
+  // The rig is told the block and the direction relative to the view (it picks the clip from it).
+  const richtung = (tasten: string[], blockt: boolean): { blockt: boolean; richtung: string } => {
+    const { pc, ein } = neu();
+    for (const t of tasten) ein.tasten.add(t);
+    pc.setzeBlock(blockt);
+    lauf(pc, 3);
+    const rig = pc.avatar as unknown as { blockAn: boolean; blockRichtung: string };
+    return { blockt: rig.blockAn, richtung: rig.blockRichtung };
+  };
+  const faelle: Array<[string[], string]> = [[[], 'steht'], [['KeyW'], 'vor'], [['KeyW', 'KeyA'], 'vor'], [['KeyS'], 'rueck'], [['KeyS', 'KeyD'], 'rueck'], [['KeyA'], 'seit'], [['KeyD'], 'seit']];
+  for (const [tasten, soll] of faelle) {
+    const r = richtung(tasten, true);
+    check(`blocking with ${tasten.join('+') || 'no key'}: the rig is told block on, direction "${soll}"`, r.blockt && r.richtung === soll, `${r.blockt} ${r.richtung}`);
+  }
+  check('not blocking: the rig is told block off', richtung(['KeyW'], false).blockt === false);
+}
 {
   const { pc, ein } = neu();
   ein.tasten.add('KeyA');

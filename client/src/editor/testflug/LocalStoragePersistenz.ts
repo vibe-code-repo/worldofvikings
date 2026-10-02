@@ -101,7 +101,7 @@ export function localStoragePersistenz(): TestflugPersistenz {
         if (!istDienstHash(antwort.hash)) return { ok: false, message: UNBESTAETIGT() } satisfies SpeicherAntwort;
         // Der Server hat jetzt unseren Stand: Er ist die Basis des nächsten Speicherns.
         basisNachziehen(antwort.hash);
-        return { ok: true, message: antwort.sperrAnzahl ? (antwort.messageOhneSperre ?? antwort.message) : antwort.message, ...(antwort.sperrAnzahl ? { loeschsperre: antwort.sperrAnzahl } : {}), ...(antwort.grund ? { grund: antwort.grund } : {}), ...warnungVon(antwort.message) } satisfies SpeicherAntwort;
+        return { ok: true, message: (antwort.sperrAnzahl ? (antwort.messageOhneSperre ?? antwort.message) : antwort.message) + (antwort.vegetationHinweis ? ` ${antwort.vegetationHinweis}` : ''), ...(antwort.sperrAnzahl ? { loeschsperre: antwort.sperrAnzahl } : {}), ...(antwort.grund ? { grund: antwort.grund } : {}), ...warnungVon(antwort.message) } satisfies SpeicherAntwort;
       }
       // Bei 409 bleibt die alte Basis im Zettel: Erst der Editor-Dialog (Serverstand laden oder „Entwurf behalten") ersetzt sie.
       if (antwort.art === 'veraltet') return { ok: false, message: VERALTET() } satisfies SpeicherAntwort;

@@ -667,6 +667,8 @@ export default [
   // verwendete Uebersetzungsschluessel in de.json UND en.json existiert
   // (faengt einen Tippfehler im Schluessel). DOM-frei, <1 s.
   ['client', 'test/testflug-texte-vollstaendig.ts'],
+  // Baeume entfernen V2 N3: der Speicherweg des Testflugs zeigt den Vegetationshinweis der Quittung wie der Editor. DOM-frei.
+  ['client', 'test/testflug-vegetation-hinweis.ts'],
   // Textfeld-Fokus sperrt Spiel- und Testflug-Tasten (K, I, V, B, H, WASD): Helfer, echter InputManager mit Attrappen, Verdrahtung. DOM-frei.
   ['client', 'test/texteingabe-tasten.ts'],
   /*

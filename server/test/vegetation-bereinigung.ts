@@ -134,6 +134,38 @@ console.log('\n[A] Bereinigung:');
   check('ungültige Kreise wirken nicht (und hängen nicht)', k.geloescht === 0 && lebt(zdos, baum.zdoid));
 }
 {
+  // N2-1: überlappende abgelehnte Kreise zählen jedes Objekt einmal; was ein angenommener Kreis räumt, steht nicht mehr
+  const zdos = new ZDOManager(1n);
+  for (let i = 0; i < 8; i++) setze(zdos, BAUM.prefabHash, 100 + i * 0.5, 50);
+  const A: VegetationEntferntKreis = { x: 102, z: 50, r: 10 };
+  const B: VegetationEntferntKreis = { x: 103, z: 50, r: 10 };
+  const e = bereinigeVegetation(zdos, [A, B], { grenze: 5 });
+  check('N2-1 zwei überlappende abgelehnte Kreise: 8 Objekte, nicht 16', e.abgelehnteKreise.length === 2 && e.abgelehntObjekte === 8 && e.geloescht === 0, `${e.abgelehntObjekte}`);
+  const C: VegetationEntferntKreis = { x: 100, z: 50, r: 0.6 }; // zwei Bäume (100, 100.5)
+  const e2 = bereinigeVegetation(zdos, [A, C], { grenze: 5 });
+  check('N2-1 ein angenommener Kreis C räumt 2 Objekte aus A: A meldet 6 stehende', e2.abgelehnteKreise.length === 1 && e2.geloescht === 2 && e2.abgelehntObjekte === 6, `${e2.geloescht} ${e2.abgelehntObjekte}`);
+}
+{
+  // N2-T1 (P2): überlappende Kreise belasten das Budget nur mit den NEUEN Treffern
+  const zdos = new ZDOManager(1n);
+  for (let i = 0; i < 10; i++) setze(zdos, BAUM.prefabHash, 100 + i * 0.5, 50);
+  const A: VegetationEntferntKreis = { x: 101.5, z: 50, r: 2 }; // 99.5..103.5: x = 100 .. 103.5 → 8 Bäume
+  const B: VegetationEntferntKreis = { x: 103, z: 50, r: 2.5 }; // 100.5..105.5: 10 Bäume, davon 6 schon in A
+  const e = bereinigeVegetation(zdos, [A, B], { grenze: 10 });
+  check('N2-T1 Überlappung zählt nicht doppelt ins Budget: beide Kreise passen, 10 gelöscht', e.abgelehnteKreise.length === 0 && e.geloescht === 10, `${e.geloescht} gelöscht, ${e.abgelehnteKreise.length} abgelehnt`);
+}
+{
+  // N2-T2 (P7): `nur` je Kreis gilt auch bei der Budgetwahl: Busch im Nur-Bäume-Kreis N belastet N nicht
+  const zdos = new ZDOManager(1n);
+  const b1 = setze(zdos, BUSCH.prefabHash, 100, 50);
+  setze(zdos, BAUM.prefabHash, 101, 50);
+  setze(zdos, BAUM.prefabHash, 101.5, 50);
+  const N: VegetationEntferntKreis = { x: 100.8, z: 50, r: 1.2, nur: 'baeume' };
+  const Z: VegetationEntferntKreis = { x: 100, z: 50, r: 0.5 }; // nur der Busch
+  const e = bereinigeVegetation(zdos, [N, Z], { grenze: 2 });
+  check('N2-T2 `nur` je Kreis bei der Budgetwahl: N (2 Bäume) angenommen, Z (der Busch) abgelehnt', e.geloescht === 2 && e.abgelehnteKreise.length === 1 && e.abgelehnteKreise[0]!.r === 0.5 && lebt(zdos, b1.zdoid), `${e.geloescht} ${JSON.stringify(e.abgelehnteKreise)}`);
+}
+{
   const a: VegetationEntferntKreis = { x: 1, z: 2, r: 3 };
   const b: VegetationEntferntKreis = { x: 1, z: 2, r: 3, nur: 'baeume' };
   check('hinzugekommene Kreise: Mehrfachmenge, `nur` unterscheidet', hinzugekommeneKreise([a], [a, b, a]).length === 2 && hinzugekommeneKreise([a, b], [b]).length === 0);

@@ -90,7 +90,7 @@ export interface BereinigungsErgebnis {
   readonly kreise: number;
   /** Kreise, die wegen der Obergrenze ganz abgelehnt wurden (nichts aus ihnen gelöscht). */
   readonly abgelehnteKreise: readonly VegetationEntferntKreis[];
-  /** Treffer der abgelehnten Kreise (so viele Objekte blieben stehen), ohne Überschneidungen zu doppeln. */
+  /** Objekte der abgelehnten Kreise, die stehen blieben: jedes einmal, ohne die, die ein angenommener Kreis räumte. */
   readonly abgelehntObjekte: number;
   readonly ms: number;
 }
@@ -156,6 +156,7 @@ export function bereinigeVegetation(
   let gewaehlt: Treffer[] = treffer;
   const abgelehnteKreise: VegetationEntferntKreis[] = [];
   let abgelehntObjekte = 0;
+  const abgelehnt = new Set<Treffer>();
   if (grenze !== undefined) {
     // Je Kreis ganz oder gar nicht, in der Reihenfolge des Dokuments: Die Treffer eines Kreises, die nicht mehr in das
     // Restbudget passen, lehnen den ganzen Kreis ab. Ein allein zu großer Kreis blockiert so keinen späteren kleinen.
@@ -182,10 +183,12 @@ export function bereinigeVegetation(
       }
       if (genommen.size + hier.length > grenze) {
         abgelehnteKreise.push(k);
-        abgelehntObjekte += hier.length;
+        for (const t of hier) abgelehnt.add(t);
       } else for (const t of hier) genommen.add(t);
     }
     gewaehlt = treffer.filter((t) => genommen.has(t));
+    // Jedes Objekt zählt einmal (überlappende abgelehnte Kreise), und was ein späterer, angenommener Kreis doch räumt, steht nicht mehr.
+    for (const t of abgelehnt) if (!genommen.has(t)) abgelehntObjekte++;
   }
   if (optionen.trocken) return fertig(0, gewaehlt, ungemarkt, zonenOhneMarke, abgelehnteKreise, abgelehntObjekte);
   let geloescht = 0;

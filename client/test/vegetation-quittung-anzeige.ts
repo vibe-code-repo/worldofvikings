@@ -44,6 +44,12 @@ console.log('=== vegetation-quittung-anzeige ===');
   const text = a.art === 'ok' ? wirkungsText(a) : '(kein ok)';
   check('zusammen mit „zurückgehalten“: beide Sätze stehen da', /Neusetzen/.test(text) && /Vegetation nicht geräumt/.test(text), text);
 }
+{
+  // N2-T3 (P6): der Hinweis steht auch neben einer offenen Löschsperre
+  const a = await schreibeWeltdokument(layout, 'h1', fetchMit({ ok: true, message: 'Gespeichert', hash: 'h2', angewendet: true, loeschsperre: { anzahl: 2 }, zaehler: { vegetationAbgelehnt: 1, vegetationAbgelehntObjekte: 9 } }));
+  const text = a.art === 'ok' ? wirkungsText(a) : '(kein ok)';
+  check('mit offener Löschsperre: Sperrsatz UND Vegetationshinweis', a.art === 'ok' && !!a.sperrHinweis && text.includes(a.sperrHinweis.charAt(0).toLowerCase() + a.sperrHinweis.slice(1)) && /Vegetation nicht geräumt: 1 Kreis\(e\)/.test(text), text);
+}
 if (fehler > 0) {
   console.error(`\n${fehler} FAIL`);
   process.exit(1);

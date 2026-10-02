@@ -808,4 +808,10 @@ export default [
   // Wildwarden clientseitig: Slot-Vertrag, Speicher-Rundlauf, Inventarersatz,
   // Körper-Wiederherstellung. NullEngine.
   ['client', 'test/wildwarden.ts'],
+  // D5: the model table of loot against the files on disk (needs assets).
+  ['client', 'test/d5-beute-modelle.ts', brauchtModelle('assets/models/HolzTruhe.glb')],
+  // D5: E finds loot on the ground even when its model never loaded.
+  ['client', 'test/d5-beute-ziel.ts'],
+  // D5: E without a target sends no `dungeon enter` unless a dungeon entrance is near.
+  ['client', 'test/e-ohne-ziel.ts'],
 ];

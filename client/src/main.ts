@@ -134,6 +134,7 @@ import { Namensschilder } from './ui/Namensschild';
 import { WorldMap } from './ui/WorldMap';
 import { setzeKartenMasse } from './ui/worldmap/mapTypes';
 import { baumenueHinweis } from './player/BaumenueHinweis';
+import { eOhneZiel } from './player/eOhneZiel';
 import { ladeTestflugEntwurf, starteTestflug } from './editor/testflug/Testflug';
 import { localStoragePersistenz } from './editor/testflug/LocalStoragePersistenz';
 import { checkJumpFromDraft } from './editor/testflug/inselwahl';
@@ -3489,16 +3490,12 @@ async function main() {
         }
       } else if (ziel) {
         socket.sendInteract(ziel.x, ziel.y, ziel.z, ziel.prefabHash);
-      } else if (imDungeon) {
-        const dx = player.position.x - dungeonSpawn.x;
-        const dz = player.position.z - dungeonSpawn.z;
-        if (dx * dx + dz * dz <= 6 * 6) {
-          socket.sendAdminCommand('dungeon leave');
-        } else {
-          hud.meldung('Zum Verlassen zurück zum Eingang (E)');
-        }
       } else {
-        socket.sendAdminCommand('dungeon enter');
+        // Ohne Ziel: Dungeon verlassen/betreten nur dort, wo es gemeint ist; sonst nichts (eOhneZiel.ts).
+        const aktion = eOhneZiel({ imDungeon, pos: player.position, dungeonSpawn, eingaenge: dungeonEingaenge });
+        if (aktion === 'dungeon-leave') socket.sendAdminCommand('dungeon leave');
+        else if (aktion === 'hinweis-eingang') hud.meldung('Zum Verlassen zurück zum Eingang (E)');
+        else if (aktion === 'dungeon-enter') socket.sendAdminCommand('dungeon enter');
       }
     }
 

@@ -191,6 +191,7 @@ const MANAGER_VALUE_IMPORTS: readonly string[] = [
   './zellMesh',
   './zdoMatrix',
   './platzhalter',
+  './beuteZiele',
   './raumIndex',
   './kollisionsEimer',
   './konstanten',

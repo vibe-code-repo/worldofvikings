@@ -7,8 +7,9 @@
  * everybody. Uncollected loot vanishes after `BEUTE_LEBEN_MS`.
  *
  * ── Interface to F8 / card k145 (saving ground items) ─────────────────
- * Every loot ZDO carries these members (the prefab is the item's own ITEM_DROP prefab, so the existing
- * pick-up path `F.PICKABLE | F.ITEM_DROP` in `handleInteract` picks it up):
+ * Every loot ZDO carries these members (the prefab is the item's own ITEM_DROP prefab, or the neutral `BeuteStueck`
+ * for an item without one, `beutePrefabFuer`; the pick-up path in `handleInteract` knows loot by the marker below,
+ * before the prefab flags):
  *   beute          int 1     marker: this ZDO is loot (what `istBeute` tests)
  *   beute_item     string    item name to give on pick-up (itemDefs name)
  *   beute_menge    int       amount
@@ -27,7 +28,7 @@
  */
 import type { ZDO } from '../zdo/ZDO.js';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
-import { BEUTE_EXKLUSIV_MS, BEUTE_LEBEN_MS, Inventory, SERVER_MELDUNG_BEUTE_FREMD, findItem } from '@wov/shared';
+import { BEUTE_EXKLUSIV_MS, BEUTE_LEBEN_MS, Inventory, SERVER_MELDUNG_BEUTE_FREMD, beutePrefabFuer, findItem } from '@wov/shared';
 import { getStableHash } from '../util/Hash.js';
 
 // The windows and the message keys live in `shared/src/beute.ts` (the client may need them); re-exported for the server.
@@ -148,7 +149,7 @@ export class BeuteAmBoden {
     const gelegt: BeuteStueck[] = [];
     for (const s of beute) {
       if (!s || s.amount <= 0) continue;
-      const zdo = raum.createZDO(getStableHash(s.name), { ...position });
+      const zdo = raum.createZDO(getStableHash(beutePrefabFuer(s.name)), { ...position });
       zdo.setInt(BEUTE_MARKE, 1);
       zdo.setString(BEUTE_ITEM, s.name);
       zdo.setInt(BEUTE_MENGE, s.amount);

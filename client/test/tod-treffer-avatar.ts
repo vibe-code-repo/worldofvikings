@@ -1,7 +1,7 @@
 /**
  * The own figure plays death and hit reaction (AvatarRig on the REAL body models, NullEngine, fixed 16 ms frames).
  *
- *  [1] Loading the 48-clip body does not disturb the states: idle stays the idle, `gehen` the walk, `rennen`
+ *  [1] Loading the 56-clip body does not disturb the states: idle stays the idle, `gehen` the walk, `rennen`
  *      the run (the door clips travel 2.4 m and would otherwise be taken for the run cycle), only `idle` plays,
  *      the death clips wait for their call, the four hit clips are upper-body layers.
  *  [2] Death: `starteTod('tod_hinten')` — after 3.5 s the hips are at the lying height 0.12 (not 0.85), and
@@ -21,7 +21,7 @@ import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera';
 import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
 import '@babylonjs/loaders/glTF/2.0';
 import { AvatarRig } from '../src/player/AvatarRig.js';
-import { KERN_CLIPS } from '../src/player/kernClips.js';
+import { BLOCK_CLIPS, KERN_CLIPS } from '../src/player/kernClips.js';
 import { TREFFER_MINDESTABSTAND_S } from '@wov/shared';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -104,6 +104,7 @@ async function main(): Promise<void> {
       const laufend = scene.animationGroups.filter((g) => g.isPlaying).map((g) => g.name);
       check('only `idle` plays after loading (no core clip runs as a state)', laufend.join() === 'idle', laufend.join());
       check('all 20 core clips exist as groups', KERN_CLIPS.every((n) => scene.getAnimationGroupByName(n)));
+      check('all 8 block/roll clips exist as groups and none of them is a state', BLOCK_CLIPS.every((n) => scene.getAnimationGroupByName(n)) && ![...z.clipsRuhe, z.clipGehen, z.clipRennen, z.clipSprung].some((c) => c && BLOCK_CLIPS.includes(c.grp.name)));
     }
 
     // ── [2] death ──────────────────────────────────────────────

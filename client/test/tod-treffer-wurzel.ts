@@ -1,7 +1,7 @@
 /**
  * A4 of the core animations: root motion of the lying and stooping clips never nails the HEIGHT.
  *
- * Run on the two REAL body models (v1, 48 clips each: 28 old ones + 20 core clips):
+ * Run on the two REAL body models (56 clips each: 28 old ones + 20 core clips + 8 block/roll clips):
  *  [1] The 28 old clips come out exactly as with the old rule (a verbatim copy of the old
  *      AvatarRig.messeUndEntferneWurzelbewegung is the reference): every root-bone key, the returned
  *      speed, for both bodies. Nothing that walked, ran, jumped or swung changed.
@@ -25,7 +25,7 @@ import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import type { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import type { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { LIEGE_CLIPS, messeUndEntferneWurzelbewegung, wurzelAchsen } from '../src/player/wurzelbewegung.js';
-import { KERN_CLIPS } from '../src/player/kernClips.js';
+import { BLOCK_CLIPS, KERN_CLIPS } from '../src/player/kernClips.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(__dirname, '..', '..');
@@ -114,7 +114,7 @@ async function main(): Promise<void> {
     const neu = await lade(pfad);
     const alt = await lade(pfad);
     const roh = await lade(pfad);
-    check('48 clips: the 28 old ones first, then the 20 core clips', neu.length === 48 && neu.slice(0, 28).every((g, i) => g.name === ALT[i]) && KERN_CLIPS.every((n) => neu.some((g) => g.name === n)), `${neu.length}`);
+    check('56 clips: the 28 old ones first, then the 20 core clips, then the 8 block/roll clips', neu.length === 56 && neu.slice(0, 28).every((g, i) => g.name === ALT[i]) && KERN_CLIPS.every((n, i) => neu[28 + i]!.name === n) && BLOCK_CLIPS.every((n, i) => neu[48 + i]!.name === n), `${neu.length}`);
     const sprung = neu.find((g) => g.name === 'springen');
     const rate = new Map<string, { neu: number; alt: number }>();
     for (let i = 0; i < neu.length; i++) {

@@ -9,6 +9,9 @@
  *
  * Run: npx tsx client/test/d5-beute-ziel.ts   (from the repo root)
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import ts from 'typescript';
 import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
@@ -66,6 +69,71 @@ pruefe(nah(10, 10) === null, 'nothing left: no target');
 setze('1:6', 'Wood', 50, 0, 50);
 setze('1:6', 'Wood', 52, 0, 50);
 pruefe(nah(50, 50, 1) === null && nah(52, 50, 1)?.prefab === 'Wood', 'an update moves the target');
+
+// B2 (N1): the same key gets a prefab that is no loot (or none the client knows): the old piece of loot is forgotten.
+setze('3:1', 'RawMeat', 200, 0, 200);
+pruefe(nah(200, 200)?.prefab === 'RawMeat', 'B2 setup: a piece of loot at 200/200');
+setze('3:1', 'Wolf', 200, 0, 200);
+pruefe(nah(200, 200) === null, 'B2: the same key now a Wolf -> the old loot target is gone', JSON.stringify(nah(200, 200)));
+setze('3:2', 'RawMeat', 210, 0, 200);
+mgr.applyUpdate({ key: '3:2', prefabHash: 0x12345, position: { x: 210, y: 0, z: 200 }, rotation: { x: 0, y: 0, z: 0, w: 1 }, isOwnPlayer: false });
+pruefe(nah(210, 200) === null, 'B2: the same key now an unknown prefab -> the old loot target is gone');
+
+// B1 (N1): a change of world drops the loot targets; a ZDO of the same key in the new world with another prefab is no target.
+setze('4:1', 'RawMeat', 300, 0, 300);
+mgr.teleportiert(false, '');
+pruefe(nah(300, 300)?.prefab === 'RawMeat', 'B1: a teleport inside the overworld keeps the loot (the server does not send it again)');
+mgr.teleportiert(true, 'grab1');
+pruefe(nah(300, 300) === null, 'B1: overworld -> dungeon: the loot target of the old world is gone');
+setze('4:1', 'Wolf', 300, 0, 300);
+pruefe(nah(300, 300) === null, 'B1: the same key in the new world with another prefab is no target');
+setze('4:2', 'Wood', 301, 0, 300);
+mgr.teleportiert(true, 'grab1');
+pruefe(nah(301, 300)?.prefab === 'Wood', 'B1: a teleport inside the same dungeon keeps the loot');
+mgr.teleportiert(true, 'grab2');
+pruefe(nah(301, 300) === null, 'B1: dungeon -> another dungeon: dropped');
+setze('4:3', 'Wood', 302, 0, 300);
+mgr.teleportiert(false, '');
+pruefe(nah(302, 300) === null, 'B1: dungeon -> overworld: dropped');
+mgr.teleportiert(true, '');
+setze('4:4', 'Wood', 303, 0, 300);
+mgr.teleportiert(false, '');
+pruefe(nah(303, 300) === null, 'B1: a dungeon with an empty id is not the overworld');
+
+// B3 (N1): the height. The server checks the horizontal distance only (WovServer.ts handleInteract: dx/dz against the
+// player, dz/dx of getZDOsInRadius; no y anywhere), and so do all static targets of `naechstesInteragierbares`.
+// Loot follows the same rule: 3 m above or below is as much a target as a static pickable at that height.
+setze('5:1', 'RawMeat', 400, 3, 400);
+setze('5:2', 'Pickable_Flint', 410, 3, 400);
+pruefe(nah(400, 400)?.prefab === 'RawMeat' && nah(410, 400)?.prefab === 'Pickable_Flint', 'B3: loot and static pickable 3 m above the player are both targets (no height test, like the server)');
+setze('5:3', 'RawMeat', 420, -3, 400);
+pruefe(nah(420, 400)?.prefab === 'RawMeat', 'B3: loot 3 m below the player is a target, too');
+// chest and loot together: the common rule is "the horizontal distance decides, a tie goes to the static one (strict <)".
+setze('6:1', 'HolzTruhe', 500, 0, 500);
+setze('6:2', 'RawMeat', 501.5, 0, 500);
+pruefe(nah(500.5, 500)?.prefab === 'HolzTruhe', 'B3: chest nearer than loot -> chest');
+pruefe(nah(501.2, 500)?.prefab === 'RawMeat', 'B3: loot nearer than chest -> loot');
+pruefe(nah(500.75, 500)?.prefab === 'HolzTruhe', 'B3: an exact tie goes to the static target (the common strict < rule)');
+
+// The wiring in main.ts on the syntax tree: `entities?.teleportiert(drin, dungeonId)` inside the Teleport handler.
+{
+  const quelle = readFileSync(resolve(import.meta.dirname, '../src/main.ts'), 'utf8');
+  const baum = ts.createSourceFile('main.ts', quelle, ts.ScriptTarget.Latest, true);
+  const treffer: ts.CallExpression[] = [];
+  const geh = (n: ts.Node): void => {
+    if (ts.isCallExpression(n) && n.expression.getText(baum) === 'entities?.teleportiert') treffer.push(n);
+    ts.forEachChild(n, geh);
+  };
+  geh(baum);
+  pruefe(treffer.length === 1, 'main.ts calls entities.teleportiert exactly once', String(treffer.length));
+  const t = treffer[0];
+  pruefe(!!t && t.arguments.length === 2 && t.arguments[0]!.getText(baum) === 'drin' && t.arguments[1]!.getText(baum) === 'dungeonId', 'it hands over `drin` and `dungeonId` unchanged');
+  let handler = false;
+  for (let n: ts.Node | undefined = t; n; n = n.parent) {
+    if (ts.isCallExpression(n) && n.expression.getText(baum) === 'socket.on' && n.arguments[0]?.getText(baum) === 'PacketType.Teleport') handler = true;
+  }
+  pruefe(handler, 'and the call sits inside the PacketType.Teleport handler');
+}
 
 // The drawing: which model the client asks for and at what scale (a real scene on the NullEngine, the model "loads" at once).
 const engine = new NullEngine();

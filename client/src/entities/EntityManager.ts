@@ -173,6 +173,8 @@ export class EntityManager {
   private readonly npcs = new Map<string, NpcEinordnung>();
   /** D5: loot on the ground, aimable by E before (and without) its model (beuteZiele.ts). */
   private readonly beuteZiele = new BeuteZiele();
+  /** D5: the world the loot targets belong to: '' = overworld, else 'd:' + dungeon id (see `teleportiert`). */
+  private beuteWelt = '';
   /**
    * Auflösung `layoutId` → Einordnung. Setzt main.ts, sobald das
    * Weltdokument da ist; ohne Layout-Welt bleibt sie null und der ganze
@@ -334,7 +336,10 @@ export class EntityManager {
     }
 
     const def = findPrefabByHash(u.prefabHash);
-    if (!def || !isRenderable(def)) return;
+    if (!def || !isRenderable(def)) {
+      this.beuteZiele.vergiss(u.key); // the same key may have been loot before (D5)
+      return;
+    }
 
     // Einordnung mitführen: offline liegt sie am Update (Testflug), online
     // kommt sie über die Herkunft aus dem Layout-Dokument. Bewusst bei
@@ -353,6 +358,8 @@ export class EntityManager {
     if (beute) {
       const p = u.position;
       this.beuteZiele.merke(u.key, { prefab: def.name, prefabHash: u.prefabHash, x: p.x, y: p.y, z: p.z });
+    } else {
+      this.beuteZiele.vergiss(u.key); // the key now carries something else: the old piece of loot is gone
     }
     const isDynamic = (def.flags & DYNAMIC_FLAGS) !== 0n;
     if (isDynamic) {
@@ -534,6 +541,19 @@ export class EntityManager {
       this.staticCount--;
     }
     this.bucketOf.delete(key);
+  }
+
+  /**
+   * A Teleport packet arrived. The server numbers ZDOs per world and forgets what a peer knew when the world changes,
+   * without a destroy list: a loot target of the old world would stay and its key could mean something else over there.
+   * A change of the world (overworld <-> dungeon, or another dungeon) therefore drops the loot targets; a teleport inside
+   * one world keeps them (the server does not send them again).
+   */
+  teleportiert(drin: boolean, dungeonId: string): void {
+    const welt = drin ? `d:${dungeonId}` : '';
+    if (welt === this.beuteWelt) return;
+    this.beuteWelt = welt;
+    this.beuteZiele.leere();
   }
 
   removeZDO(key: string): void {

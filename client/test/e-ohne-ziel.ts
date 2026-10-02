@@ -5,12 +5,13 @@
  * rights got "Admin commands are not allowed for this player" on every such press.
  *
  *  [1] The pure rule (`eOhneZiel`): overworld, no entrance near -> nothing; entrance within 16 m -> enter; dungeon -> leave / hint.
- *  [2] main.ts: the only `dungeon enter` goes through the rule, and the file did not grow (3682 lines before this card).
+ *  [2] main.ts: the only `dungeon enter` goes through the rule, and the file did not grow (3679 lines at the start of N1).
  *
  * Run: npx tsx client/test/e-ohne-ziel.ts   (from the repo root)
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import ts from 'typescript';
 import { eOhneZiel, DUNGEON_BETRETEN_M, DUNGEON_VERLASSEN_M } from '../src/player/eOhneZiel';
 
 let fehler = 0;
@@ -43,11 +44,29 @@ const zeilen = quelle.split('\n').length - 1;
 const treffer = quelle.match(/sendAdminCommand\('dungeon enter'\)/g) ?? [];
 pruefe(treffer.length === 1, "main.ts sends the bare 'dungeon enter' exactly once", String(treffer.length));
 pruefe(/aktion === 'dungeon-enter'\)\s*socket\.sendAdminCommand\('dungeon enter'\)/.test(quelle), "... and only when the rule says 'dungeon-enter'");
-pruefe(/eOhneZiel\(\{[^}]*dungeonEingaenge/.test(quelle), 'the rule is fed with the entrances the server sent');
 pruefe(/aktion === 'dungeon-leave'\)\s*socket\.sendAdminCommand\('dungeon leave'\)/.test(quelle), "'dungeon-leave' sends `dungeon leave`");
 pruefe(/aktion === 'hinweis-eingang'\)\s*hud\.meldung\(/.test(quelle), "'hinweis-eingang' shows the hint");
-pruefe(/eOhneZiel\(\{ imDungeon, pos: player\.position, dungeonSpawn,/.test(quelle), 'the rule is fed with the dungeon flag, the position and the entry point');
-pruefe(zeilen <= 3682, 'main.ts did not grow', `${zeilen} lines (limit 3682, guard 3700)`);
+// The wiring on the syntax tree: the one call of the rule hands over exactly these four values, unchanged (no slice, no copy, no other variable).
+const baum = ts.createSourceFile('main.ts', quelle, ts.ScriptTarget.Latest, true);
+const aufrufe: ts.CallExpression[] = [];
+const besuche = (n: ts.Node): void => {
+  if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'eOhneZiel') aufrufe.push(n);
+  ts.forEachChild(n, besuche);
+};
+besuche(baum);
+pruefe(aufrufe.length === 1, 'main.ts calls the rule exactly once', String(aufrufe.length));
+const arg = aufrufe[0]?.arguments[0];
+const felder = new Map<string, string>();
+if (arg && ts.isObjectLiteralExpression(arg)) {
+  for (const p of arg.properties) {
+    if (ts.isShorthandPropertyAssignment(p)) felder.set(p.name.text, p.name.text);
+    else if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name)) felder.set(p.name.text, p.initializer.getText(baum));
+  }
+}
+const erwartet: Record<string, string> = { imDungeon: 'imDungeon', pos: 'player.position', dungeonSpawn: 'dungeonSpawn', eingaenge: 'dungeonEingaenge' };
+for (const [name, wert] of Object.entries(erwartet)) pruefe(felder.get(name) === wert, `the rule gets \`${name}\` as exactly \`${wert}\``, felder.get(name) ?? 'missing');
+pruefe(felder.size === 4, 'and no other field', [...felder.keys()].join(','));
+pruefe(zeilen <= 3679, 'main.ts did not grow', `${zeilen} lines (limit 3679, guard 3700)`);
 
 console.log(fehler === 0 ? '\ne-ohne-ziel: OK' : `\ne-ohne-ziel: ${fehler} FAIL`);
 process.exit(fehler === 0 ? 0 : 1);

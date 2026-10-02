@@ -54,6 +54,9 @@ pruefe(eigene > 0 && neutrale > 0, 'both ways are used', `own prefab ${eigene}, 
 pruefe(BEUTE_RUECKFALL_MODELL === 'HolzTruhe' && EIGENE_MODELLE_SET.has('HolzTruhe'), 'the fallback model is the existing chest and is on the list');
 pruefe(beuteDarstellung({ model: null }).modell === BEUTE_RUECKFALL_MODELL, 'a prefab without a model gets the fallback');
 pruefe(BEUTE_RUECKFALL_SKALA >= 0.2 && BEUTE_RUECKFALL_SKALA <= 0.6 && beuteDarstellung({ model: null }).skala === BEUTE_RUECKFALL_SKALA, 'the fallback chest is drawn small (0.2 to 0.6 of its size)', String(BEUTE_RUECKFALL_SKALA));
+pruefe(BEUTE_RUECKFALL_SKALA === 0.4 && beuteDarstellung({ model: null }).skala === 0.4, 'the fallback scale is 0.4, pinned to the value (a sight value, not a range)');
+const neutralDef = findPrefabByName(BEUTE_PREFAB);
+pruefe(neutralDef !== undefined && (neutralDef.flags & PrefabFlag.ITEM_DROP) !== 0n && (neutralDef.flags & PrefabFlag.PERSISTENT) === 0n, 'the neutral loot prefab is ITEM_DROP and NOT PERSISTENT (loot is never saved; the save mark is the second guard)');
 pruefe(beuteDarstellung({ model: 'Wood' }).modell === BEUTE_RUECKFALL_MODELL, 'a model that is not on the list (Wood) gets the fallback');
 pruefe(beuteDarstellung({ model: 'Messer' }).modell === 'Messer' && beuteDarstellung({ model: 'Messer' }).skala === 1, 'a listed own model is kept at scale 1');
 pruefe(beutePrefabFuer('') === BEUTE_PREFAB && beutePrefabFuer('NichtDa') === BEUTE_PREFAB, 'empty and unknown names go neutral');

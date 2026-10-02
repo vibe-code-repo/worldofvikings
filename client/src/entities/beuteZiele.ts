@@ -28,6 +28,11 @@ export class BeuteZiele {
     this.stuecke.delete(key);
   }
 
+  /** The world changed: nothing of the old world is a target any more. */
+  leere(): void {
+    this.stuecke.clear();
+  }
+
   get anzahl(): number {
     return this.stuecke.size;
   }

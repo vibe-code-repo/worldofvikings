@@ -150,7 +150,7 @@ const PUBLIC_MEMBERS: readonly string[] = [
   'kollisionsMasters', 'lichtquellen', 'masterLocals', 'masterMeshes', 'naechstesInteragierbares', 'nearbyInstances',
   'npcEinordnung', 'onMasterBelebt', 'onMasterEntsorgt', 'physicsEnabled', 'removeZDO', 'scene', 'setHundertFpsProfil',
   'setPlayerPosition', 'setVegetationsGrenze', 'setVegetationsSchattenEmpfaenger', 'setzeDokumentSteinKit',
-  'setzeInstanzVerborgen', 'setzeNpcQuelle', 'staticCount', 'steinMasters', 'steinMaterials', 'toenungAn', 'toenungSetzen',
+  'setzeInstanzVerborgen', 'setzeNpcQuelle', 'staticCount', 'steinMasters', 'steinMaterials', 'teleportiert', 'toenungAn', 'toenungSetzen',
   'updateDynamics', 'vegetationsGrenzeInfo', 'weiseSteinMaterialZu', 'zellStats', 'zellen',
 ];
 type SpatialIndex = typeof import('../src/entities/raumIndex');

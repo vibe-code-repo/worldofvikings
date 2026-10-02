@@ -2614,6 +2614,7 @@ async function main() {
       abgleicher.zuruecksetzen();
       kampfToene.abbrechen();
       imDungeon = drin;
+      entities?.teleportiert(drin, dungeonId);
       // Das dokumenteigene Steinmaterial anlegen, BEVOR die Kit-Teile
       // geladen werden — `prepareMasters` bemalt sie beim Laden, und beim
       // zweiten Grab derselben Sitzung zieht `setzeDokumentSteinKit` die
@@ -3491,7 +3492,6 @@ async function main() {
       } else if (ziel) {
         socket.sendInteract(ziel.x, ziel.y, ziel.z, ziel.prefabHash);
       } else {
-        // Ohne Ziel: Dungeon verlassen/betreten nur dort, wo es gemeint ist; sonst nichts (eOhneZiel.ts).
         const aktion = eOhneZiel({ imDungeon, pos: player.position, dungeonSpawn, eingaenge: dungeonEingaenge });
         if (aktion === 'dungeon-leave') socket.sendAdminCommand('dungeon leave');
         else if (aktion === 'hinweis-eingang') hud.meldung('Zum Verlassen zurück zum Eingang (E)');

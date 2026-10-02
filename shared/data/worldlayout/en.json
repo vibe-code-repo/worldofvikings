@@ -19,5 +19,7 @@
   "confirm.rejected": "The confirmation was not carried out ({reason}) — nothing deleted.",
   "confirm.done": "Held-back deletion carried out.",
   "confirm.done-rest-pending": "Held-back deletion carried out; the rest of the document is not applied yet.",
-  "confirm.pending": "Confirmation request written but not applied yet — the guard picks it up at the next tick."
+  "confirm.pending": "Confirmation request written but not applied yet — the guard picks it up at the next tick.",
+  "vegetation.abgelehnt": "Vegetation not cleared: {kreise} circle(s) with {objekte} objects over the limit — takes effect after the next restart.",
+  "vegetation.ungemarkt": "Vegetation: {anzahl} object(s) in {zonen} zone(s) without an origin mark not cleared."
 }

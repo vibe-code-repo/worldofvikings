@@ -667,6 +667,8 @@ export default [
   // verwendete Uebersetzungsschluessel in de.json UND en.json existiert
   // (faengt einen Tippfehler im Schluessel). DOM-frei, <1 s.
   ['client', 'test/testflug-texte-vollstaendig.ts'],
+  // Baeume entfernen V2 N3: der Speicherweg des Testflugs zeigt den Vegetationshinweis der Quittung wie der Editor. DOM-frei.
+  ['client', 'test/testflug-vegetation-hinweis.ts'],
   // Textfeld-Fokus sperrt Spiel- und Testflug-Tasten (K, I, V, B, H, WASD): Helfer, echter InputManager mit Attrappen, Verdrahtung. DOM-frei.
   ['client', 'test/texteingabe-tasten.ts'],
   /*
@@ -730,6 +732,8 @@ export default [
   // Baeume entfernen V3: Bewuchs-Pinsel im Gelaende-Reiter - Strich (Stempelabstand Radius/2, ein Vorgang), Abdeckung, "nur Baeume", Grenze 4096,
   // Rueckgaengig/Wiederholen, offener Strich, unbrauchbarer Entwurf, Verdrahtung und Texte de/en. DOM-frei.
   ['client', 'test/vegetation-pinsel.ts'],
+  // Baeume entfernen V2 N2: bei `angewendet` zeigt der Editor den Vegetationshinweis der Quittung (abgelehnte Kreise, Zonen ohne Marke), de/en.
+  ['client', 'test/vegetation-quittung-anzeige.ts'],
   // Die Grafikoption begrenzt die gemeinsamen Bild-/Schattenmatrizen der
   // Vegetation. Der reine Kreisfilter sichert den unveraenderten Standard
   // (0 = voll), den eingeschlossenen Rand und die X/Z-Distanz ab.

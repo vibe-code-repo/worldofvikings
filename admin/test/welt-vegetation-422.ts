@@ -174,6 +174,65 @@ try {
   const r5 = await anfrage('GET');
   check('5 beschädigte Datei: GET 422 art vegetation mit Befund (#1, r)', r5.status === 422 && r5.daten.art === 'vegetation' && (r5.daten.fehlerhaftVegetation as Array<{ eintrag: string; feld: string }>)?.[0]?.eintrag === '#1', `${r5.status} ${JSON.stringify(r5.daten).slice(0, 200)}`);
   check('5 GET hat die Datei nicht angefasst', platte().equals(vorKaputt));
+
+  // 8 (V2, Auflage aus dem V1-Angriff): die 422-Antwort nennt den Hash der Bytes auf der Platte (Body UND ETag),
+  // damit eine Reparatur mit If-Match ohne Handarbeit geht.
+  {
+    const { createHash } = await import('node:crypto');
+    const erwartet = createHash('sha256').update(platte()).digest('hex');
+    const roh = await fetch(BASIS, { headers: { 'x-wov-token': TOKEN } });
+    const leib = (await roh.json()) as Record<string, unknown>;
+    check('8 422 nennt den Hash der Datei im Body', roh.status === 422 && leib.hash === erwartet, `${roh.status} ${String(leib.hash).slice(0, 16)} vs ${erwartet.slice(0, 16)}`);
+    check('8 422 trägt den ETag-Kopf mit demselben Hash', roh.headers.get('etag') === `"${erwartet}"`, String(roh.headers.get('etag')));
+    // Die Reparatur mit genau diesem Hash klappt (POST mit If-Match), ohne Handarbeit an der Datei.
+    const heil = await anfrage('POST', dokument({ vegetationEntfernt: [{ x: 1, z: 1, r: 5 }] }), `"${erwartet}"`);
+    check('8 Reparatur mit dem genannten Hash: 200', heil.status === 200, `${heil.status} ${JSON.stringify(heil.daten).slice(0, 160)}`);
+  }
+
+  // 9 (B5, Angriff #195): der Hash kommt aus DEMSELBEN Lesevorgang wie der Befund, ohne zweites Lesen.
+  {
+    const { createHash } = await import('node:crypto');
+    const { LayoutVegetationUngueltig, layoutLesenMitHash } = await import('@wov/shared/src/worldlayout/layoutDatei.js');
+    writeFileSync(WELT_DATEI, JSON.stringify(dokument({ vegetationEntfernt: [{ x: 1, z: 1, r: -4 }] }), null, 2));
+    const sha = createHash('sha256').update(readFileSync(WELT_DATEI)).digest('hex');
+    let fehlerObjekt: unknown = null;
+    try {
+      layoutLesenMitHash(WELT_DATEI);
+    } catch (e) {
+      fehlerObjekt = e;
+    }
+    check('9 Lesen einer beschädigten Datei: der Fehler trägt den Hash der gelesenen Bytes', fehlerObjekt instanceof LayoutVegetationUngueltig && fehlerObjekt.hash === sha, String((fehlerObjekt as { hash?: string } | null)?.hash).slice(0, 16));
+    // N5: genau EINE Lesung der Datei beim Lesen eines beschädigten Dokuments (kein zweites Lesen für den Hash in layoutDatei.ts)
+    {
+      const fs = (await import('node:fs')).default;
+      const { syncBuiltinESMExports } = await import('node:module');
+      const echtLesen = fs.readFileSync;
+      let lesungen = 0;
+      fs.readFileSync = ((pfad: unknown, ...rest: unknown[]) => {
+        if (String(pfad) === WELT_DATEI) lesungen++;
+        return (echtLesen as (...a: unknown[]) => unknown)(pfad, ...rest);
+      }) as typeof fs.readFileSync;
+      syncBuiltinESMExports();
+      try {
+        layoutLesenMitHash(WELT_DATEI);
+      } catch {
+        /* erwartet: beschädigt */
+      } finally {
+        fs.readFileSync = echtLesen;
+        syncBuiltinESMExports();
+      }
+      check('9 N5: layoutLesenMitHash liest die beschädigte Datei genau einmal (Hash aus denselben Bytes)', lesungen === 1, `${lesungen} Lesung(en)`);
+    }
+    const quelle = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf-8');
+    const stelle = quelle.indexOf('error instanceof LayoutVegetationUngueltig');
+    check('9 admin/src/main.ts: die 422-Antwort liest die Datei nicht ein zweites Mal (kein layoutDateiHash in der Fehlerbehandlung)', stelle > 0 && !quelle.slice(stelle - 600, stelle + 600).includes('layoutDateiHash('), '');
+    // Datei fehlt: saubere Antwort (404), nie 500
+    const vorher = readFileSync(WELT_DATEI);
+    rmSync(WELT_DATEI);
+    const weg = await fetch(BASIS, { headers: { 'x-wov-token': TOKEN } });
+    check('9 Datei fehlt: saubere Antwort 404, kein 500', weg.status === 404, String(weg.status));
+    writeFileSync(WELT_DATEI, vorher);
+  }
 } finally {
   (dienst as ChildProcess | null)?.kill('SIGTERM');
   await new Promise((f) => setTimeout(f, 300));

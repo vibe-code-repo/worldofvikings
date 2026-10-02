@@ -456,6 +456,11 @@ export type SchreibAntwort =
       sperrHinweis?: string | null;
       /** Test flight: the count of locked objects in the receipt's `loeschsperre` (0 or missing: none). */
       sperrAnzahl?: number;
+      /**
+       * Hinweise der Vegetation aus `zaehler` der Quittung (Obergrenze: Kreise nicht geräumt; Zonen ohne Marke: nicht
+       * geräumt), in der Sprache des Editors; `null`/fehlt: nichts zu sagen.
+       */
+      vegetationHinweis?: string | null;
       /** Test flight: `message` without the hold-back sentence the service appended itself (same as `message` when there is none). */
       messageOhneSperre?: string;
     }
@@ -602,10 +607,22 @@ export async function schreibeWeltdokument(
       zurueck: d.zaehler && typeof d.zaehler === 'object' && Number.isFinite(Number((d.zaehler as Record<string, unknown>).zurueck)) ? Number((d.zaehler as Record<string, unknown>).zurueck) : 0,
       sperrAnzahl: gesperrt,
       messageOhneSperre: (typeof d.message === 'string' ? ohneDienstSperrsatz(d.message, gesperrt) : (d.message ?? 'Gespeichert')) + (hoehenText ? ` — ${hoehenText}` : '') + hinweis,
+      vegetationHinweis: vegetationHinweis(d.zaehler, sichereSprache(locale)),
       sperrHinweis: gesperrt > 0 && d.grund !== 'bestaetigung-noetig' ? lockMessage(d.angewendet === true ? 'lock.applied' : 'lock.open', { count: gesperrt }, sichereSprache(locale)) : null,
     };
   }
   return { art: 'fehler', message: d.message ?? d.fehler ?? `HTTP ${antwort.status}` };
+}
+
+/** Die Sätze zu Vegetationskreisen aus den Zählern der Quittung (`vegetationAbgelehnt`, `vegetationUngemarkt`); `null`: keine. */
+export function vegetationHinweis(zaehler: unknown, sprache: string): string | null {
+  if (!zaehler || typeof zaehler !== 'object') return null;
+  const z = zaehler as Record<string, unknown>;
+  const zahl = (k: string): number => (Number.isFinite(Number(z[k])) ? Number(z[k]) : 0);
+  const teile: string[] = [];
+  if (zahl('vegetationAbgelehnt') > 0) teile.push(lockMessage('vegetation.abgelehnt', { kreise: zahl('vegetationAbgelehnt'), objekte: zahl('vegetationAbgelehntObjekte') }, sprache));
+  if (zahl('vegetationUngemarkt') > 0) teile.push(lockMessage('vegetation.ungemarkt', { anzahl: zahl('vegetationUngemarkt'), zonen: zahl('vegetationUngemarktZonen') }, sprache));
+  return teile.length > 0 ? teile.join(' ') : null;
 }
 
 /**
@@ -615,6 +632,7 @@ export async function schreibeWeltdokument(
  */
 export function wirkungsText(a: Extract<SchreibAntwort, { art: 'ok' }>): string {
   const sperre = a.sperrHinweis ? ` ${a.sperrHinweis}` : '';
+  if (a.angewendet === true && a.vegetationHinweis) return `${wirkungsText({ ...a, vegetationHinweis: null })} ${a.vegetationHinweis}`;
   if (a.angewendet === true) {
     // Z5a: Ein Grabstein hat ein Neusetzen verschluckt (Objekt gelöscht, dann derselbe Eintrag wieder da): angewendet,
     // aber das Objekt kam nicht wieder. Das sagt der Satz mit, mit den ids aus `detail`.

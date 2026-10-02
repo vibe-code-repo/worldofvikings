@@ -187,7 +187,8 @@ export class LayoutHoehenkorrekturUngueltig extends LayoutUngueltig {
  * und die Bäume wüchsen dort wieder.
  */
 export class LayoutVegetationUngueltig extends LayoutUngueltig {
-  constructor(readonly problem: VegetationProblem) {
+  /** Hash der Bytes, aus denen der Befund gelesen wurde (nur beim Lesen einer Datei): eine Lesung, kein zweites Lesen. */
+  constructor(readonly problem: VegetationProblem, readonly hash?: string) {
     super(
       problem.reason === 'limit'
         ? `${problem.anzahl} Kreise in vegetationEntfernt — mehr als ${problem.grenze} nimmt das Weltdokument nicht auf; nichts gespeichert`
@@ -202,9 +203,9 @@ export class LayoutVegetationUngueltig extends LayoutUngueltig {
 }
 
 /** Wirft `LayoutVegetationUngueltig`, wenn `vegetationEntfernt` im ROHEN Dokument beschädigt oder zu groß ist. */
-function rejectVegetation(input: Record<string, unknown>): void {
+function rejectVegetation(input: Record<string, unknown>, hash?: string): void {
   const problem = vegetationProblem(input.vegetationEntfernt);
-  if (problem) throw new LayoutVegetationUngueltig(problem);
+  if (problem) throw new LayoutVegetationUngueltig(problem, hash);
 }
 
 /**
@@ -328,7 +329,7 @@ export function layoutLesenMitHash(pfad: string, optionen: { preserveRawHeight?:
   const object = roh && typeof roh === 'object' && !Array.isArray(roh) ? roh as Record<string, unknown> : null;
   if (!optionen.preserveRawHeight && object) {
     rejectHeight(object);
-    rejectVegetation(object);
+    rejectVegetation(object, layoutHash(bytes));
   }
   // PATCH never consumes the correction: exclude it before sanitizing unrelated fields.
   // Ebenso die Kreise der entfernten Vegetation: ein PATCH ändert sie nie, der Sanitizer dürfte sie weder kürzen noch verwerfen.

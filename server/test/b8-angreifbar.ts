@@ -2,9 +2,9 @@
  * B8 — die eigenen NPCs sind treffbar (ANGREIFBAR) und schlagen zurueck,
  * ueber den ECHTEN Paketweg.
  *
- * Ein echter WebSocket-Client, echter Handshake, Attack-/Parry-/Eingabe-
+ * Ein echter WebSocket-Client, echter Handshake, Attack-/Block-/Eingabe-
  * pakete durch NetManager.handlePacket bis WovServer.handleAttack bzw.
- * handleParry. Die NPCs werden OHNE Spawnsystem von der Probe selbst
+ * handleBlock. Die NPCs werden OHNE Spawnsystem von der Probe selbst
  * gesetzt (`worldCreatures: false`, `server.spawns === null`); der
  * Zurueckschlag kommt aus dem AggroSystem im normalen Welt-Tick, nicht aus
  * einem Aufruf im Test. Gelesen wird nur der WIRKUNGSABDRUCK: Lebenspunkte
@@ -17,7 +17,7 @@
  *  [1] Tabellen: ANGREIFBAR sitzt genau an den NPC_KAMPF-Eintraegen; Zahlen.
  *  [2] Ohne Flag unverwundbar, mit Flag genau der Waffenschaden; Tod.
  *  [3] Zurueckschlagen: ein Furloc-Krieger verfolgt und trifft, Takt gemessen.
- *  [4] Parade: Treffer im Fenster kostet Ausdauer statt Leben.
+ *  [4] Block: gehalten, ein Treffer von vorn kostet 30 % Leben statt voll.
  *  [5] Friedliche (Voelva, Dorfbewohner, Basis-Wikinger): kein Schaden,
  *      kein Schlag — auch nicht nach einem Angriff auf sie. [5b] Ein
  *      feindlicher NPC ohne Kampfwerte schlaegt nicht zu.
@@ -67,7 +67,7 @@ const P = {
   Attack: 46,
   AdminCommand: 53,
   AdminEvent: 54,
-  Parry: 58,
+  Block: 89,
   HitEffect: 59,
   AuthChallenge: 68,
 };
@@ -146,8 +146,8 @@ function sendAttack(ws: WebSocket, pos: Vector3, waffe: string, yaw = 0): void {
   ws.send(Buffer.concat([Buffer.from([P.Attack]), w.toBuffer()]));
 }
 
-function sendParry(ws: WebSocket): void {
-  ws.send(Buffer.from([P.Parry]));
+function sendBlock(ws: WebSocket, an: boolean): void {
+  ws.send(Buffer.concat([Buffer.from([P.Block]), new Writer().writeBool(an).toBuffer()]));
 }
 
 /** Waffenschaden laut WovServer.WAFFEN_SCHADEN — hier bewusst als Literal, damit ein Drehen daran auffaellt. */
@@ -233,7 +233,7 @@ async function main(): Promise<void> {
       }
       peer!.health = 100;
       peer!.stamina = 100;
-      peer!.paradeBis = 0;
+      peer!.blockSeit = 0;
       meldungen.length = 0;
       schlaege.length = 0;
       return { ...p };
@@ -381,55 +381,46 @@ async function main(): Promise<void> {
     check('der Schlag traegt den Angriffsabstand als Radius', schlaege.every((s) => s.radius === w3.angriff), `${schlaege[0]?.radius}`);
     entferne(verfolger);
 
-    // ── [4] Parade ─────────────────────────────────────────────────
-    console.log('\n[4] Parade: Treffer im Fenster kostet Ausdauer statt Leben:');
+    // ── [4] Block ──────────────────────────────────────────────────
+    console.log('\n[4] Block: gehalten, jeder Treffer von vorn kostet 30 % Leben und 4 Ausdauer statt voll:');
     mitte = await neuerPlatz(700, 700);
     const parierer = setzeNpc('FurlocKrieger', vorn(mitte, 3));
-    // Einmal ohne Umschweife: was kostet eine Parade?
-    peer.stamina = 100;
-    sendParry(ws);
-    await warte(120);
-    check('eine Parade kostet genau 4 Ausdauer', peer.stamina === 96, `stamina=${peer.stamina}`);
-    peer.paradeBis = 0;
-    // Dann dauernd im Fenster stehen (600 ms Fenster, Parade alle 450 ms) und
-    // bei JEDER Parade den Abzug messen.
-    // Fenster mit Reserve: Schlaege des NPC bei ~2,1 s, ~4,1 s, ~6,1 s, ~8,1 s
-    // nach dem Setzen (Takt 2 s). Bei 8,5 s liegt die Schranke „mindestens
-    // drei“ 2,4 s vor dem Fensterende (bei 7 s waren es 0,9 s); der vierte
-    // Schlag liegt 0,4 s davor, seine Meldung „Pariert“ ist beim Zaehlen laengst
-    // da (die letzte Runde der Schleife laeuft ausserdem bis zu 450 ms ueber).
-    const FENSTER_PARADE_MS = 8_500;
-    let paraden = 0;
-    const abzuege: number[] = [];
-    const ende4 = jetzt() + FENSTER_PARADE_MS;
-    let minHealth = 100;
+    peer.waffe = 'SwordNorth';
+    await blicke(ws, 0, 250); // der Spieler schaut nach -z, der NPC steht bei -z
+    sendBlock(ws, true);
+    await warte(300); // hinter dem Paradefenster: ein gewoehnlicher Block
+    check('der Block wird gehalten', peer.blockSeit > 0, `blockSeit=${peer.blockSeit}`);
+    // Schlaege des NPC bei ~2,1 s, ~4,1 s, ~6,1 s, ~8,1 s nach dem Setzen (Takt 2 s).
+    // Waehrend des Haltens laufen Eingabepakete (Halten kostet 2/s); die Ausdauer wird nur
+    // aufgefuellt, damit der Block bis zum Ende steht.
+    const FENSTER_BLOCK_MS = 8_500;
+    const ende4 = jetzt() + FENSTER_BLOCK_MS;
     while (jetzt() < ende4) {
-      if (peer.stamina < 8) peer.stamina = 100;
-      const vor = peer.stamina;
-      sendParry(ws);
-      paraden++;
-      await warte(60);
-      abzuege.push(vor - peer.stamina);
-      const r = await beobachte(390);
-      for (const a of r) minHealth = Math.min(minHealth, a.health);
+      if (peer.stamina < 20) peer.stamina = 100;
+      sendInput(ws, 0);
+      await warte(50);
     }
-    const abgewehrt = meldungen.filter((m) => m === 'Pariert').length;
-    console.log(`      ${schlaege.length} Schlaege des NPC, ${abgewehrt} abgewehrt, ${paraden} Paraden, tiefster Lebenswert ${minHealth}`);
+    const geblockt = meldungen.filter((m) => m === '@kampf.geblockt').length;
+    const verlust = 100 - peer.health;
+    console.log(`      ${schlaege.length} Schlaege des NPC, ${geblockt} geblockt, Verlust ${verlust.toFixed(2)} Lebenspunkte`);
     check('der NPC hat zugeschlagen (mindestens drei Schlaege)', schlaege.length >= 3, `${schlaege.length}`);
-    check('kein Lebenspunkt verloren', minHealth === 100 && peer.health === 100, `tiefster Wert ${minHealth}`);
-    check('jeder Schlag wurde als „Pariert“ gemeldet', abgewehrt === schlaege.length, `${abgewehrt} von ${schlaege.length}`);
+    check('jeder Schlag wurde als „Geblockt“ gemeldet', geblockt === schlaege.length, `${geblockt} von ${schlaege.length}`);
     check(
-      'jede der Paraden kostete genau 4 Ausdauer',
-      abzuege.length === paraden && abzuege.every((d) => d === 4),
-      `${paraden} Paraden, Abzuege ${[...new Set(abzuege)].join('/')}`
+      'jeder Schlag nahm 30 % (0,3 x Schaden) Lebenspunkte, nicht den vollen Schaden',
+      Math.abs(verlust - schlaege.length * w3.schaden * 0.3) < 1e-6,
+      `Verlust ${verlust}, erwartet ${schlaege.length * w3.schaden * 0.3}`
     );
-    // Gegenprobe: ohne Parade geht derselbe Schlag durch.
+    check('der Block steht nach all den Treffern noch', peer.blockSeit > 0);
+    // Gegenprobe: ohne Block geht derselbe Schlag voll durch.
+    sendBlock(ws, false);
+    await warte(150);
     meldungen.length = 0;
     schlaege.length = 0;
-    peer.paradeBis = 0;
+    peer.blockSeit = 0;
+    peer.health = 100;
     const gegen = await beobachte(6_000, (r) => treffer(r).length >= 1);
     const g = treffer(gegen);
-    check('Gegenprobe ohne Parade: derselbe Schlag nimmt 8 Lebenspunkte', g.length >= 1 && g[0].schaden === w3.schaden && peer.health === 100 - w3.schaden, `Lebenspunkte ${peer.health}`);
+    check('Gegenprobe ohne Block: derselbe Schlag nimmt 8 Lebenspunkte', g.length >= 1 && g[0].schaden === w3.schaden && peer.health === 100 - w3.schaden, `Lebenspunkte ${peer.health}`);
     entferne(parierer);
 
     // ── [5] Friedliche ─────────────────────────────────────────────

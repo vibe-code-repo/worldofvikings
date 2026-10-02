@@ -39,6 +39,8 @@ export default [
     regression and the per-packet cost measurement.
   */
   ['shared', 'test/bewegung-schritt.ts'],
+  // D3-K1: die reine Blockregel (Paradefenster, Kegel, Halten, Blockbruch) und das Blocktempo im gemeinsamen Schritt. Sekunden.
+  ['shared', 'test/block.ts'],
   /*
     Karte B4 (2026-09-29): Schrittgeraeusche je Untergrund.
     `shared/test/boden-mischung.ts` rechnet die Bodenmischung

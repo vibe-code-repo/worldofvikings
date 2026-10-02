@@ -191,7 +191,7 @@ async function main(): Promise<void> {
 
     // ── [2] Armor ───────────────────────────────────────────────
     console.log('\n[2] Armor: creature blow 8 -> 8*K/(K+R)');
-    for (const s of alle) s.peer.paradeBis = 0;
+    for (const s of alle) s.peer.blockSeit = 0;
     const biss = (s: Spieler, schaden = 8): number => {
       s.peer.health = 100;
       zugriff.applyCreatureAttack({ ...s.peer.position }, schaden, 2.4, s.peer.worldId, s.peer.position);
@@ -207,10 +207,12 @@ async function main(): Promise<void> {
     check('Bernd with chest+legs only: armor 19', bernd.peer.werte.armor === 19, `${bernd.peer.werte.armor}`);
     check('... loses 8*40/59', nah(biss(bernd), 8 * 40 / 59), `${biss(bernd)}`);
     await ziehAn(bernd, iro.map((t) => t.id));
-    // Parry: armor is applied AFTER the parry check.
-    anna.peer.health = 100; anna.peer.paradeBis = Date.now() + 5000;
-    zugriff.applyCreatureAttack({ ...anna.peer.position }, 8, 2.4, anna.peer.worldId, anna.peer.position);
-    check('parried blow: no damage at all, parry window used up', anna.peer.health === 100 && anna.peer.paradeBis === 0);
+    // Block: armor is applied AFTER the block (a parried blow does nothing at all). Anna faces -z, the blow comes from the front.
+    anna.peer.health = 100; anna.peer.stamina = 100; anna.peer.blickYaw = 0;
+    anna.peer.blockSeit = Date.now(); anna.peer.blockOhneParade = false;
+    zugriff.applyCreatureAttack({ x: anna.peer.position.x, y: anna.peer.position.y, z: anna.peer.position.z - 2 }, 8, 2.4, anna.peer.worldId, anna.peer.position);
+    check('parried blow: no damage at all, the block is still held, 4 stamina paid', anna.peer.health === 100 && anna.peer.blockSeit > 0 && anna.peer.stamina === 96, `${anna.peer.health} ${anna.peer.blockSeit} ${anna.peer.stamina}`);
+    anna.peer.blockSeit = 0;
     // The real tick path: a Furloc warrior (damage 8) hunts the player, the blow arrives through AggroSystem
     // -> applyCreatureAttack. Counted blows x expected loss per blow = measured health loss.
     {
@@ -219,7 +221,7 @@ async function main(): Promise<void> {
       server.aggro.onSchlag = (pos, schaden, radius) => { schlaege.push(schaden); echt?.(pos, schaden, radius); };
       const FURLOC_HASH = getStableHash('FurlocKrieger');
       for (const [s, erwartet] of [[clara, 8], [anna, 4]] as const) {
-        s.peer.health = 100; s.peer.paradeBis = 0; schlaege.length = 0;
+        s.peer.health = 100; s.peer.blockSeit = 0; schlaege.length = 0;
         const p0 = s.peer.position;
         const npc = server.zdos.createZDO(FURLOC_HASH, { x: p0.x, y: p0.y, z: p0.z - 2 });
         npc.setInt(HEALTH_MEMBER, maxLeben('FurlocKrieger'));
@@ -247,7 +249,7 @@ async function main(): Promise<void> {
     await ziehAn(bernd, iro.map((t) => t.id));
     check('gear on again: maximum 110, health stays 100 (no free heal)', zugriff.maxHealth(bernd.peer) === 110 && bernd.peer.health === 100);
     // Death path: respawn at the (gear) maximum; a wolf-sized blow kills at 8 health.
-    bernd.peer.health = 3; bernd.peer.paradeBis = 0;
+    bernd.peer.health = 3; bernd.peer.blockSeit = 0;
     zugriff.applyCreatureAttack({ ...bernd.peer.position }, 8, 2.4, bernd.peer.worldId, bernd.peer.position);
     check('lethal blow: back to full health of the gear maximum (110)', bernd.peer.health === 110, `${bernd.peer.health}`);
     await platz(bernd, 400, 200);
@@ -308,7 +310,7 @@ async function main(): Promise<void> {
 
     // ── [6] No shared state ─────────────────────────────────────
     console.log('\n[6] Two players, two sets, at the same time');
-    for (const s of alle) { s.peer.paradeBis = 0; s.peer.health = 100; }
+    for (const s of alle) { s.peer.blockSeit = 0; s.peer.health = 100; }
     const vorher = [JSON.stringify(anna.peer.werte), JSON.stringify(bernd.peer.werte)];
     const gleichzeitig = [biss(anna), biss(bernd), biss(clara)];
     check('bites at the same moment: 4 / 4 / 8', gleichzeitig.join() === '4,4,8', gleichzeitig.join(','));
@@ -365,7 +367,7 @@ async function main(): Promise<void> {
     check(`T3 eating (+10, max 110+${b30}): health 105 -> 115 (not capped at 100)`, bernd.peer.health === 115, `${bernd.peer.health}`);
     // T4: death restores the gear maximum WITHOUT the food bonus (food still active here).
     check('T4 precondition: food is active', bernd.peer.foodBis > Date.now() && zugriff.maxHealth(bernd.peer) === 110 + b30);
-    bernd.peer.health = 3; bernd.peer.paradeBis = 0;
+    bernd.peer.health = 3; bernd.peer.blockSeit = 0;
     zugriff.applyCreatureAttack({ ...bernd.peer.position }, 8, 2.4, bernd.peer.worldId, bernd.peer.position);
     check('T4 death with food active: health 110 (gear maximum), not 140', bernd.peer.health === 110, `${bernd.peer.health}`);
     bernd.peer.foodBis = 0; bernd.peer.foodBonus = 0; bernd.peer.health = 100;
@@ -385,7 +387,7 @@ async function main(): Promise<void> {
     let neu = 120; let neuN = 0;
     while (neu > 0 && neuN < 500) { neu = lebenNachSchaden(neu, dR); neuN++; }
     check(`arithmetic: the old code needs ${altN} blows, the rule ${neuN}`, neuN === 21 && altN === 22);
-    bernd.peer.health = 120; bernd.peer.paradeBis = 0;
+    bernd.peer.health = 120; bernd.peer.blockSeit = 0;
     let gebissen = 0; let tot = false; let vorTod = 0;
     while (!tot && gebissen < 60) {
       vorTod = bernd.peer.health;

@@ -140,8 +140,8 @@ async function main(): Promise<void> {
     await teleport(wsBernd, bernd, 100.9, 100);
     anna.health = 100;
     bernd.health = 100;
-    anna.paradeBis = 0;
-    bernd.paradeBis = 0;
+    anna.blockSeit = 0;
+    bernd.blockSeit = 0;
 
     const spawns = server.hauptwelt.spawns;
     if (!spawns) throw new Error('worldCreatures=true but no SpawnSystem');

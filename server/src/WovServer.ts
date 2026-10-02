@@ -123,6 +123,8 @@ import { bestaetigenAnfrageDatei } from '@wov/shared/src/worldlayout/bestaetigen
 import { loeschsperreDatei } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import { Kollisionswelt } from './world/Kollisionswelt.js';
 import { Spielerbewegung } from './world/Spielerbewegung.js';
+import { bewegungsTempo } from '@wov/shared/src/bewegung/masse.js';
+import { beendeBlockDurchSchlag, blockHalteTakt, blockPaket, blockTrifft, blockZuruecksetzen } from './spiel/Block.js';
 // Ueber den expliziten Pfad, nicht ueber den Barrel: eine Geo ohne
 // Landmasse braucht nur der Server, und der Client-Bundle-Schnitt soll
 // nicht daran wachsen.
@@ -343,10 +345,6 @@ export interface ServerConfig {
   sessionSecret?: Buffer;
 }
 
-/** Parade: Fenster (ms), in dem ein Treffer abgewehrt wird (Clip 0,45 s + Nachlauf). */
-const PARADE_FENSTER_MS = 600;
-/** Parade: Ausdauerkosten (ein Schlag kostet 8). */
-const PARADE_AUSDAUER = 4;
 const DEFAULT_CONFIG: ServerConfig = {
   name: 'World of Vikings Server',
   password: '',
@@ -2724,7 +2722,7 @@ export class WovServer {
 
   /** Packets a dead player may not send (nothing that acts in the world); the rest still passes. */
   private static readonly TOT_GESPERRT: ReadonlySet<PacketType> = new Set([
-    PacketType.Interact, PacketType.Attack, PacketType.Parry, PacketType.TerrainOp, PacketType.PlacePiece,
+    PacketType.Interact, PacketType.Attack, PacketType.Block, PacketType.TerrainOp, PacketType.PlacePiece,
     PacketType.RemovePiece, PacketType.Craft, PacketType.Eat, PacketType.ContainerAction,
     // Admin commands move or heal (teleport, spawn): the client would read a teleport as the revival.
     PacketType.AdminCommand,
@@ -2756,8 +2754,8 @@ export class WovServer {
       case PacketType.Attack:
         this.handleAttack(peer, reader);
         break;
-      case PacketType.Parry:
-        this.handleParry(peer);
+      case PacketType.Block:
+        this.handleBlock(peer, reader);
         break;
       case PacketType.TerrainOp:
         this.handleTerrainOp(peer, reader);
@@ -2891,9 +2889,10 @@ export class WovServer {
     // sind unveraendert; hier bleibt nur die Frage stehen, ob sie ueberhaupt
     // gilt (im Admin-Flug gilt sie nicht).
     const bewegt = moveX !== 0 || moveZ !== 0;
+    const blockt = blockHalteTakt(peer, deltaSec, now);
     const aus = ausdauerSchritt(
       { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
-      { rennWunsch: !peer.flying && running, bewegt, dt: deltaSec, jetzt: now }
+      { rennWunsch: !peer.flying && running && !blockt, bewegt, dt: deltaSec, jetzt: now }
     );
     const rennt = !peer.flying && aus.rennt;
     if (!peer.flying) {
@@ -2922,7 +2921,7 @@ export class WovServer {
       // (EntityManager/Havok). The client reports its physics-resolved
       // absolute height via the moveY field; clamp it to the instance
       // volume so a rogue client cannot leave the band vertically.
-      const speed = rennt ? 7.5 : 4.5;
+      const speed = bewegungsTempo(rennt, blockt);
       const newX = peer.position.x + moveX * speed * deltaSec;
       const newZ = peer.position.z + moveZ * speed * deltaSec;
       const y =
@@ -2935,7 +2934,7 @@ export class WovServer {
       // (server/src/world/Spielerbewegung.ts). Tempi, Schwerkraft und
       // Stufenregel stehen in shared/src/bewegung/masse.ts — dieselbe
       // Quelle, aus der auch der Client-Controller lesen kann.
-      newPos = this.spielerbewegung.schritt(peer, moveX, moveZ, rennt, deltaSec);
+      newPos = this.spielerbewegung.schritt(peer, moveX, moveZ, rennt, deltaSec, blockt);
     }
 
     peer.position = newPos;
@@ -3863,6 +3862,7 @@ export class WovServer {
     const jetzt = Date.now();
     const entscheid = pruefeSchlag(peer.schlag, meldung, jetzt, waffe);
     if (!entscheid.ok) return quittiere(0, entscheid.ergebnis);
+    beendeBlockDurchSchlag(peer, jetzt);
     const staminaVorher = { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht };
     const nachSchlag = ausdauerAbzug(
       { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
@@ -4061,13 +4061,6 @@ export class WovServer {
 
   /** Kreaturen-Treffer auf Spieler (vom SpawnSystem gemeldet). */
   /**
-   * Parade (Rechtsklick mit Waffe): oeffnet PARADE_FENSTER_MS lang ein
-   * Fenster, in dem Kreaturentreffer abgewehrt werden. Kostet Ausdauer wie
-   * ein halber Schlag, damit man nicht dauerhaft parieren kann. Der Client
-   * spielt die Geste sofort (AvatarRig.starteAktion), der Server
-   * entscheidet nur ueber die Wirkung — wie beim Schlag.
-   */
-  /**
    * Treffereffekt an alle Spieler im Umkreis (Vorbild: MeleeImpact /
    * bloodSplash / MeleeSpark des Originals, hier als Ereignis, das der
    * Client in Partikel uebersetzt). `art`: 0 hart, 1 Fleisch, 2 Parade.
@@ -4150,16 +4143,9 @@ export class WovServer {
     }
   }
 
-  private handleParry(peer: Peer): void {
-    const nachParade = ausdauerAbzug(
-      { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
-      PARADE_AUSDAUER,
-      Date.now()
-    );
-    if (!nachParade) return;
-    peer.stamina = nachParade.wert;
-    peer.staminaZuletztVerbraucht = nachParade.zuletztVerbraucht;
-    peer.paradeBis = Date.now() + PARADE_FENSTER_MS;
+  private handleBlock(peer: Peer, reader: Reader): void {
+    if (reader.remaining() < 1) return;
+    blockPaket(peer, reader.readBool(), Date.now());
     this.sendPlayerState(peer);
   }
 
@@ -4188,24 +4174,17 @@ export class WovServer {
       if (target && peer.position !== target) continue;
       const d = (peer.position.x - pos.x) ** 2 + (peer.position.z - pos.z) ** 2;
       if (!target && d > r2) continue;
-      // Parade: Treffer im Fenster prallt ab. Kein Schaden, aber der
-      // Spieler erfaehrt es — sonst sieht ein abgewehrter Treffer aus wie
-      // ein Fehlschlag der Kreatur.
-      if (peer.paradeBis > Date.now()) {
-        peer.paradeBis = 0;
+      // Block (spiel/Block.ts): im Paradefenster 0 Schaden, sonst 30 % und Ausdauer, bei leerer Ausdauer voll.
+      const block = blockTrifft(peer, pos, damage, Date.now());
+      if (block.art === 'pariert') {
         this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.1, z: peer.position.z }, 2, weltId);
-        peer.sendPacketWith(PacketType.InteractResult, (w) => {
-          w.writeBool(true);
-          w.writeString('Pariert');
-          w.writeString('');
-          w.writeInt32(0);
-        });
+        this.sendPlayerState(peer);
         continue;
       }
-      this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.2, z: peer.position.z }, 1, weltId);
+      this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.2, z: peer.position.z }, block.art === 'geblockt' ? 2 : 1, weltId);
       // Ruestung mindert erst NACH der Parade (ein parierter Schlag tut gar nichts).
       // Rest unter 1e-6 (Fliesskomma nach vielen geminderten Bissen) zaehlt als tot, sonst lebt man mit 1e-14.
-      peer.health = lebenNachSchaden(peer.health, eingehenderSchaden(damage, this.werteVon(peer).armor));
+      peer.health = lebenNachSchaden(peer.health, eingehenderSchaden(block.schaden, this.werteVon(peer).armor));
       // Which side the blow comes from (attacker position vs. the victim's view yaw).
       const richtung = richtungZuAngreifer(peer.blickYaw ?? null, peer.position, pos);
       if (peer.health <= 0) {
@@ -4251,7 +4230,7 @@ export class WovServer {
   private stirb(peer: Peer, clip: TodClip): void {
     peer.spielwerte.zaehleTod(); // every death passes here or `belebeNeu(.., true)`; BEFORE the 'tod' save of the revival, so the counter lands in the same row
     peer.totBis = Date.now() + this.liegezeitMs;
-    peer.paradeBis = 0;
+    blockZuruecksetzen(peer);
     peer.health = 0;
     peer.sendPacketWith(PacketType.PlayerTod, (w) => {
       w.writeInt32(todClipIndex(clip));
@@ -4284,6 +4263,7 @@ export class WovServer {
     const warTot = peer.totBis > 0;
     if (sofort) peer.spielwerte.zaehleTod(); // immediate revival = a death without lying time (`stirb` was skipped)
     peer.totBis = 0;
+    blockZuruecksetzen(peer); // `stirb` was skipped on the immediate path
     // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.
     peer.health = lebensmaximum(this.werteVon(peer).vitality, 0);
     peer.stamina = AUSDAUER_REGEL.max;

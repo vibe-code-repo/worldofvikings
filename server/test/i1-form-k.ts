@@ -78,7 +78,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join, posix, resolve } from 'node:path';
 import * as ts from 'typescript';
-import { PacketType, WORLD_TIME_LENGTH, dungeon2, Inventory, WILDWARDEN_PARTS, findItem, FRISUR_VORGABE, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, RUESTUNG, FIGUREN, FRISUREN, HAARFARBEN, AUGENFARBEN, encodeArmor, TRUHE_INHALT_MEMBER, TRUHE_LOOTED_MEMBER, packContainer, unpackContainer, ChatMsgType, STANDARD_WETTER_DEFINITIONEN, PrefabFlag } from '@wov/shared';
+import { PacketType, WORLD_TIME_LENGTH, dungeon2, Inventory, IRONWARD_PARTS, WILDWARDEN_PARTS, findItem, FRISUR_VORGABE, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, RUESTUNG, FIGUREN, FRISUREN, HAARFARBEN, AUGENFARBEN, encodeArmor, TRUHE_INHALT_MEMBER, TRUHE_LOOTED_MEMBER, packContainer, unpackContainer, ChatMsgType, STANDARD_WETTER_DEFINITIONEN, PrefabFlag } from '@wov/shared';
 import { AdminCommandRegistry } from '../src/admin/AdminCommands.js';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
@@ -439,6 +439,16 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       };
       if (aufrufer) gehe(aufrufer);
       if (!ruft) f.push(`${fn.name}: ${fn.aufrufer.methode} does not call this.${fn.name}(${fn.aufrufer.args})`);
+      // exactly ONE mention of `this.<name>` in the whole class, and that is the call above (N1, I11B-B3: no second call in the
+      // constructor, no call from init() or another method, no `this.<name>` handed on as a value)
+      let erwaehnt = 0;
+      const zaehleErwaehnung = (n: ts.Node): void => {
+        if (ts.isPropertyAccessExpression(n) && n.expression.kind === ts.SyntaxKind.ThisKeyword && n.name.text === fn.name) erwaehnt++;
+        if (ts.isElementAccessExpression(n) && n.expression.kind === ts.SyntaxKind.ThisKeyword && ts.isStringLiteralLike(n.argumentExpression) && n.argumentExpression.text === fn.name) erwaehnt++;
+        ts.forEachChild(n, zaehleErwaehnung);
+      };
+      zaehleErwaehnung(klasse);
+      if (erwaehnt !== 1) f.push(`${fn.name}: the class names this.${fn.name} ${erwaehnt} times, expected exactly once (the call in ${fn.aufrufer.methode})`);
       // the packet type leads to its forwarding: `case PacketType.<Type>:` in `onPacket` calls it (swapped cases stay green otherwise)
       if (fn.paketTyp !== undefined) {
         let fall = false;
@@ -467,6 +477,43 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
   const weg = oeffentlich.filter((x) => !oeff.includes(x)).sort();
   if (neu.length > 0) f.push(`new non-private members (a relaxation nobody listed): ${neu.join(', ')}`);
   if (weg.length > 0) f.push(`listed as public but not public any more: ${weg.join(', ')}`);
+  return f;
+}
+
+/**
+ * The modifiers of the members that the steps relaxed from private (N1, I11B-B3): a relaxation may drop `private` and nothing
+ * else. `PUBLIC_MEMBERS` holds the names only; this table holds what stands in front of the name (`readonly`, `static`, `async`,
+ * `abstract`, `override`, `declare`, `accessor`, a decorator) and whether the member has `?` or `!`.
+ */
+const MODIFIKATOREN: Readonly<Record<string, string>> = {
+  dungeonsWurzel: '', // step 2
+  sendTimeSync: '', // step 2
+  worldTime: '', // step 2
+  inventarSync: '', // step 3
+  kappeLeben: '', // step 3
+  sendeTruheInhalt: '', // step 3 (the forwarding)
+  sichereSpielerSofort: '', // step 3
+  zdosVon: '', // step 3
+  savedPlayers: 'readonly', // step 1 B: only `private` dropped, the map stays readonly
+  speichertGerade: '', // step 1 B
+  spielerSicherung: '', // step 1 B
+  stempelZaehler: '', // step 1 B
+  wetterDienst: '', // step 1 B
+};
+function pruefeModifikatoren(text: string, soll: Readonly<Record<string, string>>): string[] {
+  const f: string[] = [];
+  const sf = parse('WovServer.ts', text);
+  const klasse = sf.statements.find((s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && s.name?.text === 'WovServer');
+  if (!klasse) return ['class WovServer not found'];
+  for (const [name, erwartet] of Object.entries(soll)) {
+    const m = klasse.members.filter((x) => x.name && ts.isIdentifier(x.name) && x.name.text === name);
+    if (m.length !== 1) { f.push(`${name}: ${m.length} members of this name, expected one`); continue; }
+    const el = m[0]!;
+    const ist = [...(ts.canHaveDecorators(el) ? (ts.getDecorators(el) ?? []).map(() => '@decorator') : []), ...mods(el).map((x) => ts.tokenToString(x.kind) ?? ts.SyntaxKind[x.kind])].join(' ');
+    if (ist !== erwartet) f.push(`${name}: modifiers "${ist}", frozen "${erwartet}"`);
+    const zeichen = (el as { questionToken?: ts.Node; exclamationToken?: ts.Node });
+    if (zeichen.questionToken || zeichen.exclamationToken) f.push(`${name}: a ? or ! was added`);
+  }
   return f;
 }
 
@@ -682,6 +729,33 @@ console.log('\n[0] Self-test of the checks on invented sources');
     const f = pruefeKlasse([SB], text, ['a']);
     check(`red: class, ${name}`, f.length > 0, show(f) || 'no finding');
   }
+  // N1 (I11B-B3): a second call, a call from another method, the name handed on as a value
+  const zweitB: [string, string][] = [
+    ['the constructor calls the forwarding twice', gutB.replace('    this.fr();', '    this.fr();\n    this.fr();')],
+    ['init() calls the forwarding once more', gutB.replace('  private vorher(): void {}', '  private vorher(): void {}\n\n  init(): void {\n    this.fr();\n  }')],
+    ['the forwarding is handed on as a value', gutB.replace('  private vorher(): void {}', "  private vorher(): void {\n    void [this['fr']];\n  }")],
+  ];
+  for (const [name, text] of zweitB) {
+    const f = pruefeKlasse([SB], text, name.startsWith('init') ? ['a', 'init'] : ['a']);
+    check(`red: class, ${name}`, f.some((x) => x.includes('times, expected exactly once')), show(f) || 'no finding');
+  }
+  // N1 (I11B-B3): the modifiers of relaxed members are frozen
+  const gutM = ['export class WovServer {', '  readonly a = new Map<string, number>();', '  b = false;', '  c(): number {', '    return 1;', '  }', '  private d = 1;', '}', ''].join('\n');
+  const MS = { a: 'readonly', b: '', c: '' };
+  check('green: the frozen modifiers of relaxed members', pruefeModifikatoren(gutM, MS).length === 0, show(pruefeModifikatoren(gutM, MS)));
+  const modFehler: [string, string][] = [
+    ['readonly dropped from a relaxed field', gutM.replace('  readonly a', '  a')],
+    ['static added to a relaxed field', gutM.replace('  b = false;', '  static b = false;')],
+    ['async added to a relaxed method', gutM.replace('  c(): number {', '  async c(): number {')],
+    ['a decorator on a relaxed method', gutM.replace('  c(): number {', '  @dekor c(): number {')],
+    ['a ! on a relaxed field', gutM.replace('  b = false;', '  b!: boolean;')],
+    ['a relaxed member removed', gutM.replace('  b = false;\n', '')],
+    ['protected instead of nothing', gutM.replace('  b = false;', '  protected b = false;')],
+  ];
+  for (const [name, text] of modFehler) {
+    const f = pruefeModifikatoren(text, MS);
+    check(`red: modifiers, ${name}`, f.length > 0, show(f) || 'no finding');
+  }
 }
 
 // ── [1] The real sources ───────────────────────────────────────────────
@@ -712,6 +786,8 @@ if (!MESSEN_BASIS) {
   const alleDateien = new Set(MODULE.map((m) => m.datei));
   const unbekannt = dateien.filter((d) => d !== 'server/src/spiel/Kontext.ts' && /\bSpielKontext\b/.test(readFileSync(join(WURZEL, d), 'utf8')) && !alleDateien.has(d));
   check('every module under spiel/ and its sub-folders that uses SpielKontext is in MODULE (under this guard)', unbekannt.length === 0, unbekannt.join(', '));
+  const fm = pruefeModifikatoren(klassenText, MODIFIKATOREN);
+  check(`WovServer.ts: the ${Object.keys(MODIFIKATOREN).length} relaxed members keep their frozen modifiers (only private dropped)`, fm.length === 0, show(fm));
   check('the sub-folder spiel/befehle/ was read', dateien.some((d) => d.startsWith('server/src/spiel/befehle/')), dateien.filter((d) => d.includes('/befehle/')).join(', '));
 }
 
@@ -1237,7 +1313,7 @@ function befehlsAttrappe(a: Aufzeichnung): { k: Record<string, unknown>; ziel: R
       getAll: (): BPrefab[] => { ruf('prefabs.getAll'); return prefabs; },
     },
     zdosVon: (p: BefehlsPeer): unknown => {
-      ruf('zdosVon', p.name);
+      ruf('zdosVon', `${p.name}@${String(p['worldId'])}`); // the world of the peer: the handler must ask for the ZDO space of the peer's own world (N1, I11B-B2)
       return {
         getZDOsInRadius: (pos: unknown, r: number) => { ruf('getZDOsInRadius', `${JSON.stringify(pos)} ${r}`); return [...zdos]; },
         destroyZDO: (id: number): void => { ruf('destroyZDO', String(id)); const i = zdos.findIndex((z) => z.zdoid === id); if (i >= 0) zdos.splice(i, 1); },
@@ -1342,6 +1418,78 @@ function messeBefehleAttrappe(): Aufzeichnung {
       befehlsStand(a, ziel, peers);
       a.zustand.push(saved.size, peers.length);
     }
+    // E (N1, attack I11B-B1/B2): the promise of item ironward/wildwarden ("a full bag must never get half a set"), the name key,
+    // the figure, extra and odd arguments, a peer in a second world
+    {
+      const { k, ziel, peers, reg } = befehlsAttrappe(a);
+      for (const n of ['registerMarkeCommand', 'registerWetterCommand', 'registerAbbauCommand', 'registerSpawnCommand']) versuche(a, () => F[n]!(k));
+      const admin = befehlsPeer('Admin');
+      peers.push(admin);
+      const saved = ziel['savedPlayers'] as Map<string, Record<string, unknown>>;
+      const teile = (inv: unknown): string => { const i = inv instanceof Inventory ? inv : Inventory.ausSpeicherstand(inv as never); return `${IRONWARD_PARTS.filter((t) => i.countOf(t.item)).length}/7 ironward, ${WILDWARDEN_PARTS.filter((t) => i.countOf(t.item)).length}/7 wildwarden`; };
+      const zeigeP = (p: BefehlsPeer): void => { a.notizen.push(`  peer ${JSON.stringify(p.name)} ${teile(p.inventar)} [${invText(p.inventar)}]`); };
+      const zeigeS = (id: string): void => { const r = saved.get(id)!; a.notizen.push(`  absent ${id} ${teile(r['inventar'])} @${String(r['gespeichertAm'])} [${invText(r['inventar'])}]`); };
+      /** A bag with exactly `frei` free places (filled with hammers). */
+      const fastVoll = (frei: number): Inventory => { const i = new Inventory(); for (let n = 0; n < 200 && i.addItem(findItem('Hammer')!, 1) === 0; n++); for (let j = 0; j < frei; j++) i.removeByName('Hammer', 1); return i; };
+      // a part from the middle of the set, online and absent
+      const teil = befehlsPeer('Teil');
+      teil.inventar.addItem(findItem(IRONWARD_PARTS[2]!.item)!, 1);
+      peers.push(teil);
+      befehl(a, reg, admin, 'item ironward Teil');
+      zeigeP(teil);
+      const teilInv = new Inventory();
+      teilInv.addItem(findItem(WILDWARDEN_PARTS[3]!.item)!, 1);
+      saved.set('id-teil', { name: 'TeilWeg', figur: 'wikinger', inventar: teilInv.serialize(), gespeichertAm: 3 });
+      befehl(a, reg, admin, 'item wildwarden TeilWeg');
+      zeigeS('id-teil');
+      // a bag with room for fewer parts than are missing, online and absent: nothing changes, not in the real bag either
+      const fast = befehlsPeer('Fast');
+      fast.inventar.uebernimm(fastVoll(3));
+      peers.push(fast);
+      befehl(a, reg, admin, 'item ironward Fast');
+      zeigeP(fast);
+      saved.set('id-fast', { name: 'FastWeg', figur: 'wikinger', inventar: fastVoll(3).serialize(), gespeichertAm: 4 });
+      befehl(a, reg, admin, 'item wildwarden FastWeg');
+      zeigeS('id-fast');
+      // exactly as much room as needed: the set fits
+      const knapp = befehlsPeer('Knapp');
+      knapp.inventar.uebernimm(fastVoll(7));
+      peers.push(knapp);
+      befehl(a, reg, admin, 'item ironward Knapp');
+      zeigeP(knapp);
+      // one online player and two absent records of the same name: the online one is served
+      const drei = befehlsPeer('Drei');
+      peers.push(drei);
+      saved.set('id-d1', { name: 'Drei', figur: 'wikinger', inventar: [] });
+      saved.set('id-d2', { name: 'drei', figur: 'wikinger', inventar: [] });
+      befehl(a, reg, admin, 'item ironward Drei');
+      zeigeP(drei);
+      zeigeS('id-d1');
+      zeigeS('id-d2');
+      // an online player without a figure ('' and missing) and an absent record with `wikinger` under the same name
+      peers.push(befehlsPeer('OhneFigur', { figur: '' }), befehlsPeer('KeineFigur', { figur: undefined }));
+      saved.set('id-of', { name: 'OhneFigur', figur: 'wikinger', inventar: [] });
+      saved.set('id-kf', { name: 'KeineFigur', figur: 'wikinger', inventar: [] });
+      befehl(a, reg, admin, 'item ironward OhneFigur');
+      befehl(a, reg, admin, 'item ironward KeineFigur');
+      zeigeS('id-of');
+      zeigeS('id-kf');
+      // names in NFD and with blanks at the edge, online and absent, asked for in NFC
+      const nfd = befehlsPeer('A\u0308gir');
+      peers.push(nfd);
+      befehl(a, reg, admin, 'item ironward \u00c4gir');
+      zeigeP(nfd);
+      saved.set('id-nfd', { name: '  O\u0308din ', figur: 'wikinger', inventar: [], gespeichertAm: 5 });
+      befehl(a, reg, admin, 'item wildwarden \u00d6DIN');
+      zeigeS('id-nfd');
+      // extra and odd arguments
+      for (const z of ['item give Hammer 2 extra', 'item give Hammer 1e1', 'item give Hammer 0x10', 'marke setzen defeated_eikthyr extra', 'abbau Beech1 5m', 'abbau Beech1 0x10', 'abbau Beech1 1e1 extra', 'spawn Beech1 12abc 5', 'spawn Beech1 0x10 010', 'spawn Beech1 1 2 extra']) befehl(a, reg, admin, z);
+      zeigeP(admin);
+      // a peer in a second world: spawn and abbau ask for the ZDO space of the peer's world
+      const dungeon = befehlsPeer('Dungeon', { worldId: 'dungeon:7' });
+      for (const z of ['spawn Beech1 1 2', 'abbau Beech1']) befehl(a, reg, dungeon, z);
+      befehlsStand(a, ziel, peers);
+    }
     // B: members replaced on the stand-in AFTER the registration: the handlers read them at the time of the call, never a stale copy
     {
       const { k, ziel, peers, reg } = befehlsAttrappe(a);
@@ -1412,6 +1560,9 @@ function messeBefehleEcht(): Aufzeichnung {
     a.notizen.push(`  commands ${[...((server['adminCommands'] as unknown as { handlers: Map<string, unknown> }).handlers.keys())].join(',')}`);
     const zm = new ZDOManager(1n);
     (server['welten'] as Map<string, unknown>).set(HAUPTWELT_ID, { zdos: zm });
+    // a second world (N1, I11B-B2): a peer in it spawns and removes there, not in the main world
+    const zm2 = new ZDOManager(2n);
+    (server['welten'] as Map<string, unknown>).set('dungeon:7', { zdos: zm2 });
     const prefabs = server['prefabs'] as { register(p: unknown): void };
     prefabs.register(new Prefab('K9Baum', undefined, PrefabFlag.PERSISTENT));
     prefabs.register(new Prefab('K9Geist'));
@@ -1431,7 +1582,20 @@ function messeBefehleEcht(): Aufzeichnung {
       a.notizen.push(`  zdos ${zm.getAllZDOs().map((z) => `${z.prefabHash}@${JSON.stringify(z.position)}/${JSON.stringify(z.rotation)}`).join(' ')}`);
       for (const z of ['abbau', 'abbau k9geist 200', 'abbau K9Baum 3', 'abbau K9Baum 200', 'abbau K9Baum']) befehl(a, reg, admin, z);
       a.zustand.push(zm.getAllZDOs().length);
-      for (const z of ['item give Hammer 2', 'item ironward Echt', 'item ironward Echt']) befehl(a, reg, admin, z);
+      const dungeon = befehlsPeer('EchtDungeon', { worldId: 'dungeon:7' });
+      for (const z of ['spawn K9Baum 1 2', 'spawn K9Baum 3 3']) befehl(a, reg, dungeon, z);
+      a.notizen.push(`  zdos main ${zm.getAllZDOs().length}, second world ${zm2.getAllZDOs().map((z) => `${z.prefabHash}@${JSON.stringify(z.position)}`).join(' ')}`);
+      befehl(a, reg, dungeon, 'abbau K9Baum 200');
+      a.notizen.push(`  zdos main ${zm.getAllZDOs().length}, second world ${zm2.getAllZDOs().length}`);
+      for (const z of ['item give Hammer 2', 'item give Hammer 2 extra', 'item give Hammer 1e1', 'item ironward Echt', 'item ironward Echt']) befehl(a, reg, admin, z);
+      // a full bag online: nothing changes in the real bag
+      const voll = befehlsPeer('EchtVoll');
+      for (let n = 0; n < 200 && voll.inventar.addItem(findItem('Hammer')!, 1) === 0; n++);
+      voll.inventar.removeByName('Hammer', 2);
+      peers.push(voll);
+      befehl(a, reg, admin, 'item wildwarden EchtVoll');
+      a.notizen.push(`  EchtVoll [${invText(voll.inventar)}]`);
+      peers.splice(peers.indexOf(voll), 1);
       const saved = server['savedPlayers'] as Map<string, Record<string, unknown>>;
       saved.set('id-weg', { name: 'Weg', figur: 'wikinger', inventar: [], gespeichertAm: 1 });
       befehl(a, reg, admin, 'item wildwarden Weg');
@@ -1929,7 +2093,7 @@ const SOLL_CHAT_ECHT: Aufzeichnung = {
 /** Step 1, package B, measured on the stand before the move: the commands on a stand-in and on a real instance. */
 const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
   paket: [],
-  aufrufe: {"k.adminCommands": 60, "k.weltMarken": 10, "k.wetterDienst": 13, "wetterDienst": 10, "k.prefabs": 31, "prefabs.getByName": 21, "prefabs.getAll": 6, "k.zdosVon": 25, "zdosVon": 21, "getZDOsInRadius": 8, "destroyZDO": 5, "k.getGroundHeight": 11, "getGroundHeight": 9, "createZDO": 8, "k.inventarSync": 18, "inventarSync": 14, "k.speichertGerade": 26, "k.net": 22, "net.getPeers": 20, "k.savedPlayers": 22, "k.sichereSpielerSofort": 7, "sichereSpielerSofort": 5, "k.saveWorldAsync": 11, "saveWorldAsync": 8, "k.stempelZaehler": 6, "stempelZaehler": 4, "stempel.naechster": 4, "k.spielerSicherung": 5, "spielerSicherung.sichere": 2, "NEW wetterDienst": 2, "NEW setze": 1, "NEW prefabs.getByName": 2, "NEW zdosVon": 2, "NEW getGroundHeight": 1, "NEW inventarSync": 2, "NEW net.getPeers": 2, "NEW stempelZaehler": 1, "NEW sichere": 1, "NEW saveWorldAsync": 2, "NEW sichereSpielerSofort": 1},
+  aufrufe: {"k.adminCommands": 65, "k.weltMarken": 11, "k.wetterDienst": 13, "wetterDienst": 10, "k.prefabs": 39, "prefabs.getByName": 29, "prefabs.getAll": 6, "k.zdosVon": 36, "zdosVon": 32, "getZDOsInRadius": 12, "destroyZDO": 8, "k.getGroundHeight": 15, "getGroundHeight": 13, "createZDO": 12, "k.inventarSync": 26, "inventarSync": 22, "k.speichertGerade": 36, "k.net": 32, "net.getPeers": 30, "k.savedPlayers": 32, "k.sichereSpielerSofort": 12, "sichereSpielerSofort": 10, "k.saveWorldAsync": 18, "saveWorldAsync": 15, "k.stempelZaehler": 8, "stempelZaehler": 6, "stempel.naechster": 6, "k.spielerSicherung": 7, "spielerSicherung.sichere": 4, "NEW wetterDienst": 2, "NEW setze": 1, "NEW prefabs.getByName": 2, "NEW zdosVon": 2, "NEW getGroundHeight": 1, "NEW inventarSync": 2, "NEW net.getPeers": 2, "NEW stempelZaehler": 1, "NEW sichere": 1, "NEW saveWorldAsync": 2, "NEW sichereSpielerSofort": 1},
   konsole: {"log": 0, "warn": 0},
   zustand: [0, 7, 7],
   ausnahmen: ["TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError"],
@@ -2004,54 +2168,54 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
     "= refused: Unbekanntes Prefab: Unbekannt",
     "> abbau Beech1 (Admin)",
     "  prefabs.getByName \"Beech1\"",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  destroyZDO 1",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  destroyZDO 3",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  destroyZDO 5",
     "= ok: 3× Beech1 im Umkreis von 10 m entfernt",
     "> abbau beech1 5 (Admin)",
     "  prefabs.getByName \"beech1\"",
     "  prefabs.getAll",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 5",
     "= ok: 0× Beech1 im Umkreis von 5 m entfernt",
     "> abbau BEECH1 abc (Admin)",
     "  prefabs.getByName \"BEECH1\"",
     "  prefabs.getAll",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
     "= ok: 0× Beech1 im Umkreis von 10 m entfernt",
     "> abbau Beech1 5000 (Admin)",
     "  prefabs.getByName \"Beech1\"",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 200",
     "= ok: 0× Beech1 im Umkreis von 200 m entfernt",
     "> abbau Beech1 0 (Admin)",
     "  prefabs.getByName \"Beech1\"",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
     "= ok: 0× Beech1 im Umkreis von 10 m entfernt",
     "> abbau NPC_1 -3 (Admin)",
     "  prefabs.getByName \"NPC_1\"",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 1",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  destroyZDO 2",
     "= ok: 1× NPC_1 im Umkreis von 1 m entfernt",
     "> abbau stein 1e3 (Admin)",
     "  prefabs.getByName \"stein\"",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 200",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  destroyZDO 4",
     "= ok: 1× stein im Umkreis von 200 m entfernt",
     "> abbau Stein (Admin)",
     "  prefabs.getByName \"Stein\"",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
     "= ok: 0× Stein im Umkreis von 10 m entfernt",
     "> abbau Beech1 (Gast, no admin)",
@@ -2065,7 +2229,7 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
     "> spawn Beech1 (Admin)",
     "  prefabs.getByName \"Beech1\"",
     "  getGroundHeight 12 -2",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  createZDO 101 {\"x\":12,\"y\":8,\"z\":-2}",
     "  rotation {\"x\":0,\"y\":-0.9238795325112867,\"z\":0,\"w\":0.38268343236508984}",
     "  isPersistent Beech1",
@@ -2074,7 +2238,7 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
     "  prefabs.getByName \"beech1\"",
     "  prefabs.getAll",
     "  getGroundHeight 10 20",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  createZDO 101 {\"x\":10,\"y\":-15,\"z\":20}",
     "  rotation {\"x\":0,\"y\":1,\"z\":0,\"w\":6.123233995736766e-17}",
     "  isPersistent Beech1",
@@ -2082,7 +2246,7 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
     "> spawn Beech1 10 (Admin)",
     "  prefabs.getByName \"Beech1\"",
     "  getGroundHeight 12 -2",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  createZDO 101 {\"x\":12,\"y\":8,\"z\":-2}",
     "  rotation {\"x\":0,\"y\":-0.9238795325112867,\"z\":0,\"w\":0.38268343236508984}",
     "  isPersistent Beech1",
@@ -2090,7 +2254,7 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
     "> spawn Beech1 x y (Admin)",
     "  prefabs.getByName \"Beech1\"",
     "  getGroundHeight 12 -2",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  createZDO 101 {\"x\":12,\"y\":8,\"z\":-2}",
     "  rotation {\"x\":0,\"y\":-0.9238795325112867,\"z\":0,\"w\":0.38268343236508984}",
     "  isPersistent Beech1",
@@ -2098,7 +2262,7 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
     "> spawn NPC_1 (Admin)",
     "  prefabs.getByName \"NPC_1\"",
     "  getGroundHeight 12 -2",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  createZDO 202 {\"x\":12,\"y\":8,\"z\":-2}",
     "  rotation {\"x\":0,\"y\":-0.9238795325112867,\"z\":0,\"w\":0.38268343236508984}",
     "  isPersistent NPC_1",
@@ -2106,7 +2270,7 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
     "> spawn Beech1 -5.25 3.5 (Admin)",
     "  prefabs.getByName \"Beech1\"",
     "  getGroundHeight -5.25 3.5",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  createZDO 101 {\"x\":-5.25,\"y\":-6.125,\"z\":3.5}",
     "  rotation {\"x\":0,\"y\":0.8489168556075256,\"z\":0,\"w\":0.5285264158634189}",
     "  isPersistent Beech1",
@@ -2115,7 +2279,7 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
     "  prefabs.getByName \"STEIN\"",
     "  prefabs.getAll",
     "  getGroundHeight 0 0",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  createZDO 303 {\"x\":0,\"y\":0,\"z\":0}",
     "  rotation {\"x\":0,\"y\":0.8280672304692729,\"z\":0,\"w\":0.5606288093051837}",
     "  isPersistent stein",
@@ -2123,7 +2287,7 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
     "> spawn Beech1 Infinity 1 (Admin)",
     "  prefabs.getByName \"Beech1\"",
     "  getGroundHeight 12 -2",
-    "  zdosVon Admin",
+    "  zdosVon Admin@haupt",
     "  createZDO 101 {\"x\":12,\"y\":8,\"z\":-2}",
     "  rotation {\"x\":0,\"y\":-0.9238795325112867,\"z\":0,\"w\":0.38268343236508984}",
     "  isPersistent Beech1",
@@ -2249,6 +2413,149 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
     "  saved id-weg:Weg@1003[Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1,wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] id-ohne:Ohne@undefined[-] id-frau:FrauWeg@undefined[] id-voll:VollWeg@undefined[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] id-z1:Zwilling@undefined[] id-z2:zwilling@undefined[] id-ziel:Ziel Eins@undefined[]",
     "  peers Admin[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] Ziel Eins[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1,wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] Ziel Eins[] Frau[] Doppelt[] doppelt[] VollOnline[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
     "  markers defeated_dragon,defeated_eikthyr",
+    "  register marke",
+    "  register wetter",
+    "  register abbau",
+    "  register item",
+    "  register spawn",
+    "> item ironward Teil (Admin)",
+    "  net.getPeers Admin,Teil",
+    "  inventarSync Teil [IronwardLeggingsx1,IronwardHelmetx1,IronwardCuirassx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|Teil|admin",
+    "  saveWorldAsync 0",
+    "= ok: Teil: Ironward vollständig (7/7), 6 neue Gegenstände. Sicherung angefordert.",
+    "  peer \"Teil\" 7/7 ironward, 0/7 wildwarden [IronwardLeggingsx1,IronwardHelmetx1,IronwardCuirassx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "> item wildwarden TeilWeg (Admin)",
+    "  net.getPeers Admin,Teil",
+    "  stempelZaehler",
+    "  stempel.naechster",
+    "  spielerSicherung.sichere TeilWeg@1001[wildwarden_mantlex1,wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] admin",
+    "  saveWorldAsync 0",
+    "= ok: TeilWeg: Waldhüter vollständig (7/7), 6 neue Gegenstände. Sicherung angefordert.",
+    "  absent id-teil 0/7 ironward, 7/7 wildwarden @1001 [wildwarden_mantlex1,wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1]",
+    "> item ironward Fast (Admin)",
+    "  net.getPeers Admin,Teil,Fast",
+    "= refused: Nicht genug Platz für das vollständige Set; nichts verändert",
+    "  peer \"Fast\" 0/7 ironward, 0/7 wildwarden [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "> item wildwarden FastWeg (Admin)",
+    "  net.getPeers Admin,Teil,Fast",
+    "= refused: Nicht genug Platz für das vollständige Set; nichts verändert",
+    "  absent id-fast 0/7 ironward, 0/7 wildwarden @4 [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "> item ironward Knapp (Admin)",
+    "  net.getPeers Admin,Teil,Fast,Knapp",
+    "  inventarSync Knapp [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|Knapp|admin",
+    "  saveWorldAsync 0",
+    "= ok: Knapp: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "  peer \"Knapp\" 7/7 ironward, 0/7 wildwarden [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "> item ironward Drei (Admin)",
+    "  net.getPeers Admin,Teil,Fast,Knapp,Drei",
+    "  inventarSync Drei [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|Drei|admin",
+    "  saveWorldAsync 0",
+    "= ok: Drei: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "  peer \"Drei\" 7/7 ironward, 0/7 wildwarden [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  absent id-d1 0/7 ironward, 0/7 wildwarden @undefined []",
+    "  absent id-d2 0/7 ironward, 0/7 wildwarden @undefined []",
+    "> item ironward OhneFigur (Admin)",
+    "  net.getPeers Admin,Teil,Fast,Knapp,Drei,OhneFigur,KeineFigur",
+    "= refused: Ironward benötigt den männlichen Wikinger-Körper",
+    "> item ironward KeineFigur (Admin)",
+    "  net.getPeers Admin,Teil,Fast,Knapp,Drei,OhneFigur,KeineFigur",
+    "  inventarSync KeineFigur [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|KeineFigur|admin",
+    "  saveWorldAsync 0",
+    "= ok: KeineFigur: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "  absent id-of 0/7 ironward, 0/7 wildwarden @undefined []",
+    "  absent id-kf 0/7 ironward, 0/7 wildwarden @undefined []",
+    "> item ironward Ägir (Admin)",
+    "  net.getPeers Admin,Teil,Fast,Knapp,Drei,OhneFigur,KeineFigur,Ägir",
+    "  inventarSync Ägir [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|Ägir|admin",
+    "  saveWorldAsync 0",
+    "= ok: Ägir: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "  peer \"Ägir\" 7/7 ironward, 0/7 wildwarden [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "> item wildwarden ÖDIN (Admin)",
+    "  net.getPeers Admin,Teil,Fast,Knapp,Drei,OhneFigur,KeineFigur,Ägir",
+    "  stempelZaehler",
+    "  stempel.naechster",
+    "  spielerSicherung.sichere   Ödin @1002[wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] admin",
+    "  saveWorldAsync 0",
+    "= ok: ÖDIN: Waldhüter vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "  absent id-nfd 0/7 ironward, 7/7 wildwarden @1002 [wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1]",
+    "> item give Hammer 2 extra (Admin)",
+    "  inventarSync Admin [Hammerx1,Hammerx1]",
+    "= ok: 2× Hammer ins Inventar gelegt",
+    "> item give Hammer 1e1 (Admin)",
+    "  inventarSync Admin [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 10× Hammer ins Inventar gelegt",
+    "> item give Hammer 0x10 (Admin)",
+    "  inventarSync Admin [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 16× Hammer ins Inventar gelegt",
+    "> marke setzen defeated_eikthyr extra (Admin)",
+    "= ok: Marke \"defeated_eikthyr\" gesetzt",
+    "> abbau Beech1 5m (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  zdosVon Admin@haupt",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
+    "  zdosVon Admin@haupt",
+    "  destroyZDO 1",
+    "  zdosVon Admin@haupt",
+    "  destroyZDO 3",
+    "  zdosVon Admin@haupt",
+    "  destroyZDO 5",
+    "= ok: 3× Beech1 im Umkreis von 10 m entfernt",
+    "> abbau Beech1 0x10 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  zdosVon Admin@haupt",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 16",
+    "= ok: 0× Beech1 im Umkreis von 16 m entfernt",
+    "> abbau Beech1 1e1 extra (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  zdosVon Admin@haupt",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
+    "= ok: 0× Beech1 im Umkreis von 10 m entfernt",
+    "> spawn Beech1 12abc 5 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  getGroundHeight 12 -2",
+    "  zdosVon Admin@haupt",
+    "  createZDO 101 {\"x\":12,\"y\":8,\"z\":-2}",
+    "  rotation {\"x\":0,\"y\":-0.9238795325112867,\"z\":0,\"w\":0.38268343236508984}",
+    "  isPersistent Beech1",
+    "= ok: Beech1 gespawnt bei 12.0, -2.0 (Höhe 8.0)",
+    "> spawn Beech1 0x10 010 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  getGroundHeight 16 10",
+    "  zdosVon Admin@haupt",
+    "  createZDO 101 {\"x\":16,\"y\":-2,\"z\":10}",
+    "  rotation {\"x\":0,\"y\":-0.9795777228015289,\"z\":0,\"w\":0.2010658722681974}",
+    "  isPersistent Beech1",
+    "= ok: Beech1 gespawnt bei 16.0, 10.0 (Höhe -2.0)",
+    "> spawn Beech1 1 2 extra (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  getGroundHeight 1 2",
+    "  zdosVon Admin@haupt",
+    "  createZDO 101 {\"x\":1,\"y\":-1.5,\"z\":2}",
+    "  rotation {\"x\":0,\"y\":0.8816745987679437,\"z\":0,\"w\":0.47185792553202427}",
+    "  isPersistent Beech1",
+    "= ok: Beech1 gespawnt bei 1.0, 2.0 (Höhe -1.5)",
+    "  peer \"Admin\" 0/7 ironward, 0/7 wildwarden [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "> spawn Beech1 1 2 (Dungeon)",
+    "  prefabs.getByName \"Beech1\"",
+    "  getGroundHeight 1 2",
+    "  zdosVon Dungeon@dungeon:7",
+    "  createZDO 101 {\"x\":1,\"y\":-1.5,\"z\":2}",
+    "  rotation {\"x\":0,\"y\":0.8816745987679437,\"z\":0,\"w\":0.47185792553202427}",
+    "  isPersistent Beech1",
+    "= ok: Beech1 gespawnt bei 1.0, 2.0 (Höhe -1.5)",
+    "> abbau Beech1 (Dungeon)",
+    "  prefabs.getByName \"Beech1\"",
+    "  zdosVon Dungeon@dungeon:7",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
+    "= ok: 0× Beech1 im Umkreis von 10 m entfernt",
+    "  saved id-teil:TeilWeg@1001[wildwarden_mantlex1,wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] id-fast:FastWeg@4[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] id-d1:Drei@undefined[] id-d2:drei@undefined[] id-of:OhneFigur@undefined[] id-kf:KeineFigur@undefined[] id-nfd:  Ödin @1002[wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1]",
+    "  peers Admin[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] Teil[IronwardLeggingsx1,IronwardHelmetx1,IronwardCuirassx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] Fast[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] Knapp[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] Drei[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] OhneFigur[] KeineFigur[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] Ägir[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  markers defeated_eikthyr",
     "  register marke",
     "  register wetter",
     "  register abbau",
@@ -2400,7 +2707,7 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
 };
 const SOLL_BEFEHLE_ECHT: Aufzeichnung = {
   paket: [],
-  aufrufe: {"getGroundHeight": 8, "inventarSync": 6, "sichereSpielerSofort": 4, "saveWorldAsync": 6},
+  aufrufe: {"getGroundHeight": 12, "inventarSync": 10, "sichereSpielerSofort": 4, "saveWorldAsync": 6},
   konsole: {"log": 4, "warn": 0},
   zustand: [0, 0],
   ausnahmen: [],
@@ -2465,17 +2772,36 @@ const SOLL_BEFEHLE_ECHT: Aufzeichnung = {
     "= ok: 2× K9Baum im Umkreis von 200 m entfernt",
     "> abbau K9Baum (Echt)",
     "= ok: 0× K9Baum im Umkreis von 10 m entfernt",
+    "> spawn K9Baum 1 2 (EchtDungeon)",
+    "  getGroundHeight 1 2",
+    "= ok: K9Baum gespawnt bei 1.0, 2.0 (Höhe 1.5)",
+    "> spawn K9Baum 3 3 (EchtDungeon)",
+    "  getGroundHeight 3 3",
+    "= ok: K9Baum gespawnt bei 3.0, 3.0 (Höhe 1.5)",
+    "  zdos main 0, second world 460474953@{\"x\":1,\"y\":1.5,\"z\":2} 460474953@{\"x\":3,\"y\":1.5,\"z\":3}",
+    "> abbau K9Baum 200 (EchtDungeon)",
+    "= ok: 2× K9Baum im Umkreis von 200 m entfernt",
+    "  zdos main 0, second world 0",
     "> item give Hammer 2 (Echt)",
     "  inventarSync Echt [Hammerx1,Hammerx1]",
     "= ok: 2× Hammer ins Inventar gelegt",
+    "> item give Hammer 2 extra (Echt)",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 2× Hammer ins Inventar gelegt",
+    "> item give Hammer 1e1 (Echt)",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 10× Hammer ins Inventar gelegt",
     "> item ironward Echt (Echt)",
-    "  inventarSync Echt [Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
     "  sichereSpielerSofort Echt admin",
     "= ok: Echt: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
     "> item ironward Echt (Echt)",
-    "  inventarSync Echt [Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
     "  sichereSpielerSofort Echt admin",
     "= ok: Echt: Ironward vollständig (7/7), 0 neue Gegenstände. Sicherung angefordert.",
+    "> item wildwarden EchtVoll (Echt)",
+    "= refused: Nicht genug Platz für das vollständige Set; nichts verändert",
+    "  EchtVoll [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
     "> item wildwarden Weg (Echt)",
     "= ok: Weg: Waldhüter vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
     "  absent Weg [wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] stamp number not raised",
@@ -2536,17 +2862,36 @@ const SOLL_BEFEHLE_ECHT: Aufzeichnung = {
     "= ok: 2× K9Baum im Umkreis von 200 m entfernt",
     "> abbau K9Baum (Echt)",
     "= ok: 0× K9Baum im Umkreis von 10 m entfernt",
+    "> spawn K9Baum 1 2 (EchtDungeon)",
+    "  getGroundHeight 1 2",
+    "= ok: K9Baum gespawnt bei 1.0, 2.0 (Höhe 1.5)",
+    "> spawn K9Baum 3 3 (EchtDungeon)",
+    "  getGroundHeight 3 3",
+    "= ok: K9Baum gespawnt bei 3.0, 3.0 (Höhe 1.5)",
+    "  zdos main 0, second world 460474953@{\"x\":1,\"y\":1.5,\"z\":2} 460474953@{\"x\":3,\"y\":1.5,\"z\":3}",
+    "> abbau K9Baum 200 (EchtDungeon)",
+    "= ok: 2× K9Baum im Umkreis von 200 m entfernt",
+    "  zdos main 0, second world 0",
     "> item give Hammer 2 (Echt)",
     "  inventarSync Echt [Hammerx1,Hammerx1]",
     "= ok: 2× Hammer ins Inventar gelegt",
+    "> item give Hammer 2 extra (Echt)",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 2× Hammer ins Inventar gelegt",
+    "> item give Hammer 1e1 (Echt)",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 10× Hammer ins Inventar gelegt",
     "> item ironward Echt (Echt)",
-    "  inventarSync Echt [Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
     "  sichereSpielerSofort Echt admin",
     "= ok: Echt: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
     "> item ironward Echt (Echt)",
-    "  inventarSync Echt [Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
     "  sichereSpielerSofort Echt admin",
     "= ok: Echt: Ironward vollständig (7/7), 0 neue Gegenstände. Sicherung angefordert.",
+    "> item wildwarden EchtVoll (Echt)",
+    "= refused: Nicht genug Platz für das vollständige Set; nichts verändert",
+    "  EchtVoll [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
     "> item wildwarden Weg (Echt)",
     "= ok: Weg: Waldhüter vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
     "  absent Weg [wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] stamp number raised",

@@ -33,6 +33,7 @@ import {
   SPAWN_TABLE,
   XorShiftRandom,
   getStableHash,
+  yawQuaternion,
   type RouteDef,
   type SpawnEntry,
   type Vector3,
@@ -247,6 +248,8 @@ console.log('\n[3] attack is one event per blow (animEinmal = attack#n)');
   const ankerHoehe = w.heightmaps.getGroundHeight(wald.x, wald.z);
   const peer = { x: wald.x, y: ankerHoehe, z: wald.z };
   const { spawns, zdo } = einzelnes(WOLF, peer, 1.2);
+  // D4: a wolf notices only inside its view cone; it spawned with a random heading, so face it at the peer.
+  zdo.rotation = yawQuaternion(Math.atan2(peer.x - zdo.position.x, peer.z - zdo.position.z));
   let schlaege = 0;
   spawns.onCreatureAttack = () => {
     schlaege++;

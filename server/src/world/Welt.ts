@@ -33,7 +33,7 @@ import type { HeightmapProvider, IGeo, Vector3 } from '@wov/shared';
 import type { GeoManager } from '@wov/shared';
 import { ZDOManager } from '../zdo/ZDOManager.js';
 import { ZoneManager, type ZoneManagerOptions } from './ZoneManager.js';
-import { SpawnSystem, type SpawnSystemOptions } from './SpawnSystem.js';
+import { SpawnSystem, type SpawnSystemOptions, type SpawnZielInfo } from './SpawnSystem.js';
 import { AggroSystem } from './AggroSystem.js';
 import { RoutenLaeufer } from './RoutenLaeufer.js';
 
@@ -57,6 +57,8 @@ export interface WeltUmgebung {
    * zweier Welten sind nicht vergleichbar, Instanzen liegen am Ursprung).
    */
   kreaturTrifft(pos: Vector3, schaden: number, radius: number, weltId: string, target?: Vector3): void;
+  /** Eine Kreatur setzt ihre Lebenspunkte zurück oder verlässt das Spiel ohne Tod: ihre Schadensanteile (Beute) verfallen. */
+  vergesseSchadensanteile?(zdo: import('../zdo/ZDO.js').ZDO): void;
 }
 
 export interface WeltBauplan {
@@ -139,6 +141,7 @@ export class Welt {
       : null;
     if (this.spawns) {
       this.spawns.onCreatureAttack = (pos, dmg, r, target) => umgebung.kreaturTrifft(pos, dmg, r, this.id, target);
+      this.spawns.beiAnteileVergessen = (zdo) => umgebung.vergesseSchadensanteile?.(zdo);
     }
 
     // Die Höhe kommt bei BEIDEN aus derselben Quelle wie Spawn-Höhe und
@@ -180,21 +183,26 @@ export class Welt {
    * `positionen[i]`; sie dürfen zwischen Ticks nicht wechseln (Verbindungs-Id).
    * Mit ihnen bekommt jeder Spieler ein eigenes Zonenbudget (reihum); ohne
    * fällt die Zählung auf den Listenindex zurück.
+   *
+   * `zielInfo` (optional) ist parallel zu `ziele`: Kennung und Blickrichtung je
+   * Ziel für die KI der Kreaturen (Aggro-Tabelle, Umlaufen); ohne sie zählt
+   * das SpawnSystem die Ziele nach Listenindex und kennt keinen Blick.
    */
   tick(
     deltaSec: number,
     positionen: readonly Vector3[],
     ziele: readonly Vector3[] = positionen,
-    kennungen?: readonly string[]
+    kennungen?: readonly string[],
+    zielInfo: readonly SpawnZielInfo[] = []
   ): { neueZonen: number } {
     const neueZonen = !this.mitZonengenerierung
       ? 0
       : kennungen && kennungen.length === positionen.length
         ? this.zones.updateJeSpieler(positionen.map((pos, i) => ({ id: kennungen[i], pos })))
         : this.zones.update(positionen);
-    this.spawns?.update(deltaSec, positionen, ziele);
+    this.spawns?.update(deltaSec, positionen, ziele, zielInfo);
     this.routen.update(deltaSec, positionen);
-    this.aggro.update(deltaSec, ziele);
+    this.aggro.update(deltaSec, ziele, zielInfo);
     return { neueZonen };
   }
 

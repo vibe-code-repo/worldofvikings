@@ -103,6 +103,14 @@ export class BeuteAmBoden {
     a.zuletzt = this.jetzt();
   }
 
+  /**
+   * Forget the damage tally of `ziel`: the creature went home at full health (D4), or was taken out of the game
+   * without a kill. Damage dealt before does not count towards the owner of a LATER kill.
+   */
+  vergiss(ziel: ZDO): void {
+    this.anteile.delete(ziel.zdoid.toString());
+  }
+
   /** The owner of the loot of `ziel`: the most damage wins, the first to hit wins a tie; '' if nobody counted. */
   besitzer(ziel: ZDO): string {
     const a = this.anteile.get(ziel.zdoid.toString());

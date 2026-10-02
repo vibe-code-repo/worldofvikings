@@ -728,7 +728,9 @@ export class WovServer {
     this.adminListe = new AdminListe(
       resolve(this.config.worldsDir, `admins.${this.config.worldName}.json`)
     );
-    this.registerDungeonCommands();
+    this.registerTeleportCommand();
+    this.registerSpielerCommand();
+    this.registerDungeonCommand();
     this.registerSpawnCommand();
     this.registerAbbauCommand();
     this.registerAdminListeCommands();
@@ -5614,47 +5616,7 @@ export class WovServer {
     });
   }
 
-  /**
-   * Admin command family `dungeon <sub> ...` — the management interface
-   * for dungeon documents, entrances and instances:
-   *
-   *   dungeon list                      documents + live instances
-   *   dungeon entrances                 world entrances + assignments
-   *   dungeon create <base> [seed]      generate + save a new document
-   *   dungeon create2 <theme> [seed] [id] [ambient]
-   *                                     generate + save a 2.0 document;
-   *                                     `ambient` is the base brightness
-   *                                     0..1 (0 = pitch dark, only the
-   *                                     placed light sources). Omitted =
-   *                                     the theme's default.
-   *   dungeon enter [id]                enter by id, or the nearest entrance
-   *   dungeon leave                     back to the overworld
-   *   dungeon assign <id>               assign nearest entrance (≤16 m) to id
-   *   dungeon entrance-mode <id> <fixed|regen>
-   *                                     'regen' makes the entrance pointing at
-   *                                     <id> reroll its layout on every enter
-   *                                     (skipped while someone is inside);
-   *                                     'fixed' restores the default. Needs a
-   *                                     DG_* recipe — for an entrance wired by
-   *                                     `assign` it is taken from the document.
-   *   dungeon regen <id> [seed]         re-generate a 'generated' document
-   *   dungeon steinkit <id> wand=<name> decke=<name> boden=<name>
-   *                         moos=<0..4> frost=<0..4> nass=<0..4>
-   *                                     set the 1.0 document's own stone
-   *                                     material; texture NAMES (no paths)
-   *                                     out of `STEIN_TEXTUREN`.
-   *                                     `dungeon steinkit <id> reset` clears
-   *                                     it (back to the kit default).
-   *   dungeon licht <id> <0..3>         set the 1.0 document's base
-   *                                     brightness — a FACTOR on the world
-   *                                     lighting: 1 = as before, <1 darker,
-   *                                     >1 brighter. `dungeon licht <id>
-   *                                     reset` clears it (back to 1); with no
-   *                                     value it just reports the current one.
-   *   dungeon reset <id>                tear down the live instance
-   *   dungeon delete <id>               delete document + assignments
-   */
-  private registerDungeonCommands(): void {
+  private registerTeleportCommand(): void {
     // Den Basis-`teleport` dungeon-bewusst überschreiben: Strg+Klick auf
     // die Weltkarte aus einer Instanz heraus soll den Dungeon sauber
     // verlassen (Buchführung!) statt nur die Koordinaten zu wechseln.
@@ -5681,7 +5643,9 @@ export class WovServer {
         message: `Teleportiert nach ${x.toFixed(0)}, ${z.toFixed(0)} (Höhe ${y.toFixed(1)})`,
       };
     });
+  }
 
+  private registerSpielerCommand(): void {
     // ── Aufraeumen von Spieler-Datensaetzen (17.08.2026) ─────────────
     //
     // Anlass: Eine Nacht Grafik-Messreihen hat rund zehn Bot-Spieler in
@@ -5756,7 +5720,49 @@ export class WovServer {
       }
       return { ok: false, active: false, message: 'Aufruf: spieler liste | spieler online | spieler entfernen <name> …' };
     });
+  }
 
+  /**
+   * Admin command family `dungeon <sub> ...` — the management interface
+   * for dungeon documents, entrances and instances:
+   *
+   *   dungeon list                      documents + live instances
+   *   dungeon entrances                 world entrances + assignments
+   *   dungeon create <base> [seed]      generate + save a new document
+   *   dungeon create2 <theme> [seed] [id] [ambient]
+   *                                     generate + save a 2.0 document;
+   *                                     `ambient` is the base brightness
+   *                                     0..1 (0 = pitch dark, only the
+   *                                     placed light sources). Omitted =
+   *                                     the theme's default.
+   *   dungeon enter [id]                enter by id, or the nearest entrance
+   *   dungeon leave                     back to the overworld
+   *   dungeon assign <id>               assign nearest entrance (≤16 m) to id
+   *   dungeon entrance-mode <id> <fixed|regen>
+   *                                     'regen' makes the entrance pointing at
+   *                                     <id> reroll its layout on every enter
+   *                                     (skipped while someone is inside);
+   *                                     'fixed' restores the default. Needs a
+   *                                     DG_* recipe — for an entrance wired by
+   *                                     `assign` it is taken from the document.
+   *   dungeon regen <id> [seed]         re-generate a 'generated' document
+   *   dungeon steinkit <id> wand=<name> decke=<name> boden=<name>
+   *                         moos=<0..4> frost=<0..4> nass=<0..4>
+   *                                     set the 1.0 document's own stone
+   *                                     material; texture NAMES (no paths)
+   *                                     out of `STEIN_TEXTUREN`.
+   *                                     `dungeon steinkit <id> reset` clears
+   *                                     it (back to the kit default).
+   *   dungeon licht <id> <0..3>         set the 1.0 document's base
+   *                                     brightness — a FACTOR on the world
+   *                                     lighting: 1 = as before, <1 darker,
+   *                                     >1 brighter. `dungeon licht <id>
+   *                                     reset` clears it (back to 1); with no
+   *                                     value it just reports the current one.
+   *   dungeon reset <id>                tear down the live instance
+   *   dungeon delete <id>               delete document + assignments
+   */
+  private registerDungeonCommand(): void {
     this.adminCommands.register('dungeon', (peer, args) => {
       const sub = (args.shift() ?? 'list').toLowerCase();
 

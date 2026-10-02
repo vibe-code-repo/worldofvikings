@@ -55,6 +55,7 @@
   "inhalt.item.wildwarden_mantle": "Wildwarden Leaf Mantle",
   "inhalt.item.wildwarden_robe": "Wildwarden Forest Robe",
   "inhalt.item.wildwarden_vest": "Wildwarden Bark Jerkin",
+  "inhalt.netz.veraltet": "Client version outdated (client v{client}, server v{server}) — please reload the page",
   "inhalt.set.ashenveil": "Ashenveil",
   "inhalt.set.crowshade": "Crowshade",
   "inhalt.set.emberrage": "Emberrage",

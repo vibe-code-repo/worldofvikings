@@ -55,6 +55,7 @@
   "inhalt.item.wildwarden_mantle": "Waldhüter-Blattschultern",
   "inhalt.item.wildwarden_robe": "Waldhüter-Waldrobe",
   "inhalt.item.wildwarden_vest": "Waldhüter-Rindenwams",
+  "inhalt.netz.veraltet": "Client-Version veraltet (Client v{client}, Server v{server}) — bitte Seite neu laden",
   "inhalt.set.ashenveil": "Aschenschleier",
   "inhalt.set.crowshade": "Krähenschatten",
   "inhalt.set.emberrage": "Glutzorn",

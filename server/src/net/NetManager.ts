@@ -12,7 +12,7 @@
  */
 
 import type { WebSocket } from 'ws';
-import { PROTOCOL_VERSION, PROTOCOL_VERSION_BASIS, PacketType, ConnectionStatus, MAX_PLAYERS, DISCONNECT_NEUSTART, NEUSTART_TEXT_SCHLUESSEL } from '@wov/shared';
+import { PROTOCOL_VERSION, PROTOCOL_VERSION_BASIS, serverVersionFuerMeldung, veraltetMeldung, PacketType, ConnectionStatus, MAX_PLAYERS, DISCONNECT_NEUSTART, NEUSTART_TEXT_SCHLUESSEL } from '@wov/shared';
 import { Peer } from './Peer.js';
 import { WebSocketAcceptor, type HttpBehandler } from './WebSocketAcceptor.js';
 import { Reader } from '../io/Reader.js';
@@ -434,11 +434,10 @@ export class NetManager {
     const mindest = this.config.mindestVersion?.() ?? PROTOCOL_VERSION_BASIS;
     if (clientVersion < mindest || clientVersion > PROTOCOL_VERSION) {
       peer.status = ConnectionStatus.ErrorVersion;
-      peer.disconnect(
-        `Client-Version veraltet (Client v${clientVersion}, Server v${clientVersion > PROTOCOL_VERSION ? PROTOCOL_VERSION : mindest}) — bitte Seite neu laden`
-      );
+      peer.disconnect(veraltetMeldung(clientVersion, serverVersionFuerMeldung(clientVersion, mindest)));
       return;
     }
+    peer.protokollVersion = clientVersion;
     // F4 (Security-Review): pro Verbindung EIN Nonce, danach wartet der
     // Server auf PasswordAuth als Antwort. Ersetzt den frueheren
     // "PeerInfo als Trigger"-Umweg: die alte Auth brauchte irgendein

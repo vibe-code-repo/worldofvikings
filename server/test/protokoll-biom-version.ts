@@ -7,7 +7,7 @@
  *   npx tsx server/test/protokoll-biom-version.ts   (from the repo root)
  */
 import WebSocket from 'ws';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createWovServer } from '../src/WovServer.js';
@@ -15,7 +15,9 @@ import { NetManager } from '../src/net/NetManager.js';
 import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
-import { PROTOCOL_VERSION } from '@wov/shared';
+import { PROTOCOL_VERSION, PacketType } from '@wov/shared';
+import { antwortBerechnen } from '../src/net/Identitaet.js';
+import { schickeLayout } from '../src/net/layoutVerteilen.js';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const TMP = resolve(HIER, 'tmp-protokoll-biom-version');
@@ -81,8 +83,120 @@ async function mitWelt(name: string, biome: string): Promise<{ v2: Awaited<Retur
   }
 }
 
+interface Teilnehmer {
+  ws: WebSocket;
+  layoutTexte: string[];
+  grund: string | null;
+  geschlossen: boolean;
+}
+
+/** A full login with the given handshake version; records every layout document and a disconnect reason. */
+function melde(port: number, version: number, name: string): Promise<Teilnehmer> {
+  return new Promise((ok, schlecht) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    ws.binaryType = 'nodebuffer';
+    const t: Teilnehmer = { ws, layoutTexte: [], grund: null, geschlossen: false };
+    const frist = setTimeout(() => schlecht(new Error('Handshake-Timeout')), 8000);
+    let auth = false;
+    ws.on('close', () => { t.geschlossen = true; });
+    ws.on('message', (data: Buffer) => {
+      const typ = data.readUInt8(0);
+      const r = new Reader(Buffer.from(data.subarray(1)));
+      if (typ === P.VersionCheck) ws.send(Buffer.concat([Buffer.from([P.VersionCheck]), new Writer().writeInt32(version).toBuffer()]));
+      else if (typ === P.AuthChallenge) {
+        if (auth) return;
+        auth = true;
+        const w = new Writer();
+        w.writeString(antwortBerechnen(r.readString(), ''));
+        w.writeString(name);
+        w.writeString('');
+        ws.send(Buffer.concat([Buffer.from([2]), w.toBuffer()]));
+      } else if (typ === 3) { clearTimeout(frist); ok(t); }
+      else if (typ === PacketType.LayoutAktualisiert || typ === PacketType.WorldLayoutData) t.layoutTexte.push(r.readString());
+      else if (typ === P.Disconnect) t.grund = r.readString();
+    });
+    ws.on('error', schlecht);
+  });
+}
+
+const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * The coupling: a greyglen region is written to the layout file of a RUNNING world while a version 2 client is
+ * connected. Today the layout watch calls that a geometry change ("erst nach dem Neustart wirksam") and returns
+ * before it hands anything to the clients. Whoever rebuilds it to take regions live must keep the version guard:
+ * no client of version 2 may ever receive a document with greyglen, it is turned away with the reload message
+ * instead. This test stays green for both, and turns red when the document reaches the old client unguarded
+ * or when the watch no longer behaves as described here (then this comment says what to re-check).
+ */
+async function koppelung(): Promise<void> {
+  const dir = resolve(TMP, 'live');
+  mkdirSync(dir, { recursive: true });
+  const datei = resolve(dir, 'welt.json');
+  writeFileSync(datei, layout('grassland'));
+  const server = createWovServer({
+    port: 0, worldName: 'pbv-live', worldSeed: 'wov-test', worldFeatures: false, worldVegetation: false,
+    worldsDir: resolve(dir, 'saves'), kontenDir: resolve(dir, 'konten'), worldMode: 'layout', worldLayoutPath: datei, saveIntervalMs: 3600_000,
+  });
+  const zeilen: string[] = [];
+  const orig = { log: console.log, warn: console.warn };
+  console.log = () => undefined;
+  console.warn = (...a: unknown[]) => { zeilen.push(a.map(String).join(' ')); };
+  try {
+    server.start();
+    await warte(300);
+    const port = portVon(server);
+    console.log = orig.log;
+    const alt = await melde(port, 2, 'Alt');
+    const neu = await melde(port, PROTOCOL_VERSION, 'Neu');
+    check('both clients are in the greyglen-free world', !alt.geschlossen && !neu.geschlossen);
+    const wache = (server as unknown as { layoutWache: { tick(): void } }).layoutWache;
+    wache.tick(); // takes the boot state
+    writeFileSync(datei + '.tmp', layout('greyglen'));
+    renameSync(datei + '.tmp', datei);
+    wache.tick();
+    await warte(800);
+    const mitGreyglen = (t: Teilnehmer): boolean => t.layoutTexte.some((x) => x.includes('greyglen'));
+    check('the old client never receives a document with greyglen', !mitGreyglen(alt));
+    check('the old client is either left alone or turned away with the reload message',
+      !alt.geschlossen || (/veraltet/.test(alt.grund ?? '') && /neu laden/.test(alt.grund ?? '')), alt.grund ?? 'connected');
+    const geoAbgelehnt = zeilen.some((z) => /Geo-Änderung/.test(z) && /nichts angewendet/.test(z));
+    const alleKicks = alt.geschlossen && /veraltet/.test(alt.grund ?? '');
+    check('watch behaviour as documented: geometry change not applied live, OR the old client was turned away', geoAbgelehnt || alleKicks,
+      'the layout watch changed: re-check that no unguarded path hands a greyglen layout to a version 2 client');
+    check('the current client stays connected either way', !neu.geschlossen);
+    alt.ws.close();
+    neu.ws.close();
+  } finally {
+    console.log = orig.log;
+    console.warn = orig.warn;
+    await server.stop();
+  }
+}
+
+/** The guard itself, with stand-in peers: it is the single path every layout takes to a peer. */
+function waechter(): void {
+  type Fake = { protokollVersion: number; disconnect(r?: string): void; grund: string | null; bekommen: number };
+  const peer = (v: number): Fake => ({ protokollVersion: v, grund: null, bekommen: 0, disconnect(r = '') { this.grund = r; } });
+  const mitGrau = { regions: [{ biome: 'greyglen' }] };
+  const ohne = { regions: [{ biome: 'grassland' }] };
+  const senden = (p: Fake): void => { p.bekommen++; };
+  const a = peer(2), b = peer(3), c = peer(2), d = peer(0);
+  check('guard: version 2 + greyglen → not sent, disconnected with the reload message',
+    !schickeLayout(a, mitGrau, senden) && a.bekommen === 0 && /veraltet/.test(a.grund ?? '') && /neu laden/.test(a.grund ?? ''));
+  check('guard: the message is bilingual and names the versions', /Client v2, Server v3/.test(a.grund ?? '') && /outdated \(client v2, server v3\)/.test(a.grund ?? '') && /please reload/.test(a.grund ?? ''), a.grund ?? '');
+  check('guard: version 3 + greyglen → sent', schickeLayout(b, mitGrau, senden) && b.bekommen === 1 && b.grund === null);
+  check('guard: version 2 without greyglen → sent', schickeLayout(c, ohne, senden) && c.bekommen === 1 && c.grund === null);
+  check('guard: unknown version 0 is not trusted', !schickeLayout(d, ohne, senden) && d.bekommen === 0 && d.grund !== null);
+}
+
 async function main(): Promise<void> {
+  waechter();
+  await koppelung();
   const alt = await mitWelt('ohne', 'grassland');
+  check('refusal text of a too old client: "Server v2" in a world without greyglen', /Client v1, Server v2/.test(alt.v1.grund ?? ''), alt.v1.grund ?? '');
+  check('refusal text of a too new client names the current version', new RegExp(`Client v${PROTOCOL_VERSION + 1}, Server v${PROTOCOL_VERSION}\\)`).test(alt.v4.grund ?? ''), alt.v4.grund ?? '');
+  check('refusal text is in German and English', /veraltet/.test(alt.v1.grund ?? '') && /outdated/.test(alt.v1.grund ?? ''));
   check('world without greyglen: version 2 is accepted', alt.v2.angenommen);
   check('world without greyglen: current version is accepted', alt.v3.angenommen);
   check('world without greyglen: version 1 and a future version are refused', !alt.v1.angenommen && !alt.v4.angenommen);
@@ -98,7 +212,8 @@ async function main(): Promise<void> {
   const blossPort = await bloss.start();
   const b2 = await versuche(blossPort, 2);
   const b3 = await versuche(blossPort, PROTOCOL_VERSION);
-  check('NetManager without a minimum hook accepts the base version and the current one', b2.angenommen && b3.angenommen);
+  const b1 = await versuche(blossPort, 1);
+  check('NetManager without a minimum hook accepts the base version and the current one, refuses version 1', b2.angenommen && b3.angenommen && !b1.angenommen);
   bloss.stop();
 
   const client = readFileSync(resolve(HIER, '..', '..', 'client', 'src', 'net', 'GameSocket.ts'), 'utf8');

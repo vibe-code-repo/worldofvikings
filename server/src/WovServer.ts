@@ -100,6 +100,7 @@ import { ZoneManager } from './world/ZoneManager.js';
 import { setzeZonenZurueck } from './world/zonenRuecksetzer.js';
 import { SpawnSystem, type SpawnZielInfo } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
+import { schickeLayout } from './net/layoutVerteilen.js';
 import { befreieSpielerbauten, istSpielerbau, layoutAbgleich, type LayoutAbgleichErgebnis, type LayoutAbgleichKontext } from './world/layoutAbgleich.js';
 import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
@@ -1306,9 +1307,9 @@ export class WovServer {
           this.worldLayoutRaw = roh;
           for (const peer of this.net.getPeers()) {
             if (peer.worldId !== HAUPTWELT_ID) continue;
-            peer.sendPacketWith(PacketType.LayoutAktualisiert, (w) => {
+            schickeLayout(peer, roh, (p) => p.sendPacketWith(PacketType.LayoutAktualisiert, (w) => {
               w.writeString(JSON.stringify(roh));
-            });
+            }));
           }
         },
       });
@@ -2486,9 +2487,9 @@ export class WovServer {
     // Layout-Modus: Das Weltdokument folgt SOFORT auf die ServerConfig —
     // der Client wartet darauf, bevor er seine Welt baut (Flag Bit 5).
     if (this.config.worldMode === 'layout' && this.worldLayoutRaw) {
-      peer.sendPacketWith(PacketType.WorldLayoutData, (w) => {
+      schickeLayout(peer, this.worldLayoutRaw, (p) => p.sendPacketWith(PacketType.WorldLayoutData, (w) => {
         w.writeString(JSON.stringify(this.worldLayoutRaw));
-      });
+      }));
     }
 
     // Create player character ZDO — spawn at the saved position (G1) or on

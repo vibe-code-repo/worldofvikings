@@ -4,7 +4,7 @@
  *
  *   npx tsx shared/test/protokoll-version.ts   (from the repo root)
  */
-import { BIOM_AB_PROTOKOLLVERSION, PROTOCOL_VERSION, PROTOCOL_VERSION_BASIS, mindestProtokollVersion } from '../src/protokollVersion.js';
+import { BIOM_AB_PROTOKOLLVERSION, PROTOCOL_VERSION, PROTOCOL_VERSION_BASIS, darfLayoutBekommen, mindestProtokollVersion, serverVersionFuerMeldung, veraltetMeldung } from '../src/protokollVersion.js';
 import { BIOME_BY_NAME, sanitizeWorldLayout } from '../src/worldlayout/index.js';
 
 let fehler = 0;
@@ -35,6 +35,12 @@ check('listed names exist in the sanitizer (no dead entry)', [...BIOM_AB_PROTOKO
 // The raw check and the sanitizer agree on what a greyglen region is.
 const doc = { version: 1, name: 't', detailSeed: 'x', continents: [{ id: 'c', name: 'C' }], regions: [{ ...region('g', 'greyglen'), continentId: 'c', edgeFalloff: 300 }] };
 check('a document the sanitizer keeps with greyglen demands version 3', sanitizeWorldLayout(doc)?.regions[0]?.biome === 'greyglen' && mindestProtokollVersion(doc) === 3);
+
+const mitGrau = { regions: [region('g', 'greyglen')] };
+check('darfLayoutBekommen: 2 may not have greyglen, 3 may, 2 may have the rest', !darfLayoutBekommen(2, mitGrau) && darfLayoutBekommen(3, mitGrau) && darfLayoutBekommen(2, { regions: [region('a', 'swamp')] }) && !darfLayoutBekommen(1, {}));
+check('serverVersionFuerMeldung: too new names the current version, otherwise the minimum', serverVersionFuerMeldung(PROTOCOL_VERSION + 1, 2) === PROTOCOL_VERSION && serverVersionFuerMeldung(1, 2) === 2 && serverVersionFuerMeldung(2, 3) === 3);
+const meldung = veraltetMeldung(2, 3);
+check('veraltetMeldung: German and English from the catalogue, both with the numbers', meldung === 'Client-Version veraltet (Client v2, Server v3) — bitte Seite neu laden / Client version outdated (client v2, server v3) — please reload the page', meldung);
 
 if (fehler > 0) {
   console.error(`\n${fehler} FAIL`);

@@ -1,3 +1,5 @@
+import { inhaltText } from './texte.js';
+
 /**
  * Protocol version of the handshake and the minimum a world demands.
  * Protokollversion des Handshakes und die Mindestversion, die eine Welt verlangt.
@@ -28,4 +30,27 @@ export function mindestProtokollVersion(layoutRoh: unknown): number {
     if (ab !== undefined && ab > mindest) mindest = ab;
   }
   return mindest;
+}
+
+/** True when a client of this version may receive this (raw) layout document. */
+export function darfLayoutBekommen(clientVersion: number, layoutRoh: unknown): boolean {
+  return clientVersion >= mindestProtokollVersion(layoutRoh);
+}
+
+/**
+ * The version the server names in its refusal: its own current one for a client that is too new,
+ * otherwise the minimum the world demands.
+ */
+export function serverVersionFuerMeldung(clientVersion: number, mindest: number): number {
+  return clientVersion > PROTOCOL_VERSION ? PROTOCOL_VERSION : mindest;
+}
+
+/**
+ * The refusal text of an outdated client, in both languages at once ("de / en"): the server does not
+ * know the language of a client that is about to be turned away, and an outdated client could not map a
+ * key anyway, it shows the text as it is. Both come from the catalogue (`inhalt.netz.veraltet`).
+ */
+export function veraltetMeldung(clientVersion: number, serverVersion: number): string {
+  const fuelle = (t: string): string => t.replace('{client}', String(clientVersion)).replace('{server}', String(serverVersion));
+  return `${fuelle(inhaltText('inhalt.netz.veraltet', 'de'))} / ${fuelle(inhaltText('inhalt.netz.veraltet', 'en'))}`;
 }

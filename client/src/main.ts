@@ -134,6 +134,7 @@ import { Namensschilder } from './ui/Namensschild';
 import { WorldMap } from './ui/WorldMap';
 import { setzeKartenMasse } from './ui/worldmap/mapTypes';
 import { baumenueHinweis } from './player/BaumenueHinweis';
+import { ESitzung } from './player/eSitzung';
 import { ladeTestflugEntwurf, starteTestflug } from './editor/testflug/Testflug';
 import { localStoragePersistenz } from './editor/testflug/LocalStoragePersistenz';
 import { checkJumpFromDraft } from './editor/testflug/inselwahl';
@@ -737,6 +738,7 @@ async function main() {
     // would recreate the legacy layer this flow removes.
     window.setTimeout(() => window.location.replace(websiteLoginUrl(Boolean(reason))), 1_200);
   };
+  const eSitzung = new ESitzung(() => entities?.neueVerbindung()); // E key state and loot targets per connection (PeerInfo)
   /** Auto-Reconnect (Review-Punkt 9, F10): Zähler, Backoff, Ansage — Reset bei erfolgreicher Verbindung. */
   const wiederverbinden = new WiederverbindenSteuerung({
     aufgegeben: () => zurueckZurAnmeldung(),
@@ -2224,9 +2226,9 @@ async function main() {
       const worldName = reader.readString();
       const worldSeed = reader.readString();
       const worldGenVersion = reader.readInt32();
-      const flags = reader.readUInt8();
+      const flags = reader.readUInt8(); eSitzung.serverConfig(flags); // the rights of this login (FLAG_ADMIN)
       console.log(
-        `[Client] ServerConfig: world "${worldName}", seed "${worldSeed}", gen v${worldGenVersion}, flags 0b${flags.toString(2).padStart(7, '0')}`
+        `[Client] ServerConfig: world "${worldName}", seed "${worldSeed}", gen v${worldGenVersion}, flags 0b${flags.toString(2).padStart(8, '0')}`
       );
       const settings = {
         worldGenVersion,
@@ -2526,9 +2528,8 @@ async function main() {
     // Serverantworten auf Admin-Kommandos (dungeon enter/leave, teleport …)
     // als Bildschirmmeldung — vorher liefen sie ins Leere.
     socket.on(PacketType.AdminEvent, (reader) => {
-      reader.readString(); // command
-      reader.readBool(); // active
-      const message = reader.readString();
+      const command = reader.readString(); const active = reader.readBool();
+      const message = eSitzung.adminEreignis(command, active, reader.readString());
       if (message) hud.meldung(message);
     });
 
@@ -2613,6 +2614,7 @@ async function main() {
       abgleicher.zuruecksetzen();
       kampfToene.abbrechen();
       imDungeon = drin;
+      entities?.teleportiert(drin, dungeonId);
       // Das dokumenteigene Steinmaterial anlegen, BEVOR die Kit-Teile
       // geladen werden — `prepareMasters` bemalt sie beim Laden, und beim
       // zweiten Grab derselben Sitzung zieht `setzeDokumentSteinKit` die
@@ -2853,7 +2855,7 @@ async function main() {
       if (wiederverbinden.beiGetrennt(reason)) return;
       zurueckZurAnmeldung(reason);
     };
-    socket.on(PacketType.PeerInfo, () => wiederverbinden.beiAngenommen());
+    socket.on(PacketType.PeerInfo, () => { wiederverbinden.beiAngenommen(); eSitzung.neueVerbindung(); });
     socket.on(PacketType.ServerNeustart, (r) => {
       r.readString(); // Schluessel: der Client kennt den Text, dem Server wird kein Schluessel geglaubt
       wiederverbinden.ansage(r.readInt32());
@@ -3489,16 +3491,11 @@ async function main() {
         }
       } else if (ziel) {
         socket.sendInteract(ziel.x, ziel.y, ziel.z, ziel.prefabHash);
-      } else if (imDungeon) {
-        const dx = player.position.x - dungeonSpawn.x;
-        const dz = player.position.z - dungeonSpawn.z;
-        if (dx * dx + dz * dz <= 6 * 6) {
-          socket.sendAdminCommand('dungeon leave');
-        } else {
-          hud.meldung('Zum Verlassen zurück zum Eingang (E)');
-        }
       } else {
-        socket.sendAdminCommand('dungeon enter');
+        const aktion = eSitzung.aktion({ imDungeon, pos: player.position, dungeonSpawn, eingaenge: dungeonEingaenge });
+        if (aktion === 'dungeon-leave') socket.sendAdminCommand('dungeon leave');
+        else if (aktion === 'hinweis-eingang') hud.meldung('Zum Verlassen zurück zum Eingang (E)');
+        else if (aktion === 'dungeon-enter') socket.sendAdminCommand('dungeon enter');
       }
     }
 

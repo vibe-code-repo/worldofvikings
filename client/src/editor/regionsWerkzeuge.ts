@@ -44,6 +44,7 @@ import { VILLAGE_REGION } from '@wov/shared/src/villageBiome.js';
 import {
   ASCHE_FLORA_NAMEN,
   GRASLAND_FLORA_NAMEN,
+  inhaltText,
   HOCHNORD_FLORA_NAMEN,
   LAYOUT_MAX_EXTENT,
   NADELWALD_FLORA_NAMEN,
@@ -102,6 +103,8 @@ export interface RegionVorlage {
   sinnbild: string;
   /** Erklärt die Herkunft der Werte — Messung oder Design-Entscheidung. */
   hinweis: string;
+  /** Übersetzungsschlüssel (`inhalt.*`) des Anzeigenamens; `name` ist dann nur der deutsche Rückfall. */
+  nameSchluessel?: string;
   werte: Partial<RegionDef> & { biome: BiomeName };
 }
 
@@ -211,6 +214,16 @@ export const REGION_VORLAGEN: readonly RegionVorlage[] = [
       waldKoernung: 1.4,
       abstandFaktor: 1.6,
     },
+  },
+  {
+    id: 'grauklamm',
+    name: inhaltText('inhalt.biom.greyglen', 'de'),
+    nameSchluessel: 'inhalt.biom.greyglen',
+    sinnbild: '🪨',
+    hinweis:
+      'Moosiges Felsland, vorerst eine Kopie des Graslands (Boden, Wetter, Höhenformel); ' +
+      'eigene Werte folgen mit dem Biominhalt. edgeFalloff 300 m und tier 0 wie die Startwiese.',
+    werte: { biome: 'greyglen', tier: 0, edgeFalloff: 300 },
   },
   {
     id: 'oedland',

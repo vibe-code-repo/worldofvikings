@@ -48,7 +48,8 @@ export type BiomeName =
   | 'plains'
   | 'mistlands'
   | 'ashlands'
-  | 'deepnorth';
+  | 'deepnorth'
+  | 'greyglen';
 
 /** Autorname → Bitmasken-Biom (shared/src/types.ts, Werte aus der Referenz). */
 export const BIOME_BY_NAME: ReadonlyMap<BiomeName, Biome> = new Map([
@@ -60,6 +61,7 @@ export const BIOME_BY_NAME: ReadonlyMap<BiomeName, Biome> = new Map([
   ['mistlands', Biome.Mistlands],
   ['ashlands', Biome.AshLands],
   ['deepnorth', Biome.DeepNorth],
+  ['greyglen', Biome.Greyglen],
 ]);
 
 /**
@@ -76,6 +78,7 @@ export const DEFAULT_BASE_LEVEL: ReadonlyMap<BiomeName, number> = new Map([
   ['mistlands', 0.27],
   ['ashlands', 0.22],
   ['deepnorth', 0.34],
+  ['greyglen', 0.22],
 ]);
 
 export interface ContinentDef {

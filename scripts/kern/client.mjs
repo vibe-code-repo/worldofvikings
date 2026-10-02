@@ -104,6 +104,8 @@ export default [
   // Namen, die andere Dateien per Zeichenkette suchen (Himmelskuppel, Refraktion,
   // Dungeon-Atmosphäre): Erzeuger und Verbraucher nennen denselben Namen.
   ['client', 'test/bild-namen.ts'],
+  // Greyglen on the map and in the editor: colour contrast, display names via keys, region preset. <1 s.
+  ['client', 'test/biom-greyglen-karte.ts'],
   // D2: swing fields, AttackAck, combo follow-up and round trip on the client.
   ['client', 'test/d2-quittung.ts'],
   // Account hand-off from wov-web: the legacy connection panel must be

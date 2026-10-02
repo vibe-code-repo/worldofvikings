@@ -39,6 +39,8 @@ export default [
     regression and the per-packet cost measurement.
   */
   ['shared', 'test/bewegung-schritt.ts'],
+  // New biome bit 128 (greyglen): bit, names, region, sanitizer, ground tile, weather as a copy of grassland. <1 s.
+  ['shared', 'test/biom-greyglen.ts'],
   /*
     Karte B4 (2026-09-29): Schrittgeraeusche je Untergrund.
     `shared/test/boden-mischung.ts` rechnet die Bodenmischung

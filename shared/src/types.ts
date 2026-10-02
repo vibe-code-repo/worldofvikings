@@ -17,6 +17,7 @@ export enum Biome {
   Plains = 1 << 4,
   AshLands = 1 << 5,
   DeepNorth = 1 << 6,
+  Greyglen = 1 << 7,
   Ocean = 1 << 8,
   Mistlands = 1 << 9,
 }

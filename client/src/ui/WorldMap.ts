@@ -38,7 +38,7 @@ import type { ClientWorld, ClientWorldSettings } from '../world/World';
 import type { GameI18n } from '../i18n';
 import { UI } from './theme';
 import {
-  BIOME_LABEL,
+  biomLabel,
   BIOME_ORDER,
   BIOME_COLOR,
   BIOME_INHALT,
@@ -259,7 +259,7 @@ export class WorldMap {
         `background:${rgb(BIOME_COLOR[b])}`, `border:1px solid ${UI.borderDim}`,
       );
       const name = document.createElement('span');
-      name.textContent = BIOME_LABEL[b];
+      name.textContent = biomLabel(b, this.i18n.language);
       zeile.append(punkt, name);
       box.appendChild(zeile);
     }
@@ -918,7 +918,7 @@ export class WorldMap {
     const art = imWasser ? null : treeKindAt(biome, area, ff, ueberWasser);
 
     const zeilen: string[] = [];
-    zeilen.push(`<div style="color:${UI.gold};font-size:14px;letter-spacing:.08em">${BIOME_LABEL[biome] ?? '—'}</div>`);
+    zeilen.push(`<div style="color:${UI.gold};font-size:14px;letter-spacing:.08em">${biomLabel(biome, this.i18n.language)}</div>`);
     zeilen.push(
       `<div style="color:${UI.muted}">${this.zeiger ? 'unter dem Zeiger' : 'Standort'}: `
       + `${ziel.x.toFixed(0)} / ${ziel.z.toFixed(0)}</div>`,

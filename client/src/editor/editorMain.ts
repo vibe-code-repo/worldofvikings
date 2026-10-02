@@ -42,6 +42,7 @@ import {
   HOCHNORD_FLORA_NAMEN,
   ASCHE_FLORA_NAMEN,
   dungeon2,
+  inhaltText,
   type ContinentDef,
   type RegionDef,
   type WorldLayout,
@@ -2342,7 +2343,7 @@ function seiteBauen(): void {
     const vorlagenBlock = el('div', stil({ display: 'flex', 'flex-direction': 'column', gap: '6px' }));
     vorlagenBlock.appendChild(el('div', stil({ 'font-size': '11px', color: F.gedimmt }), 'Vorlage anwenden'));
     for (const v of REGION_VORLAGEN) {
-      const vorlagenKnopf = breiterKnopf(`${v.sinnbild} ${v.name}`, () => {
+      const vorlagenKnopf = breiterKnopf(`${v.sinnbild} ${v.nameSchluessel ? inhaltText(v.nameSchluessel, editorI18nInstance().language) : v.name}`, () => {
         merkeSchritt();
         layout = {
           ...layout,

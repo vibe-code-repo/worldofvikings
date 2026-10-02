@@ -140,6 +140,8 @@ export default [
   ['server', 'test/bewuchs-freiraum.ts'],
   // D2: server decides hits from geometry and time (hit sphere, swing window, combo ack, cooldown).
   ['server', 'test/d2-treffer.ts'],
+  // D5 (loot is a box and E does not pick it up): every item that can lie on the ground gets an ITEM_DROP prefab and a listed model; BeuteAmBoden lays it under that prefab.
+  ['server', 'test/d5-beute-prefab.ts'],
   // G1-Durchsicht (verwaiste Tests, 20.08.2026): init() ohne start() —
   // kein Port, kein Socket. Haelt getGroundHeight(0,0) gegen den
   // D1-verifizierten Wert UND die Fallphysik-Konvergenz fest, damit ein
@@ -865,6 +867,4 @@ export default [
   // `zone reset` re-scatters generated zones and leaves layout objects, player
   // builds and admin trees alone.
   ['server', 'test/zonen-ruecksetzer.ts'],
-  // D5 (loot is a box and E does not pick it up): every item that can lie on the ground gets an ITEM_DROP prefab and a listed model; BeuteAmBoden lays it under that prefab.
-  ['server', 'test/d5-beute-prefab.ts'],
 ];

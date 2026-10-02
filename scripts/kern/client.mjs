@@ -106,6 +106,10 @@ export default [
   ['client', 'test/bild-namen.ts'],
   // D2: swing fields, AttackAck, combo follow-up and round trip on the client.
   ['client', 'test/d2-quittung.ts'],
+  // D5: the model table of loot against the files on disk (needs assets).
+  ['client', 'test/d5-beute-modelle.ts', brauchtModelle('assets/models/HolzTruhe.glb')],
+  // D5: E finds loot on the ground even when its model never loaded.
+  ['client', 'test/d5-beute-ziel.ts'],
   // Account hand-off from wov-web: the legacy connection panel must be
   // absent from the static HTML, online entry requires a session, and
   // failures return to the one remaining login on the public website.
@@ -184,6 +188,8 @@ export default [
   // AP15.3/15.4/15.5: the pure logic of the editor's cell tools — picking maths
   // and mutations, DOM-free, seconds.
   ['client', 'test/dungeon2-zellwerkzeuge.ts'],
+  // D5: E without a target sends no `dungeon enter` unless a dungeon entrance is near.
+  ['client', 'test/e-ohne-ziel.ts'],
   // EG2 N1: der Ablauf ums Speichern, DOM-frei: Sperre des Speichern-Knopfs (laedt/speichert/Konflikt),
   // nichts entkommt als unbehandelte Ablehnung, Konfliktpruefung nach 412 (eigene oder Server-Fassung,
   // gegen einen Speicher-Server mit der If-Match-Regel) und die Verdrahtung in seite.ts am Syntaxbaum.
@@ -808,10 +814,4 @@ export default [
   // Wildwarden clientseitig: Slot-Vertrag, Speicher-Rundlauf, Inventarersatz,
   // Körper-Wiederherstellung. NullEngine.
   ['client', 'test/wildwarden.ts'],
-  // D5: the model table of loot against the files on disk (needs assets).
-  ['client', 'test/d5-beute-modelle.ts', brauchtModelle('assets/models/HolzTruhe.glb')],
-  // D5: E finds loot on the ground even when its model never loaded.
-  ['client', 'test/d5-beute-ziel.ts'],
-  // D5: E without a target sends no `dungeon enter` unless a dungeon entrance is near.
-  ['client', 'test/e-ohne-ziel.ts'],
 ];

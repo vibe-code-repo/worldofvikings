@@ -727,6 +727,11 @@ export default [
   ['client', 'test/upload-grundskala-neu-anwenden.ts'],
   // Baeume entfernen V1: Vergleich, enthaelt, Import und Speicherschutz F1 kennen vegetationEntfernt.
   ['client', 'test/vegetation-entfernt-dokument.ts'],
+  // Baeume entfernen V3: die Vorschau liest die Kreise aus dem ENTWURF und streut beim Malen/Rueckgaengig/Wiederholen neu; ausserhalb bitgleich.
+  ['client', 'test/vegetation-pinsel-vorschau.ts'],
+  // Baeume entfernen V3: Bewuchs-Pinsel im Gelaende-Reiter - Strich (Stempelabstand Radius/2, ein Vorgang), Abdeckung, "nur Baeume", Grenze 4096,
+  // Rueckgaengig/Wiederholen, offener Strich, unbrauchbarer Entwurf, Verdrahtung und Texte de/en. DOM-frei.
+  ['client', 'test/vegetation-pinsel.ts'],
   // Baeume entfernen V2 N2: bei `angewendet` zeigt der Editor den Vegetationshinweis der Quittung (abgelehnte Kreise, Zonen ohne Marke), de/en.
   ['client', 'test/vegetation-quittung-anzeige.ts'],
   // Die Grafikoption begrenzt die gemeinsamen Bild-/Schattenmatrizen der

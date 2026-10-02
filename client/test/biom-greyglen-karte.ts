@@ -103,6 +103,7 @@ check('world map: legend rows and tooltip get the game language, never a literal
 const editorQuelle = quelle('client/src/editor/editorMain.ts');
 {
   const m = /private uebersetzeChrome\(\): void \{[\s\S]*?\n  \}/.exec(weltkarte);
+  check('world map: the legend collects its name fields', weltkarte.includes('legendenNamen.push(name)') && weltkarte.includes('this.legendenNamen = legendenNamen'));
   check('world map: uebersetzeChrome sets the legend names again in the game language', m !== null && m[0].includes('setzeLegendenNamen(this.legendenNamen, this.i18n.language)'));
 }
 check('editor: button and message both use vorlagenName in the editor language, no raw v.name',

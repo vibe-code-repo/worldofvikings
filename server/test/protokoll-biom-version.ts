@@ -11,6 +11,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createWovServer } from '../src/WovServer.js';
+import { NetManager } from '../src/net/NetManager.js';
 import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
@@ -92,8 +93,14 @@ async function main(): Promise<void> {
   check('world with greyglen: the current version is accepted', neu.v3.angenommen);
   check('world with greyglen: version 1 and a future version are refused', !neu.v1.angenommen && !neu.v4.angenommen);
 
-  const quelle = readFileSync(resolve(HIER, '..', 'src', 'WovServer.ts'), 'utf8');
-  check('WovServer hands the layout check to the NetManager', quelle.includes('mindestVersion: () => mindestProtokollVersion(this.worldLayoutRaw)'));
+  // A NetManager without the hook (as in other tests): the base version stays accepted.
+  const bloss = new NetManager({ port: 0, password: '', serverName: 't', maxPlayers: 2, everyoneAdmin: false, sessionSecret: Buffer.alloc(32, 1), istAdminId: () => false });
+  const blossPort = await bloss.start();
+  const b2 = await versuche(blossPort, 2);
+  const b3 = await versuche(blossPort, PROTOCOL_VERSION);
+  check('NetManager without a minimum hook accepts the base version and the current one', b2.angenommen && b3.angenommen);
+  bloss.stop();
+
   const client = readFileSync(resolve(HIER, '..', '..', 'client', 'src', 'net', 'GameSocket.ts'), 'utf8');
   check('the client sends the shared constant', client.includes('w.writeInt32(PROTOCOL_VERSION)'));
 

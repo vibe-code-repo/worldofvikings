@@ -53,6 +53,10 @@
  *  arguments, unknown and ambiguous names, the last admin, an admin as the target of a ban, bans with and without a deadline,
  *  the origin of a connection), with a fixed clock and time zone; the message of every command is held as text, every call
  *  into the context with its arguments, the rights of every open session after every command, the order of the registry.
+ *  Step 1A after the attack (I11A-B1..B3): more spellings and names of two words, deadlines without anchor ([2d]); the call of each
+ *  registration stands directly in the constructor and the re-check directly in the one-second block of `update()`, the only mention
+ *  in the class ([1c]); the re-check really runs from `update()` in every full second, and the registry is complete with
+ *  `everyone-admin: true` ([4b]); the heads of the relaxed members are frozen with their modifiers (`readonly kontenDb`).
  *  Not applicable in steps 1A, 2 and 3: the identity of returned objects of the stock (K9-5), no function returns a value.
  *
  * Section [0] shows first that each check can turn red: the same checks run over small invented sources, one fault
@@ -746,6 +750,158 @@ if (!MESSEN_BASIS) {
   const unbekannt = dateien.filter((d) => d !== 'server/src/spiel/Kontext.ts' && /\bSpielKontext\b/.test(readFileSync(join(WURZEL, d), 'utf8')) && !alleDateien.has(d));
   check('every module under spiel/ and its sub-folders that uses SpielKontext is in MODULE (under this guard)', unbekannt.length === 0, unbekannt.join(', '));
   check('the sub-folder spiel/befehle/ is read (the list of files is recursive)', dateien.some((d) => d.startsWith('server/src/spiel/befehle/')), dateien.filter((d) => d.includes('/befehle/')).join(', '));
+}
+
+// ── [1c] Step 1A, attack I11A-B2/B3: where the callers call, and the heads of the relaxed members ──
+
+/**
+ * The call of each function of step 1A in its caller is ONE expression statement `this.<name>();`, standing directly in a
+ * frozen block (the constructor body, or the block of `if (this.timeSyncAccumulator >= 1000)` in `update()`), between two
+ * frozen neighbours, and it is the only mention of `this.<name>` in the whole class outside the forwarding. A condition, an
+ * inner function or a second place (attack I11A-B2: U1 to U4, C1) turns this red.
+ */
+interface AufrufStelle1A {
+  readonly name: string;
+  readonly methode: 'constructor' | 'update';
+  /** The condition of the `if` whose block holds the call; null: directly in the body of the method. */
+  readonly bedingung: string | null;
+  /** The first line of the statement before and after the call (trimmed). */
+  readonly davor: string;
+  readonly danach: string;
+  /** The other methods of the class that may call it as `k.`-member through the module are not in the class; inside the class only the caller. */
+}
+const AUFRUF_STELLEN_1A: readonly AufrufStelle1A[] = [
+  { name: 'registerAdminListeCommands', methode: 'constructor', bedingung: null, davor: 'this.registerAbbauCommand();', danach: 'this.registerBannCommands();' },
+  { name: 'registerBannCommands', methode: 'constructor', bedingung: null, davor: 'this.registerAdminListeCommands();', danach: 'this.registerMarkeCommand();' },
+  { name: 'gleicheAdminrechteAb', methode: 'update', bedingung: 'this.timeSyncAccumulator >= 1000', davor: 'for (const peer of this.net.getPeers()) {', danach: 'this.layoutWache?.tick();' },
+];
+/** The head of each relaxed member of step 1A as it stands in the class, frozen with its modifiers (attack I11A-B3: `readonly` of `kontenDb`). */
+const LOCKERUNG_KOEPFE_1A: Readonly<Record<string, string>> = {
+  kontenDb: 'readonly kontenDb: Kontendatenbank;',
+  spielerIdFuerName: 'spielerIdFuerName(name: string): SpielerId | undefined | typeof NAME_NICHT_EINDEUTIG',
+  gleicheAdminrechteAb: 'gleicheAdminrechteAb(): void',
+};
+
+function pruefeAufrufStellen1A(text: string, stellen: readonly AufrufStelle1A[], koepfe: Readonly<Record<string, string>>): string[] {
+  const f: string[] = [];
+  const sf = parse('WovServer.ts', text);
+  const klasse = sf.statements.find((s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && s.name?.text === 'WovServer');
+  if (!klasse) return ['class WovServer not found'];
+  const ersteZeile = (n: ts.Node): string => n.getText(sf).split('\n')[0]!.trim();
+  for (const st of stellen) {
+    const methode = st.methode === 'constructor' ? klasse.members.find(ts.isConstructorDeclaration) : klasse.members.find((m): m is ts.MethodDeclaration => ts.isMethodDeclaration(m) && m.name.getText(sf) === st.methode);
+    if (!methode?.body) { f.push(`${st.name}: caller ${st.methode} not found`); continue; }
+    // every mention of this.<name> in the class, outside the forwarding of that name
+    const erwaehnt: ts.PropertyAccessExpression[] = [];
+    for (const m of klasse.members) {
+      if (ts.isMethodDeclaration(m) && m.name.getText(sf) === st.name) continue;
+      const gehe = (n: ts.Node): void => {
+        if (ts.isPropertyAccessExpression(n) && n.expression.kind === ts.SyntaxKind.ThisKeyword && n.name.text === st.name) erwaehnt.push(n);
+        if (ts.isElementAccessExpression(n) && n.expression.kind === ts.SyntaxKind.ThisKeyword) f.push(`${st.name}: a computed access this[…] in the class (${n.getText(sf).slice(0, 40)}) could reach it`);
+        ts.forEachChild(n, gehe);
+      };
+      gehe(m);
+    }
+    if (erwaehnt.length !== 1) { f.push(`${st.name}: mentioned ${erwaehnt.length} times as this.${st.name} in the class, expected once (the call in ${st.methode})`); continue; }
+    const zugriff = erwaehnt[0]!;
+    const aufruf = zugriff.parent;
+    const anweisung = aufruf?.parent;
+    if (!aufruf || !ts.isCallExpression(aufruf) || aufruf.expression !== zugriff || aufruf.arguments.length !== 0 || aufruf.questionDotToken || !anweisung || !ts.isExpressionStatement(anweisung)) {
+      f.push(`${st.name}: the mention is not the statement \`this.${st.name}();\` (${(anweisung ?? zugriff).getText(sf).slice(0, 60)})`);
+      continue;
+    }
+    const block = anweisung.parent;
+    if (!ts.isBlock(block)) { f.push(`${st.name}: the call does not stand in a block`); continue; }
+    if (st.bedingung === null) {
+      if (block !== methode.body) f.push(`${st.name}: the call does not stand directly in the body of ${st.methode} (in ${ts.SyntaxKind[block.parent.kind]})`);
+    } else {
+      const wenn = block.parent;
+      if (!ts.isIfStatement(wenn) || wenn.thenStatement !== block || wenn.expression.getText(sf) !== st.bedingung || wenn.parent !== methode.body) {
+        f.push(`${st.name}: the call does not stand directly in the block of \`if (${st.bedingung})\` in the body of ${st.methode}`);
+      }
+    }
+    const i = block.statements.indexOf(anweisung);
+    const vor = block.statements[i - 1], nach = block.statements[i + 1];
+    if (!vor || ersteZeile(vor) !== st.davor) f.push(`${st.name}: before the call stands "${vor ? ersteZeile(vor).slice(0, 50) : 'nothing'}", frozen "${st.davor}"`);
+    if (!nach || ersteZeile(nach) !== st.danach) f.push(`${st.name}: after the call stands "${nach ? ersteZeile(nach).slice(0, 50) : 'nothing'}", frozen "${st.danach}"`);
+  }
+  for (const [name, kopf] of Object.entries(koepfe)) {
+    const m = klasse.members.filter((x) => x.name?.getText(sf) === name);
+    if (m.length !== 1) { f.push(`${name}: ${m.length} members of this name`); continue; }
+    const x = m[0]!;
+    const ist = ts.isMethodDeclaration(x) && x.body ? text.slice(x.getStart(sf), x.body.getStart(sf)).trim() : x.getText(sf).trim();
+    if (ist !== kopf) f.push(`${name}: the head is "${ist.slice(0, 90)}", frozen "${kopf}"`);
+  }
+  return f;
+}
+
+console.log('\n[1c] Step 1A: the place of each call (constructor, update) and the heads of the relaxed members (attack I11A-B2, B3)');
+{
+  // self-test on an invented class: the good form is green, each fault red
+  const gut = [
+    'export class WovServer {',
+    '  readonly kontenDb: Kontendatenbank;',
+    '  constructor() {',
+    '    this.registerAbbauCommand();',
+    '    this.registerAdminListeCommands();',
+    '    this.registerBannCommands();',
+    '    this.registerMarkeCommand();',
+    '  }',
+    '',
+    '  private update(): void {',
+    '    if (this.timeSyncAccumulator >= 1000) {',
+    '      for (const peer of this.net.getPeers()) {',
+    '        void peer;',
+    '      }',
+    '      this.gleicheAdminrechteAb();',
+    '      this.layoutWache?.tick();',
+    '    }',
+    '  }',
+    '',
+    '  spielerIdFuerName(name: string): SpielerId | undefined | typeof NAME_NICHT_EINDEUTIG {',
+    '    return undefined;',
+    '  }',
+    '',
+    '  private registerAdminListeCommands(): void {',
+    '    return registerAdminListeCommands(this);',
+    '  }',
+    '',
+    '  gleicheAdminrechteAb(): void {',
+    '    return gleicheAdminrechteAb(this);',
+    '  }',
+    '',
+    '  private registerBannCommands(): void {',
+    '    return registerBannCommands(this);',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const pr = (t: string): string[] => pruefeAufrufStellen1A(t, AUFRUF_STELLEN_1A, LOCKERUNG_KOEPFE_1A);
+  check('green: callers and heads in the frozen form (invented class)', pr(gut).length === 0, show(pr(gut)));
+  const ersetze = (a: string, b: string): string => { if (!gut.includes(a)) throw new Error('fault anchor missing: ' + a); return gut.replace(a, b); };
+  const fehler1c: [string, string][] = [
+    ['U1 the re-check only with many peers', ersetze('      this.gleicheAdminrechteAb();', '      if (this.net.getPeers().length > 100) this.gleicheAdminrechteAb();')],
+    ['U2 the re-check only in an inner arrow function', ersetze('      this.gleicheAdminrechteAb();', '      const nie = (): void => this.gleicheAdminrechteAb(); void nie;')],
+    ['U3 the re-check every 60th second', ersetze('      this.gleicheAdminrechteAb();', '      if (Math.floor(Date.now() / 1000) % 60 === 0) this.gleicheAdminrechteAb();')],
+    ['U4 the re-check behind if (false)', ersetze('      this.gleicheAdminrechteAb();', '      if (false as boolean) this.gleicheAdminrechteAb();')],
+    ['the re-check outside the one-second block', ersetze('      this.gleicheAdminrechteAb();\n      this.layoutWache?.tick();\n    }', '      this.layoutWache?.tick();\n    }\n    this.gleicheAdminrechteAb();')],
+    ['the re-check called a second time elsewhere', ersetze('    this.registerMarkeCommand();', '    this.registerMarkeCommand();\n    this.gleicheAdminrechteAb();')],
+    ['C1 the ban commands only without everyone-admin', ersetze('    this.registerBannCommands();', '    if (!this.config.everyoneAdmin) this.registerBannCommands();')],
+    ['the registration in a nested block', ersetze('    this.registerBannCommands();', '    {\n      this.registerBannCommands();\n    }')],
+    ['the registration with an argument', ersetze('    this.registerAdminListeCommands();', '    this.registerAdminListeCommands(1 as never);')],
+    ['the registrations swapped', ersetze('    this.registerAdminListeCommands();\n    this.registerBannCommands();', '    this.registerBannCommands();\n    this.registerAdminListeCommands();')],
+    ['the registration via optional call', ersetze('    this.registerBannCommands();', '    this.registerBannCommands?.();')],
+    ['a computed access to the class', ersetze('    this.registerMarkeCommand();', "    this.registerMarkeCommand();\n    this['registerBann' + 'Commands']();")],
+    ['W1 kontenDb loses readonly', ersetze('  readonly kontenDb: Kontendatenbank;', '  kontenDb: Kontendatenbank;')],
+    ['kontenDb gets another type', ersetze('  readonly kontenDb: Kontendatenbank;', '  readonly kontenDb: Kontendatenbank | null;')],
+    ['spielerIdFuerName becomes static', ersetze('  spielerIdFuerName(name: string)', '  static spielerIdFuerName(name: string)')],
+    ['gleicheAdminrechteAb becomes async in the head', ersetze('  gleicheAdminrechteAb(): void {', '  async gleicheAdminrechteAb(): void {')],
+  ];
+  for (const [name, t] of fehler1c) check(`red: ${name}`, pr(t).length > 0, show(pr(t)) || 'no finding');
+  if (!MESSEN_BASIS) {
+    const f = pr(klassenText);
+    check(`WovServer.ts: the ${AUFRUF_STELLEN_1A.length} calls of step 1A stand as frozen, the ${Object.keys(LOCKERUNG_KOEPFE_1A).length} relaxed heads as frozen`, f.length === 0, show(f));
+  }
 }
 
 // ── [2] Behaviour ──────────────────────────────────────────────────────
@@ -1517,6 +1673,175 @@ function messeBefehleEcht(): Aufzeichnung {
   const ersetze = (t: string): string => { let x = t; for (const [id, n] of kennungen) x = x.split(id).join(n); return x; };
   a.notizen = a.notizen.map(ersetze);
   a.paket = a.paket.map(ersetze);
+  return a;
+}
+
+// ── [2d] Step 1A, attack I11A-B1/B2: more cases of the commands, the re-check from update(), the registry with everyone-admin ──
+
+/**
+ * Attack I11A-B1: the sub-commands of `entbann` in another spelling (`IP`, `Herkunft`), names of two words for `entbann` and
+ * `admin remove`, deadlines without anchor (`30min`, `x30m`), `bann herkunft` with another spelling of the target. Same
+ * stand-in as [2c]; the clock and the time zone fixed.
+ */
+function messeBefehleN1Attrappe(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  try {
+    mitUhr(() => {
+      const c = befehlsKontext(a);
+      versuche(a, () => F['registerAdminListeCommands']!(c.k));
+      versuche(a, () => F['registerBannCommands']!(c.k));
+      const boss = befehlPeer(a, 'Boss', { isAdmin: true });
+      c.peers.push(boss, befehlPeer(a, 'Anna'), befehlPeer(a, 'Anna Maria', { spielerId: 'S-AnnaMaria' }), befehlPeer(a, 'Dora', { isAdmin: true }));
+      for (const [n, id] of [['boss', 'S-Boss'], ['anna', 'S-Anna'], ['anna maria', 'S-AnnaMaria'], ['maria', 'S-Maria']] as const) c.namen.set(n, id);
+      c.charaktere.set('gast', { id: 3, kontoId: 2, spielerId: 'S-Gast', name: 'Gast' });
+      c.konten.set(2, 'gastkonto');
+      c.herkunft.set('Anna', '203.0.113.7');
+      c.herkunft.set('Anna Maria', '203.0.113.8');
+      c.liste.set('S-Boss', 'Boss');
+      const lauf = (befehl: string, args: string[]): void => {
+        const kopie = [...args];
+        versuche(a, () => { a.notizen.push(`${befehl} ${JSON.stringify(args)} -> ${ergebnisText(c.handler.get(befehl)!(boss, kopie))} args-after=${JSON.stringify(kopie)}`); });
+        a.notizen.push(`rights ${rechte(c.peers)} list=${[...c.liste.keys()].join(',')} bans=${c.banns.map((b) => `${b.art}:${b.wert}:${b.bis ?? '-'}:${b.grund}`).join('|')}`);
+      };
+      // deadlines without anchor: a word that only contains a deadline is part of the reason, the ban is permanent
+      lauf('bann', ['Gast', '30min']);
+      lauf('bann', ['Gast', 'x30m']);
+      lauf('bann', ['Gast', '2hx', 'und', 'mehr']);
+      lauf('bann', ['Gast', '30m', '30min']);
+      // the origin with another spelling of the target (lower case, spaces around)
+      lauf('bann', ['herkunft', 'anna', '1h']);
+      lauf('bann', ['HERKUNFT', 'ANNA']);
+      lauf('bann', ['herkunft', 'Anna', 'Maria']);
+      // entbann with the sub-command in another spelling
+      lauf('entbann', ['IP', '203.0.113.7']);
+      lauf('entbann', ['Herkunft', '203.0.113.7']);
+      lauf('entbann', ['HERKUNFT', '203.0.113.7']);
+      // names of two words: admin add/remove and entbann take every word
+      lauf('admin', ['add', 'Anna', 'Maria']);
+      lauf('admin', ['list']);
+      lauf('admin', ['remove', 'Anna', 'Maria']);
+      c.banns.push({ art: 'spieler', wert: 'S-AnnaMaria', grund: 'zwei Woerter', gesetztVon: 'Boss', bis: null }, { art: 'spieler', wert: 'S-Anna', grund: 'ein Wort', gesetztVon: 'Boss', bis: null });
+      lauf('entbann', ['Anna', 'Maria']);
+      lauf('entbann', ['Anna', 'Maria']);
+      lauf('entbann', ['  Anna ', ' ']);
+      lauf('bann', ['liste']);
+      a.zustand.push(c.banns.length, c.liste.size);
+    });
+  } finally {
+    ruecksetzen();
+  }
+  return a;
+}
+
+/** The same cases on a real instance with a real account database through the registry; player ids written as `<name>`. */
+function messeBefehleN1Echt(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  const tmp = mkdtempSync(join(tmpdir(), 'i1-form-k-'));
+  const kennungen = new Map<string, string>();
+  try {
+    mitUhr(() => {
+      const server = createWovServer({
+        port: 0, worldFeatures: false, worldName: 'i1-form-k1an', everyoneAdmin: false,
+        worldsDir: join(tmp, 'worlds'), kontenDir: join(tmp, 'konten'), forumDir: join(tmp, 'forum'), generiertDir: join(tmp, 'generiert'),
+      } as never) as unknown as Record<string, unknown>;
+      const db = server['kontenDb'] as {
+        kontoAnlegen(n: string, e: string, p: string): { konto?: { id: number } };
+        charakterAnlegen(kontoId: number, name: string, aussehen: Record<string, string>): { charakter?: { spielerId: string } };
+        bannSetzen(art: string, wert: string, angaben: Record<string, unknown>): unknown;
+        bannListe(): { art: string; wert: string; bis: number | null; grund: string }[];
+        schliessen?(): void;
+      };
+      const liste = server['adminListe'] as { hinzufuegen(id: string, name: string): boolean; alle(): { name: string }[] };
+      const aussehen = { figur: FIGUREN[0]!.id, frisur: FRISUR_VORGABE, haarfarbe: HAARFARBE_VORGABE, ober: '', beine: '' };
+      const kA = db.kontoAnlegen('adminkonto', 'a@example.invalid', 'x').konto!.id;
+      const kG = db.kontoAnlegen('gastkonto', 'g@example.invalid', 'x').konto!.id;
+      const idAdmin = db.charakterAnlegen(kA, 'Admin', aussehen).charakter!.spielerId;
+      kennungen.set(idAdmin, '<Admin>');
+      const idGast = db.charakterAnlegen(kG, 'Gast', aussehen).charakter!.spielerId;
+      kennungen.set(idGast, '<Gast>');
+      liste.hinzufuegen(idAdmin, 'Admin');
+      const gespeichert = server['savedPlayers'] as Map<string, unknown>;
+      const idZwei = spielerIdErzeugen();
+      kennungen.set(idZwei, '<Anna Maria>');
+      gespeichert.set('am', { name: 'Anna Maria', spielerId: idZwei });
+      const idAnna = spielerIdErzeugen();
+      kennungen.set(idAnna, '<Anna>');
+      gespeichert.set('an', { name: 'Anna', spielerId: idAnna });
+      const net = server['net'] as Record<string, unknown>;
+      const admin = befehlPeer(a, 'Admin', { spielerId: idAdmin, isAdmin: true, verbindungsId: 'v1', authenticated: true });
+      const gast = befehlPeer(a, 'Gast', { spielerId: idGast, verbindungsId: 'v2', authenticated: true });
+      const peers = [admin, gast];
+      (net['onlinePeers'] as unknown[]).push(...peers);
+      (net['herkunftJeVerbindung'] as Map<string, string>).set('v2', '198.51.100.4');
+      net['trenneGebannte'] = (): unknown[] => { zaehle(a, 'net.trenneGebannte'); a.notizen.push('call net.trenneGebannte'); return []; };
+      const registry = server['adminCommands'] as { execute(p: unknown, line: string): unknown };
+      const rufe = (line: string): void => {
+        versuche(a, () => { a.notizen.push(`${JSON.stringify(line)} -> ${ergebnisText(registry.execute(admin, line))}`); });
+        a.notizen.push(`rights ${rechte(peers)} list=${liste.alle().map((e) => e.name).join(',')} bans=${db.bannListe().map((b) => `${b.art}:${b.wert}:${b.bis ?? '-'}:${b.grund}`).join('|')}`);
+      };
+      for (const line of ['bann Gast 30min', 'bann Gast x30m', 'bann Gast 2hx Rest', 'bann herkunft gast 1h', 'bann HERKUNFT GAST', 'entbann IP 198.51.100.4']) rufe(line);
+      rufe('bann herkunft Gast');
+      rufe('entbann Herkunft 198.51.100.4');
+      for (const line of ['admin add Anna Maria', 'admin list', 'admin remove Anna Maria']) rufe(line);
+      db.bannSetzen('spieler', idZwei, { grund: 'zwei Woerter', gesetztVon: 'Admin', bis: null });
+      db.bannSetzen('spieler', idAnna, { grund: 'ein Wort', gesetztVon: 'Admin', bis: null });
+      for (const line of ['entbann Anna Maria', 'entbann Anna Maria', 'entbann Gast', 'bann liste']) rufe(line);
+      db.schliessen?.();
+    });
+  } finally {
+    ruecksetzen();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  const ersetze = (t: string): string => { let x = t; for (const [id, n] of kennungen) x = x.split(id).join(n); return x; };
+  a.notizen = a.notizen.map(ersetze);
+  a.paket = a.paket.map(ersetze);
+  return a;
+}
+
+/**
+ * Attack I11A-B2: the re-check runs from the real `update()` once in every full second, whatever the number of peers and the
+ * time; and on a server with `everyone-admin: true` the registry still holds every command (the registrations do not depend
+ * on it). The re-check on the instance is a recording stand-in (the instance member hides the prototype method, as the tests
+ * do); the clock is fixed so that `update()` sees no time passing, the one-second block is entered by the accumulator.
+ */
+function messeTakt1A(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  const tmp = mkdtempSync(join(tmpdir(), 'i1-form-k-'));
+  try {
+    mitUhr(() => {
+      const orig = Date.now;
+      Date.now = (): number => BEFEHL_JETZT + 7_000; // not a full minute: a re-check bound to the clock would show
+      try {
+        for (const jeder of [false, true]) {
+          const server = createWovServer({
+            port: 0, worldFeatures: false, worldName: `i1-form-k1at${jeder ? 'e' : ''}`, everyoneAdmin: jeder,
+            worldsDir: join(tmp, `worlds${jeder ? 'e' : ''}`), kontenDir: join(tmp, `konten${jeder ? 'e' : ''}`), forumDir: join(tmp, `forum${jeder ? 'e' : ''}`), generiertDir: join(tmp, 'generiert'),
+          } as never) as unknown as Record<string, unknown>;
+          const registry = server['adminCommands'] as { handlers: Map<string, unknown> };
+          a.notizen.push(`everyoneAdmin=${jeder} registry ${[...registry.handlers.keys()].join(' ')}`);
+          server['gleicheAdminrechteAb'] = function (this: unknown, ...x: unknown[]): void { zaehle(a, 'gleicheAdminrechteAb'); a.notizen.push(`call gleicheAdminrechteAb this=${String(this === server)} args=${x.length}`); };
+          for (const [akk, peers] of [[1000, 0], [999, 0], [1000, 0], [2500, 0], [0, 0]] as const) {
+            server['timeSyncAccumulator'] = akk;
+            server['prevUpdateTime'] = Date.now();
+            void peers;
+            versuche(a, () => (server['update'] as () => void).call(server));
+            a.notizen.push(`everyoneAdmin=${jeder} takt akk=${akk} -> akk=${String(server['timeSyncAccumulator'])} calls=${a.aufrufe['gleicheAdminrechteAb'] ?? 0}`);
+          }
+          (server['kontenDb'] as { schliessen?(): void }).schliessen?.();
+        }
+      } finally {
+        Date.now = orig;
+      }
+    });
+  } finally {
+    ruecksetzen();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  // console lines of a tick are not part of this measurement (time sync and world messages); only their number is kept
+  a.notizen = a.notizen.filter((x) => !x.startsWith('log ') && !x.startsWith('warn '));
   return a;
 }
 
@@ -2409,6 +2734,204 @@ const SOLL_BEFEHLE_ECHT: Aufzeichnung = {
   ],
 };
 
+/** Step 1A after the attack (I11A-B1, B2), measured on `bd94dfc7` before the move (`--messen-basis`). */
+const SOLL_BEFEHLE_N1_ATTRAPPE: Aufzeichnung = {
+  paket: [
+    "Anna Maria:AdminEvent:[\"admin\",false,\"Du hast jetzt Adminrechte.\",0]:34:ad9db1326ead6019",
+    "Dora:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
+    "Anna Maria:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
+  ],
+  aufrufe: {"adminCommands.register": 4, "net.findPeerByName": 7, "kontenDb.charakterNachName": 7, "kontenDb.charaktereVonKonto": 4, "adminListe.enthaelt": 5, "kontenDb.bannSetzen": 7, "net.trenneGebannte": 7, "net.getPeers": 5, "net.herkunftVon": 3, "kontenDb.bannAufheben": 6, "spielerIdFuerName": 5, "adminListe.hinzufuegen": 1, "gleicheAdminrechteAb": 2, "adminListe.alle": 3, "adminListe.anzahl": 1, "adminListe.entfernen": 1, "kontenDb.bannListe": 1, "kontenDb.kontoNachId": 1},
+  konsole: {"log": 3, "warn": 0},
+  zustand: [1, 1],
+  ausnahmen: [],
+  notizen: [
+    "call adminCommands.register \"admin\" \"function\"",
+    "call adminCommands.register \"kick\" \"function\"",
+    "call adminCommands.register \"bann\" \"function\"",
+    "call adminCommands.register \"entbann\" \"function\"",
+    "call net.findPeerByName \"Gast\"",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.charaktereVonKonto 2",
+    "call adminListe.enthaelt \"S-Gast\"",
+    "call kontenDb.bannSetzen \"konto\" \"2\" {\"grund\":\"30min\",\"gesetztVon\":\"Boss\",\"bis\":null}",
+    "call net.trenneGebannte",
+    "bann [\"Gast\",\"30min\"] -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (dauerhaft, 30min)\"} args-after=[\"30min\"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=A- list=S-Boss bans=konto:2:-:30min",
+    "call net.findPeerByName \"Gast\"",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.charaktereVonKonto 2",
+    "call adminListe.enthaelt \"S-Gast\"",
+    "call kontenDb.bannSetzen \"konto\" \"2\" {\"grund\":\"x30m\",\"gesetztVon\":\"Boss\",\"bis\":null}",
+    "call net.trenneGebannte",
+    "bann [\"Gast\",\"x30m\"] -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (dauerhaft, x30m)\"} args-after=[\"x30m\"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=A- list=S-Boss bans=konto:2:-:x30m",
+    "call net.findPeerByName \"Gast\"",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.charaktereVonKonto 2",
+    "call adminListe.enthaelt \"S-Gast\"",
+    "call kontenDb.bannSetzen \"konto\" \"2\" {\"grund\":\"2hx und mehr\",\"gesetztVon\":\"Boss\",\"bis\":null}",
+    "call net.trenneGebannte",
+    "bann [\"Gast\",\"2hx\",\"und\",\"mehr\"] -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (dauerhaft, 2hx und mehr)\"} args-after=[\"2hx\",\"und\",\"mehr\"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=A- list=S-Boss bans=konto:2:-:2hx und mehr",
+    "call net.findPeerByName \"Gast\"",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.charaktereVonKonto 2",
+    "call adminListe.enthaelt \"S-Gast\"",
+    "call kontenDb.bannSetzen \"konto\" \"2\" {\"grund\":\"30min\",\"gesetztVon\":\"Boss\",\"bis\":1790938800000}",
+    "call net.trenneGebannte",
+    "bann [\"Gast\",\"30m\",\"30min\"] -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (bis 2.10.2026, 13:00:00, 30min)\"} args-after=[\"30min\"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=A- list=S-Boss bans=konto:2:1790938800000:30min",
+    "call net.findPeerByName \"anna\"",
+    "call net.getPeers",
+    "call net.herkunftVon \"Anna\"",
+    "call kontenDb.bannSetzen \"herkunft\" \"203.0.113.7\" {\"grund\":\"\",\"gesetztVon\":\"Boss\",\"bis\":1790940600000}",
+    "call net.trenneGebannte",
+    "bann [\"herkunft\",\"anna\",\"1h\"] -> {\"ok\":true,\"active\":false,\"message\":\"Herkunft von anna gebannt (bis 2.10.2026, 13:30:00)\"} args-after=[\"herkunft\",\"anna\",\"1h\"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=A- list=S-Boss bans=konto:2:1790938800000:30min|herkunft:203.0.113.7:1790940600000:",
+    "call net.findPeerByName \"ANNA\"",
+    "call net.getPeers",
+    "call net.herkunftVon \"Anna\"",
+    "call kontenDb.bannSetzen \"herkunft\" \"203.0.113.7\" {\"grund\":\"\",\"gesetztVon\":\"Boss\",\"bis\":null}",
+    "call net.trenneGebannte",
+    "bann [\"HERKUNFT\",\"ANNA\"] -> {\"ok\":true,\"active\":false,\"message\":\"Herkunft von ANNA gebannt (dauerhaft)\"} args-after=[\"HERKUNFT\",\"ANNA\"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=A- list=S-Boss bans=konto:2:1790938800000:30min|herkunft:203.0.113.7:-:",
+    "call net.findPeerByName \"Anna\"",
+    "call net.getPeers",
+    "call net.herkunftVon \"Anna\"",
+    "call kontenDb.bannSetzen \"herkunft\" \"203.0.113.7\" {\"grund\":\"Maria\",\"gesetztVon\":\"Boss\",\"bis\":null}",
+    "call net.trenneGebannte",
+    "bann [\"herkunft\",\"Anna\",\"Maria\"] -> {\"ok\":true,\"active\":false,\"message\":\"Herkunft von Anna gebannt (dauerhaft, Maria)\"} args-after=[\"herkunft\",\"Anna\",\"Maria\"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=A- list=S-Boss bans=konto:2:1790938800000:30min|herkunft:203.0.113.7:-:Maria",
+    "call kontenDb.bannAufheben \"herkunft\" \"203.0.113.7\"",
+    "entbann [\"IP\",\"203.0.113.7\"] -> {\"ok\":true,\"active\":false,\"message\":\"Herkunftsbann auf 203.0.113.7 aufgehoben\"} args-after=[\"IP\",\"203.0.113.7\"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=A- list=S-Boss bans=konto:2:1790938800000:30min",
+    "call kontenDb.bannAufheben \"herkunft\" \"203.0.113.7\"",
+    "entbann [\"Herkunft\",\"203.0.113.7\"] -> {\"ok\":false,\"active\":false,\"message\":\"Kein Herkunftsbann auf 203.0.113.7\"} args-after=[\"Herkunft\",\"203.0.113.7\"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=A- list=S-Boss bans=konto:2:1790938800000:30min",
+    "call kontenDb.bannAufheben \"herkunft\" \"203.0.113.7\"",
+    "entbann [\"HERKUNFT\",\"203.0.113.7\"] -> {\"ok\":false,\"active\":false,\"message\":\"Kein Herkunftsbann auf 203.0.113.7\"} args-after=[\"HERKUNFT\",\"203.0.113.7\"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=A- list=S-Boss bans=konto:2:1790938800000:30min",
+    "call spielerIdFuerName \"Anna Maria\"",
+    "call adminListe.hinzufuegen \"S-AnnaMaria\" \"Anna Maria\"",
+    "call gleicheAdminrechteAb",
+    "call adminListe.alle",
+    "call net.getPeers",
+    "log 68:544fe8cec7310559:[Admin] \"Anna Maria\" — Rechte an der Liste nachg",
+    "log 63:0c761ba5779e1aa8:[Admin] \"Dora\" — Rechte an der Liste nachgezogen",
+    "admin [\"add\",\"Anna\",\"Maria\"] -> {\"ok\":true,\"active\":false,\"message\":\"Anna Maria [S-AnnaMaria] ist jetzt dauerhaft Admin\"} args-after=[\"Anna\",\"Maria\"]",
+    "rights Boss=A- Anna=-- Anna Maria=A- Dora=-- list=S-Boss,S-AnnaMaria bans=konto:2:1790938800000:30min",
+    "call adminListe.alle",
+    "admin [\"list\"] -> {\"ok\":true,\"active\":false,\"message\":\"2 dauerhafte Admins: Boss [S-Boss], Anna Maria [S-AnnaMaria]\"} args-after=[]",
+    "rights Boss=A- Anna=-- Anna Maria=A- Dora=-- list=S-Boss,S-AnnaMaria bans=konto:2:1790938800000:30min",
+    "call spielerIdFuerName \"Anna Maria\"",
+    "call adminListe.enthaelt \"S-AnnaMaria\"",
+    "call adminListe.anzahl",
+    "call adminListe.entfernen \"S-AnnaMaria\"",
+    "call gleicheAdminrechteAb",
+    "call adminListe.alle",
+    "call net.getPeers",
+    "log 69:697d434d9d0df4a5:[Admin] \"Anna Maria\" — Rechte an der Liste nachg",
+    "admin [\"remove\",\"Anna\",\"Maria\"] -> {\"ok\":true,\"active\":false,\"message\":\"Anna Maria [S-AnnaMaria] ist kein dauerhafter Admin mehr\"} args-after=[\"Anna\",\"Maria\"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=-- list=S-Boss bans=konto:2:1790938800000:30min",
+    "call kontenDb.charakterNachName \"Anna Maria\"",
+    "call spielerIdFuerName \"Anna Maria\"",
+    "call kontenDb.bannAufheben \"spieler\" \"S-AnnaMaria\"",
+    "entbann [\"Anna\",\"Maria\"] -> {\"ok\":true,\"active\":false,\"message\":\"Spielerbann auf Anna Maria aufgehoben\"} args-after=[\"Anna\",\"Maria\"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=-- list=S-Boss bans=konto:2:1790938800000:30min|spieler:S-Anna:-:ein Wort",
+    "call kontenDb.charakterNachName \"Anna Maria\"",
+    "call spielerIdFuerName \"Anna Maria\"",
+    "call kontenDb.bannAufheben \"spieler\" \"S-AnnaMaria\"",
+    "entbann [\"Anna\",\"Maria\"] -> {\"ok\":false,\"active\":false,\"message\":\"Kein Bann auf Anna Maria gefunden\"} args-after=[\"Anna\",\"Maria\"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=-- list=S-Boss bans=konto:2:1790938800000:30min|spieler:S-Anna:-:ein Wort",
+    "call kontenDb.charakterNachName \"Anna\"",
+    "call spielerIdFuerName \"Anna\"",
+    "call kontenDb.bannAufheben \"spieler\" \"S-Anna\"",
+    "entbann [\"  Anna \",\" \"] -> {\"ok\":true,\"active\":false,\"message\":\"Spielerbann auf Anna aufgehoben\"} args-after=[\"  Anna \",\" \"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=-- list=S-Boss bans=konto:2:1790938800000:30min",
+    "call kontenDb.bannListe",
+    "call kontenDb.kontoNachId 2",
+    "bann [\"liste\"] -> {\"ok\":true,\"active\":false,\"message\":\"1 Banns: konto gastkonto (bis 2.10.2026, 13:00:00, 30min)\"} args-after=[\"liste\"]",
+    "rights Boss=A- Anna=-- Anna Maria=-- Dora=-- list=S-Boss bans=konto:2:1790938800000:30min",
+  ],
+};
+const SOLL_BEFEHLE_N1_ECHT: Aufzeichnung = {
+  paket: [],
+  aufrufe: {"net.trenneGebannte": 6},
+  konsole: {"log": 4, "warn": 0},
+  zustand: [],
+  ausnahmen: [],
+  notizen: [
+    "log 53:f911fa34cfc45148:[Konto] Spalte konten.avatar_charakter_id nachge",
+    "log 42:0bcdb099a81be718:[Konto] Spalte konten.token_ab nachgezogen",
+    "log 44:1f27737a280d0efa:[Konto] Spalte konten.spieler_ab nachgezogen",
+    "log 45:63bbb1146dd82dc1:[Konto] Spalte konten.profil_text nachgezogen",
+    "call net.trenneGebannte",
+    "\"bann Gast 30min\" -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (dauerhaft, 30min)\"}",
+    "rights Admin=A- Gast=-- list=Admin bans=konto:2:-:30min",
+    "call net.trenneGebannte",
+    "\"bann Gast x30m\" -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (dauerhaft, x30m)\"}",
+    "rights Admin=A- Gast=-- list=Admin bans=konto:2:-:x30m",
+    "call net.trenneGebannte",
+    "\"bann Gast 2hx Rest\" -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (dauerhaft, 2hx Rest)\"}",
+    "rights Admin=A- Gast=-- list=Admin bans=konto:2:-:2hx Rest",
+    "call net.trenneGebannte",
+    "\"bann herkunft gast 1h\" -> {\"ok\":true,\"active\":false,\"message\":\"Herkunft von gast gebannt (bis 2.10.2026, 13:30:00)\"}",
+    "rights Admin=A- Gast=-- list=Admin bans=konto:2:-:2hx Rest|herkunft:198.51.100.4:1790940600000:",
+    "call net.trenneGebannte",
+    "\"bann HERKUNFT GAST\" -> {\"ok\":true,\"active\":false,\"message\":\"Herkunft von GAST gebannt (dauerhaft)\"}",
+    "rights Admin=A- Gast=-- list=Admin bans=konto:2:-:2hx Rest|herkunft:198.51.100.4:-:",
+    "\"entbann IP 198.51.100.4\" -> {\"ok\":true,\"active\":false,\"message\":\"Herkunftsbann auf 198.51.100.4 aufgehoben\"}",
+    "rights Admin=A- Gast=-- list=Admin bans=konto:2:-:2hx Rest",
+    "call net.trenneGebannte",
+    "\"bann herkunft Gast\" -> {\"ok\":true,\"active\":false,\"message\":\"Herkunft von Gast gebannt (dauerhaft)\"}",
+    "rights Admin=A- Gast=-- list=Admin bans=konto:2:-:2hx Rest|herkunft:198.51.100.4:-:",
+    "\"entbann Herkunft 198.51.100.4\" -> {\"ok\":true,\"active\":false,\"message\":\"Herkunftsbann auf 198.51.100.4 aufgehoben\"}",
+    "rights Admin=A- Gast=-- list=Admin bans=konto:2:-:2hx Rest",
+    "\"admin add Anna Maria\" -> {\"ok\":true,\"active\":false,\"message\":\"Anna Maria [<Anna Maria>] ist jetzt dauerhaft Admin\"}",
+    "rights Admin=A- Gast=-- list=Admin,Anna Maria bans=konto:2:-:2hx Rest",
+    "\"admin list\" -> {\"ok\":true,\"active\":false,\"message\":\"2 dauerhafte Admins: Admin [<Admin>], Anna Maria [<Anna Maria>]\"}",
+    "rights Admin=A- Gast=-- list=Admin,Anna Maria bans=konto:2:-:2hx Rest",
+    "\"admin remove Anna Maria\" -> {\"ok\":true,\"active\":false,\"message\":\"Anna Maria [<Anna Maria>] ist kein dauerhafter Admin mehr\"}",
+    "rights Admin=A- Gast=-- list=Admin bans=konto:2:-:2hx Rest",
+    "\"entbann Anna Maria\" -> {\"ok\":true,\"active\":false,\"message\":\"Spielerbann auf Anna Maria aufgehoben\"}",
+    "rights Admin=A- Gast=-- list=Admin bans=konto:2:-:2hx Rest|spieler:<Anna>:-:ein Wort",
+    "\"entbann Anna Maria\" -> {\"ok\":false,\"active\":false,\"message\":\"Kein Bann auf Anna Maria gefunden\"}",
+    "rights Admin=A- Gast=-- list=Admin bans=konto:2:-:2hx Rest|spieler:<Anna>:-:ein Wort",
+    "\"entbann Gast\" -> {\"ok\":true,\"active\":false,\"message\":\"Kontobann auf Gast aufgehoben\"}",
+    "rights Admin=A- Gast=-- list=Admin bans=spieler:<Anna>:-:ein Wort",
+    "\"bann liste\" -> {\"ok\":true,\"active\":false,\"message\":\"1 Banns: spieler <Anna> (dauerhaft, ein Wort)\"}",
+    "rights Admin=A- Gast=-- list=Admin bans=spieler:<Anna>:-:ein Wort",
+  ],
+};
+const SOLL_TAKT_1A: Aufzeichnung = {
+  paket: [],
+  aufrufe: {"gleicheAdminrechteAb": 6},
+  konsole: {"log": 8, "warn": 0},
+  zustand: [],
+  ausnahmen: [],
+  notizen: [
+    "everyoneAdmin=false registry fly zone teleport spieler dungeon item spawn abbau admin kick bann entbann marke wetter",
+    "call gleicheAdminrechteAb this=true args=0",
+    "everyoneAdmin=false takt akk=1000 -> akk=0 calls=1",
+    "everyoneAdmin=false takt akk=999 -> akk=999 calls=1",
+    "call gleicheAdminrechteAb this=true args=0",
+    "everyoneAdmin=false takt akk=1000 -> akk=0 calls=2",
+    "call gleicheAdminrechteAb this=true args=0",
+    "everyoneAdmin=false takt akk=2500 -> akk=1500 calls=3",
+    "everyoneAdmin=false takt akk=0 -> akk=0 calls=3",
+    "everyoneAdmin=true registry fly zone teleport spieler dungeon item spawn abbau admin kick bann entbann marke wetter",
+    "call gleicheAdminrechteAb this=true args=0",
+    "everyoneAdmin=true takt akk=1000 -> akk=0 calls=4",
+    "everyoneAdmin=true takt akk=999 -> akk=999 calls=4",
+    "call gleicheAdminrechteAb this=true args=0",
+    "everyoneAdmin=true takt akk=1000 -> akk=0 calls=5",
+    "call gleicheAdminrechteAb this=true args=0",
+    "everyoneAdmin=true takt akk=2500 -> akk=1500 calls=6",
+    "everyoneAdmin=true takt akk=0 -> akk=0 calls=6",
+  ],
+};
+
 if (MESSEN_BASIS) {
   const attrappe = messeAttrappe();
   const echt = messeEcht();
@@ -2418,7 +2941,10 @@ if (MESSEN_BASIS) {
   const chatEcht = messeChatEcht();
   const befehleAttrappe = messeBefehleAttrappe();
   const befehleEcht = messeBefehleEcht();
-  process.stdout.write(`${JSON.stringify({ attrappe, echt, interAttrappe, interEcht, chatAttrappe, chatEcht, befehleAttrappe, befehleEcht }, null, 1)}\n`);
+  const befehleN1Attrappe = messeBefehleN1Attrappe();
+  const befehleN1Echt = messeBefehleN1Echt();
+  const takt1A = messeTakt1A();
+  process.stdout.write(`${JSON.stringify({ attrappe, echt, interAttrappe, interEcht, chatAttrappe, chatEcht, befehleAttrappe, befehleEcht, befehleN1Attrappe, befehleN1Echt, takt1A }, null, 1)}\n`);
   process.exit(0);
 }
 
@@ -2470,6 +2996,22 @@ console.log('\n[4] Behaviour of step 1A: admin, kick, bann, entbann and the re-c
   teil('commands on a stand-in', messeBefehleAttrappe(), SOLL_BEFEHLE_ATTRAPPE);
   teil('commands on a real instance through the registry and the forwardings', messeBefehleEcht(), SOLL_BEFEHLE_ECHT);
   check('the clock and the time zone are restored after the measurements', Date.now === ECHTE_UHR && process.env['TZ'] === ECHTE_TZ);
+}
+
+console.log('\n[4b] Step 1A after the attack: more spellings, the re-check from update(), the registry with everyone-admin');
+{
+  const gleich = (a: Aufzeichnung, b: Aufzeichnung): boolean => JSON.stringify(a) === JSON.stringify(b);
+  const teil = (titel: string, gemessen: Aufzeichnung, soll: Aufzeichnung): void => {
+    check(`${titel}: the packets sent, in order`, same(gemessen.paket, soll.paket), `${gemessen.paket.length} packets, expected ${soll.paket.length}; first difference: ${gemessen.paket.find((x, i) => x !== soll.paket[i])}`);
+    check(`${titel}: the messages, the calls with their arguments and the state after every step, in order`, same(gemessen.notizen, soll.notizen), `${gemessen.notizen.length} notes, expected ${soll.notizen.length}; first difference: ${gemessen.notizen.find((x, i) => x !== soll.notizen[i])}`);
+    check(`${titel}: all of it`, gleich(gemessen, soll), JSON.stringify([gemessen.aufrufe, gemessen.zustand, gemessen.konsole, gemessen.ausnahmen]));
+  };
+  teil('more cases on a stand-in', messeBefehleN1Attrappe(), SOLL_BEFEHLE_N1_ATTRAPPE);
+  teil('more cases on a real instance', messeBefehleN1Echt(), SOLL_BEFEHLE_N1_ECHT);
+  const takt = messeTakt1A();
+  teil('the re-check from update() and the registry with everyone-admin', takt, SOLL_TAKT_1A);
+  check('the re-check ran once in every full second (3 of 5 ticks per server, 6 in all)', takt.aufrufe['gleicheAdminrechteAb'] === 6, JSON.stringify(takt.aufrufe));
+  check('the clock and the time zone are restored after the measurements of step 1A', Date.now === ECHTE_UHR && process.env['TZ'] === ECHTE_TZ);
 }
 
 console.log(failures === 0 ? `\n=== I1 form k: ALL PASSED (${total}) ===` : `\n=== I1 form k: ${failures} of ${total} FAILED ===`);

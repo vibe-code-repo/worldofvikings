@@ -10,6 +10,9 @@
  * Step 1, package A moved three more into the sub-folder `spiel/befehle/`: `registerAdminListeCommands` and
  * `gleicheAdminrechteAb` into `spiel/befehle/AdminListe.ts`, `registerBannCommands` into `spiel/befehle/Bann.ts`. Their
  * callers are the constructor (the two registrations) and `update()` (the re-check of the admin rights once a second).
+ * Step 1, package B moved four command registrations into the sub-folder `spiel/befehle/`: `registerMarkeCommand` and
+ * `registerWetterCommand` into `befehle/Weltzustand.ts`, `registerAbbauCommand` into `befehle/Abbau.ts`, `registerSpawnCommand`
+ * (`item` and `spawn`) into `befehle/Spawn.ts`. Their forwardings take no parameter and are called by the constructor.
  * In the class stays one forwarding method per name, in the same place; `k` in the module IS the server. Rules:
  * `Karten/refactoring/01 Form k — Regeln für Methoden mit Kontext.md`. After the merge this test is the only guard
  * (the one-time proofs K1 to K8 of the step are history). Later steps add their modules to `MODULE` below and their
@@ -58,7 +61,17 @@
  *  in the class ([1c]); the re-check really runs from `update()` in every full second, and the registry is complete with
  *  `everyone-admin: true` ([4b]), and it acts on an open session at seven seconds past a full minute; `update()` has no early exit;
  *  the heads of the relaxed members are frozen with their modifiers (`readonly kontenDb`).
- *  Not applicable in steps 1A, 2 and 3: the identity of returned objects of the stock (K9-5), no function returns a value.
+ *  Step 1, package B: the context type comes from `../Kontext.js` in the sub-folder (the specifier is computed from the path of the
+ *  module); the caller of a forwarding can be the constructor; every module under `spiel/` and its sub-folders that uses
+ *  `SpielKontext` must be in `MODULE`. The fixed sequence runs every command and sub-command of `marke`, `wetter`, `abbau`, `item`
+ *  and `spawn`, valid and invalid arguments and the error branches, on a stand-in (whose members are counted on every read and
+ *  replaced after the registration, so a stale copy shows) and on a real instance (handlers of the constructor and of the
+ *  forwardings); every result is held as its whole text, the calls into the context with their arguments, the inventories of the
+ *  peers and of the absent players, the stamps and the markers.
+ *  Step 1B after the attack (I11B-B1..B3, N1-B1, N1-B2): every forwarding is named exactly once in the class (any receiver) and its
+ *  module function is used exactly once in the whole file outside the import lines, as the call in the forwarding; the modifiers
+ *  of every relaxed member are frozen (`MODIFIKATOREN`, steps 1A, 1B, 2, 3).
+ *  Not applicable in steps 1A, 1B, 2 and 3: the identity of returned objects of the stock (K9-5), no function returns a value.
  *
  * Section [0] shows first that each check can turn red: the same checks run over small invented sources, one fault
  * each (`red:`), and over a good stand (`green:`).
@@ -80,14 +93,17 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import * as ts from 'typescript';
-import { PacketType, WORLD_TIME_LENGTH, dungeon2, Inventory, WILDWARDEN_PARTS, findItem, FRISUR_VORGABE, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, RUESTUNG, FIGUREN, FRISUREN, HAARFARBEN, AUGENFARBEN, encodeArmor, TRUHE_INHALT_MEMBER, TRUHE_LOOTED_MEMBER, packContainer, unpackContainer, ChatMsgType } from '@wov/shared';
+import { PacketType, WORLD_TIME_LENGTH, dungeon2, Inventory, WILDWARDEN_PARTS, findItem, FRISUR_VORGABE, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, RUESTUNG, FIGUREN, FRISUREN, HAARFARBEN, AUGENFARBEN, encodeArmor, TRUHE_INHALT_MEMBER, TRUHE_LOOTED_MEMBER, packContainer, unpackContainer, ChatMsgType, STANDARD_WETTER_DEFINITIONEN, PrefabFlag, IRONWARD_PARTS } from '@wov/shared';
+import { AdminCommandRegistry } from '../src/admin/AdminCommands.js';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
+import { Prefab } from '../src/prefab/Prefab.js';
 import { WovServer, createWovServer } from '../src/WovServer.js';
 import { registryChecksum } from '../src/world/dungeon/ModuleBuild.js';
 import { spielerIdErzeugen } from '../src/net/Identitaet.js';
 import { NAME_NICHT_EINDEUTIG } from '../src/spiel/Konstanten.js';
 import { HAUPTWELT_ID } from '../src/world/Welt.js';
+import { WeltMarken } from '../src/world/WeltMarken.js';
 import { ZDOManager } from '../src/zdo/ZDOManager.js';
 
 const WURZEL = resolve(import.meta.dirname, '../..');
@@ -197,14 +213,39 @@ const MODULE: readonly ModulSpec[] = [
       PAKET('handleSetFigur'),
     ],
   },
+  {
+    datei: 'server/src/spiel/befehle/Abbau.ts',
+    spezifizierer: './spiel/befehle/Abbau.js',
+    kontextTyp: 'AbbauKontext',
+    mitglieder: ['adminCommands', 'prefabs', 'zdosVon'],
+    wertImporte: [],
+    funktionen: [REGISTRIERUNG('registerAbbauCommand')],
+  },
+  {
+    datei: 'server/src/spiel/befehle/Spawn.ts',
+    spezifizierer: './spiel/befehle/Spawn.js',
+    kontextTyp: 'SpawnKontext',
+    mitglieder: ['adminCommands', 'speichertGerade', 'net', 'savedPlayers', 'inventarSync', 'sichereSpielerSofort', 'stempelZaehler', 'spielerSicherung', 'saveWorldAsync', 'prefabs', 'getGroundHeight', 'zdosVon'],
+    wertImporte: ['@wov/shared', '../../net/Namen.js'],
+    funktionen: [REGISTRIERUNG('registerSpawnCommand')],
+  },
+  {
+    datei: 'server/src/spiel/befehle/Weltzustand.ts',
+    spezifizierer: './spiel/befehle/Weltzustand.js',
+    kontextTyp: 'WeltzustandKontext',
+    mitglieder: ['adminCommands', 'weltMarken', 'wetterDienst'],
+    wertImporte: ['@wov/shared', '../Wetter.js', '../../world/WeltMarken.js'],
+    funktionen: [REGISTRIERUNG('registerMarkeCommand'), REGISTRIERUNG('registerWetterCommand')],
+  },
 ];
 
 /**
  * The non-private members of `WovServer`, sorted: 36 before step 2, plus `dungeonsWurzel`, `sendTimeSync` and `worldTime`
  * (context members of step 2, relaxed from private), plus `inventarSync`, `kappeLeben`, `sendeTruheInhalt`,
  * `sichereSpielerSofort` and `zdosVon` (context members of step 3, relaxed from private), plus `gleicheAdminrechteAb`,
- * `kontenDb` and `spielerIdFuerName` (context members of step 1A, relaxed from private). One per line; a later step adds
- * its relaxations here, each with a reason.
+ * `kontenDb` and `spielerIdFuerName` (context members of step 1A, relaxed from private), plus `savedPlayers`, `speichertGerade`,
+ * `spielerSicherung`, `stempelZaehler` and `wetterDienst` (context members of step 1B, relaxed from private). One per line; a
+ * later step adds its relaxations here, each with a reason.
  */
 const PUBLIC_MEMBERS: readonly string[] = [
   'adminCommands',
@@ -238,16 +279,21 @@ const PUBLIC_MEMBERS: readonly string[] = [
   'routen',
   'saveWorld',
   'saveWorldAsync',
+  'savedPlayers', // step 1 B: context member of befehle/Spawn (item for an absent player); tests set it by name
   'sendTimeSync', // step 2: context member of AdminPakete
   'sendeTruheInhalt', // step 3: context member of Interaktion (the forwarding itself is public)
   'serverUserId',
   'sichereSpielerSofort', // step 3: context member of Interaktion (F8, #146)
   'spawns',
+  'speichertGerade', // step 1 B: context member of befehle/Spawn (refuses item ironward/wildwarden while a save runs)
   'spielerIdFuerName', // step 1A: context member of befehle/AdminListe and befehle/Bann
+  'spielerSicherung', // step 1 B: context member of befehle/Spawn (the immediate save of an absent player)
   'start',
+  'stempelZaehler', // step 1 B: context member of befehle/Spawn (a new stamp for an absent player)
   'stop',
   'weltMarken',
   'welten',
+  'wetterDienst', // step 1 B: context member of befehle/Weltzustand (the method stays in the class, the tick and the login call it)
   'worldLayoutHash',
   'worldLayoutRaw',
   'worldManager',
@@ -435,6 +481,29 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       };
       if (aufrufer) gehe(aufrufer);
       if (!ruft) f.push(`${fn.name}: ${fn.aufrufer.methode} does not call this.${fn.name}(${fn.aufrufer.args})`);
+      // exactly ONE mention of the member name in the whole class, and that is the call above (N1, I11B-B3: no second call in the
+      // constructor, no call from init() or another method, no `this.<name>` handed on as a value); any receiver counts, so a cast
+      // or an alias of `this` (`(this as WovServer).<name>()`, `const ich = this; ich.<name>()`) is a mention too (N2, H5)
+      let erwaehnt = 0;
+      // and exactly ONE use of the imported function in the whole file outside the import lines: the call inside the forwarding
+      // (N2, N1-B2: `<name>(this)` in init(); H8 of the re-check: a use at module level, outside the class, counts too)
+      let direkt = 0;
+      let direktInWeiterleitung = 0;
+      const zaehleErwaehnung = (n: ts.Node): void => {
+        // `PacketType.<x>` is the enum of the packet types, not the member (the invented sources of [0] name packet types like methods)
+        if (ts.isPropertyAccessExpression(n) && n.name.text === fn.name && !(ts.isIdentifier(n.expression) && n.expression.text === 'PacketType')) erwaehnt++;
+        if (ts.isElementAccessExpression(n) && ts.isStringLiteralLike(n.argumentExpression) && n.argumentExpression.text === fn.name) erwaehnt++;
+        if (ts.isIdentifier(n) && n.text === fn.name && !(ts.isPropertyAccessExpression(n.parent) && n.parent.name === n) && !(ts.isMethodDeclaration(n.parent) && n.parent.name === n)) {
+          direkt++;
+          let p: ts.Node | undefined = n.parent;
+          while (p && p !== m) p = p.parent;
+          if (p === m && ts.isCallExpression(n.parent) && n.parent.expression === n) direktInWeiterleitung++;
+        }
+        ts.forEachChild(n, zaehleErwaehnung);
+      };
+      for (const s of sf.statements) if (!ts.isImportDeclaration(s)) zaehleErwaehnung(s);
+      if (erwaehnt !== 1) f.push(`${fn.name}: the file names this.${fn.name} ${erwaehnt} times, expected exactly once (the call in ${fn.aufrufer.methode})`);
+      if (direkt !== 1 || direktInWeiterleitung !== 1) f.push(`${fn.name}: the file uses the imported function ${fn.name} ${direkt} times outside the import lines (${direktInWeiterleitung} in the forwarding), expected exactly once, as the call in the forwarding`);
       // the packet type leads to its forwarding: `case PacketType.<Type>:` in `onPacket` calls it (swapped cases stay green otherwise)
       if (fn.paketTyp !== undefined) {
         let fall = false;
@@ -463,6 +532,46 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
   const weg = oeffentlich.filter((x) => !oeff.includes(x)).sort();
   if (neu.length > 0) f.push(`new non-private members (a relaxation nobody listed): ${neu.join(', ')}`);
   if (weg.length > 0) f.push(`listed as public but not public any more: ${weg.join(', ')}`);
+  return f;
+}
+
+/**
+ * The modifiers of the members that the steps relaxed from private (N1, I11B-B3): a relaxation may drop `private` and nothing
+ * else. `PUBLIC_MEMBERS` holds the names only; this table holds what stands in front of the name (`readonly`, `static`, `async`,
+ * `abstract`, `override`, `declare`, `accessor`, a decorator) and whether the member has `?` or `!`.
+ */
+const MODIFIKATOREN: Readonly<Record<string, string>> = {
+  dungeonsWurzel: '', // step 2
+  sendTimeSync: '', // step 2
+  worldTime: '', // step 2
+  gleicheAdminrechteAb: '', // step 1A (the forwarding; its whole head is also frozen in LOCKERUNG_KOEPFE_1A)
+  kontenDb: 'readonly', // step 1A (as LOCKERUNG_KOEPFE_1A: `readonly kontenDb: Kontendatenbank;`)
+  spielerIdFuerName: '', // step 1A
+  inventarSync: '', // step 3
+  kappeLeben: '', // step 3
+  sendeTruheInhalt: '', // step 3 (the forwarding)
+  sichereSpielerSofort: '', // step 3
+  zdosVon: '', // step 3
+  savedPlayers: 'readonly', // step 1 B: only `private` dropped, the map stays readonly
+  speichertGerade: '', // step 1 B
+  spielerSicherung: '', // step 1 B
+  stempelZaehler: '', // step 1 B
+  wetterDienst: '', // step 1 B
+};
+function pruefeModifikatoren(text: string, soll: Readonly<Record<string, string>>): string[] {
+  const f: string[] = [];
+  const sf = parse('WovServer.ts', text);
+  const klasse = sf.statements.find((s): s is ts.ClassDeclaration => ts.isClassDeclaration(s) && s.name?.text === 'WovServer');
+  if (!klasse) return ['class WovServer not found'];
+  for (const [name, erwartet] of Object.entries(soll)) {
+    const m = klasse.members.filter((x) => x.name && ts.isIdentifier(x.name) && x.name.text === name);
+    if (m.length !== 1) { f.push(`${name}: ${m.length} members of this name, expected one`); continue; }
+    const el = m[0]!;
+    const ist = [...(ts.canHaveDecorators(el) ? (ts.getDecorators(el) ?? []).map(() => '@decorator') : []), ...mods(el).map((x) => ts.tokenToString(x.kind) ?? ts.SyntaxKind[x.kind])].join(' ');
+    if (ist !== erwartet) f.push(`${name}: modifiers "${ist}", frozen "${erwartet}"`);
+    const zeichen = (el as { questionToken?: ts.Node; exclamationToken?: ts.Node });
+    if (zeichen.questionToken || zeichen.exclamationToken) f.push(`${name}: a ? or ! was added`);
+  }
   return f;
 }
 
@@ -720,6 +829,69 @@ console.log('\n[0] Self-test of the checks on invented sources');
     const f = pruefeKlasse([SB], text, OB);
     check(`red: class, ${name}`, f.length > 0, show(f) || 'no finding');
   }
+  // step 1: a module in a sub-folder of spiel/ (context from ../Kontext.js), a forwarding without parameters, called by the constructor
+  const SB1B: ModulSpec = {
+    datei: 'server/src/spiel/befehle/TestB.ts', spezifizierer: './spiel/befehle/TestB.js', kontextTyp: 'TestBKontext', mitglieder: ['a'], wertImporte: [],
+    funktionen: [{ name: 'fr', kopf: 'private fr(): void', aufrufer: { methode: 'constructor', args: '' }, laenge: 0 }],
+  };
+  const gutesModul1B = ["import type { SpielKontext } from '../Kontext.js';", '', "type TestBKontext = SpielKontext<'a'>;", '', 'function fr(k: TestBKontext): void {', "  k.a.register('x', () => 1);", '}', '', 'export { fr };', ''].join('\n');
+  check('green: a module in a sub-folder with ../Kontext.js', pruefeModul(SB1B, gutesModul1B).length === 0, show(pruefeModul(SB1B, gutesModul1B)));
+  check('red: a module in a sub-folder with ./Kontext.js (a context file of the sub-folder)', pruefeModul(SB1B, gutesModul1B.replace("'../Kontext.js'", "'./Kontext.js'")).length > 0);
+  check('red: a module in a sub-folder with another spelling of the path', pruefeModul(SB1B, gutesModul1B.replace("'../Kontext.js'", "'../../spiel/Kontext.js'")).length > 0);
+  check('red: a module in spiel/ with ../Kontext.js', pruefeModul({ ...S, mitglieder: ['a'], funktionen: [PAKET('fa')] }, ["import type { Peer } from '../net/Peer.js';", "import type { Reader } from '../io/Reader.js';", "import type { SpielKontext } from '../Kontext.js';", "type TestKontext = SpielKontext<'a'>;", 'function fa(k: TestKontext, peer: Peer, reader: Reader): void {', '  k.a(peer, reader);', '}', 'export { fa };', ''].join('\n')).length > 0);
+  const gutB1B = ["import { fr } from './spiel/befehle/TestB.js';", 'export class WovServer {', '  readonly a = 1;', '  constructor() {', '    this.vorher();', '    this.fr();', '  }', '', '  private vorher(): void {}', '', '  private fr(): void {', '    return fr(this);', '  }', '}', ''].join('\n');
+  check('green: the good class with a constructor that calls a forwarding without parameters', pruefeKlasse([SB1B], gutB1B, ['a']).length === 0, show(pruefeKlasse([SB1B], gutB1B, ['a'])));
+  const klassenFehler1B: [string, string][] = [
+    ['the constructor does not call the forwarding', gutB1B.replace('    this.fr();\n', '')],
+    ['the constructor calls it with an argument', gutB1B.replace('    this.fr();', '    this.fr(1 as never);')],
+    ['only another method calls it', gutB1B.replace('    this.fr();\n', '').replace('  private vorher(): void {}', '  private vorher(): void {\n    this.fr();\n  }')],
+    ['a parameter on the forwarding', gutB1B.replace('  private fr(): void {\n    return fr(this);', '  private fr(x?: number): void {\n    return fr(this, x);')],
+    ['an argument in the forwarding', gutB1B.replace('return fr(this);', 'return fr(this, this);')],
+    ['the forwarding made public', gutB1B.replace('  private fr(): void {', '  fr(): void {')],
+    ['the import from the old place spiel/', gutB1B.replace("'./spiel/befehle/TestB.js'", "'./spiel/TestB.js'")],
+  ];
+  for (const [name, text] of klassenFehler1B) {
+    const f = pruefeKlasse([SB1B], text, ['a']);
+    check(`red: class, ${name}`, f.length > 0, show(f) || 'no finding');
+  }
+  // N1 (I11B-B3): a second call, a call from another method, the name handed on as a value
+  const zweitB: [string, string][] = [
+    ['the constructor calls the forwarding twice', gutB1B.replace('    this.fr();', '    this.fr();\n    this.fr();')],
+    ['init() calls the forwarding once more', gutB1B.replace('  private vorher(): void {}', '  private vorher(): void {}\n\n  init(): void {\n    this.fr();\n  }')],
+    ['the forwarding is handed on as a value', gutB1B.replace('  private vorher(): void {}', "  private vorher(): void {\n    void [this['fr']];\n  }")],
+    ['init() calls the forwarding through a cast of this', gutB1B.replace('  private vorher(): void {}', '  private vorher(): void {}\n\n  init(): void {\n    (this as WovServer).fr();\n  }')],
+    ['the constructor calls the forwarding through an alias of this', gutB1B.replace('    this.fr();', '    this.fr();\n    const ich = this;\n    ich.fr();')],
+  ];
+  for (const [name, text] of zweitB) {
+    const f = pruefeKlasse([SB1B], text, name.startsWith('init') ? ['a', 'init'] : ['a']);
+    check(`red: class, ${name}`, f.some((x) => x.includes('times, expected exactly once')), show(f) || 'no finding');
+  }
+  // N2 (N1-B2): the imported function called directly once more in the class, or handed on as a value; H8: or outside the class
+  for (const [name, text] of [
+    ['a call of the module function at module level, outside the class', gutB1B.replace("export class WovServer {", "export const nochmal = (): void => fr({} as never);\nexport class WovServer {")],
+    ['init() calls the module function directly', gutB1B.replace('  private vorher(): void {}', '  private vorher(): void {}\n\n  init(): void {\n    fr(this);\n  }')],
+    ['the module function is handed on as a value', gutB1B.replace('  private vorher(): void {}', '  private vorher(): void {\n    void [fr];\n  }')],
+  ] as const) {
+    const f = pruefeKlasse([SB1B], text, name.startsWith('init') ? ['a', 'init'] : ['a']);
+    check(`red: class, ${name}`, f.some((x) => x.includes('uses the imported function')), show(f) || 'no finding');
+  }
+  // N1 (I11B-B3): the modifiers of relaxed members are frozen
+  const gutM = ['export class WovServer {', '  readonly a = new Map<string, number>();', '  b = false;', '  c(): number {', '    return 1;', '  }', '  private d = 1;', '}', ''].join('\n');
+  const MS = { a: 'readonly', b: '', c: '' };
+  check('green: the frozen modifiers of relaxed members', pruefeModifikatoren(gutM, MS).length === 0, show(pruefeModifikatoren(gutM, MS)));
+  const modFehler: [string, string][] = [
+    ['readonly dropped from a relaxed field', gutM.replace('  readonly a', '  a')],
+    ['static added to a relaxed field', gutM.replace('  b = false;', '  static b = false;')],
+    ['async added to a relaxed method', gutM.replace('  c(): number {', '  async c(): number {')],
+    ['a decorator on a relaxed method', gutM.replace('  c(): number {', '  @dekor c(): number {')],
+    ['a ! on a relaxed field', gutM.replace('  b = false;', '  b!: boolean;')],
+    ['a relaxed member removed', gutM.replace('  b = false;\n', '')],
+    ['protected instead of nothing', gutM.replace('  b = false;', '  protected b = false;')],
+  ];
+  for (const [name, text] of modFehler) {
+    const f = pruefeModifikatoren(text, MS);
+    check(`red: modifiers, ${name}`, f.length > 0, show(f) || 'no finding');
+  }
 }
 
 // ── [1] The real sources ───────────────────────────────────────────────
@@ -750,6 +922,8 @@ if (!MESSEN_BASIS) {
   const alleDateien = new Set(MODULE.map((m) => m.datei));
   const unbekannt = dateien.filter((d) => d !== 'server/src/spiel/Kontext.ts' && /\bSpielKontext\b/.test(readFileSync(join(WURZEL, d), 'utf8')) && !alleDateien.has(d));
   check('every module under spiel/ and its sub-folders that uses SpielKontext is in MODULE (under this guard)', unbekannt.length === 0, unbekannt.join(', '));
+  const fm = pruefeModifikatoren(klassenText, MODIFIKATOREN);
+  check(`WovServer.ts: the ${Object.keys(MODIFIKATOREN).length} relaxed members keep their frozen modifiers (only private dropped)`, fm.length === 0, show(fm));
   check('the sub-folder spiel/befehle/ is read (the list of files is recursive)', dateien.some((d) => d.startsWith('server/src/spiel/befehle/')), dateien.filter((d) => d.includes('/befehle/')).join(', '));
 }
 
@@ -1882,6 +2056,365 @@ function messeTakt1A(): Aufzeichnung {
   return a;
 }
 
+// ── [2e] Behaviour of step 1, package B: the commands marke, wetter, abbau, item, spawn ──
+
+type BefehlsPeer = Record<string, unknown> & { name: string; inventar: Inventory };
+/** A peer of the commands: admin by default, a figure, a position, an inventory. */
+function befehlsPeer(name: string, o: Record<string, unknown> = {}): BefehlsPeer {
+  return { name, isAdmin: true, nurEditor: false, figur: 'wikinger', position: { x: 10, y: 3, z: -4 }, inventar: new Inventory(), worldId: HAUPTWELT_ID, ...o } as BefehlsPeer;
+}
+type BPrefab = { name: string; hash: number; isPersistent(): boolean };
+const bPrefab = (a: Aufzeichnung, name: string, hash: number, persistent: boolean): BPrefab => ({ name, hash, isPersistent: (): boolean => { a.notizen.push(`  isPersistent ${name}`); return persistent; } });
+/** The inventory of a peer or a saved player as text: item, stack, the equipped flag. */
+const invText = (inv: unknown): string => {
+  const liste = (inv instanceof Inventory ? inv.serialize() : inv) as { name: string; stack: number; equipped?: boolean }[] | undefined;
+  return liste === undefined ? '-' : liste.map((i) => `${i.name}x${i.stack}${i.equipped ? '*' : ''}`).join(',');
+};
+/** One line of a command: who runs it, the result as text (ok, active, the whole message). */
+function befehl(a: Aufzeichnung, reg: { execute(p: unknown, l: string): unknown }, p: BefehlsPeer, zeile: string): void {
+  a.notizen.push(`> ${zeile} (${p.name}${p['isAdmin'] ? '' : ', no admin'})`);
+  try {
+    const r = reg.execute(p, zeile) as { ok: boolean; active: boolean; message: string };
+    a.notizen.push(`= ${r.ok ? 'ok' : 'refused'}${r.active ? ' active' : ''}: ${r.message}`);
+  } catch (e) { a.ausnahmen.push((e as Error).name); a.notizen.push(`= throws ${(e as Error).name}`); }
+}
+const BEFEHLE_MARKE = ['marke', 'marke liste', 'marke LIST', 'marke setzen', 'marke setzen Unsinn', 'marke setzen defeated_eikthyr', 'marke set Defeated_Eikthyr', 'marke setzen DEFEATED_DRAGON', 'marke liste', 'marke xyz', 'MARKE liste'];
+const BEFEHLE_ABBAU = ['abbau', 'abbau Unbekannt', 'abbau Beech1', 'abbau beech1 5', 'abbau BEECH1 abc', 'abbau Beech1 5000', 'abbau Beech1 0', 'abbau NPC_1 -3', 'abbau stein 1e3', 'abbau Stein'];
+const BEFEHLE_SPAWN = ['spawn', 'spawn Unbekannt', 'spawn Beech1', 'spawn beech1 10 20', 'spawn Beech1 10', 'spawn Beech1 x y', 'spawn NPC_1', 'spawn Beech1 -5.25 3.5', 'spawn STEIN 0 0', 'spawn Beech1 Infinity 1'];
+
+/** The stand-in of package B: every context member records its calls with their arguments; `k` counts every read of a member. */
+function befehlsAttrappe(a: Aufzeichnung): { k: Record<string, unknown>; ziel: Record<string, unknown>; peers: BefehlsPeer[]; reg: AdminCommandRegistry; zdos: { prefabHash: number; zdoid: number }[] } {
+  const peers: BefehlsPeer[] = [];
+  const zdos = [{ prefabHash: 101, zdoid: 1 }, { prefabHash: 202, zdoid: 2 }, { prefabHash: 101, zdoid: 3 }, { prefabHash: 303, zdoid: 4 }, { prefabHash: 101, zdoid: 5 }];
+  const reg = new AdminCommandRegistry();
+  const registriere = reg.register.bind(reg);
+  reg.register = (n, h): void => { a.notizen.push(`  register ${n}`); registriere(n, h); };
+  const prefabs = [bPrefab(a, 'Beech1', 101, true), bPrefab(a, 'NPC_1', 202, false), bPrefab(a, 'stein', 303, true), bPrefab(a, 'Stein', 304, true)];
+  let stempel = 1000;
+  // the real weather service, built by the method of the class on a minimal holder (the command only reads it)
+  const wetter = proto['wetterDienst']!.call({ config: { wetterDefinitionen: STANDARD_WETTER_DEFINITIONEN, wetterVorgabe: undefined }, welten: new Map() });
+  const ruf = (name: string, text = ''): void => { zaehle(a, name); a.notizen.push(`  ${name}${text ? ' ' + text : ''}`); };
+  const ziel: Record<string, unknown> = {
+    adminCommands: reg,
+    weltMarken: new WeltMarken(),
+    wetterDienst: (...x: unknown[]): unknown => { ruf('wetterDienst', String(x.length)); return wetter; },
+    prefabs: {
+      getByName: (n: string): BPrefab | undefined => { ruf('prefabs.getByName', JSON.stringify(n)); return prefabs.find((p) => p.name === n); },
+      getAll: (): BPrefab[] => { ruf('prefabs.getAll'); return prefabs; },
+    },
+    zdosVon: (p: BefehlsPeer): unknown => {
+      ruf('zdosVon', `${p.name}@${String(p['worldId'])}`); // the world of the peer: the handler must ask for the ZDO space of the peer's own world (N1, I11B-B2)
+      return {
+        getZDOsInRadius: (pos: unknown, r: number) => { ruf('getZDOsInRadius', `${JSON.stringify(pos)} ${r}`); return [...zdos]; },
+        destroyZDO: (id: number): void => { ruf('destroyZDO', String(id)); const i = zdos.findIndex((z) => z.zdoid === id); if (i >= 0) zdos.splice(i, 1); },
+        createZDO: (hash: number, pos: unknown) => {
+          ruf('createZDO', `${hash} ${JSON.stringify(pos)}`);
+          const z: Record<string, unknown> = {};
+          Object.defineProperty(z, 'rotation', { set: (v: unknown) => a.notizen.push(`  rotation ${JSON.stringify(v)}`), get: () => undefined });
+          return z;
+        },
+      };
+    },
+    net: { getPeers: (): BefehlsPeer[] => { ruf('net.getPeers', peers.map((p) => p.name).join(',')); return peers; } },
+    savedPlayers: new Map<string, Record<string, unknown>>(),
+    speichertGerade: false,
+    spielerSicherung: { sichere: (recs: { name: string; inventar?: unknown; gespeichertAm?: number }[], grund: unknown): void => { ruf('spielerSicherung.sichere', `${recs.map((r) => `${r.name}@${r.gespeichertAm}[${invText(r.inventar)}]`).join(';')} ${String(grund)}`); } },
+    getGroundHeight: (x: number, z: number): number => { ruf('getGroundHeight', `${x} ${z}`); return x * 0.5 - z; },
+    inventarSync: (p: BefehlsPeer): void => { ruf('inventarSync', `${p.name} [${invText(p.inventar)}]`); },
+    saveWorldAsync: (...x: unknown[]): Promise<void> => { ruf('saveWorldAsync', String(x.length)); return Promise.resolve(); },
+    sichereSpielerSofort: (...x: unknown[]): void => { ruf('sichereSpielerSofort', `${x.length}|${(x[0] as BefehlsPeer).name}|${String(x[1])}`); },
+    stempelZaehler: (): unknown => { ruf('stempelZaehler'); return { naechster: (): number => { ruf('stempel.naechster'); return ++stempel; } }; },
+  };
+  const k = new Proxy(ziel, {
+    get(t, p, r) { if (typeof p === 'string') zaehle(a, `k.${p}`); return Reflect.get(t, p, r) as unknown; },
+    set(t, p, v, r) { a.notizen.push(`  WRITE k.${String(p)}`); return Reflect.set(t, p, v, r); },
+  });
+  return { k, ziel, peers, reg, zdos };
+}
+const befehlsStand = (a: Aufzeichnung, z: Record<string, unknown>, peers: readonly BefehlsPeer[]): void => {
+  a.notizen.push(`  saved ${[...(z['savedPlayers'] as Map<string, Record<string, unknown>>)].map(([id, p]) => `${id}:${String(p['name'])}@${String(p['gespeichertAm'])}[${invText(p['inventar'])}]`).join(' ')}`);
+  a.notizen.push(`  peers ${peers.map((p) => `${p.name}[${invText(p.inventar)}]`).join(' ')}`);
+  a.notizen.push(`  markers ${(z['weltMarken'] as WeltMarken).alsNamen().join(',')}`);
+};
+
+/** The fixed sequence of package B on a stand-in: every command and sub-command, valid and invalid arguments, error branches. */
+function messeBefehle1BAttrappe(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  try {
+    // A: all commands
+    {
+      const { k, ziel, peers, reg, zdos } = befehlsAttrappe(a);
+      for (const n of ['registerMarkeCommand', 'registerWetterCommand', 'registerAbbauCommand', 'registerSpawnCommand']) versuche(a, () => F[n]!(k));
+      a.notizen.push(`  commands ${[...(reg as unknown as { handlers: Map<string, unknown> }).handlers.keys()].join(',')}`);
+      const admin = befehlsPeer('Admin');
+      const gast = befehlsPeer('Gast', { isAdmin: false });
+      peers.push(admin);
+      for (const z of BEFEHLE_MARKE) befehl(a, reg, admin, z);
+      befehl(a, reg, gast, 'marke liste');
+      const ids = (proto['wetterDienst']!.call({ config: { wetterDefinitionen: STANDARD_WETTER_DEFINITIONEN, wetterVorgabe: undefined }, welten: new Map() }) as { zustandsIds(): string[] }).zustandsIds();
+      for (const z of ['wetter', `wetter ${ids[0]}`, `wetter ${ids[1]!.toUpperCase()}`, `wetter ${ids[0]} unbekanntbiom`, `wetter ${ids[0]} meadows`, 'wetter', 'wetter auto', 'wetter AUTO blackforest', 'wetter Unsinn', 'wetter']) befehl(a, reg, admin, z);
+      befehl(a, reg, gast, 'wetter auto');
+      for (const z of BEFEHLE_ABBAU) befehl(a, reg, admin, z);
+      befehl(a, reg, gast, 'abbau Beech1');
+      a.zustand.push(zdos.length);
+      for (const z of BEFEHLE_SPAWN) befehl(a, reg, admin, z);
+      befehl(a, reg, gast, 'spawn Beech1');
+      for (const z of ['item', 'item xyz', 'item give', 'item give Unbekannt', 'item give Hammer', 'item gib Hammer 3', 'item give hammer abc', 'item give Hammer 0', 'item give Hammer 2.7', 'item GIVE Hammer -4']) befehl(a, reg, admin, z);
+      const voll = befehlsPeer('Voll');
+      for (let i = 0; i < 32; i++) voll.inventar.addItem(findItem('Hammer')!, 1);
+      befehl(a, reg, voll, 'item give Hammer');
+      befehl(a, reg, admin, 'item give Hammer 9999');
+      befehl(a, reg, gast, 'item give Hammer');
+      befehlsStand(a, ziel, peers);
+      // item ironward / wildwarden: a save in progress, no name, online (one, two, an editor connection, another figure, a full bag), absent, error branches
+      ziel['speichertGerade'] = true;
+      befehl(a, reg, admin, 'item ironward Gast');
+      ziel['speichertGerade'] = false;
+      for (const z of ['item ironward', 'item ironward   ', 'item ironward Niemand']) befehl(a, reg, admin, z);
+      peers.push(befehlsPeer('Ziel Eins'), befehlsPeer('Ziel Eins', { nurEditor: true }));
+      for (const z of ['item ironward Ziel Eins', 'item IRONWARD ziel eins', 'item wildwarden Ziel Eins']) befehl(a, reg, admin, z);
+      peers.push(befehlsPeer('Frau', { figur: 'wikingerin' }));
+      befehl(a, reg, admin, 'item ironward Frau');
+      peers.push(befehlsPeer('Doppelt'), befehlsPeer('doppelt'));
+      befehl(a, reg, admin, 'item ironward Doppelt');
+      const vollOnline = befehlsPeer('VollOnline');
+      for (let i = 0; i < 32; i++) vollOnline.inventar.addItem(findItem('Hammer')!, 1);
+      peers.push(vollOnline);
+      befehl(a, reg, admin, 'item ironward VollOnline');
+      befehlsStand(a, ziel, peers);
+      const saved = ziel['savedPlayers'] as Map<string, Record<string, unknown>>;
+      const inv = new Inventory();
+      inv.addItem(findItem('Hammer')!, 1);
+      saved.set('id-weg', { name: 'Weg', figur: 'wikinger', inventar: inv.serialize(), position: { x: 4, y: 5, z: 6 }, gespeichertAm: 7 });
+      befehl(a, reg, admin, 'item ironward Weg');
+      befehl(a, reg, admin, 'item ironward Weg');
+      ziel['spielerSicherung'] = null;
+      befehl(a, reg, admin, 'item wildwarden weg');
+      saved.set('id-ohne', { name: 'Ohne', figur: 'wikinger' });
+      befehl(a, reg, admin, 'item ironward Ohne');
+      saved.set('id-frau', { name: 'FrauWeg', figur: 'wikingerin', inventar: [] });
+      befehl(a, reg, admin, 'item ironward FrauWeg');
+      const vollInv = new Inventory();
+      for (let i = 0; i < 32; i++) vollInv.addItem(findItem('Hammer')!, 1);
+      saved.set('id-voll', { name: 'VollWeg', figur: 'wikinger', inventar: vollInv.serialize() });
+      befehl(a, reg, admin, 'item ironward VollWeg');
+      saved.set('id-z1', { name: 'Zwilling', figur: 'wikinger', inventar: [] });
+      saved.set('id-z2', { name: 'zwilling', figur: 'wikinger', inventar: [] });
+      befehl(a, reg, admin, 'item ironward Zwilling');
+      saved.set('id-ziel', { name: 'Ziel Eins', figur: 'wikinger', inventar: [] }); // online and absent under one name: the online one wins
+      befehl(a, reg, admin, 'item wildwarden Ziel Eins');
+      befehl(a, reg, gast, 'item ironward Weg');
+      befehlsStand(a, ziel, peers);
+      a.zustand.push(saved.size, peers.length);
+    }
+    // E (N1, attack I11B-B1/B2): the promise of item ironward/wildwarden ("a full bag must never get half a set"), the name key,
+    // the figure, extra and odd arguments, a peer in a second world
+    {
+      const { k, ziel, peers, reg } = befehlsAttrappe(a);
+      for (const n of ['registerMarkeCommand', 'registerWetterCommand', 'registerAbbauCommand', 'registerSpawnCommand']) versuche(a, () => F[n]!(k));
+      const admin = befehlsPeer('Admin');
+      peers.push(admin);
+      const saved = ziel['savedPlayers'] as Map<string, Record<string, unknown>>;
+      const teile = (inv: unknown): string => { const i = inv instanceof Inventory ? inv : Inventory.ausSpeicherstand(inv as never); return `${IRONWARD_PARTS.filter((t) => i.countOf(t.item)).length}/7 ironward, ${WILDWARDEN_PARTS.filter((t) => i.countOf(t.item)).length}/7 wildwarden`; };
+      const zeigeP = (p: BefehlsPeer): void => { a.notizen.push(`  peer ${JSON.stringify(p.name)} ${teile(p.inventar)} [${invText(p.inventar)}]`); };
+      const zeigeS = (id: string): void => { const r = saved.get(id)!; a.notizen.push(`  absent ${id} ${teile(r['inventar'])} @${String(r['gespeichertAm'])} [${invText(r['inventar'])}]`); };
+      /** A bag with exactly `frei` free places (filled with hammers). */
+      const fastVoll = (frei: number): Inventory => { const i = new Inventory(); for (let n = 0; n < 200 && i.addItem(findItem('Hammer')!, 1) === 0; n++); for (let j = 0; j < frei; j++) i.removeByName('Hammer', 1); return i; };
+      // a part from the middle of the set, online and absent
+      const teil = befehlsPeer('Teil');
+      teil.inventar.addItem(findItem(IRONWARD_PARTS[2]!.item)!, 1);
+      peers.push(teil);
+      befehl(a, reg, admin, 'item ironward Teil');
+      zeigeP(teil);
+      const teilInv = new Inventory();
+      teilInv.addItem(findItem(WILDWARDEN_PARTS[3]!.item)!, 1);
+      saved.set('id-teil', { name: 'TeilWeg', figur: 'wikinger', inventar: teilInv.serialize(), gespeichertAm: 3 });
+      befehl(a, reg, admin, 'item wildwarden TeilWeg');
+      zeigeS('id-teil');
+      // a bag with room for fewer parts than are missing, online and absent: nothing changes, not in the real bag either
+      const fast = befehlsPeer('Fast');
+      fast.inventar.uebernimm(fastVoll(3));
+      peers.push(fast);
+      befehl(a, reg, admin, 'item ironward Fast');
+      zeigeP(fast);
+      saved.set('id-fast', { name: 'FastWeg', figur: 'wikinger', inventar: fastVoll(3).serialize(), gespeichertAm: 4 });
+      befehl(a, reg, admin, 'item wildwarden FastWeg');
+      zeigeS('id-fast');
+      // exactly as much room as needed: the set fits
+      const knapp = befehlsPeer('Knapp');
+      knapp.inventar.uebernimm(fastVoll(7));
+      peers.push(knapp);
+      befehl(a, reg, admin, 'item ironward Knapp');
+      zeigeP(knapp);
+      // one online player and two absent records of the same name: the online one is served
+      const drei = befehlsPeer('Drei');
+      peers.push(drei);
+      saved.set('id-d1', { name: 'Drei', figur: 'wikinger', inventar: [] });
+      saved.set('id-d2', { name: 'drei', figur: 'wikinger', inventar: [] });
+      befehl(a, reg, admin, 'item ironward Drei');
+      zeigeP(drei);
+      zeigeS('id-d1');
+      zeigeS('id-d2');
+      // an online player without a figure ('' and missing) and an absent record with `wikinger` under the same name
+      peers.push(befehlsPeer('OhneFigur', { figur: '' }), befehlsPeer('KeineFigur', { figur: undefined }));
+      saved.set('id-of', { name: 'OhneFigur', figur: 'wikinger', inventar: [] });
+      saved.set('id-kf', { name: 'KeineFigur', figur: 'wikinger', inventar: [] });
+      befehl(a, reg, admin, 'item ironward OhneFigur');
+      befehl(a, reg, admin, 'item ironward KeineFigur');
+      zeigeS('id-of');
+      zeigeS('id-kf');
+      // names in NFD and with blanks at the edge, online and absent, asked for in NFC
+      const nfd = befehlsPeer('A\u0308gir');
+      peers.push(nfd);
+      befehl(a, reg, admin, 'item ironward \u00c4gir');
+      zeigeP(nfd);
+      // N2 (N1-B1): an online player whose name has blanks at the edge (the handshake does not trim guest names)
+      const rand = befehlsPeer('  Rand ');
+      peers.push(rand);
+      befehl(a, reg, admin, 'item ironward Rand');
+      zeigeP(rand);
+      saved.set('id-nfd', { name: '  O\u0308din ', figur: 'wikinger', inventar: [], gespeichertAm: 5 });
+      befehl(a, reg, admin, 'item wildwarden \u00d6DIN');
+      zeigeS('id-nfd');
+      // extra and odd arguments
+      for (const z of ['item give Hammer 2 extra', 'item give Hammer 1e1', 'item give Hammer 0x10', 'marke setzen defeated_eikthyr extra', 'abbau Beech1 5m', 'abbau Beech1 0x10', 'abbau Beech1 1e1 extra', 'spawn Beech1 12abc 5', 'spawn Beech1 0x10 010', 'spawn Beech1 1 2 extra']) befehl(a, reg, admin, z);
+      zeigeP(admin);
+      // a peer in a second world: spawn and abbau ask for the ZDO space of the peer's world
+      const dungeon = befehlsPeer('Dungeon', { worldId: 'dungeon:7' });
+      for (const z of ['spawn Beech1 1 2', 'abbau Beech1']) befehl(a, reg, dungeon, z);
+      befehlsStand(a, ziel, peers);
+    }
+    // B: members replaced on the stand-in AFTER the registration: the handlers read them at the time of the call, never a stale copy
+    {
+      const { k, ziel, peers, reg } = befehlsAttrappe(a);
+      for (const n of ['registerMarkeCommand', 'registerWetterCommand', 'registerAbbauCommand', 'registerSpawnCommand']) versuche(a, () => F[n]!(k));
+      const admin = befehlsPeer('Admin');
+      peers.push(admin);
+      const neu = (n: string, t = ''): void => { zaehle(a, `NEW ${n}`); a.notizen.push(`  NEW ${n}${t ? ' ' + t : ''}`); };
+      ziel['weltMarken'] = new WeltMarken();
+      ziel['prefabs'] = { getByName: (n: string): BPrefab | undefined => { neu('prefabs.getByName', n); return n === 'Neu' ? bPrefab(a, 'Neu', 909, true) : undefined; }, getAll: (): BPrefab[] => { neu('prefabs.getAll'); return []; } };
+      ziel['net'] = { getPeers: (): BefehlsPeer[] => { neu('net.getPeers'); return [admin]; } };
+      ziel['savedPlayers'] = new Map([['id-x', { name: 'Ersatz', figur: 'wikinger', inventar: [] }]]);
+      ziel['saveWorldAsync'] = (): Promise<void> => { neu('saveWorldAsync'); return Promise.resolve(); };
+      ziel['stempelZaehler'] = (): unknown => { neu('stempelZaehler'); return { naechster: (): number => 5 }; };
+      ziel['spielerSicherung'] = { sichere: (r: { name: string }[], g: unknown): void => { neu('sichere', `${r.map((x) => x.name).join(',')} ${String(g)}`); } };
+      ziel['getGroundHeight'] = (): number => { neu('getGroundHeight'); return 42; };
+      ziel['inventarSync'] = (p: BefehlsPeer): void => { neu('inventarSync', p.name); };
+      ziel['sichereSpielerSofort'] = (p: BefehlsPeer, g: string): void => { neu('sichereSpielerSofort', `${p.name} ${g}`); };
+      ziel['zdosVon'] = (): unknown => { neu('zdosVon'); return { getZDOsInRadius: () => [], destroyZDO: () => undefined, createZDO: () => ({}) }; };
+      ziel['wetterDienst'] = (): unknown => { neu('wetterDienst'); return { zustandsIds: () => ['A b'], aktiveOverrides: () => [], setze: (z: unknown, b: unknown) => neu('setze', `${String(z)} ${String(b)}`) }; };
+      for (const z of ['marke setzen defeated_eikthyr', 'marke liste', 'wetter a_b', 'wetter', 'abbau Neu', 'spawn Neu 1 2', 'item give Hammer', 'item ironward Ersatz', 'item ironward Admin']) befehl(a, reg, admin, z);
+      ziel['speichertGerade'] = true;
+      befehl(a, reg, admin, 'item ironward Ersatz');
+      befehlsStand(a, ziel, peers);
+    }
+    // D: a context without a member the handler needs: the exception, by its name (rule 6a: the text names `this.` or `k.`)
+    {
+      for (const n of ['registerMarkeCommand', 'registerWetterCommand', 'registerAbbauCommand', 'registerSpawnCommand']) {
+        versuche(a, () => F[n]!({}));
+        versuche(a, () => F[n]!({ adminCommands: {} }));
+      }
+      const ohne = (mitglied: string, zeilen: readonly string[], vorher?: (z: Record<string, unknown>) => void): void => {
+        const { k, ziel, peers, reg } = befehlsAttrappe(a);
+        for (const n of ['registerMarkeCommand', 'registerWetterCommand', 'registerAbbauCommand', 'registerSpawnCommand']) versuche(a, () => F[n]!(k));
+        peers.push(befehlsPeer('Admin'));
+        vorher?.(ziel);
+        delete ziel[mitglied];
+        a.notizen.push(`  without ${mitglied}`);
+        for (const z of zeilen) befehl(a, reg, peers[0]!, z);
+      };
+      ohne('weltMarken', ['marke liste']);
+      ohne('wetterDienst', ['wetter']);
+      ohne('prefabs', ['abbau Beech1', 'spawn Beech1']);
+      ohne('zdosVon', ['abbau Beech1', 'spawn Beech1']);
+      ohne('getGroundHeight', ['spawn Beech1']);
+      ohne('inventarSync', ['item give Hammer', 'item ironward Admin']);
+      ohne('sichereSpielerSofort', ['item ironward Admin']);
+      ohne('saveWorldAsync', ['item ironward Admin']);
+      ohne('stempelZaehler', ['item ironward Weg'], (z) => (z['savedPlayers'] as Map<string, unknown>).set('w', { name: 'Weg', figur: 'wikinger', inventar: [] }));
+      ohne('spielerSicherung', ['item ironward Weg'], (z) => (z['savedPlayers'] as Map<string, unknown>).set('w', { name: 'Weg', figur: 'wikinger', inventar: [] }));
+    }
+  } finally {
+    ruecksetzen();
+  }
+  return a;
+}
+
+/** The same commands on a real instance: registered by the constructor and once more through the forwardings, run through the registry. */
+function messeBefehle1BEcht(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  const tmp = mkdtempSync(join(tmpdir(), 'i1-form-k-'));
+  try {
+    const server = createWovServer({
+      port: 0, worldFeatures: false, worldName: 'i1-form-k1b', everyoneAdmin: true,
+      worldsDir: join(tmp, 'worlds'), kontenDir: join(tmp, 'konten'), forumDir: join(tmp, 'forum'), generiertDir: join(tmp, 'generiert'),
+    } as never) as unknown as Record<string, unknown>;
+    // the order of the registry after the constructor: a later registration replaces an earlier one (teleport)
+    a.notizen.push(`  commands ${[...((server['adminCommands'] as unknown as { handlers: Map<string, unknown> }).handlers.keys())].join(',')}`);
+    const zm = new ZDOManager(1n);
+    (server['welten'] as Map<string, unknown>).set(HAUPTWELT_ID, { zdos: zm });
+    // a second world (N1, I11B-B2): a peer in it spawns and removes there, not in the main world
+    const zm2 = new ZDOManager(2n);
+    (server['welten'] as Map<string, unknown>).set('dungeon:7', { zdos: zm2 });
+    const prefabs = server['prefabs'] as { register(p: unknown): void };
+    prefabs.register(new Prefab('K9Baum', undefined, PrefabFlag.PERSISTENT));
+    prefabs.register(new Prefab('K9Geist'));
+    const peers: BefehlsPeer[] = [];
+    (server['net'] as Record<string, unknown>)['getPeers'] = (): BefehlsPeer[] => peers;
+    // stand-ins on the instance, as the tests do (ironward.ts): what the handlers call through the context
+    server['getGroundHeight'] = (x: number, z: number): number => { zaehle(a, 'getGroundHeight'); a.notizen.push(`  getGroundHeight ${x} ${z}`); return 1.5; };
+    server['saveWorldAsync'] = (): Promise<void> => { zaehle(a, 'saveWorldAsync'); return Promise.resolve(); };
+    server['sichereSpielerSofort'] = (p: BefehlsPeer, g: string): void => { zaehle(a, 'sichereSpielerSofort'); a.notizen.push(`  sichereSpielerSofort ${p.name} ${g}`); };
+    server['inventarSync'] = (p: BefehlsPeer): void => { zaehle(a, 'inventarSync'); a.notizen.push(`  inventarSync ${p.name} [${invText(p.inventar)}]`); };
+    const admin = befehlsPeer('Echt');
+    peers.push(admin);
+    const lauf = (reg: { execute(p: unknown, l: string): unknown }): void => {
+      for (const z of BEFEHLE_MARKE) befehl(a, reg, admin, z);
+      for (const z of ['wetter', 'wetter auto', 'wetter Unsinn']) befehl(a, reg, admin, z);
+      for (const z of ['spawn', 'spawn Unbekannt', 'spawn K9Baum 3 4', 'spawn k9baum 5 6', 'spawn K9Baum', 'spawn K9Geist 12 -3']) befehl(a, reg, admin, z);
+      a.notizen.push(`  zdos ${zm.getAllZDOs().map((z) => `${z.prefabHash}@${JSON.stringify(z.position)}/${JSON.stringify(z.rotation)}`).join(' ')}`);
+      for (const z of ['abbau', 'abbau k9geist 200', 'abbau K9Baum 3', 'abbau K9Baum 200', 'abbau K9Baum']) befehl(a, reg, admin, z);
+      a.zustand.push(zm.getAllZDOs().length);
+      const dungeon = befehlsPeer('EchtDungeon', { worldId: 'dungeon:7' });
+      for (const z of ['spawn K9Baum 1 2', 'spawn K9Baum 3 3']) befehl(a, reg, dungeon, z);
+      a.notizen.push(`  zdos main ${zm.getAllZDOs().length}, second world ${zm2.getAllZDOs().map((z) => `${z.prefabHash}@${JSON.stringify(z.position)}`).join(' ')}`);
+      befehl(a, reg, dungeon, 'abbau K9Baum 200');
+      a.notizen.push(`  zdos main ${zm.getAllZDOs().length}, second world ${zm2.getAllZDOs().length}`);
+      for (const z of ['item give Hammer 2', 'item give Hammer 2 extra', 'item give Hammer 1e1', 'item ironward Echt', 'item ironward Echt']) befehl(a, reg, admin, z);
+      // a full bag online: nothing changes in the real bag
+      const voll = befehlsPeer('EchtVoll');
+      for (let n = 0; n < 200 && voll.inventar.addItem(findItem('Hammer')!, 1) === 0; n++);
+      voll.inventar.removeByName('Hammer', 2);
+      peers.push(voll);
+      befehl(a, reg, admin, 'item wildwarden EchtVoll');
+      a.notizen.push(`  EchtVoll [${invText(voll.inventar)}]`);
+      peers.splice(peers.indexOf(voll), 1);
+      const saved = server['savedPlayers'] as Map<string, Record<string, unknown>>;
+      saved.set('id-weg', { name: 'Weg', figur: 'wikinger', inventar: [], gespeichertAm: 1 });
+      befehl(a, reg, admin, 'item wildwarden Weg');
+      a.notizen.push(`  absent Weg [${invText(saved.get('id-weg')!['inventar'])}] stamp ${typeof saved.get('id-weg')!['gespeichertAm']} ${(saved.get('id-weg')!['gespeichertAm'] as number) > 1 ? 'raised' : 'not raised'}`);
+      saved.delete('id-weg');
+      a.notizen.push(`  markers ${(server['weltMarken'] as WeltMarken).alsNamen().join(',')}`);
+      admin.inventar = new Inventory();
+    };
+    // first through the handlers the constructor registered
+    lauf(server['adminCommands'] as AdminCommandRegistry);
+    // then once more: a new registry on the instance, filled by calling the four forwardings (as ironward.ts does)
+    const reg = new AdminCommandRegistry();
+    server['adminCommands'] = reg;
+    for (const n of ['registerMarkeCommand', 'registerWetterCommand', 'registerAbbauCommand', 'registerSpawnCommand']) versuche(a, () => (server[n] as () => unknown).call(server));
+    a.notizen.push(`  commands ${[...(reg as unknown as { handlers: Map<string, unknown> }).handlers.keys()].join(',')}`);
+    lauf(reg);
+    (server['kontenDb'] as { close?: () => void } | undefined)?.close?.();
+  } finally {
+    ruecksetzen();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  return a;
+}
+
 /** Measured on the stand before the move (`--messen-basis`); the packets: peer:type:[ok, first 22 characters of the message]. */
 const SOLL_ATTRAPPE: Aufzeichnung = {
   paket: [
@@ -3011,6 +3544,822 @@ const SOLL_TAKT_1A: Aufzeichnung = {
   ],
 };
 
+/** Step 1, package B, measured on the stand before the move: the commands on a stand-in and on a real instance. */
+const SOLL_BEFEHLE_1B_ATTRAPPE: Aufzeichnung = {
+  paket: [],
+  aufrufe: {"k.adminCommands": 65, "k.weltMarken": 11, "k.wetterDienst": 13, "wetterDienst": 10, "k.prefabs": 39, "prefabs.getByName": 29, "prefabs.getAll": 6, "k.zdosVon": 36, "zdosVon": 32, "getZDOsInRadius": 12, "destroyZDO": 8, "k.getGroundHeight": 15, "getGroundHeight": 13, "createZDO": 12, "k.inventarSync": 27, "inventarSync": 23, "k.speichertGerade": 37, "k.net": 33, "net.getPeers": 31, "k.savedPlayers": 33, "k.sichereSpielerSofort": 13, "sichereSpielerSofort": 11, "k.saveWorldAsync": 19, "saveWorldAsync": 16, "k.stempelZaehler": 8, "stempelZaehler": 6, "stempel.naechster": 6, "k.spielerSicherung": 7, "spielerSicherung.sichere": 4, "NEW wetterDienst": 2, "NEW setze": 1, "NEW prefabs.getByName": 2, "NEW zdosVon": 2, "NEW getGroundHeight": 1, "NEW inventarSync": 2, "NEW net.getPeers": 2, "NEW stempelZaehler": 1, "NEW sichere": 1, "NEW saveWorldAsync": 2, "NEW sichereSpielerSofort": 1},
+  konsole: {"log": 0, "warn": 0},
+  zustand: [0, 7, 7],
+  ausnahmen: ["TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError"],
+  notizen: [
+    "  register marke",
+    "  register wetter",
+    "  register abbau",
+    "  register item",
+    "  register spawn",
+    "  commands fly,zone,teleport,marke,wetter,abbau,item,spawn",
+    "> marke (Admin)",
+    "= refused: Aufruf: marke liste | marke setzen <Name>",
+    "> marke liste (Admin)",
+    "= ok: Keine Marke gesetzt",
+    "> marke LIST (Admin)",
+    "= ok: Keine Marke gesetzt",
+    "> marke setzen (Admin)",
+    "= refused: Aufruf: marke setzen <Name>",
+    "> marke setzen Unsinn (Admin)",
+    "= refused: Unbekannte Marke: \"Unsinn\"",
+    "> marke setzen defeated_eikthyr (Admin)",
+    "= ok: Marke \"defeated_eikthyr\" gesetzt",
+    "> marke set Defeated_Eikthyr (Admin)",
+    "= ok: Marke \"defeated_eikthyr\" war schon gesetzt",
+    "> marke setzen DEFEATED_DRAGON (Admin)",
+    "= ok: Marke \"defeated_dragon\" gesetzt",
+    "> marke liste (Admin)",
+    "= ok: 2 gesetzte Marke(n): defeated_dragon, defeated_eikthyr",
+    "> marke xyz (Admin)",
+    "= refused: Aufruf: marke liste | marke setzen <Name>",
+    "> MARKE liste (Admin)",
+    "= ok: 2 gesetzte Marke(n): defeated_dragon, defeated_eikthyr",
+    "> marke liste (Gast, no admin)",
+    "= refused: Admin commands are not allowed for this player",
+    "> wetter (Admin)",
+    "  wetterDienst 0",
+    "= ok: Kein Wetter gesetzt (Server würfelt). Aufruf: wetter <Zustand|auto> [Biom] — Zustände: Clear, DeepForest_Mist, Heath_clear, LightRain, Misty, Rain, Snow, SnowStorm, SwampRain, ThunderStorm, Twilight_Clear, Twilight_Snow, Twilight_SnowStorm",
+    "> wetter Clear (Admin)",
+    "  wetterDienst 0",
+    "= ok: Wetter überall: Clear",
+    "> wetter DEEPFOREST MIST (Admin)",
+    "  wetterDienst 0",
+    "= refused: Unbekanntes Biom: \"MIST\"",
+    "> wetter Clear unbekanntbiom (Admin)",
+    "  wetterDienst 0",
+    "= refused: Unbekanntes Biom: \"unbekanntbiom\"",
+    "> wetter Clear meadows (Admin)",
+    "  wetterDienst 0",
+    "= ok: Wetter Meadows: Clear",
+    "> wetter (Admin)",
+    "  wetterDienst 0",
+    "= ok: Gesetzt: überall: Clear, Meadows: Clear. Aufruf: wetter <Zustand|auto> [Biom] — Zustände: Clear, DeepForest_Mist, Heath_clear, LightRain, Misty, Rain, Snow, SnowStorm, SwampRain, ThunderStorm, Twilight_Clear, Twilight_Snow, Twilight_SnowStorm",
+    "> wetter auto (Admin)",
+    "  wetterDienst 0",
+    "= ok: Wetter überall: automatisch (Server würfelt)",
+    "> wetter AUTO blackforest (Admin)",
+    "  wetterDienst 0",
+    "= ok: Wetter BlackForest: automatisch (Server würfelt)",
+    "> wetter Unsinn (Admin)",
+    "  wetterDienst 0",
+    "= refused: Unbekannter Zustand: \"Unsinn\". Aufruf: wetter <Zustand|auto> [Biom] — Zustände: Clear, DeepForest_Mist, Heath_clear, LightRain, Misty, Rain, Snow, SnowStorm, SwampRain, ThunderStorm, Twilight_Clear, Twilight_Snow, Twilight_SnowStorm",
+    "> wetter (Admin)",
+    "  wetterDienst 0",
+    "= ok: Gesetzt: Meadows: Clear. Aufruf: wetter <Zustand|auto> [Biom] — Zustände: Clear, DeepForest_Mist, Heath_clear, LightRain, Misty, Rain, Snow, SnowStorm, SwampRain, ThunderStorm, Twilight_Clear, Twilight_Snow, Twilight_SnowStorm",
+    "> wetter auto (Gast, no admin)",
+    "= refused: Admin commands are not allowed for this player",
+    "> abbau (Admin)",
+    "= refused: Aufruf: abbau <prefab> [radius]",
+    "> abbau Unbekannt (Admin)",
+    "  prefabs.getByName \"Unbekannt\"",
+    "  prefabs.getAll",
+    "= refused: Unbekanntes Prefab: Unbekannt",
+    "> abbau Beech1 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  zdosVon Admin@haupt",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
+    "  zdosVon Admin@haupt",
+    "  destroyZDO 1",
+    "  zdosVon Admin@haupt",
+    "  destroyZDO 3",
+    "  zdosVon Admin@haupt",
+    "  destroyZDO 5",
+    "= ok: 3× Beech1 im Umkreis von 10 m entfernt",
+    "> abbau beech1 5 (Admin)",
+    "  prefabs.getByName \"beech1\"",
+    "  prefabs.getAll",
+    "  zdosVon Admin@haupt",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 5",
+    "= ok: 0× Beech1 im Umkreis von 5 m entfernt",
+    "> abbau BEECH1 abc (Admin)",
+    "  prefabs.getByName \"BEECH1\"",
+    "  prefabs.getAll",
+    "  zdosVon Admin@haupt",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
+    "= ok: 0× Beech1 im Umkreis von 10 m entfernt",
+    "> abbau Beech1 5000 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  zdosVon Admin@haupt",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 200",
+    "= ok: 0× Beech1 im Umkreis von 200 m entfernt",
+    "> abbau Beech1 0 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  zdosVon Admin@haupt",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
+    "= ok: 0× Beech1 im Umkreis von 10 m entfernt",
+    "> abbau NPC_1 -3 (Admin)",
+    "  prefabs.getByName \"NPC_1\"",
+    "  zdosVon Admin@haupt",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 1",
+    "  zdosVon Admin@haupt",
+    "  destroyZDO 2",
+    "= ok: 1× NPC_1 im Umkreis von 1 m entfernt",
+    "> abbau stein 1e3 (Admin)",
+    "  prefabs.getByName \"stein\"",
+    "  zdosVon Admin@haupt",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 200",
+    "  zdosVon Admin@haupt",
+    "  destroyZDO 4",
+    "= ok: 1× stein im Umkreis von 200 m entfernt",
+    "> abbau Stein (Admin)",
+    "  prefabs.getByName \"Stein\"",
+    "  zdosVon Admin@haupt",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
+    "= ok: 0× Stein im Umkreis von 10 m entfernt",
+    "> abbau Beech1 (Gast, no admin)",
+    "= refused: Admin commands are not allowed for this player",
+    "> spawn (Admin)",
+    "= refused: Aufruf: spawn <prefab> [x z]",
+    "> spawn Unbekannt (Admin)",
+    "  prefabs.getByName \"Unbekannt\"",
+    "  prefabs.getAll",
+    "= refused: Unbekanntes Prefab: Unbekannt",
+    "> spawn Beech1 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  getGroundHeight 12 -2",
+    "  zdosVon Admin@haupt",
+    "  createZDO 101 {\"x\":12,\"y\":8,\"z\":-2}",
+    "  rotation {\"x\":0,\"y\":-0.9238795325112867,\"z\":0,\"w\":0.38268343236508984}",
+    "  isPersistent Beech1",
+    "= ok: Beech1 gespawnt bei 12.0, -2.0 (Höhe 8.0)",
+    "> spawn beech1 10 20 (Admin)",
+    "  prefabs.getByName \"beech1\"",
+    "  prefabs.getAll",
+    "  getGroundHeight 10 20",
+    "  zdosVon Admin@haupt",
+    "  createZDO 101 {\"x\":10,\"y\":-15,\"z\":20}",
+    "  rotation {\"x\":0,\"y\":1,\"z\":0,\"w\":6.123233995736766e-17}",
+    "  isPersistent Beech1",
+    "= ok: Beech1 gespawnt bei 10.0, 20.0 (Höhe -15.0)",
+    "> spawn Beech1 10 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  getGroundHeight 12 -2",
+    "  zdosVon Admin@haupt",
+    "  createZDO 101 {\"x\":12,\"y\":8,\"z\":-2}",
+    "  rotation {\"x\":0,\"y\":-0.9238795325112867,\"z\":0,\"w\":0.38268343236508984}",
+    "  isPersistent Beech1",
+    "= ok: Beech1 gespawnt bei 12.0, -2.0 (Höhe 8.0)",
+    "> spawn Beech1 x y (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  getGroundHeight 12 -2",
+    "  zdosVon Admin@haupt",
+    "  createZDO 101 {\"x\":12,\"y\":8,\"z\":-2}",
+    "  rotation {\"x\":0,\"y\":-0.9238795325112867,\"z\":0,\"w\":0.38268343236508984}",
+    "  isPersistent Beech1",
+    "= ok: Beech1 gespawnt bei 12.0, -2.0 (Höhe 8.0)",
+    "> spawn NPC_1 (Admin)",
+    "  prefabs.getByName \"NPC_1\"",
+    "  getGroundHeight 12 -2",
+    "  zdosVon Admin@haupt",
+    "  createZDO 202 {\"x\":12,\"y\":8,\"z\":-2}",
+    "  rotation {\"x\":0,\"y\":-0.9238795325112867,\"z\":0,\"w\":0.38268343236508984}",
+    "  isPersistent NPC_1",
+    "= ok: NPC_1 gespawnt bei 12.0, -2.0 (Höhe 8.0) — NICHT persistent",
+    "> spawn Beech1 -5.25 3.5 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  getGroundHeight -5.25 3.5",
+    "  zdosVon Admin@haupt",
+    "  createZDO 101 {\"x\":-5.25,\"y\":-6.125,\"z\":3.5}",
+    "  rotation {\"x\":0,\"y\":0.8489168556075256,\"z\":0,\"w\":0.5285264158634189}",
+    "  isPersistent Beech1",
+    "= ok: Beech1 gespawnt bei -5.3, 3.5 (Höhe -6.1)",
+    "> spawn STEIN 0 0 (Admin)",
+    "  prefabs.getByName \"STEIN\"",
+    "  prefabs.getAll",
+    "  getGroundHeight 0 0",
+    "  zdosVon Admin@haupt",
+    "  createZDO 303 {\"x\":0,\"y\":0,\"z\":0}",
+    "  rotation {\"x\":0,\"y\":0.8280672304692729,\"z\":0,\"w\":0.5606288093051837}",
+    "  isPersistent stein",
+    "= ok: stein gespawnt bei 0.0, 0.0 (Höhe 0.0)",
+    "> spawn Beech1 Infinity 1 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  getGroundHeight 12 -2",
+    "  zdosVon Admin@haupt",
+    "  createZDO 101 {\"x\":12,\"y\":8,\"z\":-2}",
+    "  rotation {\"x\":0,\"y\":-0.9238795325112867,\"z\":0,\"w\":0.38268343236508984}",
+    "  isPersistent Beech1",
+    "= ok: Beech1 gespawnt bei 12.0, -2.0 (Höhe 8.0)",
+    "> spawn Beech1 (Gast, no admin)",
+    "= refused: Admin commands are not allowed for this player",
+    "> item (Admin)",
+    "= refused: Aufruf: item give <Name> [Anzahl]",
+    "> item xyz (Admin)",
+    "= refused: Aufruf: item give <Name> [Anzahl]",
+    "> item give (Admin)",
+    "= refused: Aufruf: item give <Name> [Anzahl]",
+    "> item give Unbekannt (Admin)",
+    "= refused: Unbekannter Gegenstand: Unbekannt",
+    "> item give Hammer (Admin)",
+    "  inventarSync Admin [Hammerx1]",
+    "= ok: 1× Hammer ins Inventar gelegt",
+    "> item gib Hammer 3 (Admin)",
+    "  inventarSync Admin [Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 3× Hammer ins Inventar gelegt",
+    "> item give hammer abc (Admin)",
+    "  inventarSync Admin [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 1× Hammer ins Inventar gelegt",
+    "> item give Hammer 0 (Admin)",
+    "  inventarSync Admin [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 1× Hammer ins Inventar gelegt",
+    "> item give Hammer 2.7 (Admin)",
+    "  inventarSync Admin [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 2× Hammer ins Inventar gelegt",
+    "> item GIVE Hammer -4 (Admin)",
+    "  inventarSync Admin [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 1× Hammer ins Inventar gelegt",
+    "> item give Hammer (Voll)",
+    "  inventarSync Voll [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= refused: Kein Platz im Inventar für Hammer",
+    "> item give Hammer 9999 (Admin)",
+    "  inventarSync Admin [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 23× Hammer ins Inventar gelegt (9976 passten nicht)",
+    "> item give Hammer (Gast, no admin)",
+    "= refused: Admin commands are not allowed for this player",
+    "  saved ",
+    "  peers Admin[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "  markers defeated_dragon,defeated_eikthyr",
+    "> item ironward Gast (Admin)",
+    "= refused: Sicherung läuft; bitte gleich erneut versuchen. Nichts verändert.",
+    "> item ironward (Admin)",
+    "= refused: Aufruf: item ironward <Spielername>",
+    "> item ironward    (Admin)",
+    "= refused: Aufruf: item ironward <Spielername>",
+    "> item ironward Niemand (Admin)",
+    "  net.getPeers Admin",
+    "= refused: Spieler nicht eindeutig gefunden",
+    "> item ironward Ziel Eins (Admin)",
+    "  net.getPeers Admin,Ziel Eins,Ziel Eins",
+    "  inventarSync Ziel Eins [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|Ziel Eins|admin",
+    "  saveWorldAsync 0",
+    "= ok: Ziel Eins: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "> item IRONWARD ziel eins (Admin)",
+    "  net.getPeers Admin,Ziel Eins,Ziel Eins",
+    "  inventarSync Ziel Eins [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|Ziel Eins|admin",
+    "  saveWorldAsync 0",
+    "= ok: ziel eins: Ironward vollständig (7/7), 0 neue Gegenstände. Sicherung angefordert.",
+    "> item wildwarden Ziel Eins (Admin)",
+    "  net.getPeers Admin,Ziel Eins,Ziel Eins",
+    "  inventarSync Ziel Eins [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1,wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1]",
+    "  sichereSpielerSofort 2|Ziel Eins|admin",
+    "  saveWorldAsync 0",
+    "= ok: Ziel Eins: Waldhüter vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "> item ironward Frau (Admin)",
+    "  net.getPeers Admin,Ziel Eins,Ziel Eins,Frau",
+    "= refused: Ironward benötigt den männlichen Wikinger-Körper",
+    "> item ironward Doppelt (Admin)",
+    "  net.getPeers Admin,Ziel Eins,Ziel Eins,Frau,Doppelt,doppelt",
+    "= refused: Spieler nicht eindeutig gefunden",
+    "> item ironward VollOnline (Admin)",
+    "  net.getPeers Admin,Ziel Eins,Ziel Eins,Frau,Doppelt,doppelt,VollOnline",
+    "= refused: Nicht genug Platz für das vollständige Set; nichts verändert",
+    "  saved ",
+    "  peers Admin[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] Ziel Eins[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1,wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] Ziel Eins[] Frau[] Doppelt[] doppelt[] VollOnline[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "  markers defeated_dragon,defeated_eikthyr",
+    "> item ironward Weg (Admin)",
+    "  net.getPeers Admin,Ziel Eins,Ziel Eins,Frau,Doppelt,doppelt,VollOnline",
+    "  stempelZaehler",
+    "  stempel.naechster",
+    "  spielerSicherung.sichere Weg@1001[Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] admin",
+    "  saveWorldAsync 0",
+    "= ok: Weg: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "> item ironward Weg (Admin)",
+    "  net.getPeers Admin,Ziel Eins,Ziel Eins,Frau,Doppelt,doppelt,VollOnline",
+    "  stempelZaehler",
+    "  stempel.naechster",
+    "  spielerSicherung.sichere Weg@1002[Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] admin",
+    "  saveWorldAsync 0",
+    "= ok: Weg: Ironward vollständig (7/7), 0 neue Gegenstände. Sicherung angefordert.",
+    "> item wildwarden weg (Admin)",
+    "  net.getPeers Admin,Ziel Eins,Ziel Eins,Frau,Doppelt,doppelt,VollOnline",
+    "  stempelZaehler",
+    "  stempel.naechster",
+    "  saveWorldAsync 0",
+    "= ok: weg: Waldhüter vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "> item ironward Ohne (Admin)",
+    "  net.getPeers Admin,Ziel Eins,Ziel Eins,Frau,Doppelt,doppelt,VollOnline",
+    "= refused: Kein gespeichertes Inventar vorhanden",
+    "> item ironward FrauWeg (Admin)",
+    "  net.getPeers Admin,Ziel Eins,Ziel Eins,Frau,Doppelt,doppelt,VollOnline",
+    "= refused: Ironward benötigt den männlichen Wikinger-Körper",
+    "> item ironward VollWeg (Admin)",
+    "  net.getPeers Admin,Ziel Eins,Ziel Eins,Frau,Doppelt,doppelt,VollOnline",
+    "= refused: Nicht genug Platz für das vollständige Set; nichts verändert",
+    "> item ironward Zwilling (Admin)",
+    "  net.getPeers Admin,Ziel Eins,Ziel Eins,Frau,Doppelt,doppelt,VollOnline",
+    "= refused: Spieler nicht eindeutig gefunden",
+    "> item wildwarden Ziel Eins (Admin)",
+    "  net.getPeers Admin,Ziel Eins,Ziel Eins,Frau,Doppelt,doppelt,VollOnline",
+    "  inventarSync Ziel Eins [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1,wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1]",
+    "  sichereSpielerSofort 2|Ziel Eins|admin",
+    "  saveWorldAsync 0",
+    "= ok: Ziel Eins: Waldhüter vollständig (7/7), 0 neue Gegenstände. Sicherung angefordert.",
+    "> item ironward Weg (Gast, no admin)",
+    "= refused: Admin commands are not allowed for this player",
+    "  saved id-weg:Weg@1003[Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1,wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] id-ohne:Ohne@undefined[-] id-frau:FrauWeg@undefined[] id-voll:VollWeg@undefined[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] id-z1:Zwilling@undefined[] id-z2:zwilling@undefined[] id-ziel:Ziel Eins@undefined[]",
+    "  peers Admin[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] Ziel Eins[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1,wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] Ziel Eins[] Frau[] Doppelt[] doppelt[] VollOnline[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "  markers defeated_dragon,defeated_eikthyr",
+    "  register marke",
+    "  register wetter",
+    "  register abbau",
+    "  register item",
+    "  register spawn",
+    "> item ironward Teil (Admin)",
+    "  net.getPeers Admin,Teil",
+    "  inventarSync Teil [IronwardLeggingsx1,IronwardHelmetx1,IronwardCuirassx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|Teil|admin",
+    "  saveWorldAsync 0",
+    "= ok: Teil: Ironward vollständig (7/7), 6 neue Gegenstände. Sicherung angefordert.",
+    "  peer \"Teil\" 7/7 ironward, 0/7 wildwarden [IronwardLeggingsx1,IronwardHelmetx1,IronwardCuirassx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "> item wildwarden TeilWeg (Admin)",
+    "  net.getPeers Admin,Teil",
+    "  stempelZaehler",
+    "  stempel.naechster",
+    "  spielerSicherung.sichere TeilWeg@1001[wildwarden_mantlex1,wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] admin",
+    "  saveWorldAsync 0",
+    "= ok: TeilWeg: Waldhüter vollständig (7/7), 6 neue Gegenstände. Sicherung angefordert.",
+    "  absent id-teil 0/7 ironward, 7/7 wildwarden @1001 [wildwarden_mantlex1,wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1]",
+    "> item ironward Fast (Admin)",
+    "  net.getPeers Admin,Teil,Fast",
+    "= refused: Nicht genug Platz für das vollständige Set; nichts verändert",
+    "  peer \"Fast\" 0/7 ironward, 0/7 wildwarden [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "> item wildwarden FastWeg (Admin)",
+    "  net.getPeers Admin,Teil,Fast",
+    "= refused: Nicht genug Platz für das vollständige Set; nichts verändert",
+    "  absent id-fast 0/7 ironward, 0/7 wildwarden @4 [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "> item ironward Knapp (Admin)",
+    "  net.getPeers Admin,Teil,Fast,Knapp",
+    "  inventarSync Knapp [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|Knapp|admin",
+    "  saveWorldAsync 0",
+    "= ok: Knapp: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "  peer \"Knapp\" 7/7 ironward, 0/7 wildwarden [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "> item ironward Drei (Admin)",
+    "  net.getPeers Admin,Teil,Fast,Knapp,Drei",
+    "  inventarSync Drei [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|Drei|admin",
+    "  saveWorldAsync 0",
+    "= ok: Drei: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "  peer \"Drei\" 7/7 ironward, 0/7 wildwarden [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  absent id-d1 0/7 ironward, 0/7 wildwarden @undefined []",
+    "  absent id-d2 0/7 ironward, 0/7 wildwarden @undefined []",
+    "> item ironward OhneFigur (Admin)",
+    "  net.getPeers Admin,Teil,Fast,Knapp,Drei,OhneFigur,KeineFigur",
+    "= refused: Ironward benötigt den männlichen Wikinger-Körper",
+    "> item ironward KeineFigur (Admin)",
+    "  net.getPeers Admin,Teil,Fast,Knapp,Drei,OhneFigur,KeineFigur",
+    "  inventarSync KeineFigur [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|KeineFigur|admin",
+    "  saveWorldAsync 0",
+    "= ok: KeineFigur: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "  absent id-of 0/7 ironward, 0/7 wildwarden @undefined []",
+    "  absent id-kf 0/7 ironward, 0/7 wildwarden @undefined []",
+    "> item ironward Ägir (Admin)",
+    "  net.getPeers Admin,Teil,Fast,Knapp,Drei,OhneFigur,KeineFigur,Ägir",
+    "  inventarSync Ägir [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|Ägir|admin",
+    "  saveWorldAsync 0",
+    "= ok: Ägir: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "  peer \"Ägir\" 7/7 ironward, 0/7 wildwarden [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "> item ironward Rand (Admin)",
+    "  net.getPeers Admin,Teil,Fast,Knapp,Drei,OhneFigur,KeineFigur,Ägir,  Rand ",
+    "  inventarSync   Rand  [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|  Rand |admin",
+    "  saveWorldAsync 0",
+    "= ok: Rand: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "  peer \"  Rand \" 7/7 ironward, 0/7 wildwarden [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "> item wildwarden ÖDIN (Admin)",
+    "  net.getPeers Admin,Teil,Fast,Knapp,Drei,OhneFigur,KeineFigur,Ägir,  Rand ",
+    "  stempelZaehler",
+    "  stempel.naechster",
+    "  spielerSicherung.sichere   Ödin @1002[wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] admin",
+    "  saveWorldAsync 0",
+    "= ok: ÖDIN: Waldhüter vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "  absent id-nfd 0/7 ironward, 7/7 wildwarden @1002 [wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1]",
+    "> item give Hammer 2 extra (Admin)",
+    "  inventarSync Admin [Hammerx1,Hammerx1]",
+    "= ok: 2× Hammer ins Inventar gelegt",
+    "> item give Hammer 1e1 (Admin)",
+    "  inventarSync Admin [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 10× Hammer ins Inventar gelegt",
+    "> item give Hammer 0x10 (Admin)",
+    "  inventarSync Admin [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 16× Hammer ins Inventar gelegt",
+    "> marke setzen defeated_eikthyr extra (Admin)",
+    "= ok: Marke \"defeated_eikthyr\" gesetzt",
+    "> abbau Beech1 5m (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  zdosVon Admin@haupt",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
+    "  zdosVon Admin@haupt",
+    "  destroyZDO 1",
+    "  zdosVon Admin@haupt",
+    "  destroyZDO 3",
+    "  zdosVon Admin@haupt",
+    "  destroyZDO 5",
+    "= ok: 3× Beech1 im Umkreis von 10 m entfernt",
+    "> abbau Beech1 0x10 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  zdosVon Admin@haupt",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 16",
+    "= ok: 0× Beech1 im Umkreis von 16 m entfernt",
+    "> abbau Beech1 1e1 extra (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  zdosVon Admin@haupt",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
+    "= ok: 0× Beech1 im Umkreis von 10 m entfernt",
+    "> spawn Beech1 12abc 5 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  getGroundHeight 12 -2",
+    "  zdosVon Admin@haupt",
+    "  createZDO 101 {\"x\":12,\"y\":8,\"z\":-2}",
+    "  rotation {\"x\":0,\"y\":-0.9238795325112867,\"z\":0,\"w\":0.38268343236508984}",
+    "  isPersistent Beech1",
+    "= ok: Beech1 gespawnt bei 12.0, -2.0 (Höhe 8.0)",
+    "> spawn Beech1 0x10 010 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  getGroundHeight 16 10",
+    "  zdosVon Admin@haupt",
+    "  createZDO 101 {\"x\":16,\"y\":-2,\"z\":10}",
+    "  rotation {\"x\":0,\"y\":-0.9795777228015289,\"z\":0,\"w\":0.2010658722681974}",
+    "  isPersistent Beech1",
+    "= ok: Beech1 gespawnt bei 16.0, 10.0 (Höhe -2.0)",
+    "> spawn Beech1 1 2 extra (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  getGroundHeight 1 2",
+    "  zdosVon Admin@haupt",
+    "  createZDO 101 {\"x\":1,\"y\":-1.5,\"z\":2}",
+    "  rotation {\"x\":0,\"y\":0.8816745987679437,\"z\":0,\"w\":0.47185792553202427}",
+    "  isPersistent Beech1",
+    "= ok: Beech1 gespawnt bei 1.0, 2.0 (Höhe -1.5)",
+    "  peer \"Admin\" 0/7 ironward, 0/7 wildwarden [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "> spawn Beech1 1 2 (Dungeon)",
+    "  prefabs.getByName \"Beech1\"",
+    "  getGroundHeight 1 2",
+    "  zdosVon Dungeon@dungeon:7",
+    "  createZDO 101 {\"x\":1,\"y\":-1.5,\"z\":2}",
+    "  rotation {\"x\":0,\"y\":0.8816745987679437,\"z\":0,\"w\":0.47185792553202427}",
+    "  isPersistent Beech1",
+    "= ok: Beech1 gespawnt bei 1.0, 2.0 (Höhe -1.5)",
+    "> abbau Beech1 (Dungeon)",
+    "  prefabs.getByName \"Beech1\"",
+    "  zdosVon Dungeon@dungeon:7",
+    "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
+    "= ok: 0× Beech1 im Umkreis von 10 m entfernt",
+    "  saved id-teil:TeilWeg@1001[wildwarden_mantlex1,wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] id-fast:FastWeg@4[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] id-d1:Drei@undefined[] id-d2:drei@undefined[] id-of:OhneFigur@undefined[] id-kf:KeineFigur@undefined[] id-nfd:  Ödin @1002[wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1]",
+    "  peers Admin[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] Teil[IronwardLeggingsx1,IronwardHelmetx1,IronwardCuirassx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] Fast[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] Knapp[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] Drei[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] OhneFigur[] KeineFigur[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] Ägir[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]   Rand [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  markers defeated_eikthyr",
+    "  register marke",
+    "  register wetter",
+    "  register abbau",
+    "  register item",
+    "  register spawn",
+    "> marke setzen defeated_eikthyr (Admin)",
+    "= ok: Marke \"defeated_eikthyr\" gesetzt",
+    "> marke liste (Admin)",
+    "= ok: 1 gesetzte Marke(n): defeated_eikthyr",
+    "> wetter a_b (Admin)",
+    "  NEW wetterDienst",
+    "  NEW setze A b undefined",
+    "= ok: Wetter überall: A b",
+    "> wetter (Admin)",
+    "  NEW wetterDienst",
+    "= ok: Kein Wetter gesetzt (Server würfelt). Aufruf: wetter <Zustand|auto> [Biom] — Zustände: A_b",
+    "> abbau Neu (Admin)",
+    "  NEW prefabs.getByName Neu",
+    "  NEW zdosVon",
+    "= ok: 0× Neu im Umkreis von 10 m entfernt",
+    "> spawn Neu 1 2 (Admin)",
+    "  NEW prefabs.getByName Neu",
+    "  NEW getGroundHeight",
+    "  NEW zdosVon",
+    "  isPersistent Neu",
+    "= ok: Neu gespawnt bei 1.0, 2.0 (Höhe 42.0)",
+    "> item give Hammer (Admin)",
+    "  NEW inventarSync Admin",
+    "= ok: 1× Hammer ins Inventar gelegt",
+    "> item ironward Ersatz (Admin)",
+    "  NEW net.getPeers",
+    "  NEW stempelZaehler",
+    "  NEW sichere Ersatz admin",
+    "  NEW saveWorldAsync",
+    "= ok: Ersatz: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "> item ironward Admin (Admin)",
+    "  NEW net.getPeers",
+    "  NEW inventarSync Admin",
+    "  NEW sichereSpielerSofort Admin admin",
+    "  NEW saveWorldAsync",
+    "= ok: Admin: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "> item ironward Ersatz (Admin)",
+    "= refused: Sicherung läuft; bitte gleich erneut versuchen. Nichts verändert.",
+    "  saved id-x:Ersatz@5[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  peers Admin[Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  markers defeated_eikthyr",
+    "  register marke",
+    "  register wetter",
+    "  register abbau",
+    "  register item",
+    "  register spawn",
+    "  without weltMarken",
+    "> marke liste (Admin)",
+    "= throws TypeError",
+    "  register marke",
+    "  register wetter",
+    "  register abbau",
+    "  register item",
+    "  register spawn",
+    "  without wetterDienst",
+    "> wetter (Admin)",
+    "= throws TypeError",
+    "  register marke",
+    "  register wetter",
+    "  register abbau",
+    "  register item",
+    "  register spawn",
+    "  without prefabs",
+    "> abbau Beech1 (Admin)",
+    "= throws TypeError",
+    "> spawn Beech1 (Admin)",
+    "= throws TypeError",
+    "  register marke",
+    "  register wetter",
+    "  register abbau",
+    "  register item",
+    "  register spawn",
+    "  without zdosVon",
+    "> abbau Beech1 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "= throws TypeError",
+    "> spawn Beech1 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "  getGroundHeight 12 -2",
+    "= throws TypeError",
+    "  register marke",
+    "  register wetter",
+    "  register abbau",
+    "  register item",
+    "  register spawn",
+    "  without getGroundHeight",
+    "> spawn Beech1 (Admin)",
+    "  prefabs.getByName \"Beech1\"",
+    "= throws TypeError",
+    "  register marke",
+    "  register wetter",
+    "  register abbau",
+    "  register item",
+    "  register spawn",
+    "  without inventarSync",
+    "> item give Hammer (Admin)",
+    "= throws TypeError",
+    "> item ironward Admin (Admin)",
+    "  net.getPeers Admin",
+    "= throws TypeError",
+    "  register marke",
+    "  register wetter",
+    "  register abbau",
+    "  register item",
+    "  register spawn",
+    "  without sichereSpielerSofort",
+    "> item ironward Admin (Admin)",
+    "  net.getPeers Admin",
+    "  inventarSync Admin [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "= throws TypeError",
+    "  register marke",
+    "  register wetter",
+    "  register abbau",
+    "  register item",
+    "  register spawn",
+    "  without saveWorldAsync",
+    "> item ironward Admin (Admin)",
+    "  net.getPeers Admin",
+    "  inventarSync Admin [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|Admin|admin",
+    "= throws TypeError",
+    "  register marke",
+    "  register wetter",
+    "  register abbau",
+    "  register item",
+    "  register spawn",
+    "  without stempelZaehler",
+    "> item ironward Weg (Admin)",
+    "  net.getPeers Admin",
+    "= throws TypeError",
+    "  register marke",
+    "  register wetter",
+    "  register abbau",
+    "  register item",
+    "  register spawn",
+    "  without spielerSicherung",
+    "> item ironward Weg (Admin)",
+    "  net.getPeers Admin",
+    "  stempelZaehler",
+    "  stempel.naechster",
+    "  saveWorldAsync 0",
+    "= ok: Weg: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+  ],
+};
+const SOLL_BEFEHLE_1B_ECHT: Aufzeichnung = {
+  paket: [],
+  aufrufe: {"getGroundHeight": 12, "inventarSync": 10, "sichereSpielerSofort": 4, "saveWorldAsync": 6},
+  konsole: {"log": 4, "warn": 0},
+  zustand: [0, 0],
+  ausnahmen: [],
+  notizen: [
+    "log 53:f911fa34cfc45148:[Konto] Spalte konten.avatar_charakter_id nachge",
+    "log 42:0bcdb099a81be718:[Konto] Spalte konten.token_ab nachgezogen",
+    "log 44:1f27737a280d0efa:[Konto] Spalte konten.spieler_ab nachgezogen",
+    "log 45:63bbb1146dd82dc1:[Konto] Spalte konten.profil_text nachgezogen",
+    "  commands fly,zone,teleport,spieler,dungeon,item,spawn,abbau,admin,kick,bann,entbann,marke,wetter",
+    "> marke (Echt)",
+    "= refused: Aufruf: marke liste | marke setzen <Name>",
+    "> marke liste (Echt)",
+    "= ok: Keine Marke gesetzt",
+    "> marke LIST (Echt)",
+    "= ok: Keine Marke gesetzt",
+    "> marke setzen (Echt)",
+    "= refused: Aufruf: marke setzen <Name>",
+    "> marke setzen Unsinn (Echt)",
+    "= refused: Unbekannte Marke: \"Unsinn\"",
+    "> marke setzen defeated_eikthyr (Echt)",
+    "= ok: Marke \"defeated_eikthyr\" gesetzt",
+    "> marke set Defeated_Eikthyr (Echt)",
+    "= ok: Marke \"defeated_eikthyr\" war schon gesetzt",
+    "> marke setzen DEFEATED_DRAGON (Echt)",
+    "= ok: Marke \"defeated_dragon\" gesetzt",
+    "> marke liste (Echt)",
+    "= ok: 2 gesetzte Marke(n): defeated_dragon, defeated_eikthyr",
+    "> marke xyz (Echt)",
+    "= refused: Aufruf: marke liste | marke setzen <Name>",
+    "> MARKE liste (Echt)",
+    "= ok: 2 gesetzte Marke(n): defeated_dragon, defeated_eikthyr",
+    "> wetter (Echt)",
+    "= ok: Kein Wetter gesetzt (Server würfelt). Aufruf: wetter <Zustand|auto> [Biom] — Zustände: Clear, DeepForest_Mist, Heath_clear, LightRain, Misty, Rain, Snow, SnowStorm, SwampRain, ThunderStorm, Twilight_Clear, Twilight_Snow, Twilight_SnowStorm",
+    "> wetter auto (Echt)",
+    "= ok: Wetter überall: automatisch (Server würfelt)",
+    "> wetter Unsinn (Echt)",
+    "= refused: Unbekannter Zustand: \"Unsinn\". Aufruf: wetter <Zustand|auto> [Biom] — Zustände: Clear, DeepForest_Mist, Heath_clear, LightRain, Misty, Rain, Snow, SnowStorm, SwampRain, ThunderStorm, Twilight_Clear, Twilight_Snow, Twilight_SnowStorm",
+    "> spawn (Echt)",
+    "= refused: Aufruf: spawn <prefab> [x z]",
+    "> spawn Unbekannt (Echt)",
+    "= refused: Unbekanntes Prefab: Unbekannt",
+    "> spawn K9Baum 3 4 (Echt)",
+    "  getGroundHeight 3 4",
+    "= ok: K9Baum gespawnt bei 3.0, 4.0 (Höhe 1.5)",
+    "> spawn k9baum 5 6 (Echt)",
+    "  getGroundHeight 5 6",
+    "= ok: K9Baum gespawnt bei 5.0, 6.0 (Höhe 1.5)",
+    "> spawn K9Baum (Echt)",
+    "  getGroundHeight 12 -2",
+    "= ok: K9Baum gespawnt bei 12.0, -2.0 (Höhe 1.5)",
+    "> spawn K9Geist 12 -3 (Echt)",
+    "  getGroundHeight 12 -3",
+    "= ok: K9Geist gespawnt bei 12.0, -3.0 (Höhe 1.5) — NICHT persistent",
+    "  zdos 460474953@{\"x\":3,\"y\":1.5,\"z\":4}/{\"x\":0,\"y\":0.9361027440155482,\"z\":0,\"w\":0.35172667320884426} 460474953@{\"x\":5,\"y\":1.5,\"z\":6}/{\"x\":0,\"y\":0.9732489894677302,\"z\":0,\"w\":0.22975292054736127} 460474953@{\"x\":12,\"y\":1.5,\"z\":-2}/{\"x\":0,\"y\":-0.9238795325112867,\"z\":0,\"w\":0.38268343236508984} -1340637338@{\"x\":12,\"y\":1.5,\"z\":-3}/{\"x\":0,\"y\":-0.8506508083520399,\"z\":0,\"w\":0.5257311121191336}",
+    "> abbau (Echt)",
+    "= refused: Aufruf: abbau <prefab> [radius]",
+    "> abbau k9geist 200 (Echt)",
+    "= ok: 1× K9Geist im Umkreis von 200 m entfernt",
+    "> abbau K9Baum 3 (Echt)",
+    "= ok: 1× K9Baum im Umkreis von 3 m entfernt",
+    "> abbau K9Baum 200 (Echt)",
+    "= ok: 2× K9Baum im Umkreis von 200 m entfernt",
+    "> abbau K9Baum (Echt)",
+    "= ok: 0× K9Baum im Umkreis von 10 m entfernt",
+    "> spawn K9Baum 1 2 (EchtDungeon)",
+    "  getGroundHeight 1 2",
+    "= ok: K9Baum gespawnt bei 1.0, 2.0 (Höhe 1.5)",
+    "> spawn K9Baum 3 3 (EchtDungeon)",
+    "  getGroundHeight 3 3",
+    "= ok: K9Baum gespawnt bei 3.0, 3.0 (Höhe 1.5)",
+    "  zdos main 0, second world 460474953@{\"x\":1,\"y\":1.5,\"z\":2} 460474953@{\"x\":3,\"y\":1.5,\"z\":3}",
+    "> abbau K9Baum 200 (EchtDungeon)",
+    "= ok: 2× K9Baum im Umkreis von 200 m entfernt",
+    "  zdos main 0, second world 0",
+    "> item give Hammer 2 (Echt)",
+    "  inventarSync Echt [Hammerx1,Hammerx1]",
+    "= ok: 2× Hammer ins Inventar gelegt",
+    "> item give Hammer 2 extra (Echt)",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 2× Hammer ins Inventar gelegt",
+    "> item give Hammer 1e1 (Echt)",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 10× Hammer ins Inventar gelegt",
+    "> item ironward Echt (Echt)",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort Echt admin",
+    "= ok: Echt: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "> item ironward Echt (Echt)",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort Echt admin",
+    "= ok: Echt: Ironward vollständig (7/7), 0 neue Gegenstände. Sicherung angefordert.",
+    "> item wildwarden EchtVoll (Echt)",
+    "= refused: Nicht genug Platz für das vollständige Set; nichts verändert",
+    "  EchtVoll [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "> item wildwarden Weg (Echt)",
+    "= ok: Weg: Waldhüter vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "  absent Weg [wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] stamp number not raised",
+    "  markers defeated_dragon,defeated_eikthyr",
+    "  commands fly,zone,teleport,marke,wetter,abbau,item,spawn",
+    "> marke (Echt)",
+    "= refused: Aufruf: marke liste | marke setzen <Name>",
+    "> marke liste (Echt)",
+    "= ok: 2 gesetzte Marke(n): defeated_dragon, defeated_eikthyr",
+    "> marke LIST (Echt)",
+    "= ok: 2 gesetzte Marke(n): defeated_dragon, defeated_eikthyr",
+    "> marke setzen (Echt)",
+    "= refused: Aufruf: marke setzen <Name>",
+    "> marke setzen Unsinn (Echt)",
+    "= refused: Unbekannte Marke: \"Unsinn\"",
+    "> marke setzen defeated_eikthyr (Echt)",
+    "= ok: Marke \"defeated_eikthyr\" war schon gesetzt",
+    "> marke set Defeated_Eikthyr (Echt)",
+    "= ok: Marke \"defeated_eikthyr\" war schon gesetzt",
+    "> marke setzen DEFEATED_DRAGON (Echt)",
+    "= ok: Marke \"defeated_dragon\" war schon gesetzt",
+    "> marke liste (Echt)",
+    "= ok: 2 gesetzte Marke(n): defeated_dragon, defeated_eikthyr",
+    "> marke xyz (Echt)",
+    "= refused: Aufruf: marke liste | marke setzen <Name>",
+    "> MARKE liste (Echt)",
+    "= ok: 2 gesetzte Marke(n): defeated_dragon, defeated_eikthyr",
+    "> wetter (Echt)",
+    "= ok: Kein Wetter gesetzt (Server würfelt). Aufruf: wetter <Zustand|auto> [Biom] — Zustände: Clear, DeepForest_Mist, Heath_clear, LightRain, Misty, Rain, Snow, SnowStorm, SwampRain, ThunderStorm, Twilight_Clear, Twilight_Snow, Twilight_SnowStorm",
+    "> wetter auto (Echt)",
+    "= ok: Wetter überall: automatisch (Server würfelt)",
+    "> wetter Unsinn (Echt)",
+    "= refused: Unbekannter Zustand: \"Unsinn\". Aufruf: wetter <Zustand|auto> [Biom] — Zustände: Clear, DeepForest_Mist, Heath_clear, LightRain, Misty, Rain, Snow, SnowStorm, SwampRain, ThunderStorm, Twilight_Clear, Twilight_Snow, Twilight_SnowStorm",
+    "> spawn (Echt)",
+    "= refused: Aufruf: spawn <prefab> [x z]",
+    "> spawn Unbekannt (Echt)",
+    "= refused: Unbekanntes Prefab: Unbekannt",
+    "> spawn K9Baum 3 4 (Echt)",
+    "  getGroundHeight 3 4",
+    "= ok: K9Baum gespawnt bei 3.0, 4.0 (Höhe 1.5)",
+    "> spawn k9baum 5 6 (Echt)",
+    "  getGroundHeight 5 6",
+    "= ok: K9Baum gespawnt bei 5.0, 6.0 (Höhe 1.5)",
+    "> spawn K9Baum (Echt)",
+    "  getGroundHeight 12 -2",
+    "= ok: K9Baum gespawnt bei 12.0, -2.0 (Höhe 1.5)",
+    "> spawn K9Geist 12 -3 (Echt)",
+    "  getGroundHeight 12 -3",
+    "= ok: K9Geist gespawnt bei 12.0, -3.0 (Höhe 1.5) — NICHT persistent",
+    "  zdos 460474953@{\"x\":3,\"y\":1.5,\"z\":4}/{\"x\":0,\"y\":0.9361027440155482,\"z\":0,\"w\":0.35172667320884426} 460474953@{\"x\":5,\"y\":1.5,\"z\":6}/{\"x\":0,\"y\":0.9732489894677302,\"z\":0,\"w\":0.22975292054736127} 460474953@{\"x\":12,\"y\":1.5,\"z\":-2}/{\"x\":0,\"y\":-0.9238795325112867,\"z\":0,\"w\":0.38268343236508984} -1340637338@{\"x\":12,\"y\":1.5,\"z\":-3}/{\"x\":0,\"y\":-0.8506508083520399,\"z\":0,\"w\":0.5257311121191336}",
+    "> abbau (Echt)",
+    "= refused: Aufruf: abbau <prefab> [radius]",
+    "> abbau k9geist 200 (Echt)",
+    "= ok: 1× K9Geist im Umkreis von 200 m entfernt",
+    "> abbau K9Baum 3 (Echt)",
+    "= ok: 1× K9Baum im Umkreis von 3 m entfernt",
+    "> abbau K9Baum 200 (Echt)",
+    "= ok: 2× K9Baum im Umkreis von 200 m entfernt",
+    "> abbau K9Baum (Echt)",
+    "= ok: 0× K9Baum im Umkreis von 10 m entfernt",
+    "> spawn K9Baum 1 2 (EchtDungeon)",
+    "  getGroundHeight 1 2",
+    "= ok: K9Baum gespawnt bei 1.0, 2.0 (Höhe 1.5)",
+    "> spawn K9Baum 3 3 (EchtDungeon)",
+    "  getGroundHeight 3 3",
+    "= ok: K9Baum gespawnt bei 3.0, 3.0 (Höhe 1.5)",
+    "  zdos main 0, second world 460474953@{\"x\":1,\"y\":1.5,\"z\":2} 460474953@{\"x\":3,\"y\":1.5,\"z\":3}",
+    "> abbau K9Baum 200 (EchtDungeon)",
+    "= ok: 2× K9Baum im Umkreis von 200 m entfernt",
+    "  zdos main 0, second world 0",
+    "> item give Hammer 2 (Echt)",
+    "  inventarSync Echt [Hammerx1,Hammerx1]",
+    "= ok: 2× Hammer ins Inventar gelegt",
+    "> item give Hammer 2 extra (Echt)",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 2× Hammer ins Inventar gelegt",
+    "> item give Hammer 1e1 (Echt)",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "= ok: 10× Hammer ins Inventar gelegt",
+    "> item ironward Echt (Echt)",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort Echt admin",
+    "= ok: Echt: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "> item ironward Echt (Echt)",
+    "  inventarSync Echt [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort Echt admin",
+    "= ok: Echt: Ironward vollständig (7/7), 0 neue Gegenstände. Sicherung angefordert.",
+    "> item wildwarden EchtVoll (Echt)",
+    "= refused: Nicht genug Platz für das vollständige Set; nichts verändert",
+    "  EchtVoll [Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1]",
+    "> item wildwarden Weg (Echt)",
+    "= ok: Weg: Waldhüter vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "  absent Weg [wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] stamp number raised",
+    "  markers defeated_dragon,defeated_eikthyr",
+  ],
+};
+
 if (MESSEN_BASIS) {
   const attrappe = messeAttrappe();
   const echt = messeEcht();
@@ -3023,7 +4372,9 @@ if (MESSEN_BASIS) {
   const befehleN1Attrappe = messeBefehleN1Attrappe();
   const befehleN1Echt = messeBefehleN1Echt();
   const takt1A = messeTakt1A();
-  process.stdout.write(`${JSON.stringify({ attrappe, echt, interAttrappe, interEcht, chatAttrappe, chatEcht, befehleAttrappe, befehleEcht, befehleN1Attrappe, befehleN1Echt, takt1A }, null, 1)}\n`);
+  const befehle1BAttrappe = messeBefehle1BAttrappe();
+  const befehle1BEcht = messeBefehle1BEcht();
+  process.stdout.write(`${JSON.stringify({ attrappe, echt, interAttrappe, interEcht, chatAttrappe, chatEcht, befehleAttrappe, befehleEcht, befehleN1Attrappe, befehleN1Echt, takt1A, befehle1BAttrappe, befehle1BEcht }, null, 1)}\n`);
   process.exit(0);
 }
 
@@ -3091,6 +4442,18 @@ console.log('\n[4b] Step 1A after the attack: more spellings, the re-check from 
   teil('the re-check from update() and the registry with everyone-admin', takt, SOLL_TAKT_1A);
   check('the re-check ran once in every full second (3 of 5 ticks per server with the stand-in, 6 in all)', takt.aufrufe['gleicheAdminrechteAb'] === 6, JSON.stringify(takt.aufrufe));
   check('the clock and the time zone are restored after the measurements of step 1A', Date.now === ECHTE_UHR && process.env['TZ'] === ECHTE_TZ);
+}
+
+console.log('\n[4c] Behaviour of step 1, package B: marke, wetter, abbau, item and spawn give the numbers measured before the move');
+{
+  const teil = (titel: string, gemessen: Aufzeichnung, soll: Aufzeichnung): void => {
+    check(`${titel}: the results, calls with their arguments, inventories, stamps and markers, in order`, same(gemessen.notizen, soll.notizen), `${gemessen.notizen.length} notes, expected ${soll.notizen.length}; first difference at ${gemessen.notizen.findIndex((x, i) => x !== soll.notizen[i])}: ${gemessen.notizen.find((x, i) => x !== soll.notizen[i])} (expected ${soll.notizen[gemessen.notizen.findIndex((x, i) => x !== soll.notizen[i])]})`);
+    check(`${titel}: the reads of the context members and the calls, counted`, JSON.stringify(gemessen.aufrufe) === JSON.stringify(soll.aufrufe), JSON.stringify(gemessen.aufrufe));
+    check(`${titel}: the state numbers, the packets, the console output and the exceptions`, JSON.stringify([gemessen.zustand, gemessen.paket, gemessen.konsole, gemessen.ausnahmen]) === JSON.stringify([soll.zustand, soll.paket, soll.konsole, soll.ausnahmen]), JSON.stringify([gemessen.zustand, gemessen.konsole, gemessen.ausnahmen]));
+    check(`${titel}: all of it`, JSON.stringify(gemessen) === JSON.stringify(soll));
+  };
+  teil('commands on a stand-in', messeBefehle1BAttrappe(), SOLL_BEFEHLE_1B_ATTRAPPE);
+  teil('commands on a real instance through the constructor and the forwardings', messeBefehle1BEcht(), SOLL_BEFEHLE_1B_ECHT);
 }
 
 console.log(failures === 0 ? `\n=== I1 form k: ALL PASSED (${total}) ===` : `\n=== I1 form k: ${failures} of ${total} FAILED ===`);

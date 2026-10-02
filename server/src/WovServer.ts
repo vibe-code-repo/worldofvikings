@@ -8,7 +8,7 @@
  * the blacklist, admin and whitelist sets.
  */
 
-import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
+import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, ruestungZu, canWearArmor, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
 import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, SERVER_MELDUNG_BEUTE_FREMD, SERVER_MELDUNG_INVENTAR_VOLL, SERVER_MELDUNG_UNVERWUNDBAR, serverMeldungAufgesammelt, serverMeldungBesiegt, serverMeldungVollRest, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
@@ -106,8 +106,8 @@ import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/Worl
 import { SpielerSicherung, SPIELER_SICHERUNG_INTERVALL_MS, neuerAls } from './spiel/SpielerSicherung.js';
 import { WeltZdoSicherung, ueberlagern as weltZdoUeberlagern } from './spiel/WeltZdoSicherung.js';
 import { Stempel } from './spiel/Stempel.js';
-import { WetterDienst, fuehreWetterBefehlAus, pruefeGeladeneWeltzeit } from './spiel/Wetter.js';
-import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
+import { WetterDienst, pruefeGeladeneWeltzeit } from './spiel/Wetter.js';
+import { WeltMarken } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
 import { bereinigeBeimBoot, vegetationLive } from './world/vegetationBereinigung.js';
@@ -146,7 +146,7 @@ import { geheimnisAusEnv, istSpielerId, type SpielerId } from './net/Identitaet.
 import { namenSchluessel } from './net/Namen.js';
 import {
   ZONE_SIZE,
-  findItem, ITEM_DEFS,
+  findItem,
   REZEPTE,
   packContainer,
   fordereVerwahrenAn,
@@ -182,6 +182,9 @@ import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
 import { handleDungeonEditRequest, handleDungeonEditSave, handleDungeonModulBau, handleDungeonModulLoeschen } from './spiel/DungeonEditPakete.js';
 import { handleAdminCommand, handleSetTimeOfDay } from './spiel/AdminPakete.js';
 import { handleTruheOeffnen, sendeTruheInhalt, handleSetAussehen, handleSetFigur } from './spiel/Interaktion.js';
+import { registerMarkeCommand, registerWetterCommand } from './spiel/befehle/Weltzustand.js';
+import { registerAbbauCommand } from './spiel/befehle/Abbau.js';
+import { registerSpawnCommand } from './spiel/befehle/Spawn.js';
 // Tests import the weapon helpers from this file, so it keeps exporting them.
 export { gepruefteWaffe, waffeTragbar, WAFFE_PAKETNAME_OHNE_EQUIP, wirksameWaffe } from './spiel/Waffe.js';
 
@@ -603,7 +606,7 @@ export class WovServer {
    * nur im Arbeitsspeicher (siehe `sessionSecret` im Konstruktor): Nach
    * einem Neustart ist jedes Token ungueltig, und ein Gast beginnt neu.
    */
-  private readonly savedPlayers = new Map<string, SavedPlayer>();
+  readonly savedPlayers = new Map<string, SavedPlayer>();
   /** S6 (Security-Review): dauerhafte Admin-Liste ueber stabile Spieler-
    *  IDs — ueberlebt Neustart UND Deploy (Begruendung: AdminListe.ts). */
   readonly adminListe: AdminListe;
@@ -633,7 +636,7 @@ export class WovServer {
   /** F8: Takt der Spielerzustands-Sicherung. */
   private spielerTimer: ReturnType<typeof setInterval> | null = null;
   /** F8: null bis init() (Unit-Tests ohne init). */
-  private spielerSicherung: SpielerSicherung | null = null;
+  spielerSicherung: SpielerSicherung | null = null;
   /** F8 N2: Behaelter-/Bau-ZDOs im selben Schreibvorgang wie der Spielerzustand. */
   private weltZdoSicherung: WeltZdoSicherung | null = null;
   /** D5: loot on the ground (owner, 2 min exclusive, life), see spiel/BeuteAmBoden.ts. */
@@ -5383,61 +5386,13 @@ export class WovServer {
     });
   }
 
-  /**
-   * `marke liste` / `marke setzen <Name>` — Fortschrittsmarken (F5) von
-   * Hand setzen und anzeigen. Ueber peer.isAdmin gegated (der einzige Weg
-   * zu dieser Methode ist AdminCommandRegistry.execute(), das jeden
-   * Befehl schon vor dem Dispatch gegen canUseAdminCommands prueft) —
-   * nicht jeder Spieler soll sich selbst die Boss-Progression schenken.
-   *
-   * Bewusst NUR die Fortschrittsmarken-Haelfte von GlobalKey bedient, s.
-   * Kopfkommentar von shared/src/types.ts und WeltMarken.ts — die
-   * Weltmodifikator-Haelfte (WorldLevel, PlayerDamage, ...) ist
-   * Welterzeugungs-Konfiguration und gehoert nicht in einen
-   * Laufzeit-Befehl.
-   */
   private registerMarkeCommand(): void {
-    this.adminCommands.register('marke', (_peer, args) => {
-      const sub = (args.shift() ?? '').toLowerCase();
-
-      if (sub === 'liste' || sub === 'list') {
-        const namen = this.weltMarken.alsNamen();
-        return {
-          ok: true,
-          active: false,
-          message:
-            namen.length > 0
-              ? `${namen.length} gesetzte Marke(n): ${namen.join(', ')}`
-              : 'Keine Marke gesetzt',
-        };
-      }
-
-      if (sub === 'setzen' || sub === 'set') {
-        const name = args[0];
-        if (!name) {
-          return { ok: false, active: false, message: 'Aufruf: marke setzen <Name>' };
-        }
-        const marke = globalKeyVonName(name);
-        if (marke === undefined) {
-          return { ok: false, active: false, message: `Unbekannte Marke: "${name}"` };
-        }
-        const neu = this.weltMarken.setzen(marke);
-        return {
-          ok: true,
-          active: false,
-          message: neu
-            ? `Marke "${GlobalKey[marke]}" gesetzt`
-            : `Marke "${GlobalKey[marke]}" war schon gesetzt`,
-        };
-      }
-
-      return { ok: false, active: false, message: 'Aufruf: marke liste | marke setzen <Name>' };
-    });
+    return registerMarkeCommand(this);
   }
 
   /** F9: Wetterdienst, beim ersten Gebrauch gebaut (Tests bauen den Server oft ohne Konstruktor). */
   private wetterInst?: WetterDienst;
-  private wetterDienst(): WetterDienst {
+  wetterDienst(): WetterDienst {
     this.wetterInst ??= new WetterDienst(
       new WetterWuerfel(this.config.wetterDefinitionen),
       this.config.wetterVorgabe,
@@ -5447,171 +5402,16 @@ export class WovServer {
     return this.wetterInst;
   }
 
-  /** `wetter <Zustand|auto> [Biom]` — Wetter setzen, s. spiel/Wetter.ts. */
   private registerWetterCommand(): void {
-    this.adminCommands.register('wetter', (_peer, args) => fuehreWetterBefehlAus(this.wetterDienst(), args));
+    return registerWetterCommand(this);
   }
 
-  /**
-   * `abbau <prefab> [radius]` — gespawnte Prefabs wieder entfernen.
-   *
-   * Das Gegenstück zu `spawn`, und es hat bis jetzt gefehlt: Wer sich
-   * beim Testen einen NPC an die falsche Stelle gesetzt hat, bekam ihn
-   * nur über einen Welt-Reset wieder weg (der Kommentar an
-   * spawnLayoutPlacements verweist bereits auf einen "Admin-Abbau", den
-   * es nie gab). Persistente Prefabs überleben den Save, ein Fehlgriff
-   * bleibt also für immer stehen.
-   *
-   * Der Radius ist bewusst klein vorbelegt (10 m) und gedeckelt (200 m):
-   * `abbau Beech1 5000` würde sonst einen halben Wald abräumen, und
-   * zerstörte ZDOs kommen nicht zurück.
-   */
   private registerAbbauCommand(): void {
-    this.adminCommands.register('abbau', (peer, args) => {
-      const name = args[0];
-      if (!name) {
-        return { ok: false, active: false, message: 'Aufruf: abbau <prefab> [radius]' };
-      }
-      const prefab =
-        this.prefabs.getByName(name) ??
-        this.prefabs.getAll().find((p) => p.name.toLowerCase() === name.toLowerCase());
-      if (!prefab) {
-        return { ok: false, active: false, message: `Unbekanntes Prefab: ${name}` };
-      }
-      const radius = Math.min(200, Math.max(1, Number(args[1]) || 10));
-      let weg = 0;
-      for (const zdo of this.zdosVon(peer).getZDOsInRadius(peer.position, radius)) {
-        if (zdo.prefabHash !== prefab.hash) continue;
-        this.zdosVon(peer).destroyZDO(zdo.zdoid);
-        weg++;
-      }
-      return {
-        ok: true,
-        active: false,
-        message: `${weg}× ${prefab.name} im Umkreis von ${radius} m entfernt`,
-      };
-    });
+    return registerAbbauCommand(this);
   }
 
-  /**
-   * `spawn <prefab> [x z]` — ein Prefab in die Welt setzen (Standard: 2 m
-   * vor dem Spieler). Trägt das Prefab das PERSISTENT-Flag, überlebt es
-   * den Welt-Save — so kommen eigene NPCs dauerhaft in die Welt.
-   */
   private registerSpawnCommand(): void {
-    // item give <Name> [Anzahl] — legt einen Gegenstand ins eigene
-    // Inventar (10.09.2026). Gebaut, damit bestehende Charaktere, die die
-    // Startausruestung laengst haben, neue Gegenstaende wie das Nordschwert
-    // zum Ausprobieren bekommen, ohne dass man den Spielstand anfasst.
-    this.adminCommands.register('item', (peer, args) => {
-      const sub = (args.shift() ?? '').toLowerCase();
-      // Explicit, idempotent test-set delivery, including offline characters.
-      // Stage the whole inventory first: a full bag must never get half a set.
-      if (sub === 'ironward' || sub === 'wildwarden') {
-        const parts = sub === 'ironward' ? IRONWARD_PARTS : WILDWARDEN_PARTS;
-        const label = sub === 'ironward' ? 'Ironward' : 'Waldhüter';
-        if (this.speichertGerade) return { ok: false, active: false, message: 'Sicherung läuft; bitte gleich erneut versuchen. Nichts verändert.' };
-        const name = args.join(' ').trim();
-        if (!name) return { ok: false, active: false, message: `Aufruf: item ${sub} <Spielername>` };
-        const online = this.net.getPeers().filter(p => !p.nurEditor && namenSchluessel(p.name) === namenSchluessel(name));
-        const saved = [...this.savedPlayers.entries()].filter(([, p]) => namenSchluessel(p.name) === namenSchluessel(name));
-        if (online.length > 1 || (!online.length && saved.length !== 1)) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
-        const target = online[0]; const record = saved[0];
-        if ((target?.figur ?? record?.[1].figur) !== 'wikinger') return { ok: false, active: false, message: `${label} benötigt den männlichen Wikinger-Körper` };
-        const snapshot = target?.inventar.serialize() ?? record?.[1].inventar;
-        if (!snapshot) return { ok: false, active: false, message: 'Kein gespeichertes Inventar vorhanden' };
-        const staged = target ? target.inventar.kopie() : Inventory.ausSpeicherstand(snapshot); let added = 0;
-        for (const part of parts) {
-          if (staged.countOf(part.item)) continue;
-          if (staged.addItem(findItem(part.item)!, 1)) return { ok: false, active: false, message: 'Nicht genug Platz für das vollständige Set; nichts verändert' };
-          added++;
-        }
-        if (target) { target.inventar.uebernimm(staged); this.inventarSync(target); this.sichereSpielerSofort(target, 'admin'); }
-        else {
-          // F8 N2 (B4): ein Eingriff an einem ABWESENDEN Spieler bekommt einen neuen
-          // Stempel und geht sofort in die Konten-SQLite: sonst gewinnt beim
-          // Neustart die aeltere Zeile mit dem Stempel vom Abmelden (oder der
-          // Eingriff fehlt nach einem Kill bis zum naechsten Weltspeichern).
-          record![1].inventar = staged.serialize();
-          record![1].gespeichertAm = this.stempelZaehler().naechster();
-          this.spielerSicherung?.sichere([record![1]], 'admin');
-        }
-        void this.saveWorldAsync();
-        return { ok: true, active: false, message: `${name}: ${label} vollständig (7/7), ${added} neue Gegenstände. Sicherung angefordert.` };
-      }
-      if (sub !== 'give' && sub !== 'gib') {
-        return { ok: false, active: false, message: 'Aufruf: item give <Name> [Anzahl]' };
-      }
-      const name = args[0];
-      if (!name) return { ok: false, active: false, message: 'Aufruf: item give <Name> [Anzahl]' };
-      const def = findItem(name)
-        ?? ITEM_DEFS.find((i) => i.name.toLowerCase() === name.toLowerCase());
-      if (!def) return { ok: false, active: false, message: `Unbekannter Gegenstand: ${name}` };
-      const menge = Math.max(1, Math.floor(Number(args[1]) || 1));
-      const rest = peer.inventar.addItem(def, menge);
-      this.inventarSync(peer);
-      const drin = menge - rest;
-      return { ok: drin > 0, active: false,
-        message: drin > 0
-          ? `${drin}× ${def.label} ins Inventar gelegt${rest > 0 ? ` (${rest} passten nicht)` : ''}`
-          : `Kein Platz im Inventar für ${def.label}` };
-    });
-
-    this.adminCommands.register('spawn', (peer, args) => {
-      const name = args[0];
-      if (!name) {
-        return { ok: false, active: false, message: 'Aufruf: spawn <prefab> [x z]' };
-      }
-      // Exakter Name zuerst, sonst case-insensitiv über die Registry.
-      let prefab = this.prefabs.getByName(name);
-      if (!prefab) {
-        const norm = name.toLowerCase();
-        for (const p of this.prefabs.getAll()) {
-          if (p.name.toLowerCase() === norm) {
-            prefab = p;
-            break;
-          }
-        }
-      }
-      if (!prefab) {
-        return { ok: false, active: false, message: `Unbekanntes Prefab: ${name}` };
-      }
-
-      const hatKoordinaten = Number.isFinite(Number(args[1])) && Number.isFinite(Number(args[2]));
-      const x = hatKoordinaten ? Number(args[1]) : peer.position.x + 2;
-      const z = hatKoordinaten ? Number(args[2]) : peer.position.z + 2;
-      // Auf den BODEN, nicht auf den Wasserspiegel.
-      //
-      // Hier stand `Math.max(getGroundHeight(x, z), WATER_LEVEL)`, damit
-      // nichts auf dem Meeresgrund landet. In den Layout-Welten ist das
-      // aber falsch: WATER_LEVEL ist die aus der radialen Weltgenerierung
-      // übernommene Konstante 30, das Gelände dieser Welt liegt bei rund -55. Der Ausdruck
-      // lieferte deshalb IMMER 30 — jedes gespawnte Prefab hing 85 m über
-      // dem Boden.
-      //
-      // Nachgemessen im laufenden Client (__vb.dynPose/__vb.groundAt):
-      // `spawn FurlocFischer` ergab y = 30 bei Geländehöhe -55,5, und
-      // `spawn NPC_1` genauso. Es lag also nie am Modell — die
-      // gemeldete "im Boden versunkene" Figur war eine, die 85 m daneben
-      // stand. Layout-Platzierungen waren nie betroffen, die nehmen
-      // getGroundHeight direkt (s. spawnLayoutPlacements).
-      const y = this.getGroundHeight(x, z);
-
-      const zdo = this.zdosVon(peer).createZDO(prefab.hash, { x, y, z });
-      // Blick Richtung Spieler, damit ein NPC einen ansieht statt wegzuschauen.
-      const dx = peer.position.x - x;
-      const dz = peer.position.z - z;
-      const yaw = Math.atan2(dx, dz);
-      zdo.rotation = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
-
-      return {
-        ok: true,
-        active: false,
-        message: `${prefab.name} gespawnt bei ${x.toFixed(1)}, ${z.toFixed(1)} (Höhe ${y.toFixed(1)})${
-          prefab.isPersistent() ? '' : ' — NICHT persistent'
-        }`,
-      };
-    });
+    return registerSpawnCommand(this);
   }
 
   /**
@@ -6317,7 +6117,7 @@ export class WovServer {
    * einen frischen Zaehler an. Im echten Start aendert das nichts: `bestimmeWeltKennung` hebt den vorhandenen Zaehler aus
    * Weltdatei und Tabellen (`hebeAuf`), genau wie vorher.
    */
-  private stempelZaehler(): Stempel {
+  stempelZaehler(): Stempel {
     return (this.stempel ??= new Stempel());
   }
 
@@ -6603,7 +6403,7 @@ export class WovServer {
   }
 
   /** D8: Läuft gerade ein asynchroner Save? */
-  private speichertGerade = false;
+  speichertGerade = false;
 
   /**
    * D8 — derselbe Save, ohne den Event-Loop zu blockieren.

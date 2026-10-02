@@ -50,6 +50,12 @@ console.log('=== vegetation-quittung-anzeige ===');
   const text = a.art === 'ok' ? wirkungsText(a) : '(kein ok)';
   check('mit offener Löschsperre: Sperrsatz UND Vegetationshinweis', a.art === 'ok' && !!a.sperrHinweis && text.includes(a.sperrHinweis.charAt(0).toLowerCase() + a.sperrHinweis.slice(1)) && /Vegetation nicht geräumt: 1 Kreis\(e\)/.test(text), text);
 }
+{
+  // N3-T2 (Q3): beide Zähler zusammen: beide Sätze stehen da
+  const a = await schreibeWeltdokument(layout, 'h1', fetchMit({ ok: true, message: 'Gespeichert', hash: 'h2', angewendet: true, zaehler: { vegetationAbgelehnt: 1, vegetationAbgelehntObjekte: 9, vegetationUngemarkt: 5, vegetationUngemarktZonen: 2 } }));
+  const text = a.art === 'ok' ? wirkungsText(a) : '(kein ok)';
+  check('abgelehnte Kreise UND ungemarkte Zonen zusammen: beide Zeilen', /Vegetation nicht geräumt: 1 Kreis\(e\)/.test(text) && /5 Objekt\(e\) in 2 Zone\(n\) ohne Herkunftsmarke/.test(text), text);
+}
 if (fehler > 0) {
   console.error(`\n${fehler} FAIL`);
   process.exit(1);

@@ -33,6 +33,21 @@ console.log('=== testflug-vegetation-hinweis ===');
   antwort({ ok: true, message: 'Gespeichert', hash: HASH, angewendet: true, zaehler: { vegetationAbgelehnt: 2, vegetationAbgelehntObjekte: 31000 } });
   const r = await localStoragePersistenz().speichern(layout as never);
   check('Testflug-Speichern nennt die abgelehnten Kreise (gleicher Text wie der Editor)', r.ok === true && /Vegetation nicht geräumt: 2 Kreis\(e\) mit 31000 Objekten/.test(r.message), r.message);
+  check('N3-K1 mit Trenner wie im Editor: „Gespeichert — Vegetation …“', /^Gespeichert — Vegetation nicht geräumt/.test(r.message), r.message);
+}
+{
+  // N3-T1 (Q1): neben einer offenen Löschsperre bleibt der Hinweis, und die Sperre bleibt gemeldet
+  antwort({ ok: true, message: 'Gespeichert', hash: HASH, angewendet: true, loeschsperre: { anzahl: 3 }, zaehler: { vegetationAbgelehnt: 1, vegetationAbgelehntObjekte: 9 } });
+  const r = await localStoragePersistenz().speichern(layout as never);
+  check('neben einer Löschsperre: Hinweis UND loeschsperre = 3', r.ok === true && /Vegetation nicht geräumt: 1 Kreis\(e\)/.test(r.message) && r.loeschsperre === 3, JSON.stringify(r));
+}
+{
+  // N3-T3 (Q4): die Sprache des Editors (`wov-language`) gilt auch im Testflug
+  speicher.set('wov-language', 'en');
+  antwort({ ok: true, message: 'Saved', hash: HASH, angewendet: true, zaehler: { vegetationAbgelehnt: 2, vegetationAbgelehntObjekte: 7, vegetationUngemarkt: 1, vegetationUngemarktZonen: 1 } });
+  const r = await localStoragePersistenz().speichern(layout as never);
+  speicher.delete('wov-language');
+  check('Sprache en: beide Hinweise englisch, kein deutscher Text', r.ok === true && /Vegetation not cleared: 2 circle\(s\) with 7 objects/.test(r.message) && /1 object\(s\) in 1 zone\(s\) without an origin mark not cleared/.test(r.message) && !/geräumt/.test(r.message), r.message);
 }
 {
   antwort({ ok: true, message: 'Gespeichert', hash: HASH, angewendet: true, zaehler: { vegetationUngemarkt: 4, vegetationUngemarktZonen: 2 } });

@@ -1,3 +1,4 @@
+import { PROTOKOLL_KOPF, mindestProtokollVersion, protokollVersionAusKopf, veraltetMeldung } from '@wov/shared/src/protokollVersion.js';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 /**
  * Betriebsdienst der Live-Instanz — die Gegenstelle der Einstellungsseite
@@ -1514,6 +1515,16 @@ async function behandeln(
       throw error;
     }
     const { layout, hash } = read;
+    // Version guard of the HTTP way (the editor loads its document here, without a handshake): an editor that
+    // announces a protocol version below what the document demands would drop the greyglen region silently while
+    // sanitizing. It gets a 426 with the reload message in `message`, which the old editor shows as its load error.
+    const clientVersion = protokollVersionAusKopf(kopfzeilen[PROTOKOLL_KOPF]);
+    const mindestVersion = mindestProtokollVersion(layout);
+    if (clientVersion < mindestVersion) {
+      const meldung = veraltetMeldung(clientVersion, mindestVersion);
+      console.warn(`[Admin] GET /api/worldlayout -> 426: Client v${clientVersion}, das Dokument verlangt v${mindestVersion}`);
+      return { code: 426, daten: { ok: false, fehler: 'client-veraltet', message: meldung, mindest: mindestVersion } };
+    }
     // Verschwindet die Datei zwischen `existsSync` und hier, fehlt die
     // Kennung nur (statt eines 500): Der MCP-Server verweigert das Schreiben
     // dann. / A vanished file only drops the kennung instead of a 500.

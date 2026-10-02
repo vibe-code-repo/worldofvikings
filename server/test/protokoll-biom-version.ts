@@ -174,6 +174,68 @@ async function koppelung(): Promise<void> {
   }
 }
 
+/**
+ * The login ends when the layout is refused. The version is checked in the handshake and again when the layout goes out;
+ * the two differ only if the world document changes in between. Here it does: a version 2 client passes the handshake in a
+ * greyglen-free world, then the document gets a greyglen region, then the client logs in. It must be turned away, and nothing
+ * more may reach it afterwards (the Disconnect is the last packet, no zone data) and no character may be created for it.
+ */
+async function anmeldungEndet(): Promise<void> {
+  const dir = resolve(TMP, 'login');
+  mkdirSync(dir, { recursive: true });
+  const datei = resolve(dir, 'welt.json');
+  writeFileSync(datei, layout('grassland'));
+  const server = createWovServer({
+    port: 0, worldName: 'pbv-login', worldSeed: 'wov-test', worldFeatures: false, worldVegetation: false,
+    worldsDir: resolve(dir, 'saves'), kontenDir: resolve(dir, 'konten'), worldMode: 'layout', worldLayoutPath: datei, saveIntervalMs: 3600_000,
+  });
+  const log = console.log;
+  console.log = () => undefined;
+  try {
+    server.start();
+    await warte(300);
+    console.log = log;
+    const port = portVon(server);
+    const spieler = (): number => server.zdos.getAllZDOs().filter((z) => z.prefab !== 0 && server.prefabs.getByHash(z.prefab)?.name === 'Player').length;
+    const vorher = spieler();
+    const arten: number[] = [];
+    let grund: string | null = null;
+    let nachDisconnect = 0;
+    await new Promise<void>((ok, schlecht) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+      ws.binaryType = 'nodebuffer';
+      const frist = setTimeout(() => schlecht(new Error('Timeout')), 8000);
+      let auth = false;
+      ws.on('message', (data: Buffer) => {
+        const typ = data.readUInt8(0);
+        arten.push(typ);
+        if (grund !== null) nachDisconnect++;
+        const r = new Reader(Buffer.from(data.subarray(1)));
+        if (typ === P.VersionCheck) ws.send(Buffer.concat([Buffer.from([P.VersionCheck]), new Writer().writeInt32(2).toBuffer()]));
+        else if (typ === P.AuthChallenge && !auth) {
+          auth = true;
+          // the document changes between handshake and login (public field, as the live update would set it)
+          server.worldLayoutRaw = JSON.parse(layout('greyglen')) as unknown;
+          const w = new Writer();
+          w.writeString(antwortBerechnen(r.readString(), ''));
+          w.writeString('Spaet');
+          w.writeString('');
+          ws.send(Buffer.concat([Buffer.from([2]), w.toBuffer()]));
+        } else if (typ === P.Disconnect) grund = r.readString();
+      });
+      ws.on('close', () => { clearTimeout(frist); setTimeout(ok, 300); });
+      ws.on('error', schlecht);
+    });
+    check('login: the client that no longer fits the document is turned away with the reload message', /veraltet/.test(grund ?? '') && /neu laden/.test(grund ?? ''), grund ?? 'none');
+    check('login: nothing at all arrives after the Disconnect packet', nachDisconnect === 0, `${nachDisconnect} packets after`);
+    check('login: the Disconnect is the last packet and no zone data was sent', arten[arten.length - 1] === P.Disconnect && !arten.includes(10), arten.join(','));
+    check('login: no character was created for the refused client', spieler() === vorher, `${vorher} -> ${spieler()}`);
+  } finally {
+    console.log = log;
+    await server.stop();
+  }
+}
+
 /** The guard itself, with stand-in peers: it is the single path every layout takes to a peer. */
 function waechter(): void {
   type Fake = { protokollVersion: number; disconnect(r?: string): void; grund: string | null; bekommen: number };
@@ -193,6 +255,7 @@ function waechter(): void {
 async function main(): Promise<void> {
   waechter();
   await koppelung();
+  await anmeldungEndet();
   const alt = await mitWelt('ohne', 'grassland');
   check('refusal text of a too old client: "Server v2" in a world without greyglen', /Client v1, Server v2/.test(alt.v1.grund ?? ''), alt.v1.grund ?? '');
   check('refusal text of a too new client names the current version', new RegExp(`Client v${PROTOCOL_VERSION + 1}, Server v${PROTOCOL_VERSION}\\)`).test(alt.v4.grund ?? ''), alt.v4.grund ?? '');

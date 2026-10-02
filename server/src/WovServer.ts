@@ -2487,9 +2487,11 @@ export class WovServer {
     // Layout-Modus: Das Weltdokument folgt SOFORT auf die ServerConfig —
     // der Client wartet darauf, bevor er seine Welt baut (Flag Bit 5).
     if (this.config.worldMode === 'layout' && this.worldLayoutRaw) {
-      schickeLayout(peer, this.worldLayoutRaw, (p) => p.sendPacketWith(PacketType.WorldLayoutData, (w) => {
+      // Turned away (the client is too old for this document)? Then the login ends here: no character, no
+      // further packets for a peer whose socket is closing.
+      if (!schickeLayout(peer, this.worldLayoutRaw, (p) => p.sendPacketWith(PacketType.WorldLayoutData, (w) => {
         w.writeString(JSON.stringify(this.worldLayoutRaw));
-      }));
+      }))) return;
     }
 
     // Create player character ZDO — spawn at the saved position (G1) or on

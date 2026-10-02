@@ -226,6 +226,8 @@ export default [
   // nothing is read from a registry or from the page while they load, and editorMain.ts declares none of
   // the moved names itself. Syntax tree plus the behaviour that loads without a browser. ~2 s.
   ['client', 'test/editor-module-grenze.ts'],
+  // The editor announces its protocol version when loading the world document and shows the 426 refusal. <1 s.
+  ['client', 'test/editor-protokollkopf.ts'],
   // Serversteuerung im Editor (29.09., Mikes Befund): die DOM-freie
   // Entscheidungslogik (welche der drei Knoepfe wann sichtbar/benutzbar
   // sind, was "Karte live testen" bei aktiver Testwelt jetzt tut, welche

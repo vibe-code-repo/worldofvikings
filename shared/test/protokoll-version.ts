@@ -4,7 +4,7 @@
  *
  *   npx tsx shared/test/protokoll-version.ts   (from the repo root)
  */
-import { BIOM_AB_PROTOKOLLVERSION, PROTOCOL_VERSION, PROTOCOL_VERSION_BASIS, darfLayoutBekommen, mindestProtokollVersion, serverVersionFuerMeldung, veraltetMeldung } from '../src/protokollVersion.js';
+import { BIOM_AB_PROTOKOLLVERSION, PROTOCOL_VERSION, PROTOCOL_VERSION_BASIS, darfLayoutBekommen, mindestProtokollVersion, PROTOKOLL_KOPF, protokollVersionAusKopf, serverVersionFuerMeldung, veraltetMeldung } from '../src/protokollVersion.js';
 import { BIOME_BY_NAME, sanitizeWorldLayout } from '../src/worldlayout/index.js';
 
 let fehler = 0;
@@ -41,6 +41,11 @@ check('darfLayoutBekommen: 2 may not have greyglen, 3 may, 2 may have the rest',
 check('serverVersionFuerMeldung: too new names the current version, otherwise the minimum', serverVersionFuerMeldung(PROTOCOL_VERSION + 1, 2) === PROTOCOL_VERSION && serverVersionFuerMeldung(1, 2) === 2 && serverVersionFuerMeldung(2, 3) === 3);
 const meldung = veraltetMeldung(2, 3);
 check('veraltetMeldung: German and English from the catalogue, both with the numbers', meldung === 'Client-Version veraltet (Client v2, Server v3) — bitte Seite neu laden / Client version outdated (client v2, server v3) — please reload the page', meldung);
+
+check('header name', PROTOKOLL_KOPF === 'x-wov-protokoll');
+check('protokollVersionAusKopf: plain numbers', protokollVersionAusKopf('3') === 3 && protokollVersionAusKopf(' 3 ') === 3 && protokollVersionAusKopf('2') === 2 && protokollVersionAusKopf('7') === 7);
+check('protokollVersionAusKopf: no header, repeated header, garbage and below-base count as the base version (seven digits or more too)',
+  [undefined, ['3', '3'], '', 'abc', '3x', '-3', '3.5', '1e1', '1', '0', '9999999'].every((w) => protokollVersionAusKopf(w as never) === 2));
 
 if (fehler > 0) {
   console.error(`\n${fehler} FAIL`);

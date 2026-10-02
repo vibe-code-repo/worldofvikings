@@ -54,3 +54,16 @@ export function veraltetMeldung(clientVersion: number, serverVersion: number): s
   const fuelle = (t: string): string => t.replace('{client}', String(clientVersion)).replace('{server}', String(serverVersion));
   return `${fuelle(inhaltText('inhalt.netz.veraltet', 'de'))} / ${fuelle(inhaltText('inhalt.netz.veraltet', 'en'))}`;
 }
+
+/** Request header with which the editor (and tools) tell the operations service their protocol version. */
+export const PROTOKOLL_KOPF = 'x-wov-protokoll';
+
+/**
+ * The protocol version a request announces in `PROTOKOLL_KOPF`. No header, a repeated one or anything that is not
+ * a plain whole number counts as the base version: an editor from before the header cannot send it.
+ */
+export function protokollVersionAusKopf(wert: string | string[] | undefined): number {
+  if (typeof wert !== 'string' || !/^[0-9]{1,6}$/.test(wert.trim())) return PROTOCOL_VERSION_BASIS;
+  const v = Number(wert.trim());
+  return v >= PROTOCOL_VERSION_BASIS ? v : PROTOCOL_VERSION_BASIS;
+}

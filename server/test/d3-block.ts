@@ -165,12 +165,13 @@ console.log('\n[1] Spiel/Block.ts on a stand-in peer (fixed clock)');
 interface Socke extends WebSocket {
   meldungen: string[];
   bloecke: boolean[];
+  admin: string[];
 }
 function verbinde(name: string): Promise<Socke> {
   return new Promise((ok, fail) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}`) as Socke;
     ws.binaryType = 'nodebuffer';
-    ws.meldungen = []; ws.bloecke = [];
+    ws.meldungen = []; ws.bloecke = []; ws.admin = [];
     let auth = false;
     const timer = setTimeout(() => fail(new Error(`handshake timeout: ${name}`)), 8000);
     ws.on('message', (data: Buffer) => {
@@ -191,6 +192,10 @@ function verbinde(name: string): Promise<Socke> {
         ws.meldungen.push(r.readString());
       } else if (type === PacketType.Block) {
         ws.bloecke.push(r.readBool());
+      } else if (type === PacketType.AdminEvent) {
+        r.readString();
+        r.readBool();
+        ws.admin.push(r.readString());
       } else if (type === P.PeerInfo) {
         clearTimeout(timer);
         ok(ws);
@@ -285,6 +290,18 @@ async function main(): Promise<void> {
     zugriff.applyCreatureAttack(von(2, 0), wolf, 2.4, anna.worldId, anna.position);
     check('WOLF FROM THE SIDE (90 degrees): the full blow', nah(100 - anna.health, eingehenderSchaden(wolf, ruest), 1e-9), `life ${anna.health}`);
 
+    // The cone follows the tracked VIEW, not a fixed direction: Anna turns to yaw 2.0 rad (114.6 degrees); the view points along (-sin, -cos).
+    const GIER = 2.0;
+    await eingaben(ws, GIER, 600);
+    anna.health = 100; anna.stamina = 100;
+    zugriff.applyCreatureAttack(von(-Math.sin(GIER) * 2, -Math.cos(GIER) * 2), wolf, 2.4, anna.worldId, anna.position);
+    check('VIEW TURNED to 2.0 rad: a blow from where she now looks is blocked (30 %)', nah(100 - anna.health, wolf * 0.3, 1e-9), `life ${anna.health}, blickYaw ${anna.blickYaw}`);
+    anna.health = 100;
+    zugriff.applyCreatureAttack(von(0, -2), wolf, 2.4, anna.worldId, anna.position);
+    check('... a blow from the OLD front (-z, now 114.6 degrees off her view) is full', nah(100 - anna.health, eingehenderSchaden(wolf, ruest), 1e-9), `life ${anna.health}`);
+    await eingaben(ws, 0, 600);
+    anna.stamina = 100;
+
     // Release, wait out the lock, begin again: parry window.
     sendBlock(ws, false);
     await warte(150);
@@ -376,6 +393,55 @@ async function main(): Promise<void> {
     while (anna.totBis > 0) await warte(100);
     await warte(300);
     check('revived: no block', anna.blockSeit === 0 && anna.health === 100);
+    // Immediate revival (lying time 0): `stirb` is skipped, `belebeNeu` clears the block.
+    server.liegezeitMs = 0;
+    anna.stamina = 100; anna.health = 100;
+    await warte(100);
+    sendBlock(ws, true);
+    await warte(200);
+    check('begin before the immediate revival', anna.blockSeit > 0);
+    anna.health = 5;
+    zugriff.applyCreatureAttack(von(0, 2), wolf, 2.4, anna.worldId, anna.position); // from behind: full, lethal
+    await warte(200);
+    check('IMMEDIATE REVIVAL (no lying time): no block and no lock afterwards', anna.totBis === 0 && anna.health === 100 && anna.blockSeit === 0 && anna.blockSperreBis === 0, `blockSeit ${anna.blockSeit}`);
+    server.liegezeitMs = 5000;
+
+    // Inside a dungeon instance the speed rule is the same one (own branch of handlePlayerInput).
+    console.log('\n[2d] Block speed inside a dungeon instance');
+    sendAdmin(ws, 'dungeon create forestcrypt 4242');
+    const t1 = Date.now();
+    let dungeonId: string | undefined;
+    while (!dungeonId && Date.now() - t1 < 8000) {
+      await warte(100);
+      dungeonId = ws.admin.map((m) => m.match(/Dungeon erzeugt: (\S+)/)?.[1]).find((x) => x);
+    }
+    if (!dungeonId) throw new Error(`dungeon not created: ${ws.admin.join(' | ')}`);
+    sendAdmin(ws, `dungeon enter ${dungeonId}`);
+    const t2 = Date.now();
+    while (anna.worldId === 'haupt' && Date.now() - t2 < 8000) await warte(100);
+    check('Anna is inside the instance', anna.worldId !== 'haupt', anna.worldId);
+    await warte(300);
+    anna.waffe = 'SwordNorth';
+    const imDungeon = async (an: boolean, rennt: boolean): Promise<{ weg: number; sek: number }> => {
+      await eingaben(ws, 0, 150);
+      anna.stamina = 100;
+      anna.staminaZuletztVerbraucht = Date.now();
+      sendBlock(ws, an);
+      await warte(150);
+      const start = { ...anna.position };
+      const t = Date.now();
+      await eingaben(ws, 0, 1500, 1, rennt);
+      const sek = (Date.now() - t) / 1000;
+      const weg = Math.hypot(anna.position.x - start.x, anna.position.z - start.z);
+      sendBlock(ws, false);
+      await warte(100);
+      return { weg, sek };
+    };
+    const dGehen = await imDungeon(false, false);
+    const dBlock = await imDungeon(true, true);
+    console.log(`      dungeon: walk ${dGehen.weg.toFixed(2)} m, block+run ${dBlock.weg.toFixed(2)} m`);
+    check('dungeon: blocking with the run key held is half the walking speed (ratio 0.5 +- 0.07)', dGehen.weg > 4.5 * dGehen.sek * 0.8 && nah(dBlock.weg / dGehen.weg, 0.5, 0.07), `${(dBlock.weg / dGehen.weg).toFixed(3)}`);
+
     // World change clears the block (the hook is Peer.weltWechselVorbereiten).
     anna.blockSeit = 123; anna.blockSperreBis = 456; anna.blockOhneParade = true;
     anna.weltWechselVorbereiten();
@@ -398,6 +464,7 @@ main()
   .catch((e) => { console.error(e); failures++; })
   .finally(() => {
     rmSync(WORLDS_DIR, { recursive: true, force: true });
+    rmSync(resolve(__dirname, 'dungeons', 'd3-block'), { recursive: true, force: true }); // the instance of [2d] writes its file next to the test dirs
     console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAILED`);
     process.exit(failures === 0 ? 0 : 1);
   });

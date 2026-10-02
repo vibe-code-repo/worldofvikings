@@ -4146,7 +4146,6 @@ export class WovServer {
   private handleBlock(peer: Peer, reader: Reader): void {
     if (reader.remaining() < 1) return;
     blockPaket(peer, reader.readBool(), Date.now());
-    this.sendPlayerState(peer);
   }
 
   /**

@@ -1715,7 +1715,10 @@ export class WovServer {
   worldLayoutHash(): number | null {
     if (this.config.worldMode !== 'layout' || !this.worldLayoutRaw) return null;
     const sauber = sanitizeWorldLayout(this.worldLayoutRaw);
-    return sauber ? getStableHash(JSON.stringify(sauber)) : null;
+    if (!sauber) return null;
+    // Kreise entfernter Vegetation verschieben kein Gelände: nicht in den Hash (sonst Terrain-Warnung nach jeder Kreisänderung).
+    const { vegetationEntfernt: _kreise, ...ohneKreise } = sauber;
+    return getStableHash(JSON.stringify(ohneKreise));
   }
 
   /**

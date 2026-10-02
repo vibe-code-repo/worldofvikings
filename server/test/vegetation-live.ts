@@ -12,6 +12,8 @@
  *  6. Obergrenze live: mehr als `VEGETATION_LIVE_MAX` Treffer ⇒ Vegetation nichts gelöscht, aber die Platzierung im selben
  *     Speichern kommt an (die Ablehnung blockiert den übrigen Abgleich nicht).
  *
+ *  7. Weltspeicher-Hash (`worldLayoutHash`): Kreise ändern ihn nicht (kein Gelände), eine Geländeänderung schon.
+ *
  * Lauf: npx tsx server/test/vegetation-live.ts   (aus der Projektwurzel)
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -224,6 +226,40 @@ try {
   check('B6: die Platzierung im selben Speichern ist angekommen', b.zdos.getAllZDOs().some((z) => z.getString('layoutId') === 'pl1'));
   b.stop();
   await warte(300);
+  // ── 7. Weltspeicher-Hash ──────────────────────────────────────────────
+  console.log('\n[7] Weltspeicher-Hash:');
+  const hashVon = async (doc: Record<string, unknown>): Promise<number | null> => {
+    schreibe(doc);
+    stumm();
+    const s = createWovServer({
+      port: 0,
+      everyoneAdmin: true,
+      worldName: 'hashprobe',
+      worldSeed: 'hashprobe',
+      worldFeatures: false,
+      worldVegetation: false,
+      worldCreatures: false,
+      worldsDir: WELTEN,
+      kontenDir: join(WURZEL, 'konten-hash'),
+      worldMode: 'layout',
+      worldLayoutPath: LAYOUT,
+      saveIntervalMs: 3600_000,
+    });
+    await s.start();
+    const h = s.worldLayoutHash();
+    s.stop();
+    await warte(300);
+    laut();
+    return h;
+  };
+  const hOhne = await hashVon(dokument(undefined));
+  const hKreis = await hashVon(dokument([K1, K2]));
+  const hKreis2 = await hashVon(dokument([K3]));
+  const gelaende = dokument(undefined) as { regions: Array<{ baseLevel: number }> };
+  gelaende.regions[0]!.baseLevel = 0.35;
+  const hGelaende = await hashVon(gelaende);
+  check('Kreisänderung lässt den Hash gleich (ohne Kreise = mit Kreisen = mit anderen Kreisen)', hOhne !== null && hOhne === hKreis && hOhne === hKreis2, `${hOhne} ${hKreis} ${hKreis2}`);
+  check('Geländeänderung (baseLevel) ändert den Hash weiter', hGelaende !== null && hGelaende !== hOhne, `${hGelaende} vs ${hOhne}`);
 } finally {
   laut();
   if (existsSync(WURZEL)) rmSync(WURZEL, { recursive: true, force: true });

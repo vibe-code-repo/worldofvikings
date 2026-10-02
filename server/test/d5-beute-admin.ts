@@ -210,8 +210,16 @@ async function main(): Promise<void> {
       sendAdmin(dave.ws, zeile);
       await bis(() => dave.ereignisse.length >= 1, 3000);
       const e = dave.ereignisse[0];
-      check(`"${zeile}": the answer is named \`admin\` (never \`adminrechte\`) with active = false`, dave.ereignisse.length === 1 && e?.command === 'admin' && e.active === false && e.text.length > 0, JSON.stringify(dave.ereignisse));
+      check(`"${zeile}": the answer is named \`admin\` (never \`adminrechte\`) with active = false`, dave.ereignisse.length === 1 && e?.command === 'admin' && e.active === false && e.text === 'Reserved name, not a command: adminrechte', JSON.stringify(dave.ereignisse));
       check('... the server still has isAdmin = true, the client keeps the flag, E at the entrance sends `dungeon enter`', peerVon('Dave').isAdmin === true && dave.sitzung.istAdmin && dave.sitzung.aktion(lage) === 'dungeon-enter');
+    }
+    // a guest gets the usual refusal or the reserved-name one, never the flag, and never an event named `adminrechte`
+    for (const zeile of ['adminrechte', 'AdminRechte ja', 'ADMINRECHTE']) {
+      await warte(1300);
+      carol.ereignisse.length = 0;
+      sendAdmin(carol.ws, zeile);
+      await bis(() => carol.ereignisse.length >= 1, 3000);
+      check(`a guest's "${zeile}": refused, named \`admin\`, active = false, no flag`, carol.ereignisse.length === 1 && carol.ereignisse[0]?.command === 'admin' && carol.ereignisse[0].active === false && carol.ereignisse[0].text.length > 0 && !carol.sitzung.istAdmin && !peerVon('Carol').isAdmin && carol.sitzung.aktion(lage) === 'nichts', JSON.stringify(carol.ereignisse));
     }
     // the live channel still works after that: grant and withdrawal reach the client (Frieda is a fresh guest)
     {

@@ -7,6 +7,10 @@
  * Step 3 moved five more: the chest, appearance and figure handlers into `spiel/Interaktion.ts` (`handleTruheOeffnen`,
  * `sendeTruheInhalt`, `handleSetAussehen`, `handleSetFigur`) and `handleChatMessage` into `spiel/Chat.ts`. `handleInteract` and
  * `handleContainerAction` stay in the class (they read the static member `WovServer.FREMDER_BESITZ_MELDUNG`, rule 5).
+ * Step 1, package C, moved the registration of two admin commands into `spiel/befehle/Spieler.ts` (`registerTeleportCommand`,
+ * `registerSpielerCommand`; the first sub-folder of `spiel/`). Their forwardings are called by the constructor, not by
+ * `onPacket`, and the place of each call among the constructor's `this.register…();` calls is frozen: the order of
+ * registration is behaviour (`teleport` overrides the base command of `AdminCommands`).
  * In the class stays one forwarding method per name, in the same place; `k` in the module IS the server. Rules:
  * `Karten/refactoring/01 Form k — Regeln für Methoden mit Kontext.md`. After the merge this test is the only guard
  * (the one-time proofs K1 to K8 of the step are history). Later steps add their modules to `MODULE` below and their
@@ -46,13 +50,17 @@
  *  state of a peer is held after every packet (all appearance fields, the armour as text, the position, the parts of the inventory with
  *  their flag), `sichereSpielerSofort` is held with ALL its arguments, the calls into the context are held as an ordered list with their
  *  arguments, and every console line is held by its text.
- *  Not applicable in steps 2 and 3: the identity of returned objects of the stock (K9-5), no function returns a value.
+ *  Step 1, package C: the commands `teleport` and `spieler` with all sub-commands and their error branches, on a stand-in (the handlers
+ *  registered by the functions, every call into the context with its arguments, the message as text, the peer state after every call,
+ *  a member replaced on the stand-in between registration and call) and on a real instance (the registry its constructor built, with a
+ *  real dungeon instance that `teleport` leaves, and the two forwardings called again on the instance).
+ *  Not applicable in steps 1 to 3: the identity of returned objects of the stock (K9-5), no function returns a value.
  *
  * Section [0] shows first that each check can turn red: the same checks run over small invented sources, one fault
  * each (`red:`), and over a good stand (`green:`).
  *
  * `--messen-basis`: prints the measured summaries (step 2: stand-in and real instance; step 3: the same for the chest,
- * appearance, figure and chat handlers) for the stand BEFORE the move, calling `WovServer.prototype.<name>` with
+ * appearance, figure and chat handlers; step 1 package C: the same for `teleport` and `spieler`) for the stand BEFORE the move, calling `WovServer.prototype.<name>` with
  * the stand-in as `this` instead of the module functions. On the base commit (where the test file is copied next to the
  * old sources) this reproduces `SOLL_ATTRAPPE`/`SOLL_ECHT`. Reads no source, checks nothing else.
  *
@@ -66,7 +74,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, posix, resolve } from 'node:path';
 import * as ts from 'typescript';
 import { PacketType, WORLD_TIME_LENGTH, dungeon2, Inventory, WILDWARDEN_PARTS, findItem, FRISUR_VORGABE, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, RUESTUNG, FIGUREN, FRISUREN, HAARFARBEN, AUGENFARBEN, encodeArmor, TRUHE_INHALT_MEMBER, TRUHE_LOOTED_MEMBER, packContainer, unpackContainer, ChatMsgType } from '@wov/shared';
 import { Reader } from '../src/io/Reader.js';
@@ -74,6 +82,7 @@ import { Writer } from '../src/io/Writer.js';
 import { WovServer, createWovServer } from '../src/WovServer.js';
 import { registryChecksum } from '../src/world/dungeon/ModuleBuild.js';
 import { HAUPTWELT_ID } from '../src/world/Welt.js';
+import { ZDOID } from '../src/zdo/ZDOID.js';
 import { ZDOManager } from '../src/zdo/ZDOManager.js';
 
 const WURZEL = resolve(import.meta.dirname, '../..');
@@ -99,8 +108,13 @@ interface FunktionSpec {
   readonly name: string;
   /** The head of the forwarding in the class, from the modifier to the return type (nothing after the type). */
   readonly kopf: string;
-  /** The method of the class that calls `this.<name>(<args>)` (`onPacket` for the packet handlers). */
+  /** The method of the class that calls `this.<name>(<args>)` (`onPacket` for the packet handlers, `constructor` for the command registrations). */
   readonly aufrufer: { readonly methode: string; readonly args: string };
+  /**
+   * Only for a caller `constructor`: the place (from 0) of `this.<name>();` among the statements `this.register…();` of the
+   * constructor. The order of registration is behaviour: a later `register` of the same name replaces the handler (step 1).
+   */
+  readonly aufrufNr?: number;
   /** `Function.length` of the method on the prototype: the number of parameters of the forwarding. */
   readonly laenge: number;
   /** The packet type whose `case` in `onPacket` calls `this.<name>(peer, reader)` (the name of the method without `handle`); none when no packet leads here. */
@@ -121,6 +135,8 @@ interface ModulSpec {
 const KOPF = (name: string): string => `private ${name}(peer: Peer, reader: Reader): void`;
 /** A packet handler: private forwarding `(peer, reader)`, called by `onPacket`. */
 const PAKET = (name: string): FunktionSpec => ({ name, kopf: KOPF(name), aufrufer: { methode: 'onPacket', args: 'peer, reader' }, laenge: 2, paketTyp: name.replace(/^handle/, '') });
+/** A command registration: private forwarding without parameters, called by the constructor at the frozen place among its `this.register…();` calls. */
+const REGISTRIERUNG = (name: string, aufrufNr: number): FunktionSpec => ({ name, kopf: `private ${name}(): void`, aufrufer: { methode: 'constructor', args: '' }, laenge: 0, aufrufNr });
 const MODULE: readonly ModulSpec[] = [
   {
     datei: 'server/src/spiel/AdminPakete.ts',
@@ -161,13 +177,24 @@ const MODULE: readonly ModulSpec[] = [
       PAKET('handleSetFigur'),
     ],
   },
+  {
+    // step 1, package C: the first module in a sub-folder of spiel/ (its context file is `../Kontext.js`)
+    datei: 'server/src/spiel/befehle/Spieler.ts',
+    spezifizierer: './spiel/befehle/Spieler.js',
+    kontextTyp: 'SpielerKontext',
+    mitglieder: ['adminCommands', 'dungeons', 'getGroundHeight', 'teleportPeer', 'savedPlayers', 'net', 'spielerSicherung'],
+    wertImporte: ['../../net/Namen.js'],
+    // `teleport` first: it overrides the base `teleport` of AdminCommands and is registered before every other command of the server
+    funktionen: [REGISTRIERUNG('registerTeleportCommand', 0), REGISTRIERUNG('registerSpielerCommand', 1)],
+  },
 ];
 
 /**
  * The non-private members of `WovServer`, sorted: 36 before step 2, plus `dungeonsWurzel`, `sendTimeSync` and `worldTime`
  * (context members of step 2, relaxed from private), plus `inventarSync`, `kappeLeben`, `sendeTruheInhalt`,
- * `sichereSpielerSofort` and `zdosVon` (context members of step 3, relaxed from private). One per line; a later step adds
- * its relaxations here, each with a reason.
+ * `sichereSpielerSofort` and `zdosVon` (context members of step 3, relaxed from private), plus `savedPlayers`,
+ * `spielerSicherung` and `teleportPeer` (context members of step 1, package C, relaxed from private). One per line; a later
+ * step adds its relaxations here, each with a reason.
  */
 const PUBLIC_MEMBERS: readonly string[] = [
   'adminCommands',
@@ -199,13 +226,16 @@ const PUBLIC_MEMBERS: readonly string[] = [
   'routen',
   'saveWorld',
   'saveWorldAsync',
+  'savedPlayers', // step 1 (package C): context member of befehle/Spieler (the field stays in the class; tests set and read it)
   'sendTimeSync', // step 2: context member of AdminPakete
   'sendeTruheInhalt', // step 3: context member of Interaktion (the forwarding itself is public)
   'serverUserId',
   'sichereSpielerSofort', // step 3: context member of Interaktion (F8, #146)
   'spawns',
+  'spielerSicherung', // step 1 (package C): context member of befehle/Spieler (`spieler entfernen` forgets the record)
   'start',
   'stop',
+  'teleportPeer', // step 1 (package C): context member of befehle/Spieler (the `teleport` command moves the peer)
   'weltMarken',
   'welten',
   'worldLayoutHash',
@@ -300,12 +330,14 @@ function pruefeModul(spec: ModulSpec, text: string): string[] {
     if (fn.body) gehe(fn.body);
   }
   if (!same([...gelesen].sort(), [...spec.mitglieder].sort())) f.push(`the members read as k.<member> are [${[...gelesen].sort()}], the context lists [${[...spec.mitglieder].sort()}]: none in reserve, none missing`);
-  // the context type is `SpielKontext` from `./Kontext.js`, imported as `import type { SpielKontext }` under its own name: a look-alike from another file could be `any`
+  // the context type is `SpielKontext` from `spiel/Kontext.ts` (`./Kontext.js` for a module in spiel/, `../Kontext.js` one folder below),
+  // imported as `import type { SpielKontext }` under its own name: a look-alike from another file could be `any`
   {
+    const kontextSpez = `${posix.relative(posix.dirname(spec.datei), 'server/src/spiel') || '.'}/Kontext.js`;
     const importe = sf.statements.filter((x): x is ts.ImportDeclaration => ts.isImportDeclaration(x) && !!x.importClause?.namedBindings && ts.isNamedImports(x.importClause.namedBindings) && x.importClause.namedBindings.elements.some((e) => e.name.text === 'SpielKontext'));
     const el = importe[0]?.importClause?.namedBindings;
-    const ok = importe.length === 1 && importe[0]!.importClause!.isTypeOnly && ts.isStringLiteral(importe[0]!.moduleSpecifier) && importe[0]!.moduleSpecifier.text === './Kontext.js' && !!el && ts.isNamedImports(el) && el.elements.length === 1 && el.elements[0]!.propertyName === undefined;
-    if (!ok) f.push('`SpielKontext` must come from `import type { SpielKontext } from \'./Kontext.js\'`, one import, under its own name');
+    const ok = importe.length === 1 && importe[0]!.importClause!.isTypeOnly && ts.isStringLiteral(importe[0]!.moduleSpecifier) && importe[0]!.moduleSpecifier.text === kontextSpez && !!el && ts.isNamedImports(el) && el.elements.length === 1 && el.elements[0]!.propertyName === undefined;
+    if (!ok) f.push(`\`SpielKontext\` must come from \`import type { SpielKontext } from '${kontextSpez}'\`, one import, under its own name`);
   }
   // 4. the value imports
   if (!same(wertSpezifizierer, spec.wertImporte)) f.push(`the value imports are [${wertSpezifizierer}], expected exactly [${spec.wertImporte}] (an \`import { type X }\` counts as a value import)`);
@@ -360,7 +392,7 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       else if (davorText !== '\n\n  ') f.push(`${fn.name}: rule 4.5a wants exactly one new blank line before the forwarding`);
       if (body) {
         const gesamt = text.slice(m.getStart(sf), m.getEnd()).replace(/\s+/g, ' ');
-        const erwartet = `${fn.kopf} { return ${fn.name}(this, ${m.parameters.map((p) => p.name.getText(sf)).join(', ')}); }`;
+        const erwartet = `${fn.kopf} { return ${fn.name}(${['this', ...m.parameters.map((p) => p.name.getText(sf))].join(', ')}); }`;
         if (gesamt !== erwartet) f.push(`${fn.name}: the forwarding reads "${gesamt.slice(0, 120)}", expected "${erwartet}" (a comment or another token inside it)`);
       }
       // behind it on the same line: nothing; a comment there belongs to the trivia of the next member and escapes the comparison of the text above (H8)
@@ -379,8 +411,10 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       const soll = ['this', ...m.parameters.map((p) => p.name.getText(sf))];
       const ok = ts.isIdentifier(c.expression) && c.expression.text === fn.name && !c.typeArguments && !c.questionDotToken && c.arguments[0]?.kind === ts.SyntaxKind.ThisKeyword && same(args, soll);
       if (!ok) f.push(`${fn.name}: the call is \`${c.getText(sf)}\`, expected \`${fn.name}(${soll.join(', ')})\` with a plain \`this\``);
-      // the caller in the class (`onPacket` or another method that stays) still calls the method by its name
-      const aufrufer = klasse.members.find((x): x is ts.MethodDeclaration => ts.isMethodDeclaration(x) && nameVon(x) === fn.aufrufer.methode);
+      // the caller in the class (`onPacket`, the constructor or another method that stays) still calls the method by its name
+      const aufrufer = fn.aufrufer.methode === 'constructor'
+        ? klasse.members.find((x): x is ts.ConstructorDeclaration => ts.isConstructorDeclaration(x))
+        : klasse.members.find((x): x is ts.MethodDeclaration => ts.isMethodDeclaration(x) && nameVon(x) === fn.aufrufer.methode);
       let ruft = false;
       const gehe = (n: ts.Node): void => {
         if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.expression.kind === ts.SyntaxKind.ThisKeyword && n.expression.name.text === fn.name && n.arguments.map((a) => a.getText(sf)).join(',') === fn.aufrufer.args.replace(/ /g, '')) ruft = true;
@@ -388,6 +422,17 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       };
       if (aufrufer) gehe(aufrufer);
       if (!ruft) f.push(`${fn.name}: ${fn.aufrufer.methode} does not call this.${fn.name}(${fn.aufrufer.args})`);
+      // a registration: its place among the constructor's statements `this.register…();` (step 1; a swapped order replaces another handler)
+      if (fn.aufrufNr !== undefined) {
+        const ctor = klasse.members.find((x): x is ts.ConstructorDeclaration => ts.isConstructorDeclaration(x));
+        const folge: string[] = [];
+        for (const st of ctor?.body?.statements ?? []) {
+          const e = ts.isExpressionStatement(st) ? st.expression : undefined;
+          if (e && ts.isCallExpression(e) && ts.isPropertyAccessExpression(e.expression) && e.expression.expression.kind === ts.SyntaxKind.ThisKeyword && /^register/.test(e.expression.name.text)) folge.push(e.expression.name.text);
+        }
+        const platz = folge.indexOf(fn.name);
+        if (platz !== fn.aufrufNr || folge.filter((x) => x === fn.name).length !== 1) f.push(`${fn.name}: the constructor calls it as registration no. ${platz} (${folge.filter((x) => x === fn.name).length} times) of ${folge.length}, frozen: no. ${fn.aufrufNr}, once (the order of registration is behaviour)`);
+      }
       // the packet type leads to its forwarding: `case PacketType.<Type>:` in `onPacket` calls it (swapped cases stay green otherwise)
       if (fn.paketTyp !== undefined) {
         let fall = false;
@@ -494,6 +539,12 @@ console.log('\n[0] Self-test of the checks on invented sources');
     const f = pruefeModul(S, text);
     check(`red: module, ${name}`, f.length > 0, show(f) || 'no finding');
   }
+  // a module one folder below spiel/ (step 1): its context file is `../Kontext.js`; `./Kontext.js` would be a look-alike next to it
+  const SB: ModulSpec = { ...S, datei: 'server/src/spiel/befehle/Test.ts', spezifizierer: './spiel/befehle/Test.js' };
+  const modulUnten = gutesModul.replace("from './Kontext.js';", "from '../Kontext.js';").replace("from '../net/Peer.js';", "from '../../net/Peer.js';").replace("from '../io/Reader.js';", "from '../../io/Reader.js';");
+  check('green: the good module one folder below spiel/', pruefeModul(SB, modulUnten).length === 0, show(pruefeModul(SB, modulUnten)));
+  check('red: module one folder below spiel/, SpielKontext from ./Kontext.js (a file next to it, not spiel/Kontext.ts)', pruefeModul(SB, gutesModul).length > 0, show(pruefeModul(SB, gutesModul)) || 'no finding');
+  check('red: module in spiel/, SpielKontext from ../Kontext.js', pruefeModul(S, modulUnten).length > 0, show(pruefeModul(S, modulUnten)) || 'no finding');
 
   const gutesGebaeude = (extra = '', oeff = 'readonly net = 1;', konstruktor = 'readonly config: number, private readonly geheim: number'): string =>
     [
@@ -606,6 +657,49 @@ console.log('\n[0] Self-test of the checks on invented sources');
     const f = pruefeKlasse([S3], text, oeff);
     check(`red: class, ${name}`, f.length > 0, show(f) || 'no finding');
   }
+  // registrations without parameters, called by the constructor at a frozen place among its `this.register…();` calls (step 1)
+  const S1: ModulSpec = {
+    datei: 'server/src/spiel/befehle/Test1.ts', spezifizierer: './spiel/befehle/Test1.js', kontextTyp: 'Test1Kontext', mitglieder: ['a'], wertImporte: [],
+    funktionen: [REGISTRIERUNG('registerEins', 0), REGISTRIERUNG('registerZwei', 1)],
+  };
+  const gut1 = [
+    "import { registerEins, registerZwei } from './spiel/befehle/Test1.js';",
+    'export class WovServer {',
+    '  readonly a = 1;',
+    '  constructor() {',
+    '    this.vorher = 1;',
+    '    this.registerEins();',
+    '    this.registerZwei();',
+    '    this.registerDrei();',
+    '  }',
+    '',
+    '  private registerEins(): void {',
+    '    return registerEins(this);',
+    '  }',
+    '',
+    '  private registerZwei(): void {',
+    '    return registerZwei(this);',
+    '  }',
+    '',
+    '  private registerDrei(): void {}',
+    '}',
+    '',
+  ].join('\n');
+  check('green: the good class with two registrations called by the constructor', pruefeKlasse([S1], gut1, ['a']).length === 0, show(pruefeKlasse([S1], gut1, ['a'])));
+  const klassenFehler1: [string, string][] = [
+    ['the constructor calls the registrations in another order', gut1.replace('    this.registerEins();\n    this.registerZwei();', '    this.registerZwei();\n    this.registerEins();')],
+    ['another registration before the first one', gut1.replace('    this.registerEins();', '    this.registerDrei();\n    this.registerEins();')],
+    ['a registration called twice', gut1.replace('    this.registerDrei();', '    this.registerDrei();\n    this.registerEins();')],
+    ['the constructor does not call a registration', gut1.replace('    this.registerZwei();\n', '')],
+    ['a registration called by another method, not the constructor', gut1.replace('    this.registerZwei();\n', '').replace('  private registerDrei(): void {}', '  private registerDrei(): void {\n    this.registerZwei();\n  }')],
+    ['the forwarding passes an argument', gut1.replace('return registerZwei(this);', 'return registerZwei(this, 1);')],
+    ['the forwarding gained a parameter', gut1.replace('  private registerEins(): void {\n    return registerEins(this);', '  private registerEins(x = 0): void {\n    return registerEins(this, x);')],
+    ['the forwarding without return', gut1.replace('    return registerEins(this);', '    registerEins(this);')],
+  ];
+  for (const [name, text] of klassenFehler1) {
+    const f = pruefeKlasse([S1], text, ['a']);
+    check(`red: class, ${name}`, f.length > 0, show(f) || 'no finding');
+  }
 }
 
 // ── [1] The real sources ───────────────────────────────────────────────
@@ -615,7 +709,9 @@ const alleNamen = MODULE.flatMap((m) => m.funktionen.map((x) => x.name));
 
 console.log('\n[1] The modules under server/src/spiel/ and the forwardings in WovServer.ts');
 if (!MESSEN_BASIS) {
-  const dateien = readdirSync(join(WURZEL, 'server/src/spiel')).filter((f) => f.endsWith('.ts')).map((f) => `server/src/spiel/${f}`);
+  // every .ts file under spiel/, sub-folders included (step 1 put the first module into spiel/befehle/)
+  const alleTs = (ordner: string): string[] => readdirSync(join(WURZEL, ordner), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? alleTs(`${ordner}/${e.name}`) : e.name.endsWith('.ts') ? [`${ordner}/${e.name}`] : []));
+  const dateien = alleTs('server/src/spiel');
   for (const spec of MODULE) {
     check(`${spec.datei} exists under spiel/`, dateien.includes(spec.datei));
     const t = readFileSync(join(WURZEL, spec.datei), 'utf8');
@@ -634,7 +730,7 @@ if (!MESSEN_BASIS) {
   // every module under spiel/ that uses the context type stands under this guard (only Kontext.ts itself defines it)
   const alleDateien = new Set(MODULE.map((m) => m.datei));
   const unbekannt = dateien.filter((d) => d !== 'server/src/spiel/Kontext.ts' && /\bSpielKontext\b/.test(readFileSync(join(WURZEL, d), 'utf8')) && !alleDateien.has(d));
-  check('every module under spiel/ that uses SpielKontext is in MODULE (under this guard)', unbekannt.length === 0, unbekannt.join(', '));
+  check(`every module under spiel/ (sub-folders included, ${dateien.length} files) that uses SpielKontext is in MODULE (under this guard)`, unbekannt.length === 0, unbekannt.join(', '));
 }
 
 // ── [2] Behaviour ──────────────────────────────────────────────────────
@@ -1104,6 +1200,145 @@ function messeChatEcht(): Aufzeichnung3 {
     rufe(chatPeer(a, 'ed', 9, 0, HAUPTWELT_ID, { nurEditor: true }), leser((w) => { w.writeInt32(1); w.writeString('still'); }));
     rufe(ich, new Reader(Buffer.alloc(0)));
     (server['kontenDb'] as { close?: () => void } | undefined)?.close?.();
+  } finally {
+    ruecksetzen();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  return a;
+}
+
+// ── [2c] Behaviour of step 1, package C: the commands teleport and spieler ──
+
+/** A peer for the commands: every packet it is sent (type and the identifier over all bytes); the state fields the handlers write. */
+function peerB(a: Aufzeichnung, name: string, o: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    name, userId: 7, spielerId: `id-${name}`, isAdmin: true, nurEditor: false, dungeonId: null, dungeonReturn: null, position: { x: 1, y: 2, z: 3 }, worldId: HAUPTWELT_ID, characterID: ZDOID.NONE,
+    sendPacketWith(type: PacketType, fn: (w: Writer) => void): void { const w = new Writer(); fn(w); a.paket.push(`${name}:${PacketType[type]}:${kennung(w.toBuffer())}`); },
+    weltWechselVorbereiten(): void { zaehle(a, 'weltWechselVorbereiten'); },
+    ...o,
+  };
+}
+const zustandB = (p: Record<string, unknown>): string => `peer ${String(p['name'])} dungeonId=${JSON.stringify(p['dungeonId'])} dungeonReturn=${JSON.stringify(p['dungeonReturn'])} position=${JSON.stringify(p['position'])} worldId=${JSON.stringify(p['worldId'])} char=${String(p['characterID'])}`;
+type Handler = (p: unknown, args: string[]) => unknown;
+/** One command line on a handler: the arguments as the registry splits them, the result as text (the message is the behaviour), what is left of the arguments, the peer after it. */
+function befehlB(a: Aufzeichnung, h: Handler | undefined, zeile: string, p: Record<string, unknown>): void {
+  const args = zeile.trim().split(/\s+/).filter(Boolean);
+  const vorher = JSON.stringify(args);
+  try {
+    if (!h) throw new Error('no handler');
+    a.notizen.push(`> ${vorher} = ${JSON.stringify(h(p, args))} args=${JSON.stringify(args)}`);
+  } catch (e) {
+    a.ausnahmen.push((e as Error).name);
+    a.notizen.push(`> ${vorher} throws ${(e as Error).name}`);
+  }
+  a.notizen.push(zustandB(p));
+}
+const gespeichert = (): Map<string, Record<string, unknown>> => new Map<string, Record<string, unknown>>([
+  ['id-alt1', { name: 'Alt1', spielerId: 'id-alt1' }], ['id-alt2', { name: 'alt2', spielerId: 'id-alt2' }],
+  ['id-d1', { name: 'Doppelt', spielerId: 'id-d1' }], ['id-d2', { name: 'doppelt', spielerId: 'id-d2' }],
+  ['id-on', { name: 'Online', spielerId: 'id-on' }], ['id-ohne', { name: 'OhneId' }], ['id-ae', { name: 'Ägir', spielerId: 'id-ae' }],
+]);
+/** `teleport` and `spieler` on a stand-in: every context member records its calls with their arguments. */
+function messeSpielerAttrappe(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  const handler = new Map<string, Handler>();
+  const inInstanz = new Set<number>([7, 8]);
+  let sicherung: unknown = { vergiss: (x: unknown): void => { zaehle(a, 'vergiss'); a.notizen.push(`call vergiss ${JSON.stringify(x)}`); } };
+  const saved = gespeichert();
+  const online = (): unknown[] => [peerB(a, 'Online', { spielerId: 'id-on' }), peerB(a, 'Editor', { nurEditor: true, isAdmin: false, spielerId: 'ed' }), peerB(a, 'Gast', { isAdmin: false, spielerId: 'g' })];
+  const k: Record<string, unknown> = {
+    adminCommands: { register: (n: string, fn: Handler): void => { zaehle(a, 'register'); a.notizen.push(`register ${n}`); handler.set(n, fn); } },
+    dungeons: { getInstance: (id: unknown): unknown => { zaehle(a, 'getInstance'); a.notizen.push(`call getInstance ${String(id)}`); return id === 'd-inst' ? { players: inInstanz } : undefined; } },
+    getGroundHeight: (x: number, z: number): number => { zaehle(a, 'getGroundHeight'); a.notizen.push(`call getGroundHeight ${x} ${z}`); return x * 0.5 + z * 0.25 + 0.0625; },
+    teleportPeer: (...x: unknown[]): void => { zaehle(a, 'teleportPeer'); a.notizen.push(`call teleportPeer ${x.length} ${nm(x[0])} ${JSON.stringify(x.slice(1))}`); },
+    net: { getPeers: (): unknown[] => { zaehle(a, 'getPeers'); return online(); } },
+    savedPlayers: saved,
+    get spielerSicherung(): unknown { return sicherung; },
+  };
+  const ich = (o: Record<string, unknown> = {}): Record<string, unknown> => peerB(a, 'Ich', o);
+  try {
+    versuche(a, () => F['registerTeleportCommand']!(k));
+    versuche(a, () => F['registerSpielerCommand']!(k));
+    a.notizen.push(`registered ${[...handler.keys()].join(',')}`);
+    const tp = (z: string, p = ich()): void => befehlB(a, handler.get('teleport'), z, p);
+    const sp = (z: string): void => { befehlB(a, handler.get('spieler'), z, ich()); a.notizen.push(`saved ${[...(k['savedPlayers'] as Map<string, unknown>).keys()].join(',')}`); a.zustand.push((k['savedPlayers'] as Map<string, unknown>).size); };
+    // teleport: coordinates, a player name instead of them, missing, not finite, other spellings of numbers, extra arguments
+    for (const z of ['10 20', '-5.5 7', 'Olaf', 'Olaf 3', '', '1', 'abc 2', 'Infinity 0', 'NaN 1', '1e3 2e2', '0x10 5', '3 4 5', '0.4 -0.6', ' 7   8 ']) tp(z);
+    // teleport out of a dungeon: the live instance forgets the peer; an instance that is gone; refused before leaving
+    tp('12 34', ich({ dungeonId: 'd-inst', dungeonReturn: { x: 9, y: 9, z: 9 } }));
+    a.notizen.push(`instance players ${[...inInstanz].join(',')}`);
+    tp('12 34', ich({ dungeonId: 'd-weg', dungeonReturn: { x: 9, y: 9, z: 9 } }));
+    tp('x y', ich({ dungeonId: 'd-inst', dungeonReturn: { x: 9, y: 9, z: 9 } }));
+    // spieler: the default sub-command, spellings, online, remove (none, connected, editor, unknown, ambiguous, one, several, without id, umlaut), unknown
+    for (const z of ['', 'liste', 'LISTE', 'Liste extra', 'online', 'ONLINE', 'entfernen', 'entfernen Online', 'entfernen online', 'entfernen Editor', 'entfernen Unbekannt', 'entfernen doppelt', 'entfernen Alt1', 'entfernen ALT2 Geist Online', 'entfernen OhneId', 'entfernen ägir', 'foo', 'entfernen Alt1']) sp(z);
+    // members replaced on the stand-in AFTER the registration: the handlers read k.<member> at every call, never a copy
+    k['savedPlayers'] = new Map<string, Record<string, unknown>>([['neu', { name: 'Neu', spielerId: 'neu' }]]);
+    sp('liste');
+    k['teleportPeer'] = (...x: unknown[]): void => { zaehle(a, 'teleportPeerNeu'); a.notizen.push(`call teleportPeerNeu ${x.length}`); };
+    k['net'] = { getPeers: (): unknown[] => { zaehle(a, 'getPeersNeu'); return []; } };
+    tp('1 2');
+    sp('online');
+    sicherung = null;
+    sp('entfernen neu');
+    // a context without a member the handler reads: the exception (by its name)
+    delete k['getGroundHeight'];
+    tp('1 2');
+  } finally {
+    ruecksetzen();
+  }
+  return a;
+}
+/** The same on a real instance: the registry the constructor built (through the forwardings), with a real dungeon instance; then the forwardings called again. */
+function messeSpielerEcht(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  const tmp = mkdtempSync(join(tmpdir(), 'i1-form-k-'));
+  try {
+    mitZufall(11, () => {
+      const server = createWovServer({
+        port: 0, worldFeatures: false, worldName: 'i1-form-k1c', everyoneAdmin: true,
+        worldsDir: join(tmp, 'worlds'), kontenDir: join(tmp, 'konten'), forumDir: join(tmp, 'forum'), generiertDir: join(tmp, 'generiert'),
+      } as never) as unknown as Record<string, unknown>;
+      // the main world and the heights only exist after init(): a real ZDO space and stand-ins, as the tests do
+      // (no terrain changes to send back when a peer returns to the main world: an empty list)
+      const haupt = { id: HAUPTWELT_ID, zdos: new ZDOManager(1n), heightmaps: { listTerrainComps: (): unknown[] => { zaehle(a, 'listTerrainComps'); return []; } } };
+      (server['welten'] as Map<string, unknown>).set(HAUPTWELT_ID, haupt);
+      server['hauptwelt'] = haupt;
+      server['getGroundHeight'] = (x: number, z: number): number => { zaehle(a, 'getGroundHeight'); a.notizen.push(`call getGroundHeight ${x} ${z}`); return x * 0.5 + z * 0.25 + 0.0625; };
+      server['spielerSicherung'] = { vergiss: (x: unknown): void => { zaehle(a, 'vergiss'); a.notizen.push(`call vergiss ${JSON.stringify(x)}`); } };
+      const online = [peerB(a, 'Olaf', { spielerId: 'o1', userId: 11 }), peerB(a, 'Editor', { nurEditor: true, isAdmin: false, spielerId: 'ed', userId: 12 })];
+      (server['net'] as Record<string, unknown>)['getPeers'] = (): unknown[] => { zaehle(a, 'getPeers'); return online; };
+      const saved = server['savedPlayers'] as Map<string, Record<string, unknown>>;
+      for (const [id, name] of [['r1', 'Ragnar'], ['r2', 'ragnar'], ['b1', 'Bjørn'], ['o1', 'Olaf'], ['e1', 'Editor']] as const) saved.set(id, { name, spielerId: id });
+      const registry = server['adminCommands'] as { execute(p: unknown, l: string): unknown };
+      const ich = peerB(a, 'Ich', { userId: 21, spielerId: 'ich' });
+      const ex = (zeile: string, p: Record<string, unknown> = ich): void => {
+        try { a.notizen.push(`> ${zeile} = ${JSON.stringify(registry.execute(p, zeile))}`); } catch (e) { a.ausnahmen.push((e as Error).name); a.notizen.push(`> ${zeile} throws ${(e as Error).name}`); }
+        a.notizen.push(zustandB(p));
+      };
+      const inst = (id: string): number => ((server['dungeons'] as { getInstance(i: string): { players: Set<number> } | undefined }).getInstance(id)?.players.size ?? -1);
+      for (const z of ['teleport 10 20', 'teleport -5.5 7', 'teleport Olaf', 'teleport', 'teleport 1', 'teleport abc 2', 'TELEPORT 3 4 5']) ex(z);
+      // the winning `teleport` is the server's: it leaves the dungeon instance (the base command of AdminCommands would not)
+      ex('dungeon create cave 42');
+      ex('dungeon enter cave-2a');
+      a.zustand.push(inst('cave-2a'));
+      ex('teleport 5 6');
+      a.zustand.push(inst('cave-2a'));
+      for (const z of ['spieler', 'spieler online', 'spieler entfernen', 'spieler entfernen olaf', 'spieler entfernen editor', 'spieler entfernen Unbekannt', 'spieler entfernen RAGNAR', 'spieler entfernen bjørn', 'spieler foo', 'spieler liste']) { ex(z); a.zustand.push(saved.size); }
+      ex('spieler liste', peerB(a, 'Kein', { isAdmin: false }));
+      // the two forwardings, called again on the instance: they hand the instance over, the handlers read its members at the call
+      const neu = new Map<string, Handler>();
+      server['adminCommands'] = { register: (n: string, fn: Handler): void => { zaehle(a, 'register'); a.notizen.push(`register ${n}`); neu.set(n, fn); } };
+      versuche(a, () => (server['registerTeleportCommand'] as () => unknown).call(server));
+      versuche(a, () => (server['registerSpielerCommand'] as () => unknown).call(server));
+      saved.set('z1', { name: 'Zweit', spielerId: 'z1' });
+      befehlB(a, neu.get('spieler'), 'liste', ich);
+      befehlB(a, neu.get('spieler'), 'entfernen Zweit', ich);
+      befehlB(a, neu.get('teleport'), '8 9', ich);
+      a.zustand.push(saved.size);
+      (server['kontenDb'] as { close?: () => void } | undefined)?.close?.();
+    });
   } finally {
     ruecksetzen();
     rmSync(tmp, { recursive: true, force: true });
@@ -1582,6 +1817,229 @@ const SOLL_CHAT_ECHT: Aufzeichnung = {
   ],
 };
 
+/** Step 1, package C: measured with `--messen-basis` on the stand before the move (C0, the three methods still in the class). */
+const SOLL_SPIELER_ATTRAPPE: Aufzeichnung = {
+  paket: [],
+  aufrufe: { register: 2, getGroundHeight: 10, teleportPeer: 9, getInstance: 2, getPeers: 12, vergiss: 4, teleportPeerNeu: 1, getPeersNeu: 2 },
+  konsole: { log: 0, warn: 0 },
+  zustand: [7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6, 5, 4, 3, 3, 3, 1, 1, 0],
+  ausnahmen: [
+    'TypeError',
+  ],
+  notizen: [
+    'register teleport',
+    'register spieler',
+    'registered teleport,spieler',
+    'call getGroundHeight 10 20',
+    'call teleportPeer 3 Ich [{"x":10,"y":10.0625,"z":20},null]',
+    '> ["10","20"] = {"ok":true,"active":false,"message":"Teleportiert nach 10, 20 (Höhe 10.1)"} args=["10","20"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'call getGroundHeight -5.5 7',
+    'call teleportPeer 3 Ich [{"x":-5.5,"y":-0.9375,"z":7},null]',
+    '> ["-5.5","7"] = {"ok":true,"active":false,"message":"Teleportiert nach -6, 7 (Höhe -0.9)"} args=["-5.5","7"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    '> ["Olaf"] = {"ok":false,"active":false,"message":"Aufruf: teleport <x> <z>"} args=["Olaf"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    '> ["Olaf","3"] = {"ok":false,"active":false,"message":"Aufruf: teleport <x> <z>"} args=["Olaf","3"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    '> [] = {"ok":false,"active":false,"message":"Aufruf: teleport <x> <z>"} args=[]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    '> ["1"] = {"ok":false,"active":false,"message":"Aufruf: teleport <x> <z>"} args=["1"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    '> ["abc","2"] = {"ok":false,"active":false,"message":"Aufruf: teleport <x> <z>"} args=["abc","2"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    '> ["Infinity","0"] = {"ok":false,"active":false,"message":"Aufruf: teleport <x> <z>"} args=["Infinity","0"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    '> ["NaN","1"] = {"ok":false,"active":false,"message":"Aufruf: teleport <x> <z>"} args=["NaN","1"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'call getGroundHeight 1000 200',
+    'call teleportPeer 3 Ich [{"x":1000,"y":550.0625,"z":200},null]',
+    '> ["1e3","2e2"] = {"ok":true,"active":false,"message":"Teleportiert nach 1000, 200 (Höhe 550.1)"} args=["1e3","2e2"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'call getGroundHeight 16 5',
+    'call teleportPeer 3 Ich [{"x":16,"y":9.3125,"z":5},null]',
+    '> ["0x10","5"] = {"ok":true,"active":false,"message":"Teleportiert nach 16, 5 (Höhe 9.3)"} args=["0x10","5"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'call getGroundHeight 3 4',
+    'call teleportPeer 3 Ich [{"x":3,"y":2.5625,"z":4},null]',
+    '> ["3","4","5"] = {"ok":true,"active":false,"message":"Teleportiert nach 3, 4 (Höhe 2.6)"} args=["3","4","5"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'call getGroundHeight 0.4 -0.6',
+    'call teleportPeer 3 Ich [{"x":0.4,"y":0.11250000000000002,"z":-0.6},null]',
+    '> ["0.4","-0.6"] = {"ok":true,"active":false,"message":"Teleportiert nach 0, -1 (Höhe 0.1)"} args=["0.4","-0.6"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'call getGroundHeight 7 8',
+    'call teleportPeer 3 Ich [{"x":7,"y":5.5625,"z":8},null]',
+    '> ["7","8"] = {"ok":true,"active":false,"message":"Teleportiert nach 7, 8 (Höhe 5.6)"} args=["7","8"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'call getInstance d-inst',
+    'call getGroundHeight 12 34',
+    'call teleportPeer 3 Ich [{"x":12,"y":14.5625,"z":34},null]',
+    '> ["12","34"] = {"ok":true,"active":false,"message":"Teleportiert nach 12, 34 (Höhe 14.6)"} args=["12","34"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'instance players 8',
+    'call getInstance d-weg',
+    'call getGroundHeight 12 34',
+    'call teleportPeer 3 Ich [{"x":12,"y":14.5625,"z":34},null]',
+    '> ["12","34"] = {"ok":true,"active":false,"message":"Teleportiert nach 12, 34 (Höhe 14.6)"} args=["12","34"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    '> ["x","y"] = {"ok":false,"active":false,"message":"Aufruf: teleport <x> <z>"} args=["x","y"]',
+    'peer Ich dungeonId="d-inst" dungeonReturn={"x":9,"y":9,"z":9} position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    '> [] = {"ok":true,"active":false,"message":"7 Datensaetze: Alt1, Doppelt, OhneId, Online, alt2, doppelt, Ägir"} args=[]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-alt1,id-alt2,id-d1,id-d2,id-on,id-ohne,id-ae',
+    '> ["liste"] = {"ok":true,"active":false,"message":"7 Datensaetze: Alt1, Doppelt, OhneId, Online, alt2, doppelt, Ägir"} args=[]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-alt1,id-alt2,id-d1,id-d2,id-on,id-ohne,id-ae',
+    '> ["LISTE"] = {"ok":true,"active":false,"message":"7 Datensaetze: Alt1, Doppelt, OhneId, Online, alt2, doppelt, Ägir"} args=[]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-alt1,id-alt2,id-d1,id-d2,id-on,id-ohne,id-ae',
+    '> ["Liste","extra"] = {"ok":true,"active":false,"message":"7 Datensaetze: Alt1, Doppelt, OhneId, Online, alt2, doppelt, Ägir"} args=["extra"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-alt1,id-alt2,id-d1,id-d2,id-on,id-ohne,id-ae',
+    '> ["online"] = {"ok":true,"active":false,"message":"Online [id-on] (admin) | Editor [ed] | Gast [g]"} args=[]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-alt1,id-alt2,id-d1,id-d2,id-on,id-ohne,id-ae',
+    '> ["ONLINE"] = {"ok":true,"active":false,"message":"Online [id-on] (admin) | Editor [ed] | Gast [g]"} args=[]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-alt1,id-alt2,id-d1,id-d2,id-on,id-ohne,id-ae',
+    '> ["entfernen"] = {"ok":false,"active":false,"message":"Aufruf: spieler entfernen <name> [<name> …]"} args=[]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-alt1,id-alt2,id-d1,id-d2,id-on,id-ohne,id-ae',
+    '> ["entfernen","Online"] = {"ok":true,"active":false,"message":"Entfernt: — | Uebersprungen: Online (verbunden) | Noch 7 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["Online"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-alt1,id-alt2,id-d1,id-d2,id-on,id-ohne,id-ae',
+    '> ["entfernen","online"] = {"ok":true,"active":false,"message":"Entfernt: — | Uebersprungen: online (verbunden) | Noch 7 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["online"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-alt1,id-alt2,id-d1,id-d2,id-on,id-ohne,id-ae',
+    '> ["entfernen","Editor"] = {"ok":true,"active":false,"message":"Entfernt: — | Uebersprungen: Editor (unbekannt) | Noch 7 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["Editor"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-alt1,id-alt2,id-d1,id-d2,id-on,id-ohne,id-ae',
+    '> ["entfernen","Unbekannt"] = {"ok":true,"active":false,"message":"Entfernt: — | Uebersprungen: Unbekannt (unbekannt) | Noch 7 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["Unbekannt"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-alt1,id-alt2,id-d1,id-d2,id-on,id-ohne,id-ae',
+    '> ["entfernen","doppelt"] = {"ok":true,"active":false,"message":"Entfernt: — | Uebersprungen: doppelt (nicht eindeutig) | Noch 7 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["doppelt"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-alt1,id-alt2,id-d1,id-d2,id-on,id-ohne,id-ae',
+    'call vergiss ["id-alt1","id-alt1"]',
+    '> ["entfernen","Alt1"] = {"ok":true,"active":false,"message":"Entfernt: Alt1 | Noch 6 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["Alt1"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-alt2,id-d1,id-d2,id-on,id-ohne,id-ae',
+    'call vergiss ["id-alt2","id-alt2"]',
+    '> ["entfernen","ALT2","Geist","Online"] = {"ok":true,"active":false,"message":"Entfernt: ALT2 | Uebersprungen: Geist (unbekannt), Online (verbunden) | Noch 5 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["ALT2","Geist","Online"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-d1,id-d2,id-on,id-ohne,id-ae',
+    'call vergiss ["id-ohne",""]',
+    '> ["entfernen","OhneId"] = {"ok":true,"active":false,"message":"Entfernt: OhneId | Noch 4 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["OhneId"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-d1,id-d2,id-on,id-ae',
+    'call vergiss ["id-ae","id-ae"]',
+    '> ["entfernen","ägir"] = {"ok":true,"active":false,"message":"Entfernt: ägir | Noch 3 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["ägir"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-d1,id-d2,id-on',
+    '> ["foo"] = {"ok":false,"active":false,"message":"Aufruf: spieler liste | spieler online | spieler entfernen <name> …"} args=[]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-d1,id-d2,id-on',
+    '> ["entfernen","Alt1"] = {"ok":true,"active":false,"message":"Entfernt: — | Uebersprungen: Alt1 (unbekannt) | Noch 3 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["Alt1"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-d1,id-d2,id-on',
+    '> ["liste"] = {"ok":true,"active":false,"message":"1 Datensaetze: Neu"} args=[]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved neu',
+    'call getGroundHeight 1 2',
+    'call teleportPeerNeu 3',
+    '> ["1","2"] = {"ok":true,"active":false,"message":"Teleportiert nach 1, 2 (Höhe 1.1)"} args=["1","2"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    '> ["online"] = {"ok":true,"active":false,"message":"Niemand online"} args=[]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved neu',
+    '> ["entfernen","neu"] = {"ok":true,"active":false,"message":"Entfernt: neu | Noch 0 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["neu"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved ',
+    '> ["1","2"] throws TypeError',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+  ],
+};
+const SOLL_SPIELER_ECHT: Aufzeichnung = {
+  paket: [
+    'Ich:Teleport:40:e5fb1662892f39e6',
+    'Ich:Teleport:40:214d05eb0cb123ec',
+    'Ich:Teleport:40:0710b164e45a6205',
+    'Ich:Teleport:52:a5fccccadc0313c6',
+    'Ich:Teleport:40:02774683002404dc',
+    'Ich:Teleport:40:4f0fa253732af96c',
+  ],
+  aufrufe: { getGroundHeight: 5, weltWechselVorbereiten: 2, listTerrainComps: 1, getPeers: 7, vergiss: 3, register: 2 },
+  konsole: { log: 5, warn: 0 },
+  zustand: [1, 0, 5, 5, 5, 5, 4, 4, 4, 3, 3, 3, 3],
+  ausnahmen: [],
+  notizen: [
+    'log 53:f911fa34cfc45148:[Konto] Spalte konten.avatar_charakter_id nachge',
+    'log 42:0bcdb099a81be718:[Konto] Spalte konten.token_ab nachgezogen',
+    'log 44:1f27737a280d0efa:[Konto] Spalte konten.spieler_ab nachgezogen',
+    'log 45:63bbb1146dd82dc1:[Konto] Spalte konten.profil_text nachgezogen',
+    'call getGroundHeight 10 20',
+    '> teleport 10 20 = {"ok":true,"active":false,"message":"Teleportiert nach 10, 20 (Höhe 10.1)"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":10,"y":10.0625,"z":20} worldId="haupt" char=0:0',
+    'call getGroundHeight -5.5 7',
+    '> teleport -5.5 7 = {"ok":true,"active":false,"message":"Teleportiert nach -6, 7 (Höhe -0.9)"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":-5.5,"y":-0.9375,"z":7} worldId="haupt" char=0:0',
+    '> teleport Olaf = {"ok":false,"active":false,"message":"Aufruf: teleport <x> <z>"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":-5.5,"y":-0.9375,"z":7} worldId="haupt" char=0:0',
+    '> teleport = {"ok":false,"active":false,"message":"Aufruf: teleport <x> <z>"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":-5.5,"y":-0.9375,"z":7} worldId="haupt" char=0:0',
+    '> teleport 1 = {"ok":false,"active":false,"message":"Aufruf: teleport <x> <z>"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":-5.5,"y":-0.9375,"z":7} worldId="haupt" char=0:0',
+    '> teleport abc 2 = {"ok":false,"active":false,"message":"Aufruf: teleport <x> <z>"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":-5.5,"y":-0.9375,"z":7} worldId="haupt" char=0:0',
+    'call getGroundHeight 3 4',
+    '> TELEPORT 3 4 5 = {"ok":true,"active":false,"message":"Teleportiert nach 3, 4 (Höhe 2.6)"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":3,"y":2.5625,"z":4} worldId="haupt" char=0:0',
+    '> dungeon create cave 42 = {"ok":true,"active":false,"message":"Dungeon erzeugt: cave-2a (52 Räume, Seed 42, Zone 64)"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":3,"y":2.5625,"z":4} worldId="haupt" char=0:0',
+    'log 89:d5dd0335bffe73ed:[Dungeon] Instance \'cave-2a\' materialized in wor',
+    '> dungeon enter cave-2a = {"ok":true,"active":true,"message":"Dungeon betreten: Cave #2a"}',
+    'peer Ich dungeonId="cave-2a" dungeonReturn={"x":3,"y":2.5625,"z":4} position={"x":2.3841854120595425e-7,"y":0.5,"z":1.9999999999999858} worldId="dungeon:cave-2a" char=0:0',
+    'call getGroundHeight 5 6',
+    '> teleport 5 6 = {"ok":true,"active":false,"message":"Teleportiert nach 5, 6 (Höhe 4.1)"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":5,"y":4.0625,"z":6} worldId="haupt" char=0:0',
+    '> spieler = {"ok":true,"active":false,"message":"5 Datensaetze: Bjørn, Editor, Olaf, Ragnar, ragnar"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":5,"y":4.0625,"z":6} worldId="haupt" char=0:0',
+    '> spieler online = {"ok":true,"active":false,"message":"Olaf [o1] (admin) | Editor [ed]"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":5,"y":4.0625,"z":6} worldId="haupt" char=0:0',
+    '> spieler entfernen = {"ok":false,"active":false,"message":"Aufruf: spieler entfernen <name> [<name> …]"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":5,"y":4.0625,"z":6} worldId="haupt" char=0:0',
+    '> spieler entfernen olaf = {"ok":true,"active":false,"message":"Entfernt: — | Uebersprungen: olaf (verbunden) | Noch 5 Datensaetze (wird beim naechsten Speichern geschrieben)"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":5,"y":4.0625,"z":6} worldId="haupt" char=0:0',
+    'call vergiss ["e1","e1"]',
+    '> spieler entfernen editor = {"ok":true,"active":false,"message":"Entfernt: editor | Noch 4 Datensaetze (wird beim naechsten Speichern geschrieben)"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":5,"y":4.0625,"z":6} worldId="haupt" char=0:0',
+    '> spieler entfernen Unbekannt = {"ok":true,"active":false,"message":"Entfernt: — | Uebersprungen: Unbekannt (unbekannt) | Noch 4 Datensaetze (wird beim naechsten Speichern geschrieben)"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":5,"y":4.0625,"z":6} worldId="haupt" char=0:0',
+    '> spieler entfernen RAGNAR = {"ok":true,"active":false,"message":"Entfernt: — | Uebersprungen: RAGNAR (nicht eindeutig) | Noch 4 Datensaetze (wird beim naechsten Speichern geschrieben)"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":5,"y":4.0625,"z":6} worldId="haupt" char=0:0',
+    'call vergiss ["b1","b1"]',
+    '> spieler entfernen bjørn = {"ok":true,"active":false,"message":"Entfernt: bjørn | Noch 3 Datensaetze (wird beim naechsten Speichern geschrieben)"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":5,"y":4.0625,"z":6} worldId="haupt" char=0:0',
+    '> spieler foo = {"ok":false,"active":false,"message":"Aufruf: spieler liste | spieler online | spieler entfernen <name> …"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":5,"y":4.0625,"z":6} worldId="haupt" char=0:0',
+    '> spieler liste = {"ok":true,"active":false,"message":"3 Datensaetze: Olaf, Ragnar, ragnar"}',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":5,"y":4.0625,"z":6} worldId="haupt" char=0:0',
+    '> spieler liste = {"ok":false,"active":false,"message":"Admin commands are not allowed for this player"}',
+    'peer Kein dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'register teleport',
+    'register spieler',
+    '> ["liste"] = {"ok":true,"active":false,"message":"4 Datensaetze: Olaf, Ragnar, Zweit, ragnar"} args=[]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":5,"y":4.0625,"z":6} worldId="haupt" char=0:0',
+    'call vergiss ["z1","z1"]',
+    '> ["entfernen","Zweit"] = {"ok":true,"active":false,"message":"Entfernt: Zweit | Noch 3 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["Zweit"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":5,"y":4.0625,"z":6} worldId="haupt" char=0:0',
+    'call getGroundHeight 8 9',
+    '> ["8","9"] = {"ok":true,"active":false,"message":"Teleportiert nach 8, 9 (Höhe 6.3)"} args=["8","9"]',
+    'peer Ich dungeonId=null dungeonReturn=null position={"x":8,"y":6.3125,"z":9} worldId="haupt" char=0:0',
+  ],
+};
+
 if (MESSEN_BASIS) {
   const attrappe = messeAttrappe();
   const echt = messeEcht();
@@ -1589,7 +2047,9 @@ if (MESSEN_BASIS) {
   const interEcht = messeInteraktionEcht();
   const chatAttrappe = messeChatAttrappe();
   const chatEcht = messeChatEcht();
-  process.stdout.write(`${JSON.stringify({ attrappe, echt, interAttrappe, interEcht, chatAttrappe, chatEcht }, null, 1)}\n`);
+  const spielerAttrappe = messeSpielerAttrappe();
+  const spielerEcht = messeSpielerEcht();
+  process.stdout.write(`${JSON.stringify({ attrappe, echt, interAttrappe, interEcht, chatAttrappe, chatEcht, spielerAttrappe, spielerEcht }, null, 1)}\n`);
   process.exit(0);
 }
 
@@ -1626,6 +2086,20 @@ console.log('\n[3] Behaviour of step 3: chest, appearance, figure and chat give 
   teil('chest/appearance/figure on a real instance through the forwardings', messeInteraktionEcht(), SOLL_INTERAKTION_ECHT);
   teil('chat on a stand-in', messeChatAttrappe(), SOLL_CHAT_ATTRAPPE);
   teil('chat on a real instance through the forwarding', messeChatEcht(), SOLL_CHAT_ECHT);
+}
+
+console.log('\n[4] Behaviour of step 1, package C: teleport and spieler give the numbers measured before the move');
+{
+  const gleich = (a: Aufzeichnung, b: Aufzeichnung): boolean => JSON.stringify(a) === JSON.stringify(b);
+  const teil = (titel: string, gemessen: Aufzeichnung, soll: Aufzeichnung): void => {
+    check(`${titel}: the packets sent, in order`, same(gemessen.paket, soll.paket), `${gemessen.paket.length} packets, expected ${soll.paket.length}; first difference: ${gemessen.paket.find((x, i) => x !== soll.paket[i])}`);
+    check(`${titel}: the calls into the context`, JSON.stringify(gemessen.aufrufe) === JSON.stringify(soll.aufrufe), JSON.stringify(gemessen.aufrufe));
+    check(`${titel}: the messages, the calls with their arguments and the peer after every command`, same(gemessen.notizen, soll.notizen), `${gemessen.notizen.length} notes, expected ${soll.notizen.length}; first difference: ${gemessen.notizen.find((x, i) => x !== soll.notizen[i])}`);
+    check(`${titel}: the state numbers, the console output and the exceptions`, JSON.stringify([gemessen.zustand, gemessen.konsole, gemessen.ausnahmen]) === JSON.stringify([soll.zustand, soll.konsole, soll.ausnahmen]), JSON.stringify([gemessen.zustand, gemessen.konsole, gemessen.ausnahmen]));
+    check(`${titel}: all of it`, gleich(gemessen, soll));
+  };
+  teil('teleport/spieler on a stand-in', messeSpielerAttrappe(), SOLL_SPIELER_ATTRAPPE);
+  teil('teleport/spieler on a real instance (registry of the constructor, then the forwardings)', messeSpielerEcht(), SOLL_SPIELER_ECHT);
 }
 
 console.log(failures === 0 ? `\n=== I1 form k: ALL PASSED (${total}) ===` : `\n=== I1 form k: ${failures} of ${total} FAILED ===`);

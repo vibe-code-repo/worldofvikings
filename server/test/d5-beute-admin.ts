@@ -203,8 +203,9 @@ async function main(): Promise<void> {
     await bis(() => carol.ereignisse.some((e) => e.command === 'admin'), 3000);
     check('a guest\'s `admin list` is refused and gives her no flag', carol.ereignisse[0]?.text === VERWEIGERT && !carol.sitzung.istAdmin && carol.sitzung.aktion(lage) === 'nichts', JSON.stringify(carol.ereignisse));
 
+    // tab and NBSP (U+00A0) count as whitespace for both the reserved-name check and the registry (`\s`): the word is still `adminrechte`, so the line is refused as the reserved name
     console.log('\n[4b] N5-B1b: a typed command named like the live packet never takes the flag');
-    for (const zeile of ['adminrechte', 'AdminRechte ja', 'ADMINRECHTE', '  adminRechte  nein']) {
+    for (const zeile of ['adminrechte', 'AdminRechte ja', 'ADMINRECHTE', '  adminRechte  nein', '\tadminrechte\tja', '\u00a0ADMINRECHTE', 'adminrechte\u00a0ja']) {
       await warte(1300); // the AdminCommand bucket
       dave.ereignisse.length = 0;
       sendAdmin(dave.ws, zeile);
@@ -214,7 +215,7 @@ async function main(): Promise<void> {
       check('... the server still has isAdmin = true, the client keeps the flag, E at the entrance sends `dungeon enter`', peerVon('Dave').isAdmin === true && dave.sitzung.istAdmin && dave.sitzung.aktion(lage) === 'dungeon-enter');
     }
     // a guest gets the usual refusal or the reserved-name one, never the flag, and never an event named `adminrechte`
-    for (const zeile of ['adminrechte', 'AdminRechte ja', 'ADMINRECHTE']) {
+    for (const zeile of ['adminrechte', 'AdminRechte ja', 'ADMINRECHTE', '\tadminrechte\tja', '\u00a0ADMINRECHTE', 'adminrechte\u00a0ja']) {
       await warte(1300);
       carol.ereignisse.length = 0;
       sendAdmin(carol.ws, zeile);

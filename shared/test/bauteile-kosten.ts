@@ -18,7 +18,7 @@
  */
 import {
   BAU_PREFABS,
-  ITEM_DEFS,
+  ITEMS_BY_NAME,
   PIECES,
   PIECE_TABLES,
   PREFABS_BY_NAME,
@@ -35,7 +35,8 @@ const pruefe = (bedingung: boolean, text: string): void => {
 
 console.log('Bauteiltabelle');
 
-const bekannteItems = new Set(ITEM_DEFS.map((i) => i.name));
+// Every item name: the code items and the base items from the data file (118 together, as before GD1).
+const bekannteItems = new Set(ITEMS_BY_NAME.keys());
 
 // ── 1. Jede Materialkosten-Zeile nennt ein Item, das es gibt ─────────
 {
@@ -45,12 +46,13 @@ const bekannteItems = new Set(ITEM_DEFS.map((i) => i.name));
       geprueft++;
       pruefe(
         bekannteItems.has(r.item),
-        `Bauteil "${name}" verlangt "${r.item}" — kein solches Item in ITEM_DEFS. ` +
+        `Bauteil "${name}" verlangt "${r.item}" — kein solches Item in ITEMS_BY_NAME. ` +
           `Das Teil erscheint im Menü und lässt sich nicht setzen.`
       );
       pruefe(r.amount > 0, `Bauteil "${name}": Menge für "${r.item}" ist ${r.amount}`);
     }
   }
+  pruefe(bekannteItems.size === 118, `${bekannteItems.size} Items bekannt statt 118`);
   console.log(`  ${geprueft} Materialzeilen geprüft, ${bekannteItems.size} Items bekannt`);
 }
 

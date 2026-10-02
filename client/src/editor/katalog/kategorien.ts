@@ -12,17 +12,24 @@ import {
   BAU_PREFABS,
   EIGENE_MODELLE,
   FOLIAGE,
+  GRUNDBESTAND_IDS,
   ITEM_DEFS,
   NPC_VORGABEN,
   PREFABS_BY_NAME,
   PREFAB_DEFS,
+  findItem,
   isRenderable,
   uploadedModelRegistry,
 } from '@wov/shared';
 import { STORE_ARTEN, type StoreArt } from '../StoreKatalogDaten';
 
 /** Schnellzugriff auf Item-Angaben (Icon, Gewicht, Stapel) je Prefabname. */
-const ITEMS_NACH_NAME = new Map(ITEM_DEFS.map((i) => [i.name, i]));
+/** Code items (clothing) and the base items of the data file: the same 118 names ITEM_DEFS held before GD1. */
+const CODE_UND_GRUND = [
+  ...GRUNDBESTAND_IDS.flatMap((n) => { const i = findItem(n); return i ? [i] : []; }),
+  ...ITEM_DEFS,
+];
+const ITEMS_NACH_NAME = new Map(CODE_UND_GRUND.map((i) => [i.name, i]));
 
 /**
  * Anzeigetexte der ItemType-Werte.
@@ -136,7 +143,7 @@ const KATEGORIEN: readonly Kategorie[] = [
   {
     name: 'Gegenstände (Items)',
     hinweis: 'Inventarfähige Dinge mit Icon und Gewicht (shared/items/itemDefs.ts).',
-    namen: () => ITEM_DEFS.map((i) => i.name).filter((n) => PREFABS_BY_NAME.has(n)),
+    namen: () => CODE_UND_GRUND.map((i) => i.name).filter((n) => PREFABS_BY_NAME.has(n)),
   },
   {
     name: 'Alle mit Modell',

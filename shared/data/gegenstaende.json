@@ -1,1 +1,784 @@
-{"version":1,"gegenstaende":[]}
+{
+  "version": 1,
+  "gegenstaende": [
+    {
+      "id": "Hammer",
+      "nameSchluessel": "inhalt.gegenstand.Hammer.name",
+      "typ": "werkzeug",
+      "slot": "hand",
+      "modell": {
+        "haltePosition": [
+          0,
+          -0.05,
+          0.12
+        ],
+        "halteRotation": [
+          -1.9,
+          0,
+          0
+        ]
+      },
+      "bautafel": "Hammer",
+      "symbol": "hammer",
+      "stapel": 1,
+      "gewicht": 2,
+      "haltbarkeit": {
+        "max": 100,
+        "verbrauch": 1,
+        "ausdauer": 5
+      },
+      "itemLevel": 1,
+      "rarity": "common",
+      "rezept": {
+        "menge": 1,
+        "zutaten": [
+          {
+            "item": "Wood",
+            "menge": 3
+          },
+          {
+            "item": "Stone",
+            "menge": 2
+          }
+        ]
+      },
+      "texte": {
+        "inhalt.gegenstand.Hammer.name": {
+          "de": "Hammer",
+          "en": "Hammer"
+        }
+      }
+    },
+    {
+      "id": "Club",
+      "nameSchluessel": "inhalt.gegenstand.Club.name",
+      "typ": "zweihaendigWaffe",
+      "slot": "hand",
+      "modell": {
+        "haltePosition": [
+          0,
+          -0.05,
+          0.12
+        ],
+        "halteRotation": [
+          -1.9,
+          0,
+          0
+        ]
+      },
+      "symbol": "club",
+      "stapel": 1,
+      "gewicht": 2,
+      "werte": {
+        "damage": 12
+      },
+      "haltbarkeit": {
+        "max": 100,
+        "verbrauch": 1,
+        "ausdauer": 6
+      },
+      "itemLevel": 2,
+      "rarity": "common",
+      "rezept": {
+        "menge": 1,
+        "zutaten": [
+          {
+            "item": "Wood",
+            "menge": 6
+          }
+        ]
+      },
+      "texte": {
+        "inhalt.gegenstand.Club.name": {
+          "de": "Keule",
+          "en": "Club"
+        }
+      }
+    },
+    {
+      "id": "AxeFlint",
+      "nameSchluessel": "inhalt.gegenstand.AxeFlint.name",
+      "typ": "zweihaendigWaffe",
+      "slot": "hand",
+      "modell": {
+        "haltePosition": [
+          0,
+          -0.05,
+          0.12
+        ],
+        "halteRotation": [
+          -1.9,
+          0,
+          0
+        ]
+      },
+      "symbol": "axe_flint",
+      "stapel": 1,
+      "gewicht": 2.5,
+      "werte": {
+        "damage": 15
+      },
+      "ernte": {
+        "baum": 1
+      },
+      "haltbarkeit": {
+        "max": 200,
+        "verbrauch": 1,
+        "ausdauer": 8
+      },
+      "itemLevel": 5,
+      "rarity": "common",
+      "rezept": {
+        "menge": 1,
+        "zutaten": [
+          {
+            "item": "Wood",
+            "menge": 4
+          },
+          {
+            "item": "Flint",
+            "menge": 6
+          }
+        ]
+      },
+      "texte": {
+        "inhalt.gegenstand.AxeFlint.name": {
+          "de": "Feuersteinaxt",
+          "en": "Flint Axe"
+        }
+      }
+    },
+    {
+      "id": "Hoe",
+      "nameSchluessel": "inhalt.gegenstand.Hoe.name",
+      "typ": "werkzeug",
+      "slot": "hand",
+      "modell": {
+        "haltePosition": [
+          0,
+          -0.05,
+          0.12
+        ],
+        "halteRotation": [
+          -1.9,
+          0,
+          0
+        ]
+      },
+      "bautafel": "Hoe",
+      "symbol": "hoe",
+      "stapel": 1,
+      "gewicht": 2,
+      "werte": {
+        "damage": 2
+      },
+      "haltbarkeit": {
+        "max": 200,
+        "verbrauch": 1,
+        "ausdauer": 5
+      },
+      "itemLevel": 1,
+      "rarity": "common",
+      "rezept": {
+        "menge": 1,
+        "zutaten": [
+          {
+            "item": "Wood",
+            "menge": 5
+          },
+          {
+            "item": "Stone",
+            "menge": 2
+          }
+        ]
+      },
+      "texte": {
+        "inhalt.gegenstand.Hoe.name": {
+          "de": "Hacke (Hoe)",
+          "en": "Hoe"
+        }
+      }
+    },
+    {
+      "id": "PickaxeAntler",
+      "nameSchluessel": "inhalt.gegenstand.PickaxeAntler.name",
+      "typ": "zweihaendigWaffe",
+      "slot": "hand",
+      "modell": {
+        "haltePosition": [
+          0,
+          -0.05,
+          0.12
+        ],
+        "halteRotation": [
+          -1.9,
+          0,
+          0
+        ]
+      },
+      "terrain": "digg",
+      "symbol": "pickaxe_antler",
+      "stapel": 1,
+      "gewicht": 3,
+      "werte": {
+        "damage": 8
+      },
+      "ernte": {
+        "fels": 1
+      },
+      "haltbarkeit": {
+        "max": 100,
+        "verbrauch": 1,
+        "ausdauer": 4
+      },
+      "itemLevel": 2,
+      "rarity": "common",
+      "rezept": {
+        "menge": 1,
+        "zutaten": [
+          {
+            "item": "Wood",
+            "menge": 10
+          },
+          {
+            "item": "Stone",
+            "menge": 6
+          }
+        ]
+      },
+      "texte": {
+        "inhalt.gegenstand.PickaxeAntler.name": {
+          "de": "Geweihspitzhacke",
+          "en": "Antler Pickaxe"
+        }
+      }
+    },
+    {
+      "id": "Cultivator",
+      "nameSchluessel": "inhalt.gegenstand.Cultivator.name",
+      "typ": "werkzeug",
+      "slot": "hand",
+      "modell": {
+        "haltePosition": [
+          0,
+          -0.05,
+          0.12
+        ],
+        "halteRotation": [
+          -1.9,
+          0,
+          0
+        ]
+      },
+      "bautafel": "Cultivator",
+      "symbol": "cultivator_bronze",
+      "stapel": 1,
+      "gewicht": 2,
+      "werte": {
+        "damage": 2
+      },
+      "haltbarkeit": {
+        "max": 200,
+        "verbrauch": 1,
+        "ausdauer": 5
+      },
+      "itemLevel": 1,
+      "rarity": "common",
+      "rezept": {
+        "menge": 1,
+        "zutaten": [
+          {
+            "item": "Wood",
+            "menge": 5
+          },
+          {
+            "item": "Flint",
+            "menge": 2
+          }
+        ]
+      },
+      "texte": {
+        "inhalt.gegenstand.Cultivator.name": {
+          "de": "Pflug",
+          "en": "Cultivator"
+        }
+      }
+    },
+    {
+      "id": "Messer",
+      "nameSchluessel": "inhalt.gegenstand.Messer.name",
+      "typ": "werkzeug",
+      "slot": "hand",
+      "modell": {
+        "eigen": "Messer",
+        "haltePosition": [
+          0.036,
+          0.135,
+          0
+        ],
+        "halteRotation": [
+          1.5708,
+          0,
+          1.5708
+        ]
+      },
+      "symbol": "messer",
+      "stapel": 1,
+      "gewicht": 0.6,
+      "haltbarkeit": {
+        "max": 120,
+        "verbrauch": 1,
+        "ausdauer": 3
+      },
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Messer.name": {
+          "de": "Sax (Messer)",
+          "en": "Seax (Knife)"
+        }
+      }
+    },
+    {
+      "id": "Wood",
+      "nameSchluessel": "inhalt.gegenstand.Wood.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "wood",
+      "stapel": 50,
+      "gewicht": 2,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Wood.name": {
+          "de": "Holz",
+          "en": "Wood"
+        }
+      }
+    },
+    {
+      "id": "Stone",
+      "nameSchluessel": "inhalt.gegenstand.Stone.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "stone",
+      "stapel": 50,
+      "gewicht": 2,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Stone.name": {
+          "de": "Stein",
+          "en": "Stone"
+        }
+      }
+    },
+    {
+      "id": "Flint",
+      "nameSchluessel": "inhalt.gegenstand.Flint.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "flint",
+      "stapel": 50,
+      "gewicht": 0.5,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Flint.name": {
+          "de": "Feuerstein",
+          "en": "Flint"
+        }
+      }
+    },
+    {
+      "id": "Resin",
+      "nameSchluessel": "inhalt.gegenstand.Resin.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "resin",
+      "stapel": 50,
+      "gewicht": 0.5,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Resin.name": {
+          "de": "Harz",
+          "en": "Resin"
+        }
+      }
+    },
+    {
+      "id": "Raspberry",
+      "nameSchluessel": "inhalt.gegenstand.Raspberry.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "raspberry",
+      "stapel": 50,
+      "gewicht": 0.5,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Raspberry.name": {
+          "de": "Himbeeren",
+          "en": "Raspberries"
+        }
+      }
+    },
+    {
+      "id": "Blueberries",
+      "nameSchluessel": "inhalt.gegenstand.Blueberries.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "blueberries",
+      "stapel": 50,
+      "gewicht": 0.5,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Blueberries.name": {
+          "de": "Blaubeeren",
+          "en": "Blueberries"
+        }
+      }
+    },
+    {
+      "id": "Mushroom",
+      "nameSchluessel": "inhalt.gegenstand.Mushroom.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "mushroom",
+      "stapel": 50,
+      "gewicht": 0.5,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Mushroom.name": {
+          "de": "Pilz",
+          "en": "Mushroom"
+        }
+      }
+    },
+    {
+      "id": "Thistle",
+      "nameSchluessel": "inhalt.gegenstand.Thistle.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "thistle",
+      "stapel": 50,
+      "gewicht": 0.5,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Thistle.name": {
+          "de": "Distel",
+          "en": "Thistle"
+        }
+      }
+    },
+    {
+      "id": "Dandelion",
+      "nameSchluessel": "inhalt.gegenstand.Dandelion.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "dandelion",
+      "stapel": 50,
+      "gewicht": 0.5,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Dandelion.name": {
+          "de": "Löwenzahn",
+          "en": "Dandelion"
+        }
+      }
+    },
+    {
+      "id": "Carrot",
+      "nameSchluessel": "inhalt.gegenstand.Carrot.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "carrot",
+      "stapel": 50,
+      "gewicht": 0.5,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Carrot.name": {
+          "de": "Karotte",
+          "en": "Carrot"
+        }
+      }
+    },
+    {
+      "id": "RawMeat",
+      "nameSchluessel": "inhalt.gegenstand.RawMeat.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "raw_meat",
+      "stapel": 50,
+      "gewicht": 0.5,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.RawMeat.name": {
+          "de": "Rohes Fleisch",
+          "en": "Raw Meat"
+        }
+      }
+    },
+    {
+      "id": "Entrails",
+      "nameSchluessel": "inhalt.gegenstand.Entrails.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "entrails",
+      "stapel": 50,
+      "gewicht": 0.5,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Entrails.name": {
+          "de": "Gedärme",
+          "en": "Entrails"
+        }
+      }
+    },
+    {
+      "id": "Coins",
+      "nameSchluessel": "inhalt.gegenstand.Coins.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "coins",
+      "stapel": 50,
+      "gewicht": 0.5,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Coins.name": {
+          "de": "Münzen",
+          "en": "Coins"
+        }
+      }
+    },
+    {
+      "id": "Amber",
+      "nameSchluessel": "inhalt.gegenstand.Amber.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "amber",
+      "stapel": 50,
+      "gewicht": 0.5,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Amber.name": {
+          "de": "Bernstein",
+          "en": "Amber"
+        }
+      }
+    },
+    {
+      "id": "NeckTail",
+      "nameSchluessel": "inhalt.gegenstand.NeckTail.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "necktail",
+      "stapel": 50,
+      "gewicht": 0.5,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.NeckTail.name": {
+          "de": "Neck-Schwanz",
+          "en": "Neck Tail"
+        }
+      }
+    },
+    {
+      "id": "TrophyDeer",
+      "nameSchluessel": "inhalt.gegenstand.TrophyDeer.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "TrophyDeer",
+      "stapel": 10,
+      "gewicht": 1.5,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.TrophyDeer.name": {
+          "de": "Hirschtrophäe",
+          "en": "Deer Trophy"
+        }
+      }
+    },
+    {
+      "id": "CookedMeat",
+      "nameSchluessel": "inhalt.gegenstand.CookedMeat.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "necktailgrilled",
+      "stapel": 20,
+      "gewicht": 1,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.CookedMeat.name": {
+          "de": "Gebratenes Fleisch",
+          "en": "Cooked Meat"
+        }
+      }
+    },
+    {
+      "id": "HardAntler",
+      "nameSchluessel": "inhalt.gegenstand.HardAntler.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "HardAntler",
+      "stapel": 20,
+      "gewicht": 2,
+      "itemLevel": 1,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.HardAntler.name": {
+          "de": "Hartes Geweih",
+          "en": "Hard Antler"
+        }
+      }
+    },
+    {
+      "id": "TrophyEikthyr",
+      "nameSchluessel": "inhalt.gegenstand.TrophyEikthyr.name",
+      "typ": "material",
+      "slot": "hand",
+      "symbol": "TrophyEikthyr",
+      "stapel": 5,
+      "gewicht": 2,
+      "itemLevel": 10,
+      "rarity": "uncommon",
+      "texte": {
+        "inhalt.gegenstand.TrophyEikthyr.name": {
+          "de": "Eikthyr-Trophäe",
+          "en": "Eikthyr Trophy"
+        }
+      }
+    },
+    {
+      "id": "SwordNorth",
+      "nameSchluessel": "inhalt.gegenstand.SwordNorth.name",
+      "typ": "zweihaendigWaffe",
+      "slot": "hand",
+      "modell": {
+        "eigen": "SwordNorth",
+        "haltePosition": [
+          0.08,
+          0.08,
+          0.035
+        ],
+        "halteRotation": [
+          0,
+          3.141592653589793,
+          1.5707963267948966
+        ]
+      },
+      "symbol": "sword_north",
+      "stapel": 1,
+      "gewicht": 2,
+      "werte": {
+        "damage": 12
+      },
+      "haltbarkeit": {
+        "max": 200,
+        "verbrauch": 1,
+        "ausdauer": 10
+      },
+      "itemLevel": 5,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.SwordNorth.name": {
+          "de": "Nordschwert",
+          "en": "Northern Sword"
+        }
+      }
+    },
+    {
+      "id": "Staff",
+      "nameSchluessel": "inhalt.gegenstand.Staff.name",
+      "typ": "zweihaendigWaffe",
+      "slot": "hand",
+      "modell": {
+        "eigen": "Staff",
+        "haltePosition": [
+          0,
+          0.08,
+          0.035
+        ],
+        "halteRotation": [
+          0,
+          3.141592653589793,
+          1.5707963267948966
+        ],
+        "hiebVersatz": 0.9,
+        "animationsSatz": "spear"
+      },
+      "symbol": "staff",
+      "stapel": 1,
+      "gewicht": 2,
+      "werte": {
+        "damage": 10
+      },
+      "haltbarkeit": {
+        "max": 200,
+        "verbrauch": 1,
+        "ausdauer": 10
+      },
+      "itemLevel": 5,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Staff.name": {
+          "de": "Kampfstab",
+          "en": "Battle Staff"
+        }
+      }
+    },
+    {
+      "id": "Spear",
+      "nameSchluessel": "inhalt.gegenstand.Spear.name",
+      "typ": "zweihaendigWaffe",
+      "slot": "hand",
+      "modell": {
+        "eigen": "Spear",
+        "haltePosition": [
+          0,
+          0.08,
+          0.035
+        ],
+        "halteRotation": [
+          0,
+          3.141592653589793,
+          1.5707963267948966
+        ],
+        "hiebVersatz": 0.9,
+        "animationsSatz": "spear"
+      },
+      "symbol": "spear",
+      "stapel": 1,
+      "gewicht": 2,
+      "werte": {
+        "damage": 11
+      },
+      "haltbarkeit": {
+        "max": 200,
+        "verbrauch": 1,
+        "ausdauer": 10
+      },
+      "itemLevel": 5,
+      "rarity": "common",
+      "texte": {
+        "inhalt.gegenstand.Spear.name": {
+          "de": "Speer",
+          "en": "Spear"
+        }
+      }
+    }
+  ]
+}

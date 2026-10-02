@@ -24,9 +24,10 @@ import {
   VERWERF_GRUENDE,
   leseGegenstandsDatei,
   schreibeGegenstandsDatei,
+  istGrundItem,
   type GegenstandsEintrag,
 } from '@wov/shared/src/items/gegenstandsDaten.js';
-import { istCodeItem } from '@wov/shared/src/items/itemDefs.js';
+import { findItem } from '@wov/shared/src/items/itemDefs.js';
 import {
   BEREICHE,
   TEXT_MAX,
@@ -69,7 +70,7 @@ const texte = (id: string, de: string, en: string, bd?: string, be?: string): Re
   ...(bd !== undefined || be !== undefined ? { [`inhalt.gegenstand.${id}.beschreibung`]: { ...(bd !== undefined ? { de: bd } : {}), ...(be !== undefined ? { en: be } : {}) } } : {}),
 });
 
-check('fixture ingredient "Wood" is a code item', istCodeItem('Wood'));
+check('fixture ingredient "Wood" is a base item (not code, but always known)', istGrundItem('Wood') && findItem('Wood') !== undefined);
 const VOLL = eintragAus({
   id: 'Holzaxt',
   nameSchluessel: 'inhalt.gegenstand.Holzaxt.name',
@@ -220,7 +221,7 @@ console.log('\n[5] Gleiche Grund-Codes wie der Server:');
   faelle.push(['id-ungueltig', gut('klein'), andere, 'id-ungueltig']);
   faelle.push(['id-ungueltig (zu kurz)', gut('A'), andere, 'id-ungueltig']);
   faelle.push(['id-doppelt', gut('Feder'), andere, 'id-doppelt']);
-  faelle.push(['id-code-kollision', gut('Club'), andere, 'id-code-kollision']);
+  faelle.push(['id-code-kollision', gut('LederBH'), andere, 'id-code-kollision']);
   faelle.push(['id-schreibung-code', gut('CLUB'), andere, 'id-schreibung-code']);
   faelle.push(['id-schreibung-doppelt', gut('FEDER'), andere, 'id-schreibung-doppelt']);
   {

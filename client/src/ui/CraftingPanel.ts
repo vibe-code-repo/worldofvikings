@@ -1,10 +1,10 @@
 /**
  * CraftingPanel (Phase 5, Basis) — Taste C: Freihand-Rezepte aus
- * shared/items/recipes.ts. Reines Client-Crafting (das Inventar lebt
+ * der Gegenstandsdatei (`datenRezepte()`, Reihenfolge = Dateireihenfolge). Reines Client-Crafting (das Inventar lebt
  * clientseitig); geprüft wird gegen countOf, Zutaten gehen per
  * removeByName raus. Gestaltung wie SettingsPanel (Leder/Bronze).
  */
-import { REZEPTE, findItem, anzeigeName, type Inventory } from '@wov/shared';
+import { datenRezepte, findItem, anzeigeName, type Inventory } from '@wov/shared';
 import type { GameI18n } from '../i18n';
 import { konfiguriereTooltip, mitTooltip, versteckeTooltip } from './ItemTooltip';
 
@@ -74,7 +74,7 @@ export class CraftingPanel {
     versteckeTooltip();
     this.liste.textContent = '';
     if (!inv) return;
-    for (const r of REZEPTE) {
+    for (const r of datenRezepte()) {
       const def = findItem(r.ergebnis);
       if (!def) continue;
       const machbar = r.zutaten.every((z) => inv.countOf(z.item) >= z.menge);

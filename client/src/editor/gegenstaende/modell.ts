@@ -257,12 +257,15 @@ export function formularZuEintrag(f: Formular, basis: GegenstandsEintrag | null 
     modell: {
       ...basis?.modell,
       upload: f.upload === '' ? null : f.upload,
+      eigen: basis?.modell.eigen ?? null, // no form field yet (GD4); an edited entry keeps what it had
       skala: zahlOderUndef(f.skala) ?? 1,
       haltePosition: vektorAus(f.haltePosition),
       halteRotation: vektorAus(f.halteRotation),
       hiebVersatz: zahlOderUndef(f.hiebVersatz) ?? null,
       animationsSatz: f.animationsSatz === '' ? null : f.animationsSatz,
     },
+    bautafel: basis?.bautafel ?? null, // no form field yet (GD4); an edited entry keeps what it had
+    terrain: basis?.terrain ?? null,
     symbol: f.symbol === '' ? null : f.symbol,
     stapel: zahlOderUndef(f.stapel) ?? 1,
     gewicht: zahlOderUndef(f.gewicht) ?? 1,

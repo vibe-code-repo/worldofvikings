@@ -224,6 +224,8 @@ export default [
     Ohne Weiche: kein `assets/`, keine GPU, reine Tabellen.
   */
   ['shared', 'test/flora-verdrahtung.ts'],
+  // GD1: Grundbestand der 29 Gegenstaende in der Datei (Felder, Rezepte, Format, immer da, alter Spielstand).
+  ['shared', 'test/gd1-grundbestand.ts'],
   ['shared', 'test/gegenstands-daten.ts'],
   ['shared', 'test/geo-smoke.ts'],
   /*

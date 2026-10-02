@@ -184,6 +184,30 @@ export default [
   // AP15.3/15.4/15.5: the pure logic of the editor's cell tools — picking maths
   // and mutations, DOM-free, seconds.
   ['client', 'test/dungeon2-zellwerkzeuge.ts'],
+  // EG2 N1: der Ablauf ums Speichern, DOM-frei: Sperre des Speichern-Knopfs (laedt/speichert/Konflikt),
+  // nichts entkommt als unbehandelte Ablehnung, Konfliktpruefung nach 412 (eigene oder Server-Fassung,
+  // gegen einen Speicher-Server mit der If-Match-Regel) und die Verdrahtung in seite.ts am Syntaxbaum.
+  ['client', 'test/editor-gegenstaende-ablauf.ts'],
+  // EG2 Gegenstands-Maske: der Client von GET/PUT /api/gegenstaende gegen den ECHTEN Betriebsdienst
+  // (Testwurzel, Port 0, zweiter Prozess haelt die Sperre): 200, 412 mit Neu-laden (Entwurf bleibt),
+  // 409 (bestaetigter PUT nur nach einem Ja), 422 mit Grund-Codes, 503, 428/401/Netz, Quittung.
+  // Weist das Ende von Dienst und Halter per `ps -p` nach. ~15 s.
+  ['client', 'test/editor-gegenstaende-api.ts'],
+  // EG2: der Text des Bestaetigungsdialogs (Anzahl, Namen, "endgueltig"/"permanently", Inventare und
+  // Truhen) in beiden Sprachen, aus der 409-Antwort der Route gebaut. DOM-frei, Sekunden.
+  ['client', 'test/editor-gegenstaende-dialog.ts'],
+  // EG2: Einhaengen in editorMain.ts am Syntaxbaum (genau ein Import aus ./gegenstaende/, der letzte,
+  // genau ein Aufruf) und Ladezeit-Sauberkeit der vier neuen Module (kein Aufruf, kein await, keine
+  // Registry, kein Schreiben in Importe). DOM-frei, Sekunden.
+  ['client', 'test/editor-gegenstaende-einhaengen.ts'],
+  // EG2: das DOM-freie Modell der Maske: Rundreise Formular <-> Eintrag bytegleich, Pflichtfelder,
+  // feste Kennung, Kopieren, dieselben Grund-Codes wie der Server, Bereiche = Bereiche des Lesers.
+  // DOM-frei, Sekunden.
+  ['client', 'test/editor-gegenstaende-modell.ts'],
+  // EG2: jeder Text der Maske ueber den Katalog editor.gegenstand.* (de+en): benutzte = vorhandene
+  // Schluessel, jeder Grund-Code des Lesers und jeder fehler-Code der Route (am Syntaxbaum aus
+  // admin/src/routen/gegenstaende.ts gelesen) uebersetzt, kein Klartext in seite.ts. DOM-frei, Sekunden.
+  ['client', 'test/editor-gegenstaende-texte.ts'],
   // T0a N2 (Auflagen A1/A2 aus dem Nachangriff): Sprachauswahl von t()/aktuelleSprache()
   // in editor/i18n.ts (?lang, dann gespeicherte Wahl, dann de), Gleichheit mit GameI18n/
   // main.ts fuer dieselben Eingaben, dazu editorI18nInstance() in zwei Kindprozessen

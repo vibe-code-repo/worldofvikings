@@ -10,7 +10,7 @@
 
 import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
-import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, SERVER_MELDUNG_BEUTE_FREMD, SERVER_MELDUNG_INVENTAR_VOLL, serverMeldungAufgesammelt, serverMeldungBesiegt, serverMeldungVollRest, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
+import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, SERVER_MELDUNG_BEUTE_FREMD, SERVER_MELDUNG_INVENTAR_VOLL, SERVER_MELDUNG_UNVERWUNDBAR, serverMeldungAufgesammelt, serverMeldungBesiegt, serverMeldungVollRest, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
 import {
   EVENT_CHANCE,
@@ -98,7 +98,7 @@ import { PrefabManager } from './prefab/PrefabManager.js';
 import type { Prefab } from './prefab/Prefab.js';
 import { ZoneManager } from './world/ZoneManager.js';
 import { setzeZonenZurueck } from './world/zonenRuecksetzer.js';
-import { SpawnSystem } from './world/SpawnSystem.js';
+import { SpawnSystem, type SpawnZielInfo } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
 import { befreieSpielerbauten, istSpielerbau, layoutAbgleich, type LayoutAbgleichErgebnis, type LayoutAbgleichKontext } from './world/layoutAbgleich.js';
 import { AggroSystem } from './world/AggroSystem.js';
@@ -444,6 +444,7 @@ export class WovServer {
   private readonly weltUmgebung: WeltUmgebung = {
     prefabName: (hash) => this.prefabs.getByHash(hash)?.name,
     kreaturTrifft: (pos, dmg, r, weltId, target) => this.applyCreatureAttack(pos, dmg, r, weltId, target),
+    vergesseSchadensanteile: (zdo) => this.beuteAmBoden.vergiss(zdo),
   };
 
   /**
@@ -1114,6 +1115,8 @@ export class WovServer {
       this.weltUmgebung
     );
     this.welten.set(HAUPTWELT_ID, this.hauptwelt);
+    // Kreaturen fragen dieselbe Kollisionswelt wie die Spieler (Felsen, Bauten).
+    if (this.hauptwelt.spawns) this.hauptwelt.spawns.kollision = this.kollisionswelt;
     console.log(`[WoV] Worldgen ready in ${Date.now() - t0}ms (seed "${this.config.worldSeed}")`);
 
     // Phase G: dungeon documents/entrances from disk, then wire the
@@ -1937,6 +1940,7 @@ export class WovServer {
       // am Umkreis der Spieler. Eine leerstehende Instanz kostet nichts.
       const positionenJeWelt = new Map<string, Vector3[]>();
       const zieleJeWelt = new Map<string, Vector3[]>();
+      const zielInfoJeWelt = new Map<string, SpawnZielInfo[]>();
       const kennungenJeWelt = new Map<string, string[]>();
       for (const p of peers) {
         // A dead player stays in the position list (zones, spawns and routes keep
@@ -1952,6 +1956,10 @@ export class WovServer {
         const ziele = zieleJeWelt.get(p.worldId);
         if (ziele) ziele.push(p.position);
         else zieleJeWelt.set(p.worldId, [p.position]);
+        const info = { id: String(p.userId), blick: p.blickYaw };
+        const infos = zielInfoJeWelt.get(p.worldId);
+        if (infos) infos.push(info);
+        else zielInfoJeWelt.set(p.worldId, [info]);
       }
       const weltenStart = performance.now();
       for (const welt of this.welten.values()) {
@@ -1961,7 +1969,8 @@ export class WovServer {
           deltaSec,
           positionen,
           zieleJeWelt.get(welt.id) ?? [],
-          kennungenJeWelt.get(welt.id)
+          kennungenJeWelt.get(welt.id),
+          zielInfoJeWelt.get(welt.id)
         );
         if (neueZonen > 0) {
           console.log(
@@ -3843,6 +3852,7 @@ export class WovServer {
     const jetzt = Date.now();
     const entscheid = pruefeSchlag(peer.schlag, meldung, jetzt, waffe);
     if (!entscheid.ok) return quittiere(0, entscheid.ergebnis);
+    const staminaVorher = { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht };
     const nachSchlag = ausdauerAbzug(
       { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
       schlagKosten(this.werteVon(peer).agility),
@@ -3874,6 +3884,7 @@ export class WovServer {
     let ziel: import('./zdo/ZDO.js').ZDO | null = null;
     // D2: Trefferkugel (0;1;1) um die Serverposition; der naechste Kandidat zur Kugelmitte gewinnt.
     let best = Number.POSITIVE_INFINITY;
+    let abgewehrt = false;
     for (const zdo of this.zdosVon(peer).getZDOsInRadius(von, WovServer.NAHKAMPF_REICHWEITE + TOLERANZ_MAX_M)) {
       const def = this.prefabs.getByHash(zdo.prefabHash);
       const flags = def?.flags ?? 0n;
@@ -3886,7 +3897,15 @@ export class WovServer {
       // Der Kegel steht VOR der Kugel: er ist billiger (kein 3D-Abstand) und hat den Mindestabstand.
       if (!this.imTrefferkegel(von, yaw, zdo.position)) continue;
       const d = trefferAbstand(von, yaw, zdo.position, this.spawns?.tempo(zdo) ?? 0);
-      if (d === null || d >= best) continue;
+      if (d === null) continue;
+      // Wer heimkehrt (aufgegeben, Leben gefüllt), ist kein Ziel: sonst träfe
+      // ein Spieler mit 3,5 m Reichweite den Wolf an der Leine ohne Risiko.
+      // Der Schlag gilt als abgewehrt (s. unten), nicht als Fehlschlag; nur in Reichweite.
+      if (this.spawns?.unverwundbar(zdo)) {
+        abgewehrt = true;
+        continue;
+      }
+      if (d >= best) continue;
       best = d;
       ziel = zdo;
     }
@@ -3900,7 +3919,21 @@ export class WovServer {
     */
     if (!ziel) {
       quittiere(entscheid.schritt, SchlagErgebnis.Fehl);
-      return this.handleHarvest(peer, von, waffe);
+      // Die Ernte läuft wie immer. Nur wenn der Schlag sonst nichts getroffen hätte und ein
+      // Heimkehrer im Kegel stand, kostet er keine Ausdauer und sagt, warum.
+      const geerntet = this.handleHarvest(peer, von, waffe);
+      if (!geerntet && abgewehrt) {
+        peer.stamina = staminaVorher.wert;
+        peer.staminaZuletztVerbraucht = staminaVorher.zuletztVerbraucht;
+        this.sendPlayerState(peer);
+        peer.sendPacketWith(PacketType.InteractResult, (w) => {
+          w.writeBool(false);
+          w.writeString(SERVER_MELDUNG_UNVERWUNDBAR);
+          w.writeString('');
+          w.writeInt32(0);
+        });
+      }
+      return;
     }
     quittiere(entscheid.schritt, SchlagErgebnis.Treffer);
     const name = this.prefabs.getByHash(ziel.prefabHash)?.name ?? '?';
@@ -3937,7 +3970,7 @@ export class WovServer {
       ziel.setInt(HEALTH_MEMBER, hp);
       ziel.revision.reviseData();
       ziel.dirty = true;
-      this.spawns?.treffer(ziel);
+      this.spawns?.treffer(ziel, { id: String(peer.userId), schaden });
     }
   }
 
@@ -3949,7 +3982,8 @@ export class WovServer {
    * `waffe` kommt bereits geprüft von handleAttack (waffeFuerSchlag, K2a) —
    * kein zweiter Abgleich hier nötig.
    */
-  private handleHarvest(peer: Peer, pos: Vector3, waffe: string): void {
+  /** Erntet, was im Schlagbereich steht. Liefert false, wenn es nichts zu ernten gab (dann ist nichts geschehen). */
+  private handleHarvest(peer: Peer, pos: Vector3, waffe: string): boolean {
     const antwort = (message: string, itemName = '', amount = 0) => {
       const rest = this.gebeItem(peer, itemName, amount);
       peer.sendPacketWith(PacketType.InteractResult, (w) => {
@@ -3985,14 +4019,16 @@ export class WovServer {
         art = a;
       }
     }
-    if (!ziel || !art) return;
+    if (!ziel || !art) return false;
 
     // Werkzeug-Pflicht wie im Original: Holz braucht die Axt, Stein die Spitzhacke.
     if (art === 'baum' && !kannErnten(waffe, 'baum')) {
-      return antwort('Zu hart — dafür braucht es eine Axt');
+      antwort('Zu hart — dafür braucht es eine Axt');
+      return true;
     }
     if (art === 'fels' && !kannErnten(waffe, 'fels')) {
-      return antwort('Zu hart — dafür braucht es eine Spitzhacke');
+      antwort('Zu hart — dafür braucht es eine Spitzhacke');
+      return true;
     }
 
     const startHp = art === 'baum' ? 60 : art === 'fels' ? 90 : 15;
@@ -4003,12 +4039,13 @@ export class WovServer {
       ziel.setInt(HEALTH_MEMBER, hp);
       ziel.revision.reviseData();
       ziel.dirty = true;
-      return;
+      return true;
     }
     this.zdosVon(peer).destroyZDO(ziel.zdoid);
     const menge = art === 'weich' ? 2 : 6 + ((Math.random() * 5) | 0);
     const item = art === 'fels' ? 'Stone' : 'Wood';
     antwort(`${art === 'baum' ? 'Baum gefällt' : art === 'fels' ? 'Fels zerbrochen' : 'Zerlegt'} — ${menge}× ${item}`, item, menge);
+    return true;
   }
 
   /** Kreaturen-Treffer auf Spieler (vom SpawnSystem gemeldet). */

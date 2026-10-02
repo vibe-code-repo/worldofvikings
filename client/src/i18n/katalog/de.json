@@ -158,6 +158,7 @@
   "inventory.hint": "Ziehen zum Umsortieren · Klick zum Ausrüsten · I/Esc schließt",
   "inventory.title": "Inventar",
   "inventory.weight": "Gewicht {weight}",
+  "kampf.unverwundbar": "Das Tier kehrt heim und ist nicht zu treffen",
   "language.name": "Deutsch",
   "loading.building": "Gelände wird aufgebaut",
   "loading.ready": "Bereit",

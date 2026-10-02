@@ -49,10 +49,24 @@ import {
   istEigenesModell,
   naechstesEinmal,
   pruefeClips,
+  kiSchritt,
+  kiReiz,
+  kiLaerm,
+  kiRuf,
+  kiDarfRufen,
+  hoert,
+  neuerKiZustand,
+  type KiZustand,
+  type KiSteckbrief,
+  type KiZiel,
+  type KiBefehl,
   type SpawnEntry,
   type KreaturAnim,
   type EinmalClip,
 } from '@wov/shared';
+import { gleitBewegung } from '@wov/shared/src/bewegung/gleiten.js';
+import { KI_VORGABE, steckbriefFuer } from '../spiel/KreaturenSteckbriefe.js';
+import type { Kollisionswelt } from './Kollisionswelt.js';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
 import type { ZDO } from '../zdo/ZDO.js';
 import type { ZoneManager } from './ZoneManager.js';
@@ -66,6 +80,12 @@ export interface SpawnSystemOptions {
   despawnRadius?: number;
   simRadius?: number;
   syncIntervalSec?: number;
+  /**
+   * NUR FÜR TESTS (Server und Konfiguration setzen sie nicht): Werte des
+   * KI-Steckbriefs, die für alle aggressiven Kreaturen dieses Systems
+   * überschrieben werden, um einen Wert zu isolieren, etwa den Rückzug.
+   */
+  kiUeberschreibung?: Partial<KiSteckbrief>;
 }
 
 type CreatureMode = 'idle' | 'walk' | 'flee' | 'chase';
@@ -88,6 +108,32 @@ interface CreatureState {
   anim?: KreaturAnim;
   /** simTime at which a slain creature is removed (the `die` clip is playing). */
   stirbtBis?: number;
+  /** KI-Zustandsmaschine (nur aggressive Kreaturen) und ihr Steckbrief. */
+  ki?: KiZustand;
+  steck?: KiSteckbrief;
+  /** Kollisionsradius des Körpers (Steckbrief, sonst 0,4). */
+  radius?: number;
+  /** Weg des letzten Schritts — die Strecke der Verfolgung. */
+  gelaufen?: number;
+  /** Der Heimatpunkt wurde gegen die Formen geprüft (einmal, beim ersten Schritt). */
+  ankerGeprueft?: boolean;
+  /** Wo die Kreatur aufgenommen wurde (Spawn, Adoption): Ein neuer Anker bleibt in ihrer Leine. */
+  ursprung?: Vector3;
+  /** Aus dem Spiel nehmen (kein Ausweg aus dem Fels): der nächste Schritt räumt sie ab. */
+  entfernen?: boolean;
+}
+
+/** Ein Angreifer, wie das Spawnsystem ihn kennt: Kennung und Schaden. */
+export interface SpawnAngreifer {
+  readonly id: string;
+  readonly schaden: number;
+}
+
+/** Kennung und Blickrichtung eines Ziels (parallel zur Zielliste). */
+export interface SpawnZielInfo {
+  readonly id: string;
+  /** Gierwinkel des Blicks (forward = (−sin, −cos)) oder null. */
+  readonly blick: number | null;
 }
 
 /**
@@ -156,14 +202,47 @@ const ARRIVE_DIST = 0.4;
  */
 const MAX_GLEICHZEITIGE_ANGREIFER = 2;
 
+/**
+ * Längster Schritt der Simulation in Sekunden. Nach einem Stau des Servers
+ * (Speichern, Ladepause) käme sonst ein Schritt von Sekunden an: Der Wolf
+ * sprang mehrere Meter durch die Kollision, und Takt und Fristen der KI
+ * liefen auf einmal ab. 0,25 s sind ein Sync-Schritt (4 Hz) und bei 4,9 m/s
+ * Laufschritt 1,2 m, weniger als der Wolf (Durchmesser 0,9 m) plus ein Fels.
+ * (Die Eingabe der Spieler kappt bei 0,5 s, WovServer.handlePlayerInput.)
+ */
+const MAX_SCHRITT_SEC = 0.25;
+
+/**
+ * Wie viel eines langen Ticks die Simulation in Teilschritten nachholt, in Sekunden.
+ * Ein Tick von 0,5 oder 1 s läuft so in Schritten zu höchstens 0,25 s ab, statt die
+ * Kreaturen auf einen Bruchteil der Wanduhr zu bremsen (0,25 s je 1 s = 25 %).
+ * 2 s sind acht Teilschritte; was darüber liegt (ein Hänger von 30 s), wird verworfen,
+ * damit der Stau keine Lawine aus Schritten auslöst.
+ */
+const MAX_NACHHOL_SEC = 2;
+
 export class SpawnSystem {
   private readonly table: readonly SpawnEntry[];
   private readonly rng: XorShiftRandom;
   private readonly despawnRadius: number;
   private readonly simRadius: number;
   private readonly syncIntervalSec: number;
+  private readonly kiUeberschreibung: Partial<KiSteckbrief> | undefined;
 
   private readonly creatures = new Map<string, CreatureState>();
+  /**
+   * Felsen und Bauten für die Bewegung der Kreaturen (0.15). Der Server hängt
+   * die Kollisionswelt der Hauptwelt ein; ohne Formen oder ohne Abfrage
+   * rechnen Kreaturen wie vor der Kollision (eine Zone ohne Felsen kostet nichts).
+   */
+  kollision: Kollisionswelt | null = null;
+  /** Das Gelände als Boden für den Gleitschritt. */
+  private readonly bodenAbfrage = {
+    hoeheBei: (x: number, z: number): number => this.heightmaps.getGroundHeight(x, z),
+    gelaendeHoehe: (x: number, z: number): number => this.heightmaps.getGroundHeight(x, z),
+  };
+  /** Kennung und Blick der Ziele des laufenden Ticks (parallel zur Zielliste). */
+  private zielInfo: readonly SpawnZielInfo[] = [];
   private readonly spawnAccums: number[];
   /** Simulated seconds since construction (sole clock — no Date.now). */
   private simTime = 0;
@@ -186,6 +265,7 @@ export class SpawnSystem {
     this.despawnRadius = options.despawnRadius ?? SPAWN_DESPAWN_RADIUS;
     this.simRadius = options.simRadius ?? SPAWN_SIM_RADIUS;
     this.syncIntervalSec = options.syncIntervalSec ?? SPAWN_SYNC_INTERVAL_SEC;
+    this.kiUeberschreibung = options.kiUeberschreibung;
     this.spawnAccums = this.table.map(() => 0);
   }
 
@@ -247,10 +327,71 @@ export class SpawnSystem {
    * A player hit this creature and it lives on: play `hit` once, if the model
    * has the clip. Returns whether a clip was triggered.
    */
-  treffer(zdo: ZDO): boolean {
+  treffer(zdo: ZDO, angreifer?: SpawnAngreifer): boolean {
     const c = this.eigene(zdo);
     if (!c || c.stirbtBis !== undefined) return false;
+    if (angreifer) this.reizeVon(c, angreifer);
     return this.einmal(c, 'hit');
+  }
+
+  /**
+   * Schaden zieht Aggro: Der Angreifer kommt in die Tabelle der getroffenen
+   * Kreatur. Sie ruft außerdem ihre Nachbarn derselben Art — aber nur, wenn sie
+   * selbst noch innerhalb ihrer Leine steht.
+   */
+  private reizeVon(c: CreatureState, a: SpawnAngreifer): void {
+    if (!c.ki || !c.steck) return;
+    kiReiz(c.ki, a.id, a.schaden);
+    if (kiDarfRufen(c.steck, c.zdo.position.x, c.zdo.position.z, c.home.x, c.home.z)) {
+      this.ruf(c, a.id);
+    }
+  }
+
+  /** Ziele des letzten Ticks (Positionen), parallel zu `zielInfo`. */
+  private letzteZiele: readonly Vector3[] = [];
+
+  /**
+   * Ein Lärm an `pos`, verursacht von `id`: Jede aggressive Kreatur im Hörradius
+   * kennt den Verursacher danach. Hören ist an diesen Reiz gebunden: Ein Spieler,
+   * der nur im Hörradius steht, macht keinen Lärm und bleibt unbemerkt, solange
+   * er außerhalb des Sichtkegels ist. Wer Lärm erzeugt (Schritte, Schläge),
+   * ruft diese Methode.
+   *
+   * NOCH OHNE QUELLE: Kein Code des Servers ruft sie auf (Schritte, Schläge
+   * und Rufe als Lärm sind offen); nur der Test `ki-zustaende` benutzt sie.
+   */
+  laerm(id: string, pos: Vector3): void {
+    for (const c of this.creatures.values()) {
+      if (!c.ki || !c.steck || c.stirbtBis !== undefined) continue;
+      if (hoert(c.steck, c.zdo.position.x, c.zdo.position.z, pos.x, pos.z)) kiLaerm(c.ki, id);
+    }
+  }
+
+  /**
+   * Heimkehrende Kreaturen sind unverwundbar (sie haben ihre Lebenspunkte beim
+   * Aufgeben aufgefüllt): Der Angriffspfad des Servers überspringt sie als Ziel.
+   * Sonst träfe ein Spieler mit längerer Reichweite an der Leine gratis.
+   */
+  unverwundbar(zdo: ZDO): boolean {
+    return this.eigene(zdo)?.ki?.phase === 'heimkehren';
+  }
+
+  /** Die Phase der KI einer Kreatur (Diagnose, Tests); null ohne Zustandsmaschine. */
+  kiPhase(zdo: ZDO): KiZustand['phase'] | null {
+    return this.eigene(zdo)?.ki?.phase ?? null;
+  }
+
+  /** Nachbarn derselben Art im Umkreis der Leine kennen den Reiz danach. */
+  private ruf(c: CreatureState, id: string): void {
+    const r = c.steck?.leine ?? 0;
+    if (!Number.isFinite(r)) return;
+    const rSqr = r * r;
+    for (const o of this.creatures.values()) {
+      if (o === c || o.entry !== c.entry || !o.ki || o.stirbtBis !== undefined) continue;
+      const dx = o.zdo.position.x - c.zdo.position.x;
+      const dz = o.zdo.position.z - c.zdo.position.z;
+      if (dx * dx + dz * dz <= rSqr) kiRuf(o.ki, id);
+    }
   }
 
   /**
@@ -304,6 +445,16 @@ export class SpawnSystem {
    */
   private nimmAuf(key: string, c: CreatureState): void {
     if (c.entry.clips) nimmAnim(c.zdo, 'kreatur');
+    const brief = steckbriefFuer(c.entry.prefab);
+    c.ursprung = { ...c.home };
+    c.radius = brief?.koerperRadius ?? KI_VORGABE.koerperRadius;
+    // Aggressive Kreaturen (weder fliehend noch friedlich) bekommen die
+    // Zustandsmaschine; ohne eigenen Steckbrief gilt das Verhalten von früher.
+    if (!c.entry.flees && c.entry.aggro !== false) {
+      const basis = brief?.ki ?? KI_VORGABE;
+      c.steck = this.kiUeberschreibung ? { ...basis, ...this.kiUeberschreibung } : basis;
+      c.ki = neuerKiZustand();
+    }
     this.creatures.set(key, c);
   }
 
@@ -328,6 +479,9 @@ export class SpawnSystem {
           syncAccum: 0,
         };
         this.nimmAuf(key, c);
+        // Aus dem Save geladen steht jede Kreatur in `wandern` (die KI-Phase wird nicht gespeichert): Eine mit
+        // Leine (Wolf) bekommt volle Lebenspunkte, sonst bliebe sie mit 1 LP verwundet.
+        if (c.steck && Number.isFinite(c.steck.leine)) this.fuelleLeben(c);
         // A creature from the save may still say `walk` or `attack`.
         this.zeigeAnim(c, 'idle');
       }
@@ -386,18 +540,28 @@ export class SpawnSystem {
    * `peerPositions`: every player in this world (despawn and spawn radius). `ziele`: those creatures may
    * chase and strike (default: all) — a dead player is in the first list, not in the second.
    */
-  update(deltaSec: number, peerPositions: readonly Vector3[], ziele: readonly Vector3[] = peerPositions): void {
-    this.simTime += deltaSec;
-
-    if (peerPositions.length === 0) {
+  update(
+    deltaSec: number,
+    peerPositions: readonly Vector3[],
+    ziele: readonly Vector3[] = peerPositions,
+    zielInfo: readonly SpawnZielInfo[] = []
+  ): void {
+    this.zielInfo = zielInfo;
+    this.letzteZiele = ziele;
+    // Ein langer Tick läuft in Teilschritten zu höchstens MAX_SCHRITT_SEC ab, insgesamt
+    // höchstens MAX_NACHHOL_SEC (der Rest eines Staus wird verworfen).
+    let rest = Math.min(deltaSec, MAX_NACHHOL_SEC);
+    do {
+      const dt = Math.min(rest, MAX_SCHRITT_SEC);
+      rest -= dt;
+      this.simTime += dt;
       // Nobody online: nothing simulates, nothing despawns (reference parity:
       // persistent creatures simply sleep with no clients connected).
-      return;
-    }
-
-    this.despawnFar(peerPositions);
-    this.spawnTick(deltaSec, peerPositions);
-    this.simulateTick(deltaSec, ziele);
+      if (peerPositions.length === 0) continue;
+      this.despawnFar(peerPositions);
+      this.spawnTick(dt, peerPositions);
+      this.simulateTick(dt, ziele);
+    } while (rest > 1e-9);
   }
 
   // ── Despawn ──────────────────────────────────────────────────────
@@ -461,6 +625,8 @@ export class SpawnSystem {
       const mz = m === 0 ? az : az + this.rng.rangeFloat(-entry.groupRadius, entry.groupRadius);
       const ground = this.heightmaps.getGroundHeight(mx, mz);
       if (ground < entry.minAltitude) continue;
+      // Nicht in einen Fels oder ein Bauwerk setzen (sonst läuft die Kreatur hindurch).
+      if (this.stecktImFels({ x: mx, y: ground, z: mz }, steckbriefFuer(entry.prefab)?.koerperRadius ?? KI_VORGABE.koerperRadius)) continue;
 
       const yaw = this.rng.rangeFloat(0, TWO_PI);
       const rot = yawQuaternion(yaw);
@@ -485,13 +651,28 @@ export class SpawnSystem {
   /** Creature strike: position, damage, radius and selected target — wired by the server. */
   onCreatureAttack: ((pos: Vector3, damage: number, radius: number, target: Vector3) => void) | null = null;
 
+  /** D5: the damage tally of a creature is void (it went home at full health, or left the game without a kill) — wired by the world. */
+  beiAnteileVergessen: ((zdo: ZDO) => void) | null = null;
+
   private simulateTick(deltaSec: number, peerPositions: readonly Vector3[]): void {
     const simSqr = this.simRadius * this.simRadius;
-    const angriffsSlots = this.berechneAngriffsSlots(peerPositions);
+    const kiZiele: KiZiel[] = peerPositions.map((p, i) => ({
+      key: this.zielInfo[i]?.id ?? `p${i}`,
+      x: p.x,
+      z: p.z,
+      blick: this.zielInfo[i]?.blick ?? null,
+    }));
+    const angriffsSlots = this.berechneAngriffsSlots(kiZiele);
     for (const [key, c] of this.creatures) {
       // Extern getötet (Spieler-Angriff): Zustand aufräumen.
       if (c.zdo.destroyed) {
         this.creatures.delete(key);
+        continue;
+      }
+      // Kein Ausweg aus dem Fels: wie beim Wegzug des Spielers aus dem Spiel nehmen,
+      // die Spawn-Würfe setzen sie normal neu (kein Kampf, kein Tod, keine Beute).
+      if (c.entfernen) {
+        this.nimmAusDemSpiel(key, c);
         continue;
       }
       // Slain: the body stays while the clip plays, then goes. Before the
@@ -506,59 +687,30 @@ export class SpawnSystem {
       // Cheap rest when no player is near (position untouched, bit-exact)
       const nearest = this.nearestPeer(c.zdo.position, peerPositions);
       if (!nearest) {
-        // No target at all (the only player lies dead): a chaser lets go and stands.
-        if (c.mode === 'chase') {
-          c.mode = 'idle';
-          c.idleUntil = this.simTime + this.rng.rangeFloat(c.entry.idleMinSec, c.entry.idleMaxSec);
-          this.zeigeAnim(c, 'idle');
-        }
+        // No target at all (the only player lies dead): the table empties
+        // and the creature walks home.
+        if (c.ki && c.steck && c.ki.phase !== 'wandern') this.kiLauf(key, c, deltaSec, kiZiele, angriffsSlots);
         continue;
       }
-      if (nearest.distSqr > simSqr) continue;
+      if (nearest.distSqr > simSqr) {
+        // Außerhalb der Simulation steht die Kreatur: mitten in `heimkehren` (unverwundbar) einzufrieren hieße,
+        // dass sie es bleibt. Sie gilt als zu Hause: volle Lebenspunkte, Phase `wandern`.
+        if (c.ki && c.steck && c.ki.phase !== 'wandern' && Number.isFinite(c.steck.leine)) this.setzeZuHause(c);
+        continue;
+      }
 
       const entry = c.entry;
 
-      // Aggro (Monster): verfolgen statt fliehen; Nahdistanz → zuschlagen.
-      if (!entry.flees && entry.aggro !== false) {
-        if (c.mode !== 'chase' && nearest.distSqr < 20 * 20) {
-          c.mode = 'chase';
-        } else if (c.mode === 'chase' && nearest.distSqr > 32 * 32) {
-          c.mode = 'idle';
-          c.idleUntil = this.simTime + this.rng.rangeFloat(entry.idleMinSec, entry.idleMaxSec);
+      // Aggressive Kreaturen: die Zustandsmaschine führt, solange sie nicht
+      // in `wandern` steht; dann gilt der Wanderzweig unten.
+      if (c.ki && c.steck && this.kiLauf(key, c, deltaSec, kiZiele, angriffsSlots)) {
+        c.syncAccum += deltaSec;
+        if (c.syncAccum >= this.syncIntervalSec) {
+          c.syncAccum -= this.syncIntervalSec;
+          c.zdo.revision.reviseData();
+          c.zdo.dirty = true;
         }
-        if (c.mode === 'chase') {
-          const dist = Math.sqrt(nearest.distSqr);
-          this.zeigeAnim(c, dist > 1.7 ? 'run' : 'attack');
-          if (dist > 1.7) {
-            // Left strike range while chasing: drop any accumulated timer so
-            // a later return to range starts the 2 s cooldown from zero,
-            // same as losing a slot below (see berechneAngriffsSlots).
-            c.attackAccum = 0;
-            const dx = nearest.pos.x - c.zdo.position.x;
-            const dz = nearest.pos.z - c.zdo.position.z;
-            this.moveStep(c, dx / dist, dz / dist, entry.runSpeed * deltaSec);
-          } else if (angriffsSlots.has(key)) {
-            c.attackAccum = (c.attackAccum ?? 0) + deltaSec;
-            if (c.attackAccum >= 2) {
-              c.attackAccum = 0;
-              this.einmal(c, 'attack');
-              this.onCreatureAttack?.(c.zdo.position, 8, 2.4, nearest.pos);
-            }
-          } else {
-            // No free slot (MAX_GLEICHZEITIGE_ANGREIFER already taken for this
-            // target): wait without a running timer, so a freed slot starts
-            // this creature's own 2 s cooldown from zero, not with a
-            // pre-loaded hit.
-            c.attackAccum = 0;
-          }
-          c.syncAccum += deltaSec;
-          if (c.syncAccum >= this.syncIntervalSec) {
-            c.syncAccum -= this.syncIntervalSec;
-            c.zdo.revision.reviseData();
-            c.zdo.dirty = true;
-          }
-          continue;
-        }
+        continue;
       }
 
       // Flee gate (skittish creatures only)
@@ -582,7 +734,7 @@ export class SpawnSystem {
           // New wander target around the home anchor; water targets are
           // skipped (stay idle another second and retry)
           const angle = this.rng.rangeFloat(0, TWO_PI);
-          const dist = this.rng.rangeFloat(0, entry.wanderRadius);
+          const dist = this.rng.rangeFloat(0, Math.min(entry.wanderRadius, c.steck?.leine ?? Infinity));
           const tx = c.home.x + Math.cos(angle) * dist;
           const tz = c.home.z + Math.sin(angle) * dist;
           if (this.heightmaps.getGroundHeight(tx, tz) >= entry.minAltitude) {
@@ -625,6 +777,157 @@ export class SpawnSystem {
   }
 
   /**
+   * Ein Schritt der Zustandsmaschine für eine Kreatur. Liefert false, wenn sie
+   * in `wandern` steht und der Wanderzweig übernimmt.
+   */
+  private kiLauf(
+    key: string,
+    c: CreatureState,
+    deltaSec: number,
+    ziele: readonly KiZiel[],
+    slots: ReadonlySet<string>
+  ): boolean {
+    const ki = c.ki as KiZustand;
+    const p = c.zdo.position;
+    const vorher = ki.phase;
+    // Der Heimatpunkt liegt nicht im Fels (nachgeladener Fels, Spawn am Bauwerk):
+    // sonst käme die Heimkehr nie an. Einmal, beim ersten Schritt mit Formen.
+    if (!c.ankerGeprueft && this.kollision?.hatFormen) {
+      c.ankerGeprueft = true;
+      const raus = this.kollision.nahfeld(c.home, 0).ausDemFels(c.home, c.radius ?? KI_VORGABE.koerperRadius, this.betretbar(c));
+      if (raus === 'keinAusweg') c.home = { x: p.x, y: p.y, z: p.z };
+      else if (raus) c.home = { x: raus.x, y: c.home.y, z: raus.z };
+    }
+    const befehl: KiBefehl = kiSchritt(
+      ki,
+      c.steck as KiSteckbrief,
+      {
+        x: p.x,
+        z: p.z,
+        yaw: yawVon(c.zdo.rotation),
+        homeX: c.home.x,
+        homeZ: c.home.z,
+        ziele,
+        zuletztGelaufen: c.gelaufen ?? 0,
+        darfSchlagen: slots.has(key),
+      },
+      deltaSec,
+      () => this.rng.nextFloat()
+    );
+    c.gelaufen = 0;
+    // Festgesessen auf dem Heimweg: hier ist jetzt der Anker (kiSchritt: `ankerNeu`).
+    if (befehl.ankerNeu) {
+      // Der neue Anker bleibt in der Leine des Ursprungs, sonst wanderte das Revier mit
+      // jedem Hindernis weiter (dichtes Feld: 21–34 m in 30–120 min). Liegt er weiter weg,
+      // wird die Kreatur aus dem Spiel genommen und spawnt normal neu: verworfen wird ein
+      // Wolf, der ohnehin fern von seinem Revier festsitzt, ohne Spieleffekt (kein Tod, keine Beute).
+      const u = c.ursprung ?? c.home;
+      const fern = Math.hypot(p.x - u.x, p.z - u.z) > (c.steck?.leine ?? Infinity);
+      if (fern) {
+        this.nimmAusDemSpiel(key, c);
+        return true;
+      }
+      c.home = { x: p.x, y: p.y, z: p.z };
+    }
+    // Beim Aufgeben füllt sie ihre Lebenspunkte (wie ein Zurücksetzen), und bis
+    // zur Ankunft trifft sie niemand (`unverwundbar`).
+    if (befehl.phase === 'heimkehren' && vorher !== 'heimkehren') {
+      this.beiAnteileVergessen?.(c.zdo);
+      this.fuelleLeben(c);
+    }
+    // Jenseits der Leine ist `ziel` schon null (sie kehrt heim): dann gibt es nichts zu rufen.
+    if (befehl.neuBemerkt && befehl.ziel) this.ruf(c, befehl.ziel);
+    if (befehl.phase === 'wandern') {
+      if (vorher !== 'wandern') {
+        // Heimgekehrt oder das Ziel los: Pause, dann wieder wandern.
+        c.mode = 'idle';
+        c.idleUntil = this.simTime + this.rng.rangeFloat(c.entry.idleMinSec, c.entry.idleMaxSec);
+        this.zeigeAnim(c, 'idle');
+      }
+      return false;
+    }
+    // Der Modus bleibt lesbar (D2 liest daraus das Tempo): laufend = chase, sonst steht sie.
+    // Die Heimkehr geht im Gehtempo der Art (`walkSpeed`, vorhandene Zahl) mit dem Clip `walk`: Der Spieler sieht,
+    // dass der Wolf abzieht, und die Beine rutschen nicht (der Client koppelt die Clip-Rate an die Bodengeschwindigkeit;
+    // `run` mit Gehtempo oder `walk` mit Lauftempo wären Zeitlupe bzw. ein Wirbel). Modus `walk`: `tempo()` (D2) liest daraus.
+    const heim = befehl.phase === 'heimkehren';
+    c.mode = befehl.bewegung === 'laeuft' ? (heim ? 'walk' : 'chase') : 'idle';
+    if (befehl.bewegung === 'laeuft') {
+      // Anrennen ohne Kappung (wie vor der Zustandsmaschine); nur der Heimweg endet genau am Ziel.
+      const step = heim ? Math.min(c.entry.walkSpeed * deltaSec, befehl.maxWeg) : c.entry.runSpeed * deltaSec;
+      const vx = p.x;
+      const vz = p.z;
+      if (step > 0) this.moveStep(c, befehl.dirX, befehl.dirZ, step);
+      const np = c.zdo.position;
+      c.gelaufen = Math.sqrt((np.x - vx) ** 2 + (np.z - vz) ** 2);
+      this.zeigeAnim(c, heim ? 'walk' : 'run');
+    } else {
+      if (befehl.blickX !== 0 || befehl.blickZ !== 0) this.richte(c, befehl.blickX, befehl.blickZ);
+      this.zeigeAnim(c, befehl.phase === 'kaempfen' ? 'attack' : 'idle');
+    }
+    if (befehl.schlag) {
+      const idx = ziele.findIndex((z) => z.key === befehl.ziel);
+      const ziel = idx >= 0 ? this.letzteZiele[idx] : undefined;
+      if (ziel) {
+        this.einmal(c, 'attack');
+        this.onCreatureAttack?.(c.zdo.position, 8, 2.4, ziel);
+      }
+    }
+    return true;
+  }
+
+  /** Zu Hause (außerhalb der Simulation, neu geladen): frische KI, volle Lebenspunkte, Schadensanteile vergessen. */
+  private setzeZuHause(c: CreatureState): void {
+    c.ki = neuerKiZustand();
+    this.beiAnteileVergessen?.(c.zdo);
+    this.fuelleLeben(c);
+    c.mode = 'idle';
+    c.idleUntil = this.simTime + this.rng.rangeFloat(c.entry.idleMinSec, c.entry.idleMaxSec);
+    this.zeigeAnim(c, 'idle');
+  }
+
+  /** Volle Lebenspunkte (Heimkehr): der Wert der Art aus `maxLeben`. */
+  private fuelleLeben(c: CreatureState): void {
+    const voll = maxLeben(c.entry.prefab);
+    if (c.zdo.getInt(HEALTH_MEMBER) === voll) return;
+    c.zdo.setInt(HEALTH_MEMBER, voll);
+    c.zdo.revision.reviseData();
+    c.zdo.dirty = true;
+  }
+
+  /** Aus dem Spiel nehmen (kein Tod, keine Beute): ZDO zerstören, Schadensanteile der Beute vergessen. */
+  private nimmAusDemSpiel(key: string, c: CreatureState): void {
+    this.beiAnteileVergessen?.(c.zdo);
+    this.zdos.destroyZDO(c.zdo.zdoid);
+    this.creatures.delete(key);
+  }
+
+  /** Steckt ein Körper dieses Radius an `pos` im Fels? (Nur mit Formen, sonst nie.) */
+  private stecktImFels(pos: Vector3, radius: number): boolean {
+    if (!this.kollision?.hatFormen) return false;
+    return this.kollision.nahfeld(pos, 0).ausDemFels(pos, radius) !== null;
+  }
+
+  /** Darf die Kreatur diese Stelle betreten? (Mindesthöhe der Art: kein Wasser, kein Tal.) */
+  private betretbar(c: CreatureState): (x: number, z: number) => boolean {
+    return (x, z) => this.heightmaps.getGroundHeight(x, z) >= c.entry.minAltitude;
+  }
+
+  /**
+   * Blickrichtung setzen, erst ab 3° Änderung (jede Schreibung kostet Sync). 3°: kleiner als die Drehung, die
+   * ein Spieler bei 4 Hz Sync und 230° Sichtkegel erkennt (ein Schritt der Wanderrichtung ändert den Blick um
+   * wenige Grad); jede Schreibung hebt die ZDO-Revision und damit Netzlast. Gewählt, nicht gemessen.
+   */
+  private richte(c: CreatureState, bx: number, bz: number): void {
+    const yaw = Math.atan2(bx, bz);
+    let d = yaw - yawVon(c.zdo.rotation);
+    while (d > Math.PI) d -= TWO_PI;
+    while (d < -Math.PI) d += TWO_PI;
+    if (Math.abs(d) < (3 * Math.PI) / 180) return;
+    c.zdo.rotation = yawQuaternion(yaw);
+  }
+
+  /**
    * Integrate one movement step with water deflection: if the ground at
    * the next position is below minAltitude, try the X and Z components
    * separately (slide along the shoreline); fully blocked → no move.
@@ -633,6 +936,42 @@ export class SpawnSystem {
   private moveStep(c: CreatureState, dirX: number, dirZ: number, step: number): boolean {
     const p = c.zdo.position;
     const minAlt = c.entry.minAltitude;
+
+    // Felsen und Bauten: derselbe Gleitschritt wie beim Spieler, mit dem Radius
+    // der Art. Ohne Formen (oder ohne angehängte Kollisionswelt) fällt nichts
+    // an — die Nahfeldabfrage läuft erst, wenn es etwas zu treffen gibt.
+    if (this.kollision?.hatFormen && step > 0) {
+      const nah = this.kollision.nahfeld(p, step);
+      if (nah.anzahl > 0) {
+        // Steckt sie schon im Fels (nachgeladen, hineingesetzt), läuft sie sonst
+        // hindurch: Erst auf dem kürzesten Weg hinaus, dann weiter.
+        const raus = nah.ausDemFels(p, c.radius ?? KI_VORGABE.koerperRadius, this.betretbar(c));
+        if (raus === 'keinAusweg') {
+          // Kein gültiger Weg hinaus (Wasser oder Fels ringsum): aus dem Spiel nehmen.
+          c.entfernen = true;
+          return false;
+        }
+        if (raus) {
+          this.applyMove(c, raus.x, raus.z, 0, 0);
+          return true;
+        }
+        const g = gleitBewegung({
+          von: p,
+          nachX: p.x + dirX * step,
+          nachZ: p.z + dirZ * step,
+          radius: c.radius ?? KI_VORGABE.koerperRadius,
+          boden: this.bodenAbfrage,
+          hindernis: nah,
+        });
+        const wx = g.x - p.x;
+        const wz = g.z - p.z;
+        const weg = Math.sqrt(wx * wx + wz * wz);
+        if (g.blockiert || weg === 0) return false;
+        dirX = wx / weg;
+        dirZ = wz / weg;
+        step = weg;
+      }
+    }
 
     let nx = p.x + dirX * step;
     let nz = p.z + dirZ * step;
@@ -697,31 +1036,37 @@ export class SpawnSystem {
 
   /**
    * Which creatures may run their strike timer this tick (see
-   * MAX_GLEICHZEITIGE_ANGREIFER). Grouped by the nearest peer's array index
-   * (peerPositions is the same array for the whole tick, so the index is a
-   * stable per-tick key even without peer identity) and ranked by ZDO id —
-   * a deterministic order that stays the same from tick to tick as long as
-   * the same creatures are in range, so a slot does not flicker between
-   * candidates.
+   * MAX_GLEICHZEITIGE_ANGREIFER). Grouped by the creature's ACTUAL target (the
+   * one its aggro table chose, `ki.ziel`), not by the nearest player: the two
+   * differ as soon as a player with less aggro stands closer, and a count by
+   * nearest player let four wolves strike one target at once. Only creatures
+   * that run at or fight their target count; the target is the one of the last
+   * step, so a creature that switches target wins its place one tick later.
+   * Ranked by ZDO id — a deterministic order that stays the same from tick to
+   * tick as long as the same creatures are in range, so a slot does not flicker
+   * between candidates.
    */
-  private berechneAngriffsSlots(peerPositions: readonly Vector3[]): ReadonlySet<string> {
-    const kandidatenJeZiel = new Map<number, { key: string; dist: number }[]>();
+  private berechneAngriffsSlots(ziele: readonly KiZiel[]): ReadonlySet<string> {
+    const kandidatenJeZiel = new Map<string, string[]>();
     for (const [key, c] of this.creatures) {
       if (c.zdo.destroyed || c.stirbtBis !== undefined) continue;
       if (c.entry.flees || c.entry.aggro === false) continue;
-      const nearest = this.nearestPeer(c.zdo.position, peerPositions);
-      if (!nearest) continue;
-      const dist = Math.sqrt(nearest.distSqr);
-      if (dist > 1.7) continue;
-      const idx = peerPositions.indexOf(nearest.pos);
-      const liste = kandidatenJeZiel.get(idx) ?? [];
-      liste.push({ key, dist });
-      kandidatenJeZiel.set(idx, liste);
+      const ki = c.ki;
+      if (!ki || ki.ziel === null) continue;
+      if (ki.phase !== 'anrennen' && ki.phase !== 'kaempfen') continue;
+      const ziel = ziele.find((q) => q.key === ki.ziel);
+      if (!ziel) continue;
+      const dx = ziel.x - c.zdo.position.x;
+      const dz = ziel.z - c.zdo.position.z;
+      if (Math.sqrt(dx * dx + dz * dz) > 1.7 + 1e-6) continue;
+      const liste = kandidatenJeZiel.get(ziel.key) ?? [];
+      liste.push(key);
+      kandidatenJeZiel.set(ziel.key, liste);
     }
     const slots = new Set<string>();
     for (const liste of kandidatenJeZiel.values()) {
-      liste.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-      for (const { key } of liste.slice(0, MAX_GLEICHZEITIGE_ANGREIFER)) slots.add(key);
+      liste.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      for (const key of liste.slice(0, MAX_GLEICHZEITIGE_ANGREIFER)) slots.add(key);
     }
     return slots;
   }
@@ -739,6 +1084,11 @@ export class SpawnSystem {
     }
     return best;
   }
+}
+
+/** Gierwinkel aus einer Drehung um die Hochachse (Gegenstück zu `yawQuaternion`). */
+function yawVon(q: Quaternion): number {
+  return 2 * Math.atan2(q.y, q.w);
 }
 
 /** Y-axis rotation quaternion (heading), y-up right-handed. */

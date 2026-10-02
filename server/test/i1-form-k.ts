@@ -1270,6 +1270,8 @@ function messeSpielerAttrappe(): Aufzeichnung {
     a.notizen.push(`instance players ${[...inInstanz].join(',')}`);
     tp('12 34', ich({ dungeonId: 'd-weg', dungeonReturn: { x: 9, y: 9, z: 9 } }));
     tp('x y', ich({ dungeonId: 'd-inst', dungeonReturn: { x: 9, y: 9, z: 9 } }));
+    // a peer whose dungeon id is the empty string (falsy, no dungeon): left as it is, and teleportPeer gets `null`, not the id
+    tp('3 4', ich({ dungeonId: '', dungeonReturn: { x: 9, y: 9, z: 9 } }));
     // spieler: the default sub-command, spellings, online, remove (none, connected, editor, unknown, ambiguous, one, several, without id, umlaut), unknown
     for (const z of ['', 'liste', 'LISTE', 'Liste extra', 'online', 'ONLINE', 'entfernen', 'entfernen Online', 'entfernen online', 'entfernen Editor', 'entfernen Unbekannt', 'entfernen doppelt', 'entfernen Alt1', 'entfernen ALT2 Geist Online', 'entfernen OhneId', 'entfernen ägir', 'foo', 'entfernen Alt1']) sp(z);
     // members replaced on the stand-in AFTER the registration: the handlers read k.<member> at every call, never a copy
@@ -1820,7 +1822,7 @@ const SOLL_CHAT_ECHT: Aufzeichnung = {
 /** Step 1, package C: measured with `--messen-basis` on the stand before the move (C0, the three methods still in the class). */
 const SOLL_SPIELER_ATTRAPPE: Aufzeichnung = {
   paket: [],
-  aufrufe: { register: 2, getGroundHeight: 10, teleportPeer: 9, getInstance: 2, getPeers: 12, vergiss: 4, teleportPeerNeu: 1, getPeersNeu: 2 },
+  aufrufe: { register: 2, getGroundHeight: 11, teleportPeer: 10, getInstance: 2, getPeers: 12, vergiss: 4, teleportPeerNeu: 1, getPeersNeu: 2 },
   konsole: { log: 0, warn: 0 },
   zustand: [7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6, 5, 4, 3, 3, 3, 1, 1, 0],
   ausnahmen: [
@@ -1885,6 +1887,10 @@ const SOLL_SPIELER_ATTRAPPE: Aufzeichnung = {
     'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
     '> ["x","y"] = {"ok":false,"active":false,"message":"Aufruf: teleport <x> <z>"} args=["x","y"]',
     'peer Ich dungeonId="d-inst" dungeonReturn={"x":9,"y":9,"z":9} position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'call getGroundHeight 3 4',
+    'call teleportPeer 3 Ich [{"x":3,"y":2.5625,"z":4},null]',
+    '> ["3","4"] = {"ok":true,"active":false,"message":"Teleportiert nach 3, 4 (Höhe 2.6)"} args=["3","4"]',
+    'peer Ich dungeonId="" dungeonReturn={"x":9,"y":9,"z":9} position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
     '> [] = {"ok":true,"active":false,"message":"7 Datensaetze: Alt1, Doppelt, OhneId, Online, alt2, doppelt, Ägir"} args=[]',
     'peer Ich dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
     'saved id-alt1,id-alt2,id-d1,id-d2,id-on,id-ohne,id-ae',

@@ -51,6 +51,13 @@ export const FLAG_LAYOUT_MODE = 1 << 5;
  * trotzdem nicht vorbei.
  */
 export const FLAG_MODULE_BUILD = 1 << 6;
+/**
+ * Dieser Peer hat Adminrechte (D5 N3). Nur ein HINWEIS für die Oberfläche (zum Beispiel: die E-Taste schickt `dungeon enter`
+ * nur Admins). Der Server prüft jeden Adminbefehl bei seinem Eingang selbst (`AdminCommandRegistry.execute`); ein gefälschtes
+ * Bit am Client öffnet nichts. Ändern sich die Rechte mitten in der Verbindung, kommt der neue Wert als `AdminEvent` mit dem
+ * Befehl `admin` und `active = Adminrechte ja/nein` (`gleicheAdminrechteAb`); das Bit gilt nur bis dahin.
+ */
+export const FLAG_ADMIN = 1 << 7;
 
 /**
  * Woraus das Flagbyte gebildet wird.
@@ -68,6 +75,7 @@ export interface ServerConfigFlagSources {
   readonly disableDistantRivers: boolean;
   readonly layoutMode: boolean;
   readonly moduleBuild: boolean;
+  readonly admin: boolean;
 }
 
 /** Das Flagbyte des ServerConfig-Pakets — die einzige Stelle, die es baut. */
@@ -80,10 +88,16 @@ export function serverConfigFlags(q: ServerConfigFlagSources): number {
   if (q.disableDistantRivers) flags |= FLAG_DISABLE_DISTANT_RIVERS;
   if (q.layoutMode) flags |= FLAG_LAYOUT_MODE;
   if (q.moduleBuild) flags |= FLAG_MODULE_BUILD;
+  if (q.admin) flags |= FLAG_ADMIN;
   return flags;
 }
 
 /** Darf dieser Peer einen Saal bauen? Die Leseseite von {@link FLAG_MODULE_BUILD}. */
 export function moduleBuildAllowed(flags: number): boolean {
   return (flags & FLAG_MODULE_BUILD) !== 0;
+}
+
+/** Hat der Peer Adminrechte? Die Leseseite von {@link FLAG_ADMIN} (ein Hinweis, kein Recht). */
+export function adminAusFlags(flags: number): boolean {
+  return (flags & FLAG_ADMIN) !== 0;
 }

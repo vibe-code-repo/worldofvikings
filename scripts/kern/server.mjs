@@ -142,8 +142,10 @@ export default [
   ['server', 'test/d2-treffer.ts'],
   // D5 (loot is a box and E does not pick it up): every item that can lie on the ground gets an ITEM_DROP prefab and a listed model; BeuteAmBoden lays it under that prefab.
   ['server', 'test/d5-beute-prefab.ts'],
-  // D5 N2: what a client learns of the owner of loot (foreign / mine / window over) on the real wire, and that the destroy of loot reaches a player far outside the interest window. Real WebSocket, port 0. ~10 s.
+  // D5 N2/N3: what a client learns of the owner of loot (foreign / mine / window over; nothing of the owner's identity) on the real wire, and that the destroy of loot reaches a player far outside the interest window. Real WebSocket, port 0. ~10 s.
   ['server', 'test/d5-beute-sicht.ts'],
+  // D5 N3: the admin flag (ServerConfig bit 7 at login, AdminEvent `admin` live) reaches the client class, and the server refuses a guest whatever the client claims. Real WebSocket, port 0.
+  ['server', 'test/d5-beute-admin.ts'],
   // G1-Durchsicht (verwaiste Tests, 20.08.2026): init() ohne start() —
   // kein Port, kein Socket. Haelt getGroundHeight(0,0) gegen den
   // D1-verifizierten Wert UND die Fallphysik-Konvergenz fest, damit ein

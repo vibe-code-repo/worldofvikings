@@ -19,9 +19,9 @@
  *   beute_frei_ab  long      epoch ms from which anybody may pick it up
  *   beute_ablauf   long      epoch ms at which the server destroys it
  *   beute_exklusiv int        1 while the exclusive window runs and the loot has an owner, 0 after (`tick` flips it, so a
- *                            client needs no clock). SENT: the client skips foreign exclusive loot when aiming.
- *   beute_besitzer_tag int    `getStableHash` of the owner key (only with an owner). SENT: the client compares it with the
- *                            hash of its own `userId`; the owner key itself stays hidden.
+ *                            client needs no clock). SENT to every client except the owner (`verdeckteMember`): for a client
+ *                            that gets it, 1 means "exclusive to somebody else" and it skips the piece when aiming. No
+ *                            identifier of the owner goes out in any form.
  * The world save (`momentaufnahme`) leaves marked ZDOs out, and `WeltZdoSicherung` only takes containers
  * and building pieces, so loot is never written: after a restart it is gone (a loss, which is allowed),
  * never doubled (a picked-up item is in the inventory, which F8 saves at once).
@@ -33,8 +33,7 @@
 import type { ZDO } from '../zdo/ZDO.js';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
 import {
-  BEUTE_BESITZER_TAG_MEMBER, BEUTE_EXKLUSIV_MEMBER, BEUTE_EXKLUSIV_MS, BEUTE_LEBEN_MS, Inventory, SERVER_MELDUNG_BEUTE_FREMD,
-  beuteBesitzerTag, beutePrefabFuer, findItem,
+  BEUTE_EXKLUSIV_MEMBER, BEUTE_EXKLUSIV_MS, BEUTE_LEBEN_MS, Inventory, SERVER_MELDUNG_BEUTE_FREMD, beutePrefabFuer, findItem,
 } from '@wov/shared';
 import { getStableHash } from '../util/Hash.js';
 
@@ -49,9 +48,8 @@ export const BEUTE_MENGE = 'beute_menge';
 export const BEUTE_BESITZER = 'beute_besitzer';
 export const BEUTE_FREI_AB = 'beute_frei_ab';
 export const BEUTE_ABLAUF = 'beute_ablauf';
-/** What a client may see of the owner (D5 N2, Z1): see `shared/src/beute.ts`. Unlike `beute_besitzer` these two ARE sent. */
+/** What a client may see of the owner (D5 N3): see `shared/src/beute.ts`. Unlike `beute_besitzer` this one IS sent (not to the owner). */
 export const BEUTE_EXKLUSIV = BEUTE_EXKLUSIV_MEMBER;
-export const BEUTE_BESITZER_TAG = BEUTE_BESITZER_TAG_MEMBER;
 
 interface Anteile {
   zdo: ZDO;
@@ -166,10 +164,7 @@ export class BeuteAmBoden {
       zdo.setString(BEUTE_BESITZER, besitzer);
       zdo.setLong(BEUTE_FREI_AB, BigInt(jetzt + BEUTE_EXKLUSIV_MS));
       zdo.setLong(BEUTE_ABLAUF, BigInt(jetzt + BEUTE_LEBEN_MS));
-      if (besitzer !== '') {
-        zdo.setInt(BEUTE_EXKLUSIV, 1);
-        zdo.setInt(BEUTE_BESITZER_TAG, beuteBesitzerTag(besitzer));
-      }
+      if (besitzer !== '') zdo.setInt(BEUTE_EXKLUSIV, 1);
       zdo.revision.reviseData();
       zdo.dirty = true;
       this.stuecke.set(zdo.zdoid.toString(), { zdo, raum });

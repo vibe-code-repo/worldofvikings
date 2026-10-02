@@ -2226,7 +2226,7 @@ async function main() {
       const worldName = reader.readString();
       const worldSeed = reader.readString();
       const worldGenVersion = reader.readInt32();
-      const flags = reader.readUInt8();
+      const flags = reader.readUInt8(); eSitzung.serverConfig(flags); // the rights of this login (FLAG_ADMIN)
       console.log(
         `[Client] ServerConfig: world "${worldName}", seed "${worldSeed}", gen v${worldGenVersion}, flags 0b${flags.toString(2).padStart(7, '0')}`
       );
@@ -2528,8 +2528,8 @@ async function main() {
     // Serverantworten auf Admin-Kommandos (dungeon enter/leave, teleport …)
     // als Bildschirmmeldung — vorher liefen sie ins Leere.
     socket.on(PacketType.AdminEvent, (reader) => {
-      reader.readString(); reader.readBool(); // command, active
-      const message = eSitzung.adminAntwort(reader.readString());
+      const command = reader.readString(); const active = reader.readBool();
+      const message = eSitzung.adminEreignis(command, active, reader.readString());
       if (message) hud.meldung(message);
     });
 

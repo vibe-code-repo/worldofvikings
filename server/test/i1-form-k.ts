@@ -3326,7 +3326,7 @@ const SOLL_CHAT_ECHT: Aufzeichnung = {
 /** Step 1A, measured on the stand before the move (`--messen-basis`, base `bd94dfc7`): the admin-list and ban commands on a stand-in. */
 const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
   paket: [
-    "Anna:AdminEvent:[\"admin\",false,\"Du hast jetzt Adminrechte.\",0]:34:ad9db1326ead6019",
+    "Anna:AdminEvent:[\"admin\",true,\"Du hast jetzt Adminrechte.\",0]:34:dc5fdb5cf9ab3f04",
     "Carl:AdminEvent:[\"fly\",false,\"Fly mode OFF (Adminrechte entzogen)\",0]:41:009857b1146c12c7",
     "Carl:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
     "Dora:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
@@ -3633,7 +3633,7 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
 const SOLL_BEFEHLE_ECHT: Aufzeichnung = {
   paket: [
     "Editor:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
-    "Gast:AdminEvent:[\"admin\",false,\"Du hast jetzt Adminrechte.\",0]:34:ad9db1326ead6019",
+    "Gast:AdminEvent:[\"admin\",true,\"Du hast jetzt Adminrechte.\",0]:34:dc5fdb5cf9ab3f04",
     "Gast:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
     "Gast:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
   ],
@@ -3744,7 +3744,7 @@ const SOLL_BEFEHLE_ECHT: Aufzeichnung = {
 /** Step 1A after the attack (I11A-B1, B2), measured on `bd94dfc7` before the move (`--messen-basis`). */
 const SOLL_BEFEHLE_N1_ATTRAPPE: Aufzeichnung = {
   paket: [
-    "Anna Maria:AdminEvent:[\"admin\",false,\"Du hast jetzt Adminrechte.\",0]:34:ad9db1326ead6019",
+    "Anna Maria:AdminEvent:[\"admin\",true,\"Du hast jetzt Adminrechte.\",0]:34:dc5fdb5cf9ab3f04",
     "Dora:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
     "Anna Maria:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
   ],
@@ -3937,7 +3937,7 @@ const SOLL_TAKT_1A: Aufzeichnung = {
   paket: [
     "Takt:TimeSync:[]:20:f05060fd930e0712",
     "Takt:TimeSync:[]:20:f05060fd930e0712",
-    "Takt:AdminEvent:[\"admin\",false,\"Du hast jetzt Adminrechte.\",0]:34:ad9db1326ead6019",
+    "Takt:AdminEvent:[\"admin\",true,\"Du hast jetzt Adminrechte.\",0]:34:dc5fdb5cf9ab3f04",
     "Takt:TimeSync:[]:20:f05060fd930e0712",
     "Takt:AdminEvent:[\"fly\",false,\"Fly mode OFF (Adminrechte entzogen)\",0]:41:009857b1146c12c7",
     "Takt:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",

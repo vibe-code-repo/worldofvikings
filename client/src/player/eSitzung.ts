@@ -1,43 +1,46 @@
 /**
  * The state the E key keeps per connection (client side, no browser needed).
  *
- * The client does not learn from the server whether the player has admin rights, and `dungeon enter` / `dungeon leave` are
- * admin commands (`AdminCommands.execute`). The one thing it can read is the server's refusal, which arrives as the answer to
- * the command. After the first refusal the E key sends no admin command from the overworld any more: a player without rights
- * had no business there, and the refusal on every press was the fault reported on 02.10.2026. A new connection starts fresh
- * (the rights are read from the admin list when the player connects, so they can change between two connections).
- * A flag in `ServerConfig` would let the client know before the first press; that needs `WovServer.ts` (follow-up card).
+ * `dungeon enter` / `dungeon leave` are admin commands (`AdminCommands.execute`). The client learns from the server whether the
+ * player is an admin: at login in the `ServerConfig` flags (`FLAG_ADMIN`), afterwards live in the `AdminEvent` with the command
+ * `admin` (`gleicheAdminrechteAb`: rights granted or withdrawn in mid-session). The E key sends `dungeon enter` from the
+ * overworld only for an admin. The flag is a hint for the interface only: the server checks every command itself, whatever the
+ * client says (the refusal on every press was the fault reported on 02.10.2026; N2 learned it from the refusal text, N3 asks
+ * the server up front, so there is no fallback on the text any more).
  */
+import { adminAusFlags } from '@wov/shared';
 import { eOhneZiel } from './eOhneZiel';
 import type { EOhneZielAktion, EOhneZielLage } from './eOhneZiel';
 
-/** The server's answer to an admin command of a player without admin rights (`server/src/admin/AdminCommands.ts`, `execute`). */
-export const ADMIN_VERWEIGERT_TEXT = 'Admin commands are not allowed for this player';
-
 export class ESitzung {
-  private adminVerweigert = false;
+  private admin = false;
 
   /** `beiNeuerVerbindung` runs on every (re)connection: what the client remembers of the old session is dropped there. */
   constructor(private readonly beiNeuerVerbindung: () => void) {}
 
-  /** `PeerInfo` arrived: a new connection (also the first one). */
+  /** `PeerInfo` arrived: a new connection (also the first one). The rights start at "no" until `ServerConfig` says otherwise. */
   neueVerbindung(): void {
-    this.adminVerweigert = false;
+    this.admin = false;
     this.beiNeuerVerbindung();
   }
 
-  /** The text of an `AdminEvent`. Returns it unchanged, so the caller can show it. */
-  adminAntwort(text: string): string {
-    if (text === ADMIN_VERWEIGERT_TEXT) this.adminVerweigert = true;
+  /** The flag byte of `ServerConfig` (once per login). */
+  serverConfig(flags: number): void {
+    this.admin = adminAusFlags(flags);
+  }
+
+  /** An `AdminEvent`: the command `admin` carries the new rights in `active`. Returns the text unchanged, so the caller can show it. */
+  adminEreignis(command: string, active: boolean, text: string): string {
+    if (command === 'admin') this.admin = active;
     return text;
   }
 
-  get hatAdminVerweigert(): boolean {
-    return this.adminVerweigert;
+  get istAdmin(): boolean {
+    return this.admin;
   }
 
   /** What E does with nothing in reach (see `eOhneZiel`). */
-  aktion(lage: Omit<EOhneZielLage, 'adminVerweigert'>): EOhneZielAktion {
-    return eOhneZiel({ ...lage, adminVerweigert: this.adminVerweigert });
+  aktion(lage: Omit<EOhneZielLage, 'istAdmin'>): EOhneZielAktion {
+    return eOhneZiel({ ...lage, istAdmin: this.admin });
   }
 }

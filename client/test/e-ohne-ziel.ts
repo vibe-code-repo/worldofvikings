@@ -6,8 +6,9 @@
  *
  *  [1] The pure rule (`eOhneZiel`): overworld, no entrance near -> nothing; entrance within 16 m -> enter; dungeon -> leave / hint.
  *  [2] main.ts: the only `dungeon enter` goes through the rule, and the file did not grow (3679 lines at the start of N1).
- *  [3] Z4 (N2): after the server's refusal ("Admin commands are not allowed for this player") E sends no `dungeon enter` in this
- *      connection (`ESitzung`), a new connection starts fresh; the refusal text is the server's own; the wiring in main.ts.
+ *  [3] Z4 (N3): the server tells the client whether the player is an admin (`ServerConfig` flag at login, `AdminEvent` `admin` live);
+ *      E sends `dungeon enter` only for an admin, a new connection starts without rights until `ServerConfig` says otherwise; the
+ *      wiring in main.ts (both packets). The server check against a faked flag is in `server/test/d5-beute-admin.ts`.
  *
  * Run: npx tsx client/test/e-ohne-ziel.ts   (from the repo root)
  */
@@ -15,7 +16,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import ts from 'typescript';
 import { eOhneZiel, DUNGEON_BETRETEN_M, DUNGEON_VERLASSEN_M } from '../src/player/eOhneZiel';
-import { ADMIN_VERWEIGERT_TEXT, ESitzung } from '../src/player/eSitzung';
+import { FLAG_ADMIN, FLAG_MODULE_BUILD } from '@wov/shared';
+import { ESitzung } from '../src/player/eSitzung';
 
 let fehler = 0;
 const pruefe = (bedingung: boolean, text: string, detail = ''): void => {
@@ -23,7 +25,7 @@ const pruefe = (bedingung: boolean, text: string, detail = ''): void => {
   if (!bedingung) fehler++;
 };
 // Asymmetric on purpose: x and z differ everywhere, so a swapped axis cannot hide behind equal numbers.
-const lage = (o: Partial<Parameters<typeof eOhneZiel>[0]> = {}) => ({ imDungeon: false, pos: { x: 100, z: 120 }, dungeonSpawn: { x: 10, z: 20 }, eingaenge: [], ...o });
+const lage = (o: Partial<Parameters<typeof eOhneZiel>[0]> = {}) => ({ istAdmin: true, imDungeon: false, pos: { x: 100, z: 120 }, dungeonSpawn: { x: 10, z: 20 }, eingaenge: [], ...o });
 
 pruefe(eOhneZiel(lage()) === 'nichts', 'overworld, no entrance known: nothing (no dungeon enter)');
 pruefe(eOhneZiel(lage({ eingaenge: [{ x: 500, z: 500 }] })) === 'nichts', 'overworld, entrance far away: nothing');
@@ -42,26 +44,38 @@ pruefe(drin(0, DUNGEON_VERLASSEN_M) === 'dungeon-leave', 'in a dungeon at exactl
 pruefe(drin(0, DUNGEON_VERLASSEN_M + 0.5) === 'hinweis-eingang', 'in a dungeon at 6.5 m in z: the hint');
 pruefe(eOhneZiel(lage({ imDungeon: true, eingaenge: [{ x: 100, z: 120 }] })) === 'hinweis-eingang', 'in a dungeon the overworld entrances do not count');
 
-// Z4: the refusal switches `dungeon enter` off; leaving a dungeon and the hint stay.
+// Z4: without admin rights `dungeon enter` is off; leaving a dungeon and the hint stay.
 const nahEingang = { eingaenge: [{ x: 105, z: 120 }] };
-pruefe(eOhneZiel(lage({ ...nahEingang, adminVerweigert: true })) === 'nichts', 'Z4: at a real entrance with the refusal known: nothing is sent');
-pruefe(eOhneZiel(lage({ ...nahEingang, adminVerweigert: false })) === 'dungeon-enter', 'Z4: without the refusal the entrance still enters');
-pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: 12, z: 20 }, adminVerweigert: true })) === 'dungeon-leave', 'Z4: in a dungeon the refusal does not hide `dungeon leave` (a player who is inside can get out)');
-pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: 90, z: 90 }, adminVerweigert: true })) === 'hinweis-eingang', 'Z4: nor the hint far from the entry');
+pruefe(eOhneZiel(lage({ ...nahEingang, istAdmin: false })) === 'nichts', 'Z4: at a real entrance without admin rights: nothing is sent');
+pruefe(eOhneZiel(lage({ ...nahEingang, istAdmin: true })) === 'dungeon-enter', 'Z4: an admin at a real entrance enters');
+pruefe(eOhneZiel(lage({ istAdmin: true })) === 'nichts', 'Z4: an admin with no entrance within 16 m: nothing');
+pruefe(eOhneZiel(lage({ eingaenge: [{ x: 100 + DUNGEON_BETRETEN_M + 0.5, z: 120 }], istAdmin: true })) === 'nichts', 'Z4: an admin 16.5 m from the entrance: nothing');
+pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: 12, z: 20 }, istAdmin: false })) === 'dungeon-leave', 'Z4: in a dungeon the missing flag does not hide `dungeon leave` (a player who is inside can get out)');
+pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: 90, z: 90 }, istAdmin: false })) === 'hinweis-eingang', 'Z4: nor the hint far from the entry');
 let nachgeladen = 0;
 const sitzung = new ESitzung(() => { nachgeladen++; });
 const lageEingang = { imDungeon: false, pos: { x: 100, z: 120 }, dungeonSpawn: { x: 10, z: 20 }, eingaenge: [{ x: 105, z: 120 }] };
-pruefe(sitzung.aktion(lageEingang) === 'dungeon-enter' && !sitzung.hatAdminVerweigert, 'Z4: a fresh session: the entrance enters');
-pruefe(sitzung.adminAntwort('Teleportiert nach 1, 2') === 'Teleportiert nach 1, 2' && sitzung.aktion(lageEingang) === 'dungeon-enter', 'Z4: another admin answer changes nothing and is passed on unchanged');
-pruefe(sitzung.adminAntwort('Kein Dungeon-Eingang in der Nähe') === 'Kein Dungeon-Eingang in der Nähe' && sitzung.aktion(lageEingang) === 'dungeon-enter', 'Z4: a refusal for another reason (no entrance near) is NOT a missing right');
-pruefe(sitzung.adminAntwort(ADMIN_VERWEIGERT_TEXT) === ADMIN_VERWEIGERT_TEXT, 'Z4: the refusal text is passed on unchanged (the HUD still shows it once)');
-pruefe(sitzung.hatAdminVerweigert && sitzung.aktion(lageEingang) === 'nichts', 'Z4: after the refusal: nothing at the entrance');
+pruefe(!sitzung.istAdmin && sitzung.aktion(lageEingang) === 'nichts', 'Z4: before ServerConfig: no rights, nothing at the entrance');
+sitzung.serverConfig(FLAG_ADMIN);
+pruefe(sitzung.istAdmin && sitzung.aktion(lageEingang) === 'dungeon-enter', 'Z4: ServerConfig with the admin bit: the entrance enters');
+sitzung.serverConfig(0xff & ~FLAG_ADMIN);
+pruefe(!sitzung.istAdmin && sitzung.aktion(lageEingang) === 'nichts', 'Z4: ServerConfig without the admin bit (all other bits set): nothing');
+sitzung.serverConfig(FLAG_MODULE_BUILD);
+pruefe(!sitzung.istAdmin, 'Z4: the module-build bit alone is not the admin bit');
+sitzung.serverConfig(FLAG_ADMIN);
+// B2: rights change live
+pruefe(sitzung.adminEreignis('admin', false, 'Deine Adminrechte wurden entzogen.') === 'Deine Adminrechte wurden entzogen.' && sitzung.aktion(lageEingang) === 'nichts', 'B2: rights withdrawn live: E sends nothing, the text is passed on unchanged');
+pruefe(sitzung.adminEreignis('admin', true, 'Du hast jetzt Adminrechte.') === 'Du hast jetzt Adminrechte.' && sitzung.aktion(lageEingang) === 'dungeon-enter', 'B2: rights granted live: E sends `dungeon enter` at the entrance');
+pruefe(sitzung.adminEreignis('fly', false, 'Fly mode OFF') === 'Fly mode OFF' && sitzung.istAdmin, 'B2: another command with active=false (fly) does not touch the rights');
+pruefe(sitzung.adminEreignis('fly', true, 'Fly mode ON') === 'Fly mode ON' && sitzung.istAdmin, 'B2: nor does fly with active=true');
+sitzung.adminEreignis('admin', false, '');
+pruefe(!sitzung.istAdmin, 'B2: back to no rights');
+pruefe(sitzung.adminEreignis('Admin', true, '') === '' && !sitzung.istAdmin, 'B2: the command name is compared exactly (the server sends `admin`)');
+sitzung.adminEreignis('admin', true, '');
 pruefe(nachgeladen === 0, 'the reset callback did not run before a connection');
 sitzung.neueVerbindung();
-pruefe(nachgeladen === 1 && !sitzung.hatAdminVerweigert && sitzung.aktion(lageEingang) === 'dungeon-enter', 'Z4: a new connection (PeerInfo) runs the callback once and forgets the refusal (rights are read at connect)');
-pruefe(ADMIN_VERWEIGERT_TEXT === 'Admin commands are not allowed for this player', 'the refusal text is pinned');
-const serverQuelle = readFileSync(resolve(import.meta.dirname, '../../server/src/admin/AdminCommands.ts'), 'utf8');
-pruefe(serverQuelle.includes(`message: '${ADMIN_VERWEIGERT_TEXT}'`), "the server still answers with exactly this text (AdminCommands.ts `execute`); if it changes, the client must follow");
+pruefe(nachgeladen === 1 && !sitzung.istAdmin && sitzung.aktion(lageEingang) === 'nichts', 'Z4: a new connection (PeerInfo) runs the callback once and forgets the rights (ServerConfig sets them again)');
+pruefe(FLAG_ADMIN === 128, 'the admin bit is bit 7');
 
 const quelle = readFileSync(resolve(import.meta.dirname, '../src/main.ts'), 'utf8');
 const zeilen = quelle.split('\n').length - 1;
@@ -79,16 +93,16 @@ const besuche = (n: ts.Node): void => {
 };
 besuche(baum);
 pruefe(aufrufe.length === 1, 'main.ts calls the rule (through eSitzung.aktion) exactly once', String(aufrufe.length));
-// Z4 wiring: the text of every AdminEvent goes through `eSitzung.adminAntwort`, and the handler shows what it returns.
+// Z4 wiring: the AdminEvent handler hands command, active and text to `eSitzung.adminEreignis` in packet order and shows what it returns.
 {
   const ae: ts.CallExpression[] = [];
   const such = (n: ts.Node): void => {
-    if (ts.isCallExpression(n) && n.expression.getText(baum) === 'eSitzung.adminAntwort') ae.push(n);
+    if (ts.isCallExpression(n) && n.expression.getText(baum) === 'eSitzung.adminEreignis') ae.push(n);
     ts.forEachChild(n, such);
   };
   such(baum);
   const a0 = ae[0];
-  pruefe(ae.length === 1 && a0!.arguments.length === 1 && a0!.arguments[0]!.getText(baum) === 'reader.readString()', 'main.ts: exactly one eSitzung.adminAntwort(reader.readString())', String(ae.length));
+  pruefe(ae.length === 1 && a0!.arguments.map((x) => x.getText(baum)).join('|') === 'command|active|reader.readString()', 'main.ts: exactly one eSitzung.adminEreignis(command, active, reader.readString())', String(ae.length));
   const decl = a0?.parent;
   pruefe(!!decl && ts.isVariableDeclaration(decl) && decl.name.getText(baum) === 'message', '... and its result is the `message` that the handler shows');
   let pakete = '';
@@ -98,7 +112,34 @@ pruefe(aufrufe.length === 1, 'main.ts calls the rule (through eSitzung.aktion) e
   pruefe(pakete === 'PacketType.AdminEvent', '... inside the PacketType.AdminEvent handler', pakete);
   const fn = decl?.parent?.parent?.parent;
   const zeigt = !!fn && ts.isBlock(fn) && fn.statements.some((s) => ts.isIfStatement(s) && s.expression.getText(baum) === 'message' && /hud\.meldung\(message\)/.test(s.thenStatement.getText(baum)));
-  pruefe(zeigt, '... and `if (message) hud.meldung(message)` stays in that handler (the first refusal is still shown)');
+  pruefe(zeigt, '... and `if (message) hud.meldung(message)` stays in that handler');
+  // The reads come in the packet order: command (string), active (bool), message (string).
+  const reihenfolge: string[] = [];
+  if (fn && ts.isBlock(fn)) {
+    const lies = (n: ts.Node): void => {
+      if (ts.isCallExpression(n) && /^reader\.read/.test(n.expression.getText(baum))) reihenfolge.push(n.expression.getText(baum));
+      ts.forEachChild(n, lies);
+    };
+    lies(fn);
+  }
+  pruefe(reihenfolge.join(',') === 'reader.readString,reader.readBool,reader.readString', '... reading command (string), active (bool), text (string) in that order', reihenfolge.join(','));
+  const sc: ts.CallExpression[] = [];
+  const suchSc = (n: ts.Node): void => {
+    if (ts.isCallExpression(n) && n.expression.getText(baum) === 'eSitzung.serverConfig') sc.push(n);
+    ts.forEachChild(n, suchSc);
+  };
+  suchSc(baum);
+  const s0 = sc[0];
+  let paketSc = '';
+  for (let n: ts.Node | undefined = s0; n; n = n.parent) {
+    if (ts.isCallExpression(n) && n.expression.getText(baum) === 'socket.on') paketSc = n.arguments[0]?.getText(baum) ?? '';
+  }
+  pruefe(sc.length === 1 && s0!.arguments.length === 1 && s0!.arguments[0]!.getText(baum) === 'flags' && paketSc === 'PacketType.ServerConfig', 'main.ts: exactly one eSitzung.serverConfig(flags) in the PacketType.ServerConfig handler', `${sc.length} ${paketSc}`);
+  const dekl = s0?.parent?.parent;
+  const stmts = (dekl && ts.isBlock(dekl)) ? dekl.statements.map((x) => x.getText(baum)) : [];
+  const iFlags = stmts.findIndex((x) => /^const flags = reader\.readUInt8\(\)/.test(x));
+  const iSc = stmts.findIndex((x) => x.startsWith('eSitzung.serverConfig(flags)'));
+  pruefe(iFlags >= 0 && iSc === iFlags + 1, '... right after `const flags = reader.readUInt8()`', `${iFlags}/${iSc}`);
 }
 const arg = aufrufe[0]?.arguments[0];
 const felder = new Map<string, string>();

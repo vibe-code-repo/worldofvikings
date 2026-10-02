@@ -3,7 +3,6 @@
  * can show a timer or an owner hint later without importing a server module.
  */
 import { SERVER_MELDUNG_SCHLUESSEL_PRAEFIX } from './todTreffer.js';
-import { getStableHash } from './hash.js';
 
 /** Only the owner can pick the loot up for this long (Roadmap D5: 2 min). */
 export const BEUTE_EXKLUSIV_MS = 120_000;
@@ -15,21 +14,17 @@ export const BEUTE_EXKLUSIV_MS = 120_000;
 export const BEUTE_LEBEN_MS = 300_000;
 
 /**
- * What the client may know of the owner of a piece of loot (the owner key itself, `beute_besitzer`, goes to NO client).
- * Two members, both sent: `beute_exklusiv` (int, 1 while the exclusive window runs and the loot has an owner, else 0) and
- * `beute_besitzer_tag` (int, `getStableHash` of the owner key). The tag is no new secret: the owner key is the peer's
- * `userId`, which every client already reads in the key of that player's character ZDO. The server stays the judge
- * (`darfAufheben`); the client only uses this to aim at what it may take (D5 N2, Z1).
+ * What the client may know of the owner of a piece of loot: ONE member, `beute_exklusiv` (int, 1 while the exclusive window
+ * runs and the loot has an owner, else 0). The server hides it from the OWNER (`verdeckteMember` in WovServer.ts), so for
+ * every client that receives it, "1" means "exclusive to somebody else"; no identifier of the owner (neither `beute_besitzer`
+ * nor anything derived from it) goes to any client. The server stays the judge (`darfAufheben`); the client only uses this
+ * to aim at what it may take (D5 N3, B1).
  */
 export const BEUTE_EXKLUSIV_MEMBER = 'beute_exklusiv';
-export const BEUTE_BESITZER_TAG_MEMBER = 'beute_besitzer_tag';
 
-/** The tag a client compares with: the hash of the owner key (the `userId` as text). */
-export const beuteBesitzerTag = (besitzer: string): number => getStableHash(besitzer);
-
-/** Is this loot exclusive to somebody else? `eigene` is the client's own `userId` (text). Unknown members mean "not foreign". */
-export function beuteFremdFuer(exklusiv: number | undefined, tag: number | undefined, eigene: string): boolean {
-  return exklusiv === 1 && tag !== beuteBesitzerTag(eigene);
+/** Is this loot exclusive to somebody else? The member reaches only clients that are not the owner. Unknown means "not foreign". */
+export function beuteFremdFuer(exklusiv: number | undefined): boolean {
+  return exklusiv === 1;
 }
 
 /**

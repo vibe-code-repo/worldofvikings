@@ -8,11 +8,11 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Biome, BIOME_BY_NAME } from '@wov/shared';
-import { BIOME_COLOR, BIOME_ORDER, BIOME_LABEL, biomLabel, BIOME_INHALT, BIOME_TREE_DENSITY, BIOME_TREES } from '../src/ui/worldmap/MapPalette';
+import { Biome, BiomeArea, BIOME_BY_NAME } from '@wov/shared';
+import { BIOME_COLOR, BIOME_ORDER, BIOME_LABEL, biomLabel, legendenZeilen, treeKindAt, BIOME_INHALT, BIOME_TREE_DENSITY, BIOME_TREES } from '../src/ui/worldmap/MapPalette';
 import { BIOM_TON } from '../src/editor/design';
 import { biomTon, BIOME_FARBE } from '../src/editor/biome';
-import { REGION_VORLAGEN } from '../src/editor/regionsWerkzeuge';
+import { REGION_VORLAGEN, vorlagenName } from '../src/editor/regionsWerkzeuge';
 
 let fehler = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -50,6 +50,35 @@ check('region preset for greyglen exists', vorlage !== undefined);
 check('preset name comes from the key', vorlage?.nameSchluessel === 'inhalt.biom.greyglen' && vorlage.name === 'Grauklamm');
 check('preset ids are unique', new Set(REGION_VORLAGEN.map((v) => v.id)).size === REGION_VORLAGEN.length);
 
+// ── Greyglen shows the same map values as grassland (copy until its own content follows) ──
+check('tree kinds = grassland', JSON.stringify(BIOME_TREES[Biome.Greyglen]) === JSON.stringify(BIOME_TREES[Biome.Meadows]));
+check('tree density = grassland', BIOME_TREE_DENSITY[Biome.Greyglen] === BIOME_TREE_DENSITY[Biome.Meadows]);
+check('content text = grassland', BIOME_INHALT[Biome.Greyglen] === BIOME_INHALT[Biome.Meadows]);
+let baumGleich = true;
+let baumMitBaum = 0;
+for (const ff of [0, 0.4, 0.9, 1.1, 1.3, 2]) {
+  for (const hoehe of [1, 40, 160]) {
+    for (const area of [BiomeArea.Edge, BiomeArea.Median, BiomeArea.Everything]) {
+      const a = treeKindAt(Biome.Greyglen, area, ff, hoehe);
+      const b = treeKindAt(Biome.Meadows, area, ff, hoehe);
+      if (a !== b) baumGleich = false;
+      if (a !== null) baumMitBaum++;
+    }
+  }
+}
+check('treeKindAt(greyglen) = treeKindAt(grassland) over a grid, with trees on part of it', baumGleich && baumMitBaum > 0, String(baumMitBaum));
+
+// ── Legend rows in the language ──
+const legEn = legendenZeilen('en');
+const legDe = legendenZeilen('de');
+check('legend row for greyglen in en and de', legEn.find((z) => z.biome === Biome.Greyglen)?.name === 'Greyglen' && legDe.find((z) => z.biome === Biome.Greyglen)?.name === 'Grauklamm');
+check('legend rows follow BIOME_ORDER with the map colour', legEn.length === BIOME_ORDER.length && legEn.every((z, i) => z.biome === BIOME_ORDER[i] && z.farbe === BIOME_COLOR[z.biome]));
+check('legend of the other biomes is the same in both languages', legEn.filter((z) => z.biome !== Biome.Greyglen).every((z, i) => z.name === legDe.filter((x) => x.biome !== Biome.Greyglen)[i]!.name));
+
+// ── Preset names in the language ──
+check('preset name en/de through the key', vorlage !== undefined && vorlagenName(vorlage, 'en') === 'Greyglen' && vorlagenName(vorlage, 'de') === 'Grauklamm');
+check('presets without a key keep their fixed name', REGION_VORLAGEN.filter((v) => !v.nameSchluessel).every((v) => vorlagenName(v, 'en') === v.name));
+
 // ── Places no import reaches in plain Node (engine, renderer, DOM): read the source ──
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const quelle = (rel: string): string => readFileSync(resolve(WURZEL, rel), 'utf8');
@@ -59,8 +88,10 @@ check('web map renderer has a greyglen colour and name',
   /\[Biome\.Greyglen\]:\s*\[78, 116, 110\]/.test(quelle('tools/weltkarte-rendern.ts'))
   && /\[Biome\.Greyglen\]:\s*inhaltText\('inhalt\.biom\.greyglen'/.test(quelle('tools/weltkarte-rendern.ts')));
 const weltkarte = quelle('client/src/ui/WorldMap.ts');
-check('world map labels go through biomLabel (no fixed label table access)', weltkarte.includes('biomLabel(') && !weltkarte.includes('BIOME_LABEL['));
-check('editor preset button uses the name key', /v\.nameSchluessel \? inhaltText\(v\.nameSchluessel/.test(quelle('client/src/editor/editorMain.ts')));
+check('world map: legend rows and tooltip get the game language, never a literal', weltkarte.includes('legendenZeilen(this.i18n.language)') && weltkarte.includes('biomLabel(biome, this.i18n.language)') && !weltkarte.includes('BIOME_LABEL[') && !/(legendenZeilen|biomLabel)\([^)]*'(de|en)'/.test(weltkarte));
+const editorQuelle = quelle('client/src/editor/editorMain.ts');
+check('editor: button and message both use vorlagenName in the editor language, no raw v.name',
+  (editorQuelle.match(/vorlagenName\(v, editorI18nInstance\(\)\.language\)/g) ?? []).length === 2 && !/\bv\.name\b/.test(editorQuelle));
 
 if (fehler > 0) {
   console.error(`\n${fehler} FAIL`);

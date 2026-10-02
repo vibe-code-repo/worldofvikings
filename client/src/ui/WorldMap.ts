@@ -39,8 +39,7 @@ import type { GameI18n } from '../i18n';
 import { UI } from './theme';
 import {
   biomLabel,
-  BIOME_ORDER,
-  BIOME_COLOR,
+  legendenZeilen,
   BIOME_INHALT,
   TREE_STYLE,
   TreeKind,
@@ -250,16 +249,16 @@ export class WorldMap {
     t1.style.cssText = css(`color:${UI.gold}`, 'letter-spacing:.14em', 'margin-bottom:6px', 'font-size:13px');
     box.appendChild(t1);
 
-    for (const b of BIOME_ORDER) {
+    for (const { farbe, name: anzeigename } of legendenZeilen(this.i18n.language)) {
       const zeile = document.createElement('div');
       zeile.style.cssText = css('display:flex', 'align-items:center', 'gap:8px', 'margin:3px 0');
       const punkt = document.createElement('span');
       punkt.style.cssText = css(
         'width:13px', 'height:13px', 'border-radius:3px', 'flex:0 0 auto',
-        `background:${rgb(BIOME_COLOR[b])}`, `border:1px solid ${UI.borderDim}`,
+        `background:${rgb(farbe)}`, `border:1px solid ${UI.borderDim}`,
       );
       const name = document.createElement('span');
-      name.textContent = biomLabel(b, this.i18n.language);
+      name.textContent = anzeigename;
       zeile.append(punkt, name);
       box.appendChild(zeile);
     }

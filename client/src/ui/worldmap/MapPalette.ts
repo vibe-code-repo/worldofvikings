@@ -48,6 +48,11 @@ export const BIOME_TEXT_KEY: Record<number, string> = {
   [Biome.Greyglen]: 'inhalt.biom.greyglen',
 };
 
+/** Die Zeilen der Kartenlegende (Reihenfolge `BIOME_ORDER`) mit Farbe und Namen in der Sprache. */
+export function legendenZeilen(sprache: string): { biome: Biome; farbe: RGB; name: string }[] {
+  return BIOME_ORDER.map((b) => ({ biome: b, farbe: BIOME_COLOR[b], name: biomLabel(b, sprache) }));
+}
+
 /** Anzeigename eines Bioms in der gewünschten Sprache. */
 export function biomLabel(biome: number, sprache: string): string {
   const key = BIOME_TEXT_KEY[biome];

@@ -248,6 +248,11 @@ export const REGION_VORLAGEN: readonly RegionVorlage[] = [
   },
 ];
 
+/** Anzeigename einer Vorlage in der Sprache: über den Schlüssel, sonst der feste Name. */
+export function vorlagenName(v: RegionVorlage, sprache: string): string {
+  return v.nameSchluessel ? inhaltText(v.nameSchluessel, sprache) : v.name;
+}
+
 /**
  * Felder, die eine Vorlage als GANZES setzt. Fehlt ein Feld in der
  * gewählten Vorlage, wird es auf `undefined` zurückgesetzt (= Vorgabe/

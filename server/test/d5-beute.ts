@@ -240,6 +240,7 @@ async function main(): Promise<void> {
     const b2 = lootZDOs()[0];
     const menge2 = b2?.getInt(BEUTE_MENGE) ?? 0;
     boden.vorspulen(BEUTE_EXKLUSIV_MS + 1000);
+    boden.tick(); // the server tick flips the window member that darfAufheben reads (no wait for the 30 Hz loop)
     await hebeAuf(bob, b2!);
     check(`after 121 s Bob picks up: inventory +${menge2}`, kuh2.destroyed && fleisch(bob) === menge2 && b2!.destroyed, `Bob RawMeat ${fleisch(bob)}`);
 
@@ -388,6 +389,7 @@ async function main(): Promise<void> {
     await hebeAuf(alice, { position: { x: 100, y: fremdNah.position.y, z: 100 }, prefabHash: fremdNah.prefabHash } as ZDO);
     check('only the foreign piece is left: refused with the "foreign" key, not "nothing there"', hatMeldung(alice, SERVER_MELDUNG_BEUTE_FREMD) && !fremdNah.destroyed && fleisch(alice) === 3, JSON.stringify(alice.meldungen));
     boden.vorspulen(BEUTE_EXKLUSIV_MS + 1000);
+    boden.tick(); // the server tick flips the window member that darfAufheben reads (no wait for the 30 Hz loop)
     await hebeAuf(alice, { position: { x: 100, y: fremdNah.position.y, z: 100 }, prefabHash: fremdNah.prefabHash } as ZDO);
     check('after the 2 minutes the foreign piece is hers too', fremdNah.destroyed && fleisch(alice) === 5, `${fleisch(alice)}`);
     leere(alice);
@@ -408,6 +410,7 @@ async function main(): Promise<void> {
       await hebeAuf(gast2, gbeute);
       check('after the reconnect the old loot is foreign: refused, stays', hatMeldung(gast2, SERVER_MELDUNG_BEUTE_FREMD) && !gbeute.destroyed && fleisch(gast2) === 0);
       boden.vorspulen(BEUTE_EXKLUSIV_MS + 1000);
+      boden.tick(); // the server tick flips the window member that darfAufheben reads (no wait for the 30 Hz loop)
       await hebeAuf(gast2, gbeute);
       check('after the exclusive time the same guest (new identity) picks it up', gbeute.destroyed && fleisch(gast2) === 2, `${fleisch(gast2)}`);
       gast2.ws.close();

@@ -53,6 +53,14 @@ export function legendenZeilen(sprache: string): { biome: Biome; farbe: RGB; nam
   return BIOME_ORDER.map((b) => ({ biome: b, farbe: BIOME_COLOR[b], name: biomLabel(b, sprache) }));
 }
 
+/** Setzt die Namen der Legendenzeilen neu (Sprachwechsel zur Laufzeit); `felder` in Reihenfolge `BIOME_ORDER`. */
+export function setzeLegendenNamen(felder: readonly { textContent: string | null }[], sprache: string): void {
+  legendenZeilen(sprache).forEach((z, i) => {
+    const feld = felder[i];
+    if (feld) feld.textContent = z.name;
+  });
+}
+
 /** Anzeigename eines Bioms in der gewünschten Sprache. */
 export function biomLabel(biome: number, sprache: string): string {
   const key = BIOME_TEXT_KEY[biome];

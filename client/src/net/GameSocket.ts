@@ -4,7 +4,7 @@
  * engine dependencies). Binary framing: [type: u8][payload].
  */
 
-import { PacketType, HANDSHAKE_LEERPASSWORT_SCHLUESSEL, moduleRegistry } from '@wov/shared';
+import { PROTOCOL_VERSION, PacketType, HANDSHAKE_LEERPASSWORT_SCHLUESSEL, moduleRegistry } from '@wov/shared';
 import type { Vector3, Quaternion } from '@wov/shared';
 import type { SchlagFelder } from './Quittung';
 
@@ -236,8 +236,8 @@ export class GameSocket {
         // sich unverträglich geändert (AuthChallenge/Nonce statt PeerInfo
         // als Trigger, neue PasswordAuth-Felder). Ein Server, der noch
         // Version 1 erwartet, gibt es auf diesem Server nicht mehr; die
-        // Konstante muss mit NetManager.ts (PROTOCOL_VERSION) übereinstimmen.
-        w.writeInt32(2);
+        // Konstante steht in shared/src/protokollVersion.ts, Server und Client lesen dieselbe.
+        w.writeInt32(PROTOCOL_VERSION);
         this.sendPacket(PacketType.VersionCheck, w.toUint8Array());
         break;
       }

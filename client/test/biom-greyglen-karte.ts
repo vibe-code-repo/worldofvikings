@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Biome, BiomeArea, BIOME_BY_NAME } from '@wov/shared';
-import { BIOME_COLOR, BIOME_ORDER, BIOME_LABEL, biomLabel, legendenZeilen, treeKindAt, BIOME_INHALT, BIOME_TREE_DENSITY, BIOME_TREES } from '../src/ui/worldmap/MapPalette';
+import { BIOME_COLOR, BIOME_ORDER, BIOME_LABEL, biomLabel, legendenZeilen, setzeLegendenNamen, treeKindAt, BIOME_INHALT, BIOME_TREE_DENSITY, BIOME_TREES } from '../src/ui/worldmap/MapPalette';
 import { BIOM_TON } from '../src/editor/design';
 import { biomTon, BIOME_FARBE } from '../src/editor/biome';
 import { REGION_VORLAGEN, vorlagenName } from '../src/editor/regionsWerkzeuge';
@@ -76,6 +76,16 @@ check('legend row for greyglen in en and de', legEn.find((z) => z.biome === Biom
 check('legend rows follow BIOME_ORDER with the map colour', legEn.length === BIOME_ORDER.length && legEn.every((z, i) => z.biome === BIOME_ORDER[i] && z.farbe === BIOME_COLOR[z.biome]));
 check('legend of the other biomes is the same in both languages', legEn.filter((z) => z.biome !== Biome.Greyglen).every((z, i) => z.name === legDe.filter((x) => x.biome !== Biome.Greyglen)[i]!.name));
 
+// ── Language switch at runtime: the legend names are set again ──
+const felder = BIOME_ORDER.map(() => ({ textContent: null as string | null }));
+setzeLegendenNamen(felder, 'de');
+const iGrau = BIOME_ORDER.indexOf(Biome.Greyglen);
+check('legend names set in de', felder[iGrau]!.textContent === 'Grauklamm' && felder.every((x) => x.textContent));
+setzeLegendenNamen(felder, 'en');
+check('after the switch to en the names are new', felder[iGrau]!.textContent === 'Greyglen');
+setzeLegendenNamen(felder.slice(0, 2), 'de');
+check('too few fields are tolerated', felder[0]!.textContent === biomLabel(BIOME_ORDER[0]!, 'de') && felder[iGrau]!.textContent === 'Greyglen');
+
 // ── Preset names in the language ──
 check('preset name en/de through the key', vorlage !== undefined && vorlagenName(vorlage, 'en') === 'Greyglen' && vorlagenName(vorlage, 'de') === 'Grauklamm');
 check('presets without a key keep their fixed name', REGION_VORLAGEN.filter((v) => !v.nameSchluessel).every((v) => vorlagenName(v, 'en') === v.name));
@@ -91,6 +101,10 @@ check('web map renderer has a greyglen colour and name',
 const weltkarte = quelle('client/src/ui/WorldMap.ts');
 check('world map: legend rows and tooltip get the game language, never a literal', weltkarte.includes('legendenZeilen(this.i18n.language)') && weltkarte.includes('biomLabel(biome, this.i18n.language)') && !weltkarte.includes('BIOME_LABEL[') && !/(legendenZeilen|biomLabel)\([^)]*'(de|en)'/.test(weltkarte));
 const editorQuelle = quelle('client/src/editor/editorMain.ts');
+{
+  const m = /private uebersetzeChrome\(\): void \{[\s\S]*?\n  \}/.exec(weltkarte);
+  check('world map: uebersetzeChrome sets the legend names again in the game language', m !== null && m[0].includes('setzeLegendenNamen(this.legendenNamen, this.i18n.language)'));
+}
 check('editor: button and message both use vorlagenName in the editor language, no raw v.name',
   (editorQuelle.match(/vorlagenName\(v, editorI18nInstance\(\)\.language\)/g) ?? []).length === 2 && !/\bv\.name\b/.test(editorQuelle));
 

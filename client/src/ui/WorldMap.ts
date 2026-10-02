@@ -40,6 +40,7 @@ import { UI } from './theme';
 import {
   biomLabel,
   legendenZeilen,
+  setzeLegendenNamen,
   BIOME_INHALT,
   TREE_STYLE,
   TreeKind,
@@ -116,6 +117,7 @@ export class WorldMap {
   private readonly titelEl: HTMLDivElement;
   private readonly seedEl: HTMLDivElement;
   private readonly biomeTitelEl: HTMLDivElement;
+  private readonly legendenNamen: HTMLSpanElement[];
   private readonly bewuchsTitelEl: HTMLDivElement;
   private readonly hinweisEl: HTMLDivElement;
   private readonly unsubscribeI18n: () => void;
@@ -177,7 +179,8 @@ export class WorldMap {
     this.root.appendChild(this.balken);
     this.statusZeile = this.status();
     this.root.appendChild(this.statusZeile);
-    const { root: legende, biomeTitel, bewuchsTitel } = this.legende();
+    const { root: legende, biomeTitel, bewuchsTitel, legendenNamen } = this.legende();
+    this.legendenNamen = legendenNamen;
     this.biomeTitelEl = biomeTitel;
     this.bewuchsTitelEl = bewuchsTitel;
     this.root.appendChild(legende);
@@ -235,6 +238,7 @@ export class WorldMap {
     root: HTMLDivElement;
     biomeTitel: HTMLDivElement;
     bewuchsTitel: HTMLDivElement;
+    legendenNamen: HTMLSpanElement[];
   } {
     const box = document.createElement('div');
     box.style.cssText = css(
@@ -249,6 +253,7 @@ export class WorldMap {
     t1.style.cssText = css(`color:${UI.gold}`, 'letter-spacing:.14em', 'margin-bottom:6px', 'font-size:13px');
     box.appendChild(t1);
 
+    const legendenNamen: HTMLSpanElement[] = [];
     for (const { farbe, name: anzeigename } of legendenZeilen(this.i18n.language)) {
       const zeile = document.createElement('div');
       zeile.style.cssText = css('display:flex', 'align-items:center', 'gap:8px', 'margin:3px 0');
@@ -259,6 +264,7 @@ export class WorldMap {
       );
       const name = document.createElement('span');
       name.textContent = anzeigename;
+      legendenNamen.push(name);
       zeile.append(punkt, name);
       box.appendChild(zeile);
     }
@@ -289,7 +295,7 @@ export class WorldMap {
       zeile.append(sym, name);
       box.appendChild(zeile);
     }
-    return { root: box, biomeTitel: t1, bewuchsTitel: t2 };
+    return { root: box, biomeTitel: t1, bewuchsTitel: t2, legendenNamen };
   }
 
   private info(): HTMLDivElement {
@@ -318,6 +324,7 @@ export class WorldMap {
     this.seedEl.textContent = this.i18n.t('map.world', { seed: this.opts.seed });
     this.biomeTitelEl.textContent = this.i18n.t('map.biomes');
     this.bewuchsTitelEl.textContent = this.i18n.t('map.vegetation');
+    setzeLegendenNamen(this.legendenNamen, this.i18n.language);
     const basis = this.i18n.t('map.hint');
     this.hinweisEl.textContent = this.opts.aufTeleport
       ? `${basis} · ${this.i18n.t('map.teleport_hint')}`

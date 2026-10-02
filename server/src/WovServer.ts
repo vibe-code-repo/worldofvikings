@@ -8,7 +8,7 @@
  * the blacklist, admin and whitelist sets.
  */
 
-import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, ruestungZu, canWearArmor, IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
+import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, ruestungZu, canWearArmor, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
 import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, SERVER_MELDUNG_BEUTE_FREMD, SERVER_MELDUNG_INVENTAR_VOLL, SERVER_MELDUNG_UNVERWUNDBAR, serverMeldungAufgesammelt, serverMeldungBesiegt, serverMeldungVollRest, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
@@ -106,8 +106,8 @@ import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/Worl
 import { SpielerSicherung, SPIELER_SICHERUNG_INTERVALL_MS, neuerAls } from './spiel/SpielerSicherung.js';
 import { WeltZdoSicherung, ueberlagern as weltZdoUeberlagern } from './spiel/WeltZdoSicherung.js';
 import { Stempel } from './spiel/Stempel.js';
-import { WetterDienst, fuehreWetterBefehlAus, pruefeGeladeneWeltzeit } from './spiel/Wetter.js';
-import { WeltMarken, globalKeyVonName } from './world/WeltMarken.js';
+import { WetterDienst, pruefeGeladeneWeltzeit } from './spiel/Wetter.js';
+import { WeltMarken } from './world/WeltMarken.js';
 import { HAUPTWELT_ID, Welt, type WeltUmgebung } from './world/Welt.js';
 import { LayoutWache, type Anwendung, type LiveVorgabe } from './world/layoutLive.js';
 import { bereinigeBeimBoot, vegetationLive } from './world/vegetationBereinigung.js';
@@ -128,7 +128,7 @@ import { Spielerbewegung } from './world/Spielerbewegung.js';
 // nicht daran wachsen.
 import { LeereGeo } from '@wov/shared/src/worldgen/LeereGeo.js';
 import { NetManager, NetManagerConfig } from './net/NetManager.js';
-import { Kontendatenbank, type BannArt } from './konto/Kontendatenbank.js';
+import { Kontendatenbank } from './konto/Kontendatenbank.js';
 import { KontoApi, GELOESCHTER_AUTOR } from './konto/KontoApi.js';
 import { ForumDatabase } from './forum/ForumDatabase.js';
 import { ForumApi } from './forum/ForumApi.js';
@@ -146,7 +146,7 @@ import { geheimnisAusEnv, istSpielerId, type SpielerId } from './net/Identitaet.
 import { namenSchluessel } from './net/Namen.js';
 import {
   ZONE_SIZE,
-  findItem, ITEM_DEFS,
+  findItem,
   REZEPTE,
   packContainer,
   fordereVerwahrenAn,
@@ -182,6 +182,11 @@ import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
 import { handleDungeonEditRequest, handleDungeonEditSave, handleDungeonModulBau, handleDungeonModulLoeschen } from './spiel/DungeonEditPakete.js';
 import { handleAdminCommand, handleSetTimeOfDay } from './spiel/AdminPakete.js';
 import { handleTruheOeffnen, sendeTruheInhalt, handleSetAussehen, handleSetFigur } from './spiel/Interaktion.js';
+import { registerAdminListeCommands, gleicheAdminrechteAb } from './spiel/befehle/AdminListe.js';
+import { registerBannCommands } from './spiel/befehle/Bann.js';
+import { registerMarkeCommand, registerWetterCommand } from './spiel/befehle/Weltzustand.js';
+import { registerAbbauCommand } from './spiel/befehle/Abbau.js';
+import { registerSpawnCommand } from './spiel/befehle/Spawn.js';
 import { registerTeleportCommand, registerSpielerCommand } from './spiel/befehle/Spieler.js';
 // Tests import the weapon helpers from this file, so it keeps exporting them.
 export { gepruefteWaffe, waffeTragbar, WAFFE_PAKETNAME_OHNE_EQUIP, wirksameWaffe } from './spiel/Waffe.js';
@@ -412,7 +417,7 @@ export class WovServer {
   private readonly spielerbewegung: Spielerbewegung;
   readonly net: NetManager;
   /** Konten und Charaktere. Eigene Datei je Instanz, wie die Welt. */
-  private readonly kontenDb: Kontendatenbank;
+  readonly kontenDb: Kontendatenbank;
   /** Das Thing: Forendaten. Eigene Datei je Instanz, getrennt von den Konten. */
   private readonly forumDb: ForumDatabase;
   /** Extensible admin command concept (fly, later teleport/god/...). */
@@ -2696,7 +2701,7 @@ export class WovServer {
    * zuverlaessigster Stand), dann in savedPlayers (auch fuer gerade
    * abwesende Spieler, die schon einmal verbunden waren).
    */
-  private spielerIdFuerName(name: string): SpielerId | undefined | typeof NAME_NICHT_EINDEUTIG {
+  spielerIdFuerName(name: string): SpielerId | undefined | typeof NAME_NICHT_EINDEUTIG {
     const schluessel = namenSchluessel(name);
     // Editor connections are never a player (their name is fixed by the server).
     const online = new Set(
@@ -4983,464 +4988,25 @@ export class WovServer {
     return { ok: true, message: 'Dungeon verlassen' };
   }
 
-  /**
-   * `admin <sub> ...` — dauerhafte Admin-Liste ueber stabile Spieler-IDs
-   * (Roadmap S6, Security-Review):
-   *
-   *   admin liste              alle dauerhaften Admins (Name + spielerId)
-   *   admin add <Name>         Spieler dauerhaft zum Admin machen
-   *   admin remove <Name>      Spieler wieder entfernen
-   *
-   * Laeuft wie jeder andere Admin-Befehl durch canUseAdminCommands()
-   * (peer.isAdmin), ganz bewusst: das Recht, die Liste zu PFLEGEN, ist
-   * selbst ein Admin-Recht. Seit Paket 0.1 (everyone-admin: false)
-   * entscheidet ausschliesslich noch diese Liste, wer diesen Befehl (und
-   * alle anderen) ueberhaupt nutzen darf — und ihr erster Eintrag kommt
-   * vom Adminkonto aus `standard-konto:` (StandardKonto.ts), weil sich
-   * eine leere Liste sonst nie fuellen liesse.
-   *
-   * Namensaufloesung ueber spielerIdFuerName(): der Zielspieler muss
-   * schon einmal verbunden gewesen sein (online ODER in savedPlayers) —
-   * ein rein erfundener Name kann nicht zum Admin gemacht werden, es gibt
-   * dafuer keine spielerId zum Eintragen.
-   */
   private registerAdminListeCommands(): void {
-    this.adminCommands.register('admin', (peer, args) => {
-      const sub = (args.shift() ?? '').toLowerCase();
-
-      if (sub === 'liste' || sub === 'list') {
-        const eintraege = this.adminListe.alle();
-        if (eintraege.length === 0) {
-          return { ok: true, active: false, message: 'Admin-Liste ist leer' };
-        }
-        const zeilen = eintraege.map((e) => `${e.name} [${e.spielerId}]`).join(', ');
-        return { ok: true, active: false, message: `${eintraege.length} dauerhafte Admins: ${zeilen}` };
-      }
-
-      if (sub === 'add' || sub === 'hinzufuegen') {
-        const name = args.join(' ').trim();
-        if (!name) return { ok: false, active: false, message: 'Aufruf: admin add <Name>' };
-        const id = this.spielerIdFuerName(name);
-        if (id === NAME_NICHT_EINDEUTIG) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
-        if (!id) {
-          return { ok: false, active: false,
-            message: `Unbekannter Spieler: "${name}" (muss schon einmal verbunden gewesen sein)` };
-        }
-        const neu = this.adminListe.hinzufuegen(id, name);
-        // Sofort an den offenen Sitzungen nachziehen — in BEIDE
-        // Richtungen, Begruendung bei gleicheAdminrechteAb().
-        if (neu) this.gleicheAdminrechteAb();
-        return { ok: true, active: false,
-          message: neu ? `${name} [${id}] ist jetzt dauerhaft Admin` : `${name} war schon Admin` };
-      }
-
-      if (sub === 'remove' || sub === 'entfernen') {
-        const name = args.join(' ').trim();
-        if (!name) return { ok: false, active: false, message: 'Aufruf: admin remove <Name>' };
-        const id = this.spielerIdFuerName(name);
-        if (id === NAME_NICHT_EINDEUTIG) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
-        if (!id) {
-          return { ok: false, active: false, message: `Unbekannter Spieler: "${name}"` };
-        }
-        /*
-          Der LETZTE Admin darf sich nicht selbst aussperren.
-
-          Dieselbe Bremse steht schon beim `bann`-Befehl, und aus genau
-          demselben Grund (dort ausfuehrlich begruendet): Seit
-          `everyone-admin: false` ist diese Liste der einzige Weg zu
-          Rechten, und `admin add` braucht einen Admin. Wer den letzten
-          Eintrag entfernt, hat einen Server ohne jeden Admin — zurueck
-          kommt man nur noch ueber die Datei auf der Platte oder die
-          Adminroute des Betriebsdienstes, also nur mit Zugang zur
-          Maschine. Das ist eine Huerde in der Bedienung, keine Ausnahme
-          in der Berechtigung: Wer wirklich alle Admins loswerden will,
-          traegt vorher einen zweiten ein und entfernt dann beide, oder
-          er nimmt den Weg ueber den Betriebsdienst.
-        */
-        if (this.adminListe.enthaelt(id) && this.adminListe.anzahl <= 1) {
-          return { ok: false, active: false,
-            message: `${name} ist der letzte Admin. Erst "admin add <Name>" fuer jemand anderen, sonst steht der Server ohne Admin da.` };
-        }
-        const weg = this.adminListe.entfernen(id);
-        // Wirkung SOFORT, nicht erst beim naechsten Anmelden: Ein
-        // uebernommenes Adminkonto ist genau der Fall, in dem man nicht
-        // warten kann, bis der andere von sich aus die Verbindung
-        // beendet (Befund 3).
-        if (weg) this.gleicheAdminrechteAb();
-        return { ok: true, active: false,
-          message: weg ? `${name} [${id}] ist kein dauerhafter Admin mehr` : `${name} war nicht in der Admin-Liste` };
-      }
-
-      return { ok: false, active: false,
-        message: 'Aufruf: admin liste | admin add <Name> | admin remove <Name>' };
-    });
+    return registerAdminListeCommands(this);
   }
 
-  /**
-   * Die Rechte OFFENER Sitzungen an die Adminliste angleichen.
-   * Re-check every open session against the admin list.
-   *
-   * ── Das Problem ─────────────────────────────────────────────────────
-   * `peer.isAdmin` entstand bisher genau EINMAL, im Handshake
-   * (NetManager.handlePasswordAuth), und wurde danach nie wieder gegen
-   * die Liste gehalten. Ein Angreifer-Skript hat auf EINER offenen
-   * Verbindung `admin remove Admin` ausgefuehrt — Liste danach
-   * nachweislich leer — und unmittelbar danach, ohne neu zu verbinden,
-   * `fly` benutzt: "Fly mode ON" (Befund 3, 13.09.2026). Ein
-   * uebernommenes Adminkonto blieb also bis zum SELBSTGEWAEHLTEN
-   * Verbindungsende voll handlungsfaehig, und das ist genau der Fall, in
-   * dem man sofortige Wirkung braucht.
-   *
-   * ── Warum nachziehen und nicht trennen ──────────────────────────────
-   * `bann` und `kick` trennen (net.trenneGebannte()), weil dort die
-   * PERSON weg soll. Hier soll sie bleiben: `admin remove` nimmt Rechte,
-   * kein Spielrecht — wer gerade in einem Dungeon steht, soll dafuer
-   * nicht aus der Welt fliegen. Getrennt wird deshalb nicht; entzogen
-   * wird sofort. Der Unterschied zu heute ist nicht die Haerte, sondern
-   * dass der stille Zustand "Liste sagt nein, Sitzung sagt ja" nicht
-   * mehr existiert.
-   *
-   * Der Flug hoert mit dem Recht auf: Er ist die einzige Adminwirkung,
-   * die OHNE weiteren Befehl weiterlaeuft (handlePlayerInput fragt nur
-   * `peer.flying` ab, nicht `peer.isAdmin`) — bliebe er stehen, koennte
-   * ein Entzogener die Welt weiter ueberfliegen.
-   *
-   * ── Beide Richtungen ────────────────────────────────────────────────
-   * Auch das Hinzufuegen wirkt sofort. Dieselbe Begruendung von der
-   * anderen Seite: "Liste sagt ja, Sitzung sagt nein" ist genauso
-   * unerklaerlich, und ein frisch ernannter Admin, der sich erst neu
-   * verbinden muss, ist einfach nur kaputt.
-   *
-   * Aufgerufen von `admin add`/`admin remove` und im Sekundentakt aus
-   * update(). Der Takt ist noetig, weil die Liste auch von AUSSEN
-   * wandert (Adminroute des Betriebsdienstes, Handanlegen an der Datei —
-   * AdminListe.abgleichen liest die Datei dann neu ein); ohne ihn
-   * bliebe die Luecke fuer genau diese Wege offen. Er kostet eine
-   * `alle()`-Abfrage je Sekunde, also ein statSync und im Regelfall
-   * keinen einzigen Dateizugriff mehr.
-   */
-  private gleicheAdminrechteAb(): void {
-    // Bei `everyone-admin: true` ist die Liste nicht das Tor (s.
-    // NetManager.handlePasswordAuth: ODER-Verknuepfung). Dann darf ein
-    // fehlender Listeneintrag auch keine Rechte wegnehmen.
-    if (this.config.everyoneAdmin) return;
-    const berechtigt = new Set(this.adminListe.alle().map((e) => e.spielerId));
-    for (const peer of this.net.getPeers()) {
-      // Ohne spielerId gibt es nichts abzugleichen (noch nicht
-      // angemeldet) — und ein leerer String darf nie in der Menge
-      // stehen, sonst haengte die Berechtigung an einer Leerstelle.
-      if (!peer.spielerId) continue;
-      const soll = berechtigt.has(peer.spielerId);
-      if (soll === peer.isAdmin) continue;
-      peer.isAdmin = soll;
-      if (!soll && peer.flying) {
-        peer.flying = false;
-        peer.sendPacketWith(PacketType.AdminEvent, (w) => {
-          w.writeString('fly');
-          w.writeBool(false);
-          w.writeString('Fly mode OFF (Adminrechte entzogen)');
-        });
-      }
-      peer.sendPacketWith(PacketType.AdminEvent, (w) => {
-        w.writeString('admin');
-        w.writeBool(false);
-        w.writeString(soll ? 'Du hast jetzt Adminrechte.' : 'Deine Adminrechte wurden entzogen.');
-      });
-      console.log(`[Admin] "${peer.name}" — Rechte an der Liste nachgezogen: isAdmin=${soll}`);
-    }
+  gleicheAdminrechteAb(): void {
+    return gleicheAdminrechteAb(this);
   }
 
-  /**
-   * `kick` / `bann` / `entbann` — die Bedienoberflaeche der Bannliste
-   * (Paket 0.5; die Datenhaltung steht in Kontendatenbank.ts, das
-   * Hinauswerfen in NetManager.trenneGebannte()).
-   *
-   * Warum diese drei zusammen in einer Methode stehen: `kick` ohne `bann`
-   * ist eine Bitte (der Geworfene verbindet sich sofort wieder), `bann`
-   * ohne `kick` erwischt den nicht, der schon drin ist. Beide teilen sich
-   * dieselbe Namensaufloesung, und die ist der eigentliche Inhalt.
-   *
-   * ── Namensaufloesung: Konto zuerst, spielerId als Rueckfall ──────────
-   * Ein Admin tippt einen Namen. Gemeint ist fast immer die PERSON, nicht
-   * die eine Figur — deshalb loest `bann` ueber die Kontendatenbank auf
-   * und bannt das KONTO, was alle Charaktere dieser Person einschliesst,
-   * auch die, die gerade nicht online sind. Nur wenn zu dem Namen gar
-   * kein Konto gehoert (eine Verbindung ohne Anmeldung bekommt eine
-   * gewuerfelte spielerId und keine Kontozeile), faellt der Befehl auf
-   * einen Spielerbann zurueck. Beides findet auch Abwesende: die
-   * Kontendatenbank ueber `charakterNachName`, der Rueckfall ueber
-   * `spielerIdFuerName` (online ODER savedPlayers).
-   *
-   * ── Gilt ein Bann auch fuer einen Admin? JA ─────────────────────────
-   * Strukturell: die Bannpruefung im Handshake laeuft VOR der Zeile, die
-   * `peer.isAdmin` setzt (NetManager.handlePasswordAuth) — ein gebannter
-   * Admin kommt nicht herein, und das soll auch so sein. Ein
-   * uebernommenes Adminkonto ist genau der Fall, in dem man einen Bann
-   * BRAUCHT, und eine Ausnahme waere die einzige Luecke, die niemand
-   * schliessen koennte.
-   *
-   * Die Gegenprobe ist trotzdem noetig, denn seit `everyone-admin: false`
-   * ist die Adminliste der einzige Weg zu Rechten: wer den letzten Admin
-   * bannt, hat den Server dauerhaft ohne Admin, und `admin add` braucht
-   * einen Admin. Deshalb LEHNT DER BEFEHL ab, wenn das Ziel auf der
-   * Adminliste steht (oder man selbst ist) und verlangt vorher
-   * `admin remove <Name>`. Das ist eine Huerde in der Bedienung, keine
-   * Ausnahme in der Berechtigung — ein Bann, der auf anderem Weg in die
-   * Datenbank kommt, wirkt gegen jeden.
-   *
-   * ── Herkunftsbann ───────────────────────────────────────────────────
-   * `bann herkunft <Name> ...` bannt die Adresse einer GERADE OFFENEN
-   * Verbindung (NetManager.herkunftVon). Nur online, absichtlich: eine
-   * Adresse, die man nicht mehr sieht, ist geraten. Sie wird auch nicht
-   * zurueckgemeldet — die Ablehnung nennt den Spielernamen, nicht die IP.
-   */
   private registerBannCommands(): void {
-    /** `30m`, `2h`, `7d`, `dauerhaft`/`permanent` → ms-Zeitpunkt oder null. */
-    const fristLesen = (wort: string): { bis: number | null } | null => {
-      const w = wort.toLowerCase();
-      if (w === 'dauerhaft' || w === 'permanent' || w === 'immer') return { bis: null };
-      const m = /^(\d+)(m|h|d|t)$/.exec(w);
-      if (!m) return null;
-      const zahl = Number(m[1]);
-      if (zahl <= 0) return null;
-      const faktor = m[2] === 'm' ? 60_000 : m[2] === 'h' ? 3_600_000 : 86_400_000;
-      return { bis: Date.now() + zahl * faktor };
-    };
-
-    const fristText = (bis: number | null): string =>
-      bis === null ? 'dauerhaft' : `bis ${new Date(bis).toLocaleString('de-DE')}`;
-
-    /**
-     * Steht zu diesem Bannziel ein Eintrag auf der Adminliste? Bei einem
-     * Kontobann werden ALLE Charaktere des Kontos geprueft — sonst
-     * schuetzt die Huerde nur den einen Namen, der getippt wurde, und der
-     * Zweitcharakter desselben Admins faellt still mit.
-     */
-    const trifftAdmin = (art: BannArt, wert: string, kontoId: number | null): boolean => {
-      if (art === 'spieler') return this.adminListe.enthaelt(wert as SpielerId);
-      if (art === 'konto' && kontoId !== null) {
-        return this.kontenDb
-          .charaktereVonKonto(kontoId)
-          .some((c) => this.adminListe.enthaelt(c.spielerId));
-      }
-      return false;
-    };
-
-    this.adminCommands.register('kick', (peer, args) => {
-      const name = args.join(' ').trim();
-      if (!name) return { ok: false, active: false, message: 'Aufruf: kick <Name>' };
-      // B1 (Nachbesserung Pruefung 4, Regression aus C3): Selbstschutz
-      // ueber das TATSAECHLICH GEFUNDENE Ziel, nicht ueber den rohen
-      // Namen — findPeerByName normalisiert (namenSchluessel), ein
-      // exakter String-Vergleich liess sich mit anderer Gross-/
-      // Kleinschreibung oder Leerzeichen umgehen ("kick boss" traf den
-      // Admin "Boss" vorher nicht als sich selbst).
-      if (this.net.findPeerByName(name) === peer) {
-        return { ok: false, active: false, message: 'Dich selbst kannst du nicht werfen' };
-      }
-      const getroffen = this.net.kick(name);
-      return getroffen
-        ? { ok: true, active: false, message: `${name} wurde getrennt (kein Bann — er kann sofort wiederkommen)` }
-        : { ok: false, active: false, message: `${name} ist nicht verbunden` };
-    });
-
-    this.adminCommands.register('bann', (peer, args) => {
-      const sub = (args[0] ?? '').toLowerCase();
-
-      if (sub === 'liste' || sub === 'list') {
-        const banns = this.kontenDb.bannListe();
-        if (banns.length === 0) return { ok: true, active: false, message: 'Keine wirksamen Banns' };
-        // Der rohe Wert eines Kontobanns ist eine Zeilennummer ("konto 1")
-        // — damit laesst sich `entbann` nicht bedienen. Wo es einen
-        // Benutzernamen gibt, steht deshalb der.
-        const zeilen = banns
-          .map((b) => {
-            const klar = b.art === 'konto'
-              ? this.kontenDb.kontoNachId(Number(b.wert))?.benutzername ?? b.wert
-              : b.wert;
-            return `${b.art} ${klar} (${fristText(b.bis)}${b.grund ? `, ${b.grund}` : ''})`;
-          })
-          .join('; ');
-        return { ok: true, active: false, message: `${banns.length} Banns: ${zeilen}` };
-      }
-
-      const aufHerkunft = sub === 'herkunft' || sub === 'ip';
-      const rest = aufHerkunft ? args.slice(1) : args;
-      const name = (rest.shift() ?? '').trim();
-      if (!name) {
-        return { ok: false, active: false,
-          message: 'Aufruf: bann <Name> [30m|2h|7d|dauerhaft] [Grund] | bann herkunft <Name> ... | bann liste' };
-      }
-      // B1 (Nachbesserung Pruefung 4, Regression aus C3): dieselbe
-      // Umstellung wie bei `kick` — ueber das gefundene Ziel, nicht ueber
-      // den rohen Namen. `peer` ist online, also findet `findPeerByName`
-      // ihn selbst, sobald der getippte Name (normalisiert) seinem
-      // eigenen entspricht — unabhaengig davon, ob `bann herkunft`
-      // gemeint ist oder ein Konto-/Spielerbann; `trifftAdmin` weiter
-      // unten schuetzt nur Konto-/Spielerbanns, KEINEN Herkunftsbann
-      // (Pruefung 4 §2: Admin "Boss" sperrte sich per "bann herkunft
-      // BOSS" dauerhaft selbst aus).
-      if (this.net.findPeerByName(name) === peer) {
-        return { ok: false, active: false, message: 'Dich selbst kannst du nicht bannen' };
-      }
-
-      // Frist ist optional und steht, wenn ueberhaupt, direkt hinter dem
-      // Namen. Ist das naechste Wort keine Frist, gehoert es zum Grund —
-      // sonst muesste jeder Bann eine Frist mitschleppen, nur damit ein
-      // Grund dahinter passt.
-      let bis: number | null = null;
-      if (rest.length > 0) {
-        const frist = fristLesen(rest[0]!);
-        if (frist) { bis = frist.bis; rest.shift(); }
-      }
-      const grund = rest.join(' ').trim();
-
-      let art: BannArt;
-      let wert: string;
-      let kontoId: number | null = null;
-      if (aufHerkunft) {
-        // C3: namenSchluessel statt `===`, wie kick und die Doppelnamen-
-        // Pruefung beim Anmelden jetzt auch. B2 (Nachbesserung Pruefung
-        // 4): Editor-Peers bleiben aussen vor, wie bei `findPeerByName`
-        // und `spieler entfernen` — sie heissen alle "Editor" und
-        // wuerden sonst reihenfolgeabhaengig statt dem Konto-Charakter
-        // getroffen.
-        const zielSchluessel = namenSchluessel(name);
-        const ziel = this.net.getPeers().find((p) => !p.nurEditor && namenSchluessel(p.name) === zielSchluessel);
-        if (!ziel) {
-          return { ok: false, active: false,
-            message: `${name} ist nicht verbunden — eine Herkunft laesst sich nur an einer offenen Verbindung ablesen` };
-        }
-        const herkunft = this.net.herkunftVon(ziel);
-        if (!herkunft) {
-          return { ok: false, active: false, message: `Herkunft von ${name} ist unbekannt` };
-        }
-        art = 'herkunft';
-        wert = herkunft;
-      } else {
-        const charakter = this.kontenDb.charakterNachName(name);
-        if (charakter) {
-          art = 'konto';
-          wert = String(charakter.kontoId);
-          kontoId = charakter.kontoId;
-        } else {
-          const id = this.spielerIdFuerName(name);
-          if (id === NAME_NICHT_EINDEUTIG) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
-          if (!id) {
-            return { ok: false, active: false,
-              message: `Unbekannter Spieler: "${name}" (kein Konto dieses Namens und nie verbunden gewesen)` };
-          }
-          art = 'spieler';
-          wert = id;
-        }
-      }
-
-      if (trifftAdmin(art, wert, kontoId)) {
-        return { ok: false, active: false,
-          message: `${name} steht auf der Admin-Liste. Erst "admin remove ${name}", dann bannen — sonst sperrt man sich womoeglich den letzten Admin aus.` };
-      }
-
-      this.kontenDb.bannSetzen(art, wert, { grund, gesetztVon: peer.name, bis });
-      // NACH dem Eintrag: trenneGebannte() fragt dieselbe Funktion wie der
-      // Handshake und erwischt damit auch den Zweitcharakter desselben
-      // Kontos, der nebenher online ist.
-      const getroffen = this.net.trenneGebannte();
-      const wen = getroffen.length > 0 ? ` — getrennt: ${getroffen.map((p) => p.name).join(', ')}` : '';
-      const wasText = art === 'herkunft' ? `Herkunft von ${name}` : art === 'konto' ? `Konto von ${name}` : name;
-      return { ok: true, active: false,
-        message: `${wasText} gebannt (${fristText(bis)}${grund ? `, ${grund}` : ''})${wen}` };
-    });
-
-    this.adminCommands.register('entbann', (_peer, args) => {
-      const sub = (args[0] ?? '').toLowerCase();
-      const aufHerkunft = sub === 'herkunft' || sub === 'ip';
-      const rest = aufHerkunft ? args.slice(1) : args;
-      const name = rest.join(' ').trim();
-      if (!name) {
-        return { ok: false, active: false,
-          message: 'Aufruf: entbann <Name> | entbann herkunft <Adresse>' };
-      }
-
-      // Bei einer Herkunft ist der getippte Text schon der Wert — die
-      // Adresse steht in `bann liste`, und der Gebannte ist ja gerade
-      // NICHT verbunden, also gibt es nichts abzulesen.
-      if (aufHerkunft) {
-        const weg = this.kontenDb.bannAufheben('herkunft', name);
-        return { ok: weg, active: false,
-          message: weg ? `Herkunftsbann auf ${name} aufgehoben` : `Kein Herkunftsbann auf ${name}` };
-      }
-
-      // Beide Arten probieren, in derselben Reihenfolge, in der `bann`
-      // sie vergibt — der Admin soll nicht wissen muessen, ob sein
-      // Gegenueber damals ein Konto hatte.
-      const charakter = this.kontenDb.charakterNachName(name);
-      if (charakter && this.kontenDb.bannAufheben('konto', String(charakter.kontoId))) {
-        return { ok: true, active: false, message: `Kontobann auf ${name} aufgehoben` };
-      }
-      const id = this.spielerIdFuerName(name);
-      if (id === NAME_NICHT_EINDEUTIG) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
-      if (id && this.kontenDb.bannAufheben('spieler', id)) {
-        return { ok: true, active: false, message: `Spielerbann auf ${name} aufgehoben` };
-      }
-      return { ok: false, active: false, message: `Kein Bann auf ${name} gefunden` };
-    });
+    return registerBannCommands(this);
   }
 
-  /**
-   * `marke liste` / `marke setzen <Name>` — Fortschrittsmarken (F5) von
-   * Hand setzen und anzeigen. Ueber peer.isAdmin gegated (der einzige Weg
-   * zu dieser Methode ist AdminCommandRegistry.execute(), das jeden
-   * Befehl schon vor dem Dispatch gegen canUseAdminCommands prueft) —
-   * nicht jeder Spieler soll sich selbst die Boss-Progression schenken.
-   *
-   * Bewusst NUR die Fortschrittsmarken-Haelfte von GlobalKey bedient, s.
-   * Kopfkommentar von shared/src/types.ts und WeltMarken.ts — die
-   * Weltmodifikator-Haelfte (WorldLevel, PlayerDamage, ...) ist
-   * Welterzeugungs-Konfiguration und gehoert nicht in einen
-   * Laufzeit-Befehl.
-   */
   private registerMarkeCommand(): void {
-    this.adminCommands.register('marke', (_peer, args) => {
-      const sub = (args.shift() ?? '').toLowerCase();
-
-      if (sub === 'liste' || sub === 'list') {
-        const namen = this.weltMarken.alsNamen();
-        return {
-          ok: true,
-          active: false,
-          message:
-            namen.length > 0
-              ? `${namen.length} gesetzte Marke(n): ${namen.join(', ')}`
-              : 'Keine Marke gesetzt',
-        };
-      }
-
-      if (sub === 'setzen' || sub === 'set') {
-        const name = args[0];
-        if (!name) {
-          return { ok: false, active: false, message: 'Aufruf: marke setzen <Name>' };
-        }
-        const marke = globalKeyVonName(name);
-        if (marke === undefined) {
-          return { ok: false, active: false, message: `Unbekannte Marke: "${name}"` };
-        }
-        const neu = this.weltMarken.setzen(marke);
-        return {
-          ok: true,
-          active: false,
-          message: neu
-            ? `Marke "${GlobalKey[marke]}" gesetzt`
-            : `Marke "${GlobalKey[marke]}" war schon gesetzt`,
-        };
-      }
-
-      return { ok: false, active: false, message: 'Aufruf: marke liste | marke setzen <Name>' };
-    });
+    return registerMarkeCommand(this);
   }
 
   /** F9: Wetterdienst, beim ersten Gebrauch gebaut (Tests bauen den Server oft ohne Konstruktor). */
   private wetterInst?: WetterDienst;
-  private wetterDienst(): WetterDienst {
+  wetterDienst(): WetterDienst {
     this.wetterInst ??= new WetterDienst(
       new WetterWuerfel(this.config.wetterDefinitionen),
       this.config.wetterVorgabe,
@@ -5450,171 +5016,16 @@ export class WovServer {
     return this.wetterInst;
   }
 
-  /** `wetter <Zustand|auto> [Biom]` — Wetter setzen, s. spiel/Wetter.ts. */
   private registerWetterCommand(): void {
-    this.adminCommands.register('wetter', (_peer, args) => fuehreWetterBefehlAus(this.wetterDienst(), args));
+    return registerWetterCommand(this);
   }
 
-  /**
-   * `abbau <prefab> [radius]` — gespawnte Prefabs wieder entfernen.
-   *
-   * Das Gegenstück zu `spawn`, und es hat bis jetzt gefehlt: Wer sich
-   * beim Testen einen NPC an die falsche Stelle gesetzt hat, bekam ihn
-   * nur über einen Welt-Reset wieder weg (der Kommentar an
-   * spawnLayoutPlacements verweist bereits auf einen "Admin-Abbau", den
-   * es nie gab). Persistente Prefabs überleben den Save, ein Fehlgriff
-   * bleibt also für immer stehen.
-   *
-   * Der Radius ist bewusst klein vorbelegt (10 m) und gedeckelt (200 m):
-   * `abbau Beech1 5000` würde sonst einen halben Wald abräumen, und
-   * zerstörte ZDOs kommen nicht zurück.
-   */
   private registerAbbauCommand(): void {
-    this.adminCommands.register('abbau', (peer, args) => {
-      const name = args[0];
-      if (!name) {
-        return { ok: false, active: false, message: 'Aufruf: abbau <prefab> [radius]' };
-      }
-      const prefab =
-        this.prefabs.getByName(name) ??
-        this.prefabs.getAll().find((p) => p.name.toLowerCase() === name.toLowerCase());
-      if (!prefab) {
-        return { ok: false, active: false, message: `Unbekanntes Prefab: ${name}` };
-      }
-      const radius = Math.min(200, Math.max(1, Number(args[1]) || 10));
-      let weg = 0;
-      for (const zdo of this.zdosVon(peer).getZDOsInRadius(peer.position, radius)) {
-        if (zdo.prefabHash !== prefab.hash) continue;
-        this.zdosVon(peer).destroyZDO(zdo.zdoid);
-        weg++;
-      }
-      return {
-        ok: true,
-        active: false,
-        message: `${weg}× ${prefab.name} im Umkreis von ${radius} m entfernt`,
-      };
-    });
+    return registerAbbauCommand(this);
   }
 
-  /**
-   * `spawn <prefab> [x z]` — ein Prefab in die Welt setzen (Standard: 2 m
-   * vor dem Spieler). Trägt das Prefab das PERSISTENT-Flag, überlebt es
-   * den Welt-Save — so kommen eigene NPCs dauerhaft in die Welt.
-   */
   private registerSpawnCommand(): void {
-    // item give <Name> [Anzahl] — legt einen Gegenstand ins eigene
-    // Inventar (10.09.2026). Gebaut, damit bestehende Charaktere, die die
-    // Startausruestung laengst haben, neue Gegenstaende wie das Nordschwert
-    // zum Ausprobieren bekommen, ohne dass man den Spielstand anfasst.
-    this.adminCommands.register('item', (peer, args) => {
-      const sub = (args.shift() ?? '').toLowerCase();
-      // Explicit, idempotent test-set delivery, including offline characters.
-      // Stage the whole inventory first: a full bag must never get half a set.
-      if (sub === 'ironward' || sub === 'wildwarden') {
-        const parts = sub === 'ironward' ? IRONWARD_PARTS : WILDWARDEN_PARTS;
-        const label = sub === 'ironward' ? 'Ironward' : 'Waldhüter';
-        if (this.speichertGerade) return { ok: false, active: false, message: 'Sicherung läuft; bitte gleich erneut versuchen. Nichts verändert.' };
-        const name = args.join(' ').trim();
-        if (!name) return { ok: false, active: false, message: `Aufruf: item ${sub} <Spielername>` };
-        const online = this.net.getPeers().filter(p => !p.nurEditor && namenSchluessel(p.name) === namenSchluessel(name));
-        const saved = [...this.savedPlayers.entries()].filter(([, p]) => namenSchluessel(p.name) === namenSchluessel(name));
-        if (online.length > 1 || (!online.length && saved.length !== 1)) return { ok: false, active: false, message: 'Spieler nicht eindeutig gefunden' };
-        const target = online[0]; const record = saved[0];
-        if ((target?.figur ?? record?.[1].figur) !== 'wikinger') return { ok: false, active: false, message: `${label} benötigt den männlichen Wikinger-Körper` };
-        const snapshot = target?.inventar.serialize() ?? record?.[1].inventar;
-        if (!snapshot) return { ok: false, active: false, message: 'Kein gespeichertes Inventar vorhanden' };
-        const staged = target ? target.inventar.kopie() : Inventory.ausSpeicherstand(snapshot); let added = 0;
-        for (const part of parts) {
-          if (staged.countOf(part.item)) continue;
-          if (staged.addItem(findItem(part.item)!, 1)) return { ok: false, active: false, message: 'Nicht genug Platz für das vollständige Set; nichts verändert' };
-          added++;
-        }
-        if (target) { target.inventar.uebernimm(staged); this.inventarSync(target); this.sichereSpielerSofort(target, 'admin'); }
-        else {
-          // F8 N2 (B4): ein Eingriff an einem ABWESENDEN Spieler bekommt einen neuen
-          // Stempel und geht sofort in die Konten-SQLite: sonst gewinnt beim
-          // Neustart die aeltere Zeile mit dem Stempel vom Abmelden (oder der
-          // Eingriff fehlt nach einem Kill bis zum naechsten Weltspeichern).
-          record![1].inventar = staged.serialize();
-          record![1].gespeichertAm = this.stempelZaehler().naechster();
-          this.spielerSicherung?.sichere([record![1]], 'admin');
-        }
-        void this.saveWorldAsync();
-        return { ok: true, active: false, message: `${name}: ${label} vollständig (7/7), ${added} neue Gegenstände. Sicherung angefordert.` };
-      }
-      if (sub !== 'give' && sub !== 'gib') {
-        return { ok: false, active: false, message: 'Aufruf: item give <Name> [Anzahl]' };
-      }
-      const name = args[0];
-      if (!name) return { ok: false, active: false, message: 'Aufruf: item give <Name> [Anzahl]' };
-      const def = findItem(name)
-        ?? ITEM_DEFS.find((i) => i.name.toLowerCase() === name.toLowerCase());
-      if (!def) return { ok: false, active: false, message: `Unbekannter Gegenstand: ${name}` };
-      const menge = Math.max(1, Math.floor(Number(args[1]) || 1));
-      const rest = peer.inventar.addItem(def, menge);
-      this.inventarSync(peer);
-      const drin = menge - rest;
-      return { ok: drin > 0, active: false,
-        message: drin > 0
-          ? `${drin}× ${def.label} ins Inventar gelegt${rest > 0 ? ` (${rest} passten nicht)` : ''}`
-          : `Kein Platz im Inventar für ${def.label}` };
-    });
-
-    this.adminCommands.register('spawn', (peer, args) => {
-      const name = args[0];
-      if (!name) {
-        return { ok: false, active: false, message: 'Aufruf: spawn <prefab> [x z]' };
-      }
-      // Exakter Name zuerst, sonst case-insensitiv über die Registry.
-      let prefab = this.prefabs.getByName(name);
-      if (!prefab) {
-        const norm = name.toLowerCase();
-        for (const p of this.prefabs.getAll()) {
-          if (p.name.toLowerCase() === norm) {
-            prefab = p;
-            break;
-          }
-        }
-      }
-      if (!prefab) {
-        return { ok: false, active: false, message: `Unbekanntes Prefab: ${name}` };
-      }
-
-      const hatKoordinaten = Number.isFinite(Number(args[1])) && Number.isFinite(Number(args[2]));
-      const x = hatKoordinaten ? Number(args[1]) : peer.position.x + 2;
-      const z = hatKoordinaten ? Number(args[2]) : peer.position.z + 2;
-      // Auf den BODEN, nicht auf den Wasserspiegel.
-      //
-      // Hier stand `Math.max(getGroundHeight(x, z), WATER_LEVEL)`, damit
-      // nichts auf dem Meeresgrund landet. In den Layout-Welten ist das
-      // aber falsch: WATER_LEVEL ist die aus der radialen Weltgenerierung
-      // übernommene Konstante 30, das Gelände dieser Welt liegt bei rund -55. Der Ausdruck
-      // lieferte deshalb IMMER 30 — jedes gespawnte Prefab hing 85 m über
-      // dem Boden.
-      //
-      // Nachgemessen im laufenden Client (__vb.dynPose/__vb.groundAt):
-      // `spawn FurlocFischer` ergab y = 30 bei Geländehöhe -55,5, und
-      // `spawn NPC_1` genauso. Es lag also nie am Modell — die
-      // gemeldete "im Boden versunkene" Figur war eine, die 85 m daneben
-      // stand. Layout-Platzierungen waren nie betroffen, die nehmen
-      // getGroundHeight direkt (s. spawnLayoutPlacements).
-      const y = this.getGroundHeight(x, z);
-
-      const zdo = this.zdosVon(peer).createZDO(prefab.hash, { x, y, z });
-      // Blick Richtung Spieler, damit ein NPC einen ansieht statt wegzuschauen.
-      const dx = peer.position.x - x;
-      const dz = peer.position.z - z;
-      const yaw = Math.atan2(dx, dz);
-      zdo.rotation = { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
-
-      return {
-        ok: true,
-        active: false,
-        message: `${prefab.name} gespawnt bei ${x.toFixed(1)}, ${z.toFixed(1)} (Höhe ${y.toFixed(1)})${
-          prefab.isPersistent() ? '' : ' — NICHT persistent'
-        }`,
-      };
-    });
+    return registerSpawnCommand(this);
   }
 
   private registerTeleportCommand(): void {
@@ -6226,7 +5637,7 @@ export class WovServer {
    * einen frischen Zaehler an. Im echten Start aendert das nichts: `bestimmeWeltKennung` hebt den vorhandenen Zaehler aus
    * Weltdatei und Tabellen (`hebeAuf`), genau wie vorher.
    */
-  private stempelZaehler(): Stempel {
+  stempelZaehler(): Stempel {
     return (this.stempel ??= new Stempel());
   }
 
@@ -6512,7 +5923,7 @@ export class WovServer {
   }
 
   /** D8: Läuft gerade ein asynchroner Save? */
-  private speichertGerade = false;
+  speichertGerade = false;
 
   /**
    * D8 — derselbe Save, ohne den Event-Loop zu blockieren.

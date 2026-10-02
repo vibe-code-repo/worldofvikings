@@ -182,6 +182,7 @@ import { NAME_NICHT_EINDEUTIG } from './spiel/Konstanten.js';
 import { handleDungeonEditRequest, handleDungeonEditSave, handleDungeonModulBau, handleDungeonModulLoeschen } from './spiel/DungeonEditPakete.js';
 import { handleAdminCommand, handleSetTimeOfDay } from './spiel/AdminPakete.js';
 import { handleTruheOeffnen, sendeTruheInhalt, handleSetAussehen, handleSetFigur } from './spiel/Interaktion.js';
+import { registerTeleportCommand, registerSpielerCommand } from './spiel/befehle/Spieler.js';
 // Tests import the weapon helpers from this file, so it keeps exporting them.
 export { gepruefteWaffe, waffeTragbar, WAFFE_PAKETNAME_OHNE_EQUIP, wirksameWaffe } from './spiel/Waffe.js';
 
@@ -603,7 +604,7 @@ export class WovServer {
    * nur im Arbeitsspeicher (siehe `sessionSecret` im Konstruktor): Nach
    * einem Neustart ist jedes Token ungueltig, und ein Gast beginnt neu.
    */
-  private readonly savedPlayers = new Map<string, SavedPlayer>();
+  readonly savedPlayers = new Map<string, SavedPlayer>();
   /** S6 (Security-Review): dauerhafte Admin-Liste ueber stabile Spieler-
    *  IDs — ueberlebt Neustart UND Deploy (Begruendung: AdminListe.ts). */
   readonly adminListe: AdminListe;
@@ -633,7 +634,7 @@ export class WovServer {
   /** F8: Takt der Spielerzustands-Sicherung. */
   private spielerTimer: ReturnType<typeof setInterval> | null = null;
   /** F8: null bis init() (Unit-Tests ohne init). */
-  private spielerSicherung: SpielerSicherung | null = null;
+  spielerSicherung: SpielerSicherung | null = null;
   /** F8 N2: Behaelter-/Bau-ZDOs im selben Schreibvorgang wie der Spielerzustand. */
   private weltZdoSicherung: WeltZdoSicherung | null = null;
   /** D5: loot on the ground (owner, 2 min exclusive, life), see spiel/BeuteAmBoden.ts. */
@@ -4664,7 +4665,7 @@ export class WovServer {
     peer.weltWechselVorbereiten();
   }
 
-  private teleportPeer(
+  teleportPeer(
     peer: Peer,
     pos: Vector3,
     dungeonId: string | null,
@@ -5617,109 +5618,11 @@ export class WovServer {
   }
 
   private registerTeleportCommand(): void {
-    // Den Basis-`teleport` dungeon-bewusst überschreiben: Strg+Klick auf
-    // die Weltkarte aus einer Instanz heraus soll den Dungeon sauber
-    // verlassen (Buchführung!) statt nur die Koordinaten zu wechseln.
-    this.adminCommands.register('teleport', (peer, args) => {
-      const x = Number(args[0]);
-      const z = Number(args[1]);
-      if (!Number.isFinite(x) || !Number.isFinite(z)) {
-        return { ok: false, active: false, message: 'Aufruf: teleport <x> <z>' };
-      }
-      if (peer.dungeonId) {
-        this.dungeons.getInstance(peer.dungeonId)?.players.delete(peer.userId);
-        peer.dungeonId = null;
-        peer.dungeonReturn = null;
-      }
-      // Ebenfalls auf den Boden statt auf WATER_LEVEL — siehe die
-      // ausführliche Begründung beim `spawn`-Kommando. Beim Teleport
-      // wirkte derselbe Fehler noch unangenehmer: Der Spieler landete
-      // 85 m über dem Ziel und fiel die Strecke herunter.
-      const y = this.getGroundHeight(x, z);
-      this.teleportPeer(peer, { x, y, z }, null);
-      return {
-        ok: true,
-        active: false,
-        message: `Teleportiert nach ${x.toFixed(0)}, ${z.toFixed(0)} (Höhe ${y.toFixed(1)})`,
-      };
-    });
+    return registerTeleportCommand(this);
   }
 
   private registerSpielerCommand(): void {
-    // ── Aufraeumen von Spieler-Datensaetzen (17.08.2026) ─────────────
-    //
-    // Anlass: Eine Nacht Grafik-Messreihen hat rund zehn Bot-Spieler in
-    // der DEV-Welt hinterlassen (RieselBot, Kombi768, Fern601, Tex915 …).
-    // `savedPlayers` waechst monoton — jeder Name, der sich je verbunden
-    // hat, bleibt in der `players[]`-Sektion, bis ihn jemand entfernt.
-    // Auf einer Entwicklungswelt, auf der Testverbindungen die Regel sind,
-    // ist das kein Ausnahmefall, sondern der Normalbetrieb.
-    //
-    // `spieler liste` zeigt, was da ist. `spieler entfernen <name>…` nimmt
-    // gezielt Namen heraus — bewusst NUR namentlich, kein Muster und kein
-    // "alle ausser mir": Ein Tippfehler in einem Glob loescht sonst
-    // Spielstaende, und fuer diese Welt gibt es kein Backup (Roadmap S2).
-    // Verbundene Spieler werden uebersprungen; ihr Datensatz wuerde beim
-    // naechsten Speichern ohnehin sofort neu geschrieben.
-    //
-    // F3 (Security-Review): `savedPlayers` ist mittlerweile ueber die
-    // stabile spielerId geschluesselt, nicht mehr ueber den Namen — diese
-    // Befehle bleiben trotzdem namentlich (so denkt Mike ueber Spieler)
-    // und loesen intern ueber das `name`-Feld der Datensaetze auf.
-    // `spieler online` zeigt zusaetzlich die spielerId JEDES verbundenen
-    // Spielers (S6: Grundlage fuer `admin add <Name>`).
-    this.adminCommands.register('spieler', (peer, args) => {
-      const sub = (args.shift() ?? 'liste').toLowerCase();
-      if (sub === 'liste') {
-        const namen = [...this.savedPlayers.values()].map((p) => p.name).sort();
-        return { ok: true, active: false,
-          message: `${namen.length} Datensaetze: ${namen.join(', ')}` };
-      }
-      if (sub === 'online') {
-        const zeilen = this.net.getPeers().map(
-          (p) => `${p.name} [${p.spielerId}]${p.isAdmin ? ' (admin)' : ''}`
-        );
-        return { ok: true, active: false,
-          message: zeilen.length ? zeilen.join(' | ') : 'Niemand online' };
-      }
-      if (sub === 'entfernen') {
-        if (args.length === 0) {
-          return { ok: false, active: false, message: 'Aufruf: spieler entfernen <name> [<name> …]' };
-        }
-        // D2 (Pruefung 3): namenSchluessel statt `===`, sonst meldet
-        // `spieler entfernen <andere Schreibung>` "Entfernt" fuer einen
-        // Online-Spieler, dessen Datensatz gleich danach beim naechsten
-        // Speichern/Trennen neu geschrieben wird — die Meldung war falsch,
-        // nicht der Zustand. Editor-Peers bleiben aussen vor: Sie heissen
-        // alle "Editor" und wuerden sonst jedes "spieler entfernen editor"
-        // auf "verbunden" ziehen, obwohl der Konto-Charakter "Editor"
-        // laengst offline ist.
-        const verbunden = new Set(
-          this.net.getPeers().filter((p) => !p.nurEditor).map((p) => namenSchluessel(p.name))
-        );
-        const weg: string[] = [];
-        const uebersprungen: string[] = [];
-        for (const name of args) {
-          const schluessel = namenSchluessel(name);
-          if (verbunden.has(schluessel)) { uebersprungen.push(`${name} (verbunden)`); continue; }
-          // C5 (Pruefung 2): mehrere gespeicherte Treffer sind eine
-          // Verwechslungsgefahr wie bei `admin add`/`bann` — nicht still den
-          // ersten (aeltesten) loeschen, sondern melden und nichts tun.
-          const treffer = [...this.savedPlayers.entries()].filter(([, p]) => namenSchluessel(p.name) === schluessel);
-          if (treffer.length === 0) { uebersprungen.push(`${name} (unbekannt)`); continue; }
-          if (treffer.length > 1) { uebersprungen.push(`${name} (nicht eindeutig)`); continue; }
-          this.savedPlayers.delete(treffer[0][0]);
-          this.spielerSicherung?.vergiss([treffer[0][0], treffer[0][1].spielerId ?? '']);
-          weg.push(name);
-        }
-        const rest = this.savedPlayers.size;
-        return { ok: true, active: false,
-          message: `Entfernt: ${weg.length ? weg.join(', ') : '—'}` +
-            (uebersprungen.length ? ` | Uebersprungen: ${uebersprungen.join(', ')}` : '') +
-            ` | Noch ${rest} Datensaetze (wird beim naechsten Speichern geschrieben)` };
-      }
-      return { ok: false, active: false, message: 'Aufruf: spieler liste | spieler online | spieler entfernen <name> …' };
-    });
+    return registerSpielerCommand(this);
   }
 
   /**

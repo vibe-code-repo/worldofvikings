@@ -14,9 +14,6 @@ import type { SpielKontext } from './Kontext.js';
 /** What this module uses of the server: 6 members. */
 type AdminPaketeKontext = SpielKontext<'adminCommands' | 'net' | 'worldTime' | 'getTimeOfDay' | 'getDay' | 'sendTimeSync'>;
 
-/** Name of the live rights packet; reserved, a typed command of this name is refused. */
-const RESERVIERTER_BEFEHL = 'adminrechte';
-
 /**
  * Client sent an admin command line (e.g. "fly"). Dispatched to the
  * AdminCommandRegistry; the result goes back to the requesting peer as
@@ -28,6 +25,7 @@ function handleAdminCommand(k: AdminPaketeKontext, peer: Peer, reader: Reader): 
 
   const wort = line.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
   // `adminrechte` is the name of the live rights packet (`gleicheAdminrechteAb`), which the client takes as a grant or withdrawal. As a typed command the name is reserved: refused here, before the registry, for admins and guests alike. The answer is named `admin` with active = false, so no typed line can imitate that packet
+  const RESERVIERTER_BEFEHL = 'adminrechte';
   const gesperrt = wort === RESERVIERTER_BEFEHL;
   const result = gesperrt ? { ok: false, active: false, message: `Reserved name, not a command: ${RESERVIERTER_BEFEHL}` } : k.adminCommands.execute(peer, line);
   const command = gesperrt ? 'admin' : wort;

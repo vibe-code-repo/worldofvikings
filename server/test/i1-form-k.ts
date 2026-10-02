@@ -439,16 +439,28 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       };
       if (aufrufer) gehe(aufrufer);
       if (!ruft) f.push(`${fn.name}: ${fn.aufrufer.methode} does not call this.${fn.name}(${fn.aufrufer.args})`);
-      // exactly ONE mention of `this.<name>` in the whole class, and that is the call above (N1, I11B-B3: no second call in the
-      // constructor, no call from init() or another method, no `this.<name>` handed on as a value)
+      // exactly ONE mention of the member name in the whole class, and that is the call above (N1, I11B-B3: no second call in the
+      // constructor, no call from init() or another method, no `this.<name>` handed on as a value); any receiver counts, so a cast
+      // or an alias of `this` (`(this as WovServer).<name>()`, `const ich = this; ich.<name>()`) is a mention too (N2, H5)
       let erwaehnt = 0;
+      // and exactly ONE call of the imported function in the class: the one inside the forwarding (N2, N1-B2: `<name>(this)` in init())
+      let direkt = 0;
+      let direktInWeiterleitung = 0;
       const zaehleErwaehnung = (n: ts.Node): void => {
-        if (ts.isPropertyAccessExpression(n) && n.expression.kind === ts.SyntaxKind.ThisKeyword && n.name.text === fn.name) erwaehnt++;
-        if (ts.isElementAccessExpression(n) && n.expression.kind === ts.SyntaxKind.ThisKeyword && ts.isStringLiteralLike(n.argumentExpression) && n.argumentExpression.text === fn.name) erwaehnt++;
+        // `PacketType.<x>` is the enum of the packet types, not the member (the invented sources of [0] name packet types like methods)
+        if (ts.isPropertyAccessExpression(n) && n.name.text === fn.name && !(ts.isIdentifier(n.expression) && n.expression.text === 'PacketType')) erwaehnt++;
+        if (ts.isElementAccessExpression(n) && ts.isStringLiteralLike(n.argumentExpression) && n.argumentExpression.text === fn.name) erwaehnt++;
+        if (ts.isIdentifier(n) && n.text === fn.name && !(ts.isPropertyAccessExpression(n.parent) && n.parent.name === n) && !(ts.isMethodDeclaration(n.parent) && n.parent.name === n)) {
+          direkt++;
+          let p: ts.Node | undefined = n.parent;
+          while (p && p !== m) p = p.parent;
+          if (p === m && ts.isCallExpression(n.parent) && n.parent.expression === n) direktInWeiterleitung++;
+        }
         ts.forEachChild(n, zaehleErwaehnung);
       };
       zaehleErwaehnung(klasse);
       if (erwaehnt !== 1) f.push(`${fn.name}: the class names this.${fn.name} ${erwaehnt} times, expected exactly once (the call in ${fn.aufrufer.methode})`);
+      if (direkt !== 1 || direktInWeiterleitung !== 1) f.push(`${fn.name}: the class uses the imported function ${fn.name} ${direkt} times (${direktInWeiterleitung} in the forwarding), expected exactly once, as the call in the forwarding`);
       // the packet type leads to its forwarding: `case PacketType.<Type>:` in `onPacket` calls it (swapped cases stay green otherwise)
       if (fn.paketTyp !== undefined) {
         let fall = false;
@@ -734,10 +746,20 @@ console.log('\n[0] Self-test of the checks on invented sources');
     ['the constructor calls the forwarding twice', gutB.replace('    this.fr();', '    this.fr();\n    this.fr();')],
     ['init() calls the forwarding once more', gutB.replace('  private vorher(): void {}', '  private vorher(): void {}\n\n  init(): void {\n    this.fr();\n  }')],
     ['the forwarding is handed on as a value', gutB.replace('  private vorher(): void {}', "  private vorher(): void {\n    void [this['fr']];\n  }")],
+    ['init() calls the forwarding through a cast of this', gutB.replace('  private vorher(): void {}', '  private vorher(): void {}\n\n  init(): void {\n    (this as WovServer).fr();\n  }')],
+    ['the constructor calls the forwarding through an alias of this', gutB.replace('    this.fr();', '    this.fr();\n    const ich = this;\n    ich.fr();')],
   ];
   for (const [name, text] of zweitB) {
     const f = pruefeKlasse([SB], text, name.startsWith('init') ? ['a', 'init'] : ['a']);
     check(`red: class, ${name}`, f.some((x) => x.includes('times, expected exactly once')), show(f) || 'no finding');
+  }
+  // N2 (N1-B2): the imported function called directly once more in the class, or handed on as a value
+  for (const [name, text] of [
+    ['init() calls the module function directly', gutB.replace('  private vorher(): void {}', '  private vorher(): void {}\n\n  init(): void {\n    fr(this);\n  }')],
+    ['the module function is handed on as a value', gutB.replace('  private vorher(): void {}', '  private vorher(): void {\n    void [fr];\n  }')],
+  ] as const) {
+    const f = pruefeKlasse([SB], text, name.startsWith('init') ? ['a', 'init'] : ['a']);
+    check(`red: class, ${name}`, f.some((x) => x.includes('uses the imported function')), show(f) || 'no finding');
   }
   // N1 (I11B-B3): the modifiers of relaxed members are frozen
   const gutM = ['export class WovServer {', '  readonly a = new Map<string, number>();', '  b = false;', '  c(): number {', '    return 1;', '  }', '  private d = 1;', '}', ''].join('\n');
@@ -1479,6 +1501,11 @@ function messeBefehleAttrappe(): Aufzeichnung {
       peers.push(nfd);
       befehl(a, reg, admin, 'item ironward \u00c4gir');
       zeigeP(nfd);
+      // N2 (N1-B1): an online player whose name has blanks at the edge (the handshake does not trim guest names)
+      const rand = befehlsPeer('  Rand ');
+      peers.push(rand);
+      befehl(a, reg, admin, 'item ironward Rand');
+      zeigeP(rand);
       saved.set('id-nfd', { name: '  O\u0308din ', figur: 'wikinger', inventar: [], gespeichertAm: 5 });
       befehl(a, reg, admin, 'item wildwarden \u00d6DIN');
       zeigeS('id-nfd');
@@ -2093,7 +2120,7 @@ const SOLL_CHAT_ECHT: Aufzeichnung = {
 /** Step 1, package B, measured on the stand before the move: the commands on a stand-in and on a real instance. */
 const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
   paket: [],
-  aufrufe: {"k.adminCommands": 65, "k.weltMarken": 11, "k.wetterDienst": 13, "wetterDienst": 10, "k.prefabs": 39, "prefabs.getByName": 29, "prefabs.getAll": 6, "k.zdosVon": 36, "zdosVon": 32, "getZDOsInRadius": 12, "destroyZDO": 8, "k.getGroundHeight": 15, "getGroundHeight": 13, "createZDO": 12, "k.inventarSync": 26, "inventarSync": 22, "k.speichertGerade": 36, "k.net": 32, "net.getPeers": 30, "k.savedPlayers": 32, "k.sichereSpielerSofort": 12, "sichereSpielerSofort": 10, "k.saveWorldAsync": 18, "saveWorldAsync": 15, "k.stempelZaehler": 8, "stempelZaehler": 6, "stempel.naechster": 6, "k.spielerSicherung": 7, "spielerSicherung.sichere": 4, "NEW wetterDienst": 2, "NEW setze": 1, "NEW prefabs.getByName": 2, "NEW zdosVon": 2, "NEW getGroundHeight": 1, "NEW inventarSync": 2, "NEW net.getPeers": 2, "NEW stempelZaehler": 1, "NEW sichere": 1, "NEW saveWorldAsync": 2, "NEW sichereSpielerSofort": 1},
+  aufrufe: {"k.adminCommands": 65, "k.weltMarken": 11, "k.wetterDienst": 13, "wetterDienst": 10, "k.prefabs": 39, "prefabs.getByName": 29, "prefabs.getAll": 6, "k.zdosVon": 36, "zdosVon": 32, "getZDOsInRadius": 12, "destroyZDO": 8, "k.getGroundHeight": 15, "getGroundHeight": 13, "createZDO": 12, "k.inventarSync": 27, "inventarSync": 23, "k.speichertGerade": 37, "k.net": 33, "net.getPeers": 31, "k.savedPlayers": 33, "k.sichereSpielerSofort": 13, "sichereSpielerSofort": 11, "k.saveWorldAsync": 19, "saveWorldAsync": 16, "k.stempelZaehler": 8, "stempelZaehler": 6, "stempel.naechster": 6, "k.spielerSicherung": 7, "spielerSicherung.sichere": 4, "NEW wetterDienst": 2, "NEW setze": 1, "NEW prefabs.getByName": 2, "NEW zdosVon": 2, "NEW getGroundHeight": 1, "NEW inventarSync": 2, "NEW net.getPeers": 2, "NEW stempelZaehler": 1, "NEW sichere": 1, "NEW saveWorldAsync": 2, "NEW sichereSpielerSofort": 1},
   konsole: {"log": 0, "warn": 0},
   zustand: [0, 7, 7],
   ausnahmen: ["TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError", "TypeError"],
@@ -2475,8 +2502,15 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
     "  saveWorldAsync 0",
     "= ok: Ägir: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
     "  peer \"Ägir\" 7/7 ironward, 0/7 wildwarden [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "> item ironward Rand (Admin)",
+    "  net.getPeers Admin,Teil,Fast,Knapp,Drei,OhneFigur,KeineFigur,Ägir,  Rand ",
+    "  inventarSync   Rand  [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  sichereSpielerSofort 2|  Rand |admin",
+    "  saveWorldAsync 0",
+    "= ok: Rand: Ironward vollständig (7/7), 7 neue Gegenstände. Sicherung angefordert.",
+    "  peer \"  Rand \" 7/7 ironward, 0/7 wildwarden [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
     "> item wildwarden ÖDIN (Admin)",
-    "  net.getPeers Admin,Teil,Fast,Knapp,Drei,OhneFigur,KeineFigur,Ägir",
+    "  net.getPeers Admin,Teil,Fast,Knapp,Drei,OhneFigur,KeineFigur,Ägir,  Rand ",
     "  stempelZaehler",
     "  stempel.naechster",
     "  spielerSicherung.sichere   Ödin @1002[wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] admin",
@@ -2554,7 +2588,7 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
     "  getZDOsInRadius {\"x\":10,\"y\":3,\"z\":-4} 10",
     "= ok: 0× Beech1 im Umkreis von 10 m entfernt",
     "  saved id-teil:TeilWeg@1001[wildwarden_mantlex1,wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1] id-fast:FastWeg@4[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] id-d1:Drei@undefined[] id-d2:drei@undefined[] id-of:OhneFigur@undefined[] id-kf:KeineFigur@undefined[] id-nfd:  Ödin @1002[wildwarden_crownx1,wildwarden_vestx1,wildwarden_robex1,wildwarden_mantlex1,wildwarden_bracersx1,wildwarden_glovesx1,wildwarden_bootsx1]",
-    "  peers Admin[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] Teil[IronwardLeggingsx1,IronwardHelmetx1,IronwardCuirassx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] Fast[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] Knapp[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] Drei[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] OhneFigur[] KeineFigur[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] Ägir[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
+    "  peers Admin[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] Teil[IronwardLeggingsx1,IronwardHelmetx1,IronwardCuirassx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] Fast[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1] Knapp[Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,Hammerx1,IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] Drei[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] OhneFigur[] KeineFigur[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1] Ägir[IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]   Rand [IronwardHelmetx1,IronwardCuirassx1,IronwardLeggingsx1,IronwardPauldronsx1,IronwardBracersx1,IronwardGauntletsx1,IronwardBootsx1]",
     "  markers defeated_eikthyr",
     "  register marke",
     "  register wetter",

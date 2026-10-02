@@ -259,6 +259,10 @@ try {
   gelaende.regions[0]!.baseLevel = 0.35;
   const hGelaende = await hashVon(gelaende);
   check('Kreisänderung lässt den Hash gleich (ohne Kreise = mit Kreisen = mit anderen Kreisen)', hOhne !== null && hOhne === hKreis && hOhne === hKreis2, `${hOhne} ${hKreis} ${hKreis2}`);
+  const hoehe = dokument(undefined);
+  hoehe.heightDeltas = [{ zx: 0, zz: 0, r: ['0|10|50'] }];
+  const hHoehe = await hashVon(hoehe);
+  check('Handkorrektur der Höhe (heightDeltas) ändert den Hash weiter', hHoehe !== null && hHoehe !== hOhne && hHoehe !== hGelaende, `${hHoehe} vs ${hOhne}`);
   check('Geländeänderung (baseLevel) ändert den Hash weiter', hGelaende !== null && hGelaende !== hOhne, `${hGelaende} vs ${hOhne}`);
 } finally {
   laut();

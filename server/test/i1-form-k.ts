@@ -1476,6 +1476,7 @@ console.log('\n[1e] Step 1D: the name of the context of Dungeon.ts and the defau
     ['the line only in a comment, the local is called key', sk("          // const [k, v] = arg.split('=', 2);\n          const [key, v] = arg.split('=', 2);")],
     ['the line only in a comment, another k bound elsewhere in the function (attack KD4c)', sk("          // const [k, v] = arg.split('=', 2);\n          const [key, v] = arg.split('=', 2);\n          [1].map((k) => k);")],
     ['k bound outside the case steinkit', `${sk("          const [key, v] = arg.split('=', 2);")}function andere(): void {\n  const [k, v] = 'a=b'.split('=', 2);\n}\n`.replace("case 'steinkit'", "case 'steinkit'")],
+    ['k bound in another case of the same switch, not in steinkit', sk("          const [key, v] = arg.split('=', 2);").replace("      case 'steinkit': {", "      case 'licht': {\n        for (const arg of args) {\n          const [k, v] = arg.split('=', 2);\n        }\n        break;\n      }\n      case 'steinkit': {")],
     ['k bound by another call', sk("          const [k, v] = arg.split(':', 2);")],
     ['k bound without the limit 2', sk("          const [k, v] = arg.split('=');")],
     ['k and v swapped', sk("          const [v, k] = arg.split('=', 2);")],

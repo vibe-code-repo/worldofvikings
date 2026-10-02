@@ -64,14 +64,17 @@ sitzung.serverConfig(FLAG_MODULE_BUILD);
 pruefe(!sitzung.istAdmin, 'Z4: the module-build bit alone is not the admin bit');
 sitzung.serverConfig(FLAG_ADMIN);
 // B2: rights change live
-pruefe(sitzung.adminEreignis('admin', false, 'Deine Adminrechte wurden entzogen.') === 'Deine Adminrechte wurden entzogen.' && sitzung.aktion(lageEingang) === 'nichts', 'B2: rights withdrawn live: E sends nothing, the text is passed on unchanged');
-pruefe(sitzung.adminEreignis('admin', true, 'Du hast jetzt Adminrechte.') === 'Du hast jetzt Adminrechte.' && sitzung.aktion(lageEingang) === 'dungeon-enter', 'B2: rights granted live: E sends `dungeon enter` at the entrance');
+pruefe(sitzung.adminEreignis('adminrechte', false, 'Deine Adminrechte wurden entzogen.') === 'Deine Adminrechte wurden entzogen.' && sitzung.aktion(lageEingang) === 'nichts', 'B2: rights withdrawn live: E sends nothing, the text is passed on unchanged');
+pruefe(sitzung.adminEreignis('adminrechte', true, 'Du hast jetzt Adminrechte.') === 'Du hast jetzt Adminrechte.' && sitzung.aktion(lageEingang) === 'dungeon-enter', 'B2: rights granted live: E sends `dungeon enter` at the entrance');
 pruefe(sitzung.adminEreignis('fly', false, 'Fly mode OFF') === 'Fly mode OFF' && sitzung.istAdmin, 'B2: another command with active=false (fly) does not touch the rights');
 pruefe(sitzung.adminEreignis('fly', true, 'Fly mode ON') === 'Fly mode ON' && sitzung.istAdmin, 'B2: nor does fly with active=true');
-sitzung.adminEreignis('admin', false, '');
+sitzung.adminEreignis('adminrechte', false, '');
 pruefe(!sitzung.istAdmin, 'B2: back to no rights');
-pruefe(sitzung.adminEreignis('Admin', true, '') === '' && !sitzung.istAdmin, 'B2: the command name is compared exactly (the server sends `admin`)');
-sitzung.adminEreignis('admin', true, '');
+pruefe(sitzung.adminEreignis('Adminrechte', true, '') === '' && !sitzung.istAdmin, 'B2: the command name is compared exactly (the server sends `adminrechte`)');
+pruefe(sitzung.adminEreignis('admin', true, 'x') === 'x' && !sitzung.istAdmin, 'N4-B1: the answer to the command `admin` (name `admin`) never grants, even with active=true');
+sitzung.adminEreignis('adminrechte', true, '');
+pruefe(sitzung.adminEreignis('admin', false, '1 dauerhafte Admins: Dave') === '1 dauerhafte Admins: Dave' && sitzung.istAdmin && sitzung.aktion(lageEingang) === 'dungeon-enter', 'N4-B1: the answer to `admin list` (name `admin`, active=false) does not take the flag away');
+
 pruefe(nachgeladen === 0, 'the reset callback did not run before a connection');
 sitzung.neueVerbindung();
 pruefe(nachgeladen === 1 && !sitzung.istAdmin && sitzung.aktion(lageEingang) === 'nichts', 'Z4: a new connection (PeerInfo) runs the callback once and forgets the rights (ServerConfig sets them again)');

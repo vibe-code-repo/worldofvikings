@@ -57,7 +57,7 @@ interface Klient {
   sitzung: ESitzung;
 }
 
-function verbinde(name: string, token = ''): Promise<Klient> {
+function verbinde(name: string, token = '', nurEditor = false): Promise<Klient> {
   return new Promise((resolvePromise, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
     ws.binaryType = 'nodebuffer';
@@ -77,6 +77,7 @@ function verbinde(name: string, token = ''): Promise<Klient> {
         w.writeString(antwortBerechnen(nonce, ''));
         w.writeString(name);
         w.writeString(token);
+        w.writeBool(nurEditor);
         ws.send(Buffer.concat([Buffer.from([P.PasswordAuth]), w.toBuffer()]));
       } else if (type === P.PeerInfo) {
         reader.readString(); reader.readString(); reader.readString(); // name, userId, server name
@@ -163,8 +164,8 @@ async function main(): Promise<void> {
     console.log('\n[3] B2: rights change live');
     carol.ereignisse.length = 0;
     server.adminListe.hinzufuegen(peerVon('Carol').spielerId, 'Carol');
-    const erhalten = await bis(() => carol.ereignisse.some((e) => e.command === 'admin'), 5000);
-    check('the grant reaches the client as `AdminEvent admin` with active = true', erhalten && carol.ereignisse.find((e) => e.command === 'admin')?.active === true && carol.ereignisse.find((e) => e.command === 'admin')?.text === 'Du hast jetzt Adminrechte.', JSON.stringify(carol.ereignisse));
+    const erhalten = await bis(() => carol.ereignisse.some((e) => e.command === 'adminrechte'), 5000);
+    check('the grant reaches the client as `AdminEvent adminrechte` with active = true', erhalten && carol.ereignisse.find((e) => e.command === 'adminrechte')?.active === true && carol.ereignisse.find((e) => e.command === 'adminrechte')?.text === 'Du hast jetzt Adminrechte.', JSON.stringify(carol.ereignisse));
     check('the server agrees (isAdmin = true now, same connection)', peerVon('Carol').isAdmin === true);
     check('E at the entrance now sends `dungeon enter`', carol.sitzung.istAdmin && carol.sitzung.aktion(lage) === 'dungeon-enter');
     await warte(1300); // the AdminCommand bucket refills one per second
@@ -174,8 +175,8 @@ async function main(): Promise<void> {
     check('and the server now executes her command (teleport moved her)', Math.abs(peerVon('Carol').position.x - 500) < 1, `${peerVon('Carol').position.x}`);
     carol.ereignisse.length = 0;
     server.adminListe.entfernen(peerVon('Carol').spielerId);
-    const entzogen = await bis(() => carol.ereignisse.some((e) => e.command === 'admin'), 5000);
-    check('the withdrawal reaches the client as `AdminEvent admin` with active = false', entzogen && carol.ereignisse.find((e) => e.command === 'admin')?.active === false && carol.ereignisse.find((e) => e.command === 'admin')?.text === 'Deine Adminrechte wurden entzogen.', JSON.stringify(carol.ereignisse));
+    const entzogen = await bis(() => carol.ereignisse.some((e) => e.command === 'adminrechte'), 5000);
+    check('the withdrawal reaches the client as `AdminEvent adminrechte` with active = false', entzogen && carol.ereignisse.find((e) => e.command === 'adminrechte')?.active === false && carol.ereignisse.find((e) => e.command === 'adminrechte')?.text === 'Deine Adminrechte wurden entzogen.', JSON.stringify(carol.ereignisse));
     check('E at the entrance sends nothing again', !carol.sitzung.istAdmin && carol.sitzung.aktion(lage) === 'nichts');
     check('the server agrees (isAdmin = false)', peerVon('Carol').isAdmin === false);
     await warte(1300);
@@ -185,8 +186,37 @@ async function main(): Promise<void> {
     await bis(() => carol.ereignisse.length >= 1, 3000);
     check('and the server refuses her again', carol.ereignisse[0]?.text === VERWEIGERT && peerVon('Carol').position.x === vor2);
 
-    carol.ws.close();
+    console.log('\n[4] N4-B1: the answers to `admin list|add|remove` do not touch the flag');
+    for (const zeile of ['admin list', 'admin add Carol', 'admin remove Carol']) {
+      await warte(1300); // the AdminCommand bucket
+      dave.ereignisse.length = 0;
+      sendAdmin(dave.ws, zeile);
+      const antwort = await bis(() => dave.ereignisse.some((e) => e.command === 'admin'), 3000);
+      const e = dave.ereignisse.find((x) => x.command === 'admin');
+      check(`"${zeile}": the answer arrives as \`admin\` with active = false (behaviour unchanged)`, antwort && e?.active === false && e.text.length > 0, JSON.stringify(dave.ereignisse));
+      check(`... the server still has isAdmin = true, the client class keeps the flag, E at the entrance sends \`dungeon enter\``, peerVon('Dave').isAdmin === true && dave.sitzung.istAdmin && dave.sitzung.aktion(lage) === 'dungeon-enter');
+    }
+    // the same command from a guest does not make her an admin on the client either (Carol was added and removed again above)
+    await warte(1300);
+    carol.ereignisse.length = 0;
+    sendAdmin(carol.ws, 'admin list');
+    await bis(() => carol.ereignisse.some((e) => e.command === 'admin'), 3000);
+    check('a guest\'s `admin list` is refused and gives her no flag', carol.ereignisse[0]?.text === VERWEIGERT && !carol.sitzung.istAdmin && carol.sitzung.aktion(lage) === 'nichts', JSON.stringify(carol.ereignisse));
+
+    console.log('\n[5] N4-B2: editor connections get the bit exactly like game connections: by the rights of the account, not by being an editor');
+    // Editor sessions get their rights the same way (`NetManager.handlePasswordAuth`: everyoneAdmin or the admin list on the spielerId, whatever `nurEditor` says).
+    const editorGast = await verbinde('Eddie', '', true);
+    check('an editor connection of a guest: bit 7 is NOT set', editorGast.flags !== null && (editorGast.flags & FLAG_ADMIN) === 0, String(editorGast.flags));
+    check('... the server agrees (premise: editor peer, not admin)', server.net.getPeers().some((p) => p.nurEditor && !p.isAdmin) && !editorGast.sitzung.istAdmin);
     dave.ws.close();
+    await bis(() => !server.net.getPeers().some((p) => p.name === 'Dave'), 3000);
+    const daveEditor = await verbinde('Dave', daveToken, true);
+    check('an editor connection of an admin account (token of a listed admin): bit 7 IS set', daveEditor.flags !== null && (daveEditor.flags & FLAG_ADMIN) !== 0, String(daveEditor.flags));
+    check('... the server agrees (premise: editor peer, admin)', server.net.getPeers().some((p) => p.nurEditor && p.isAdmin));
+    editorGast.ws.close();
+    daveEditor.ws.close();
+
+    carol.ws.close();
     console.log(failures === 0 ? '\nd5-beute-admin: OK' : `\nd5-beute-admin: ${failures} FAIL`);
   } catch (err) {
     console.error('FAIL:', err);

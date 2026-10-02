@@ -55,7 +55,7 @@ export const FLAG_MODULE_BUILD = 1 << 6;
  * Dieser Peer hat Adminrechte (D5 N3). Nur ein HINWEIS für die Oberfläche (zum Beispiel: die E-Taste schickt `dungeon enter`
  * nur Admins). Der Server prüft jeden Adminbefehl bei seinem Eingang selbst (`AdminCommandRegistry.execute`); ein gefälschtes
  * Bit am Client öffnet nichts. Ändern sich die Rechte mitten in der Verbindung, kommt der neue Wert als `AdminEvent` mit dem
- * Befehl `admin` und `active = Adminrechte ja/nein` (`gleicheAdminrechteAb`); das Bit gilt nur bis dahin.
+ * Befehl `adminrechte` und `active = Adminrechte ja/nein` (nicht `admin`: so heisst die Antwort auf `admin list`, `admin add`, `admin remove`, mit active=false) (`gleicheAdminrechteAb`); das Bit gilt nur bis dahin.
  */
 export const FLAG_ADMIN = 1 << 7;
 

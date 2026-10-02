@@ -3,7 +3,7 @@
  *
  * `dungeon enter` / `dungeon leave` are admin commands (`AdminCommands.execute`). The client learns from the server whether the
  * player is an admin: at login in the `ServerConfig` flags (`FLAG_ADMIN`), afterwards live in the `AdminEvent` with the command
- * `admin` (`gleicheAdminrechteAb`: rights granted or withdrawn in mid-session). The E key sends `dungeon enter` from the
+ * `adminrechte` (`gleicheAdminrechteAb`: rights granted or withdrawn in mid-session). The E key sends `dungeon enter` from the
  * overworld only for an admin. The flag is a hint for the interface only: the server checks every command itself, whatever the
  * client says (the refusal on every press was the fault reported on 02.10.2026; N2 learned it from the refusal text, N3 asks
  * the server up front, so there is no fallback on the text any more).
@@ -11,6 +11,9 @@
 import { adminAusFlags } from '@wov/shared';
 import { eOhneZiel } from './eOhneZiel';
 import type { EOhneZielAktion, EOhneZielLage } from './eOhneZiel';
+
+/** The command name of the `AdminEvent` that changes the rights live (`gleicheAdminrechteAb`, `server/src/spiel/befehle/AdminListe.ts`). */
+export const ADMINRECHTE_EREIGNIS = 'adminrechte';
 
 export class ESitzung {
   private admin = false;
@@ -29,9 +32,9 @@ export class ESitzung {
     this.admin = adminAusFlags(flags);
   }
 
-  /** An `AdminEvent`: the command `admin` carries the new rights in `active`. Returns the text unchanged, so the caller can show it. */
+  /** An `AdminEvent`: only the command `adminrechte` (the live rights change) carries the new rights in `active`; the answers to the commands `admin list/add/remove` are named `admin` with active=false and change nothing. Returns the text unchanged, so the caller can show it. */
   adminEreignis(command: string, active: boolean, text: string): string {
-    if (command === 'admin') this.admin = active;
+    if (command === ADMINRECHTE_EREIGNIS) this.admin = active;
     return text;
   }
 

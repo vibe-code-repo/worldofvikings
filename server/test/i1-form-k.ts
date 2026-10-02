@@ -54,6 +54,10 @@
  *  registered by the functions, every call into the context with its arguments, the message as text, the peer state after every call,
  *  a member replaced on the stand-in between registration and call) and on a real instance (the registry its constructor built, with a
  *  real dungeon instance that `teleport` leaves, and the two forwardings called again on the instance).
+ *  Step 1, package C, after the attack (N1): names that differ only in Unicode form or trailing space, the caller itself online with a
+ *  record of its own, an editor that is admin, exactly one player online, the same name twice in one command, two records with the same
+ *  name, `dungeons` replaced after the registration, and `getGroundHeight` called on its receiver; the relaxed members keep `readonly`
+ *  exactly as frozen in `LOCKERUNGEN_C`.
  *  Not applicable in steps 1 to 3: the identity of returned objects of the stock (K9-5), no function returns a value.
  *
  * Section [0] shows first that each check can turn red: the same checks run over small invented sources, one fault
@@ -136,7 +140,7 @@ const KOPF = (name: string): string => `private ${name}(peer: Peer, reader: Read
 /** A packet handler: private forwarding `(peer, reader)`, called by `onPacket`. */
 const PAKET = (name: string): FunktionSpec => ({ name, kopf: KOPF(name), aufrufer: { methode: 'onPacket', args: 'peer, reader' }, laenge: 2, paketTyp: name.replace(/^handle/, '') });
 /** A command registration: private forwarding without parameters, called by the constructor at the frozen place among its `this.register…();` calls. */
-const REGISTRIERUNG = (name: string, aufrufNr: number): FunktionSpec => ({ name, kopf: `private ${name}(): void`, aufrufer: { methode: 'constructor', args: '' }, laenge: 0, aufrufNr });
+const REGISTRIERUNG_C = (name: string, aufrufNr: number): FunktionSpec => ({ name, kopf: `private ${name}(): void`, aufrufer: { methode: 'constructor', args: '' }, laenge: 0, aufrufNr });
 const MODULE: readonly ModulSpec[] = [
   {
     datei: 'server/src/spiel/AdminPakete.ts',
@@ -185,7 +189,7 @@ const MODULE: readonly ModulSpec[] = [
     mitglieder: ['adminCommands', 'dungeons', 'getGroundHeight', 'teleportPeer', 'savedPlayers', 'net', 'spielerSicherung'],
     wertImporte: ['../../net/Namen.js'],
     // `teleport` first: it overrides the base `teleport` of AdminCommands and is registered before every other command of the server
-    funktionen: [REGISTRIERUNG('registerTeleportCommand', 0), REGISTRIERUNG('registerSpielerCommand', 1)],
+    funktionen: [REGISTRIERUNG_C('registerTeleportCommand', 0), REGISTRIERUNG_C('registerSpielerCommand', 1)],
   },
 ];
 
@@ -466,6 +470,22 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
 
 const show = (f: readonly string[]): string => f.slice(0, 3).join(' | ');
 
+// ── Step 1, package C (N1): the modifiers of the members package C relaxed ──
+/** The members package C relaxed from private, with the modifiers they must keep (`readonly` stays where it stood). */
+const LOCKERUNGEN_C: Readonly<Record<string, string>> = { savedPlayers: 'readonly', spielerSicherung: '', teleportPeer: '' };
+function pruefeLockerungenC(text: string): string[] {
+  const f: string[] = [];
+  const sf = parse('WovServer.ts', text);
+  const klasse = sf.statements.find((x): x is ts.ClassDeclaration => ts.isClassDeclaration(x) && x.name?.text === 'WovServer');
+  if (!klasse) return ['class WovServer not found'];
+  for (const [name, soll] of Object.entries(LOCKERUNGEN_C)) {
+    const m = klasse.members.filter((x) => x.name?.getText(sf) === name);
+    const ist = m.length === 1 ? mods(m[0]!).map((x) => x.getText(sf)).join(' ') : `${m.length} members`;
+    if (ist !== soll) f.push(`${name}: modifiers "${ist}", frozen "${soll}"`);
+  }
+  return f;
+}
+
 // ── [0] The checks can turn red ────────────────────────────────────────
 
 console.log('\n[0] Self-test of the checks on invented sources');
@@ -660,7 +680,7 @@ console.log('\n[0] Self-test of the checks on invented sources');
   // registrations without parameters, called by the constructor at a frozen place among its `this.register…();` calls (step 1)
   const S1: ModulSpec = {
     datei: 'server/src/spiel/befehle/Test1.ts', spezifizierer: './spiel/befehle/Test1.js', kontextTyp: 'Test1Kontext', mitglieder: ['a'], wertImporte: [],
-    funktionen: [REGISTRIERUNG('registerEins', 0), REGISTRIERUNG('registerZwei', 1)],
+    funktionen: [REGISTRIERUNG_C('registerEins', 0), REGISTRIERUNG_C('registerZwei', 1)],
   };
   const gut1 = [
     "import { registerEins, registerZwei } from './spiel/befehle/Test1.js';",
@@ -722,6 +742,11 @@ if (!MESSEN_BASIS) {
   }
   const f = pruefeKlasse(MODULE, klassenText, PUBLIC_MEMBERS);
   check(`WovServer.ts: ${alleNamen.length} forwardings in the frozen form, imports, onPacket, ${PUBLIC_MEMBERS.length} non-private members`, f.length === 0, show(f));
+  // step 1, package C (N1, B7 of the attack): the relaxed members keep the rest of their declaration; only `private` went
+  check('step 1 (C): the relaxed members keep their modifiers (readonly where it stood)', pruefeLockerungenC(klassenText).length === 0, show(pruefeLockerungenC(klassenText)));
+  check('step 1 (C) self-test: readonly lost on savedPlayers is seen', pruefeLockerungenC(klassenText.replace('  readonly savedPlayers = new Map', '  savedPlayers = new Map')).length > 0);
+  check('step 1 (C) self-test: readonly added to spielerSicherung is seen', pruefeLockerungenC(klassenText.replace('  spielerSicherung: SpielerSicherung | null = null;', '  readonly spielerSicherung: SpielerSicherung | null = null;')).length > 0);
+  check('step 1 (C) self-test: static on teleportPeer is seen', pruefeLockerungenC(klassenText.replace('  teleportPeer(\n', '  static teleportPeer(\n')).length > 0);
   for (const n of alleNamen) {
     const d = Object.getOwnPropertyDescriptor(WovServer.prototype, n);
     const laenge = MODULE.flatMap((m) => m.funktionen).find((x) => x.name === n)!.laenge;
@@ -1341,6 +1366,111 @@ function messeSpielerEcht(): Aufzeichnung {
       a.zustand.push(saved.size);
       (server['kontenDb'] as { close?: () => void } | undefined)?.close?.();
     });
+  } finally {
+    ruecksetzen();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  return a;
+}
+
+// ── [2d] Behaviour of step 1, package C, after the attack (N1) ──
+
+/** `getGroundHeight` as a function that notes whether it was called on its receiver (a handler that loses `this` shows here). */
+const hoeheMitEmpfaenger = (a: Aufzeichnung, empfaenger: () => unknown) => function (this: unknown, x: number, z: number): number {
+  zaehle(a, 'getGroundHeight');
+  a.notizen.push(`call getGroundHeight ${x} ${z} receiver=${this === empfaenger() ? 'context' : 'LOST'}`);
+  return x * 0.5 + z * 0.25 + 0.0625;
+};
+/** Records whose names differ from what is typed only in Unicode form (NFD/NFC), in case or by a trailing space. */
+const gespeichertN1 = (): Map<string, Record<string, unknown>> => new Map<string, Record<string, unknown>>([
+  ['id-joerg', { name: 'Jörg', spielerId: 'id-joerg' }], // NFD in the record
+  ['id-asa', { name: 'Åsa', spielerId: 'id-asa' }], // NFC in the record, typed as NFD below
+  ['id-bjoern', { name: 'Björn', spielerId: 'id-bjoern' }], // online as NFD
+  ['id-ulf', { name: 'Ulf ', spielerId: 'id-ulf' }], // trailing space in the record
+  ['id-selbst', { name: 'Selbst', spielerId: 'id-selbst' }], // the caller's own record
+  ['id-z1', { name: 'Zwilling', spielerId: 'id-z1' }], ['id-z2', { name: 'Zwilling', spielerId: 'id-z2' }], // the same name twice
+  ['id-einmal', { name: 'Einmal', spielerId: 'id-einmal' }],
+]);
+function messeSpielerAttrappeN1(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  const handler = new Map<string, Handler>();
+  const inInstanz = new Set<number>([7, 9]);
+  const saved = gespeichertN1();
+  const selbst = peerB(a, 'Selbst', { spielerId: 'id-selbst' });
+  let online: unknown[] = [selbst, peerB(a, 'Björn', { spielerId: 'id-bjoern' }), peerB(a, 'EdAdmin', { nurEditor: true, isAdmin: true, spielerId: 'ed-a' })];
+  const k: Record<string, unknown> = {
+    adminCommands: { register: (n: string, fn: Handler): void => { zaehle(a, 'register'); handler.set(n, fn); } },
+    dungeons: { getInstance: (id: unknown): unknown => { zaehle(a, 'getInstance'); a.notizen.push(`call getInstance ${String(id)}`); return id === 'd-inst' ? { players: inInstanz } : undefined; } },
+    teleportPeer: (...x: unknown[]): void => { zaehle(a, 'teleportPeer'); a.notizen.push(`call teleportPeer ${x.length} ${nm(x[0])} ${JSON.stringify(x.slice(1))}`); },
+    net: { getPeers: (): unknown[] => { zaehle(a, 'getPeers'); return online; } },
+    savedPlayers: saved,
+    spielerSicherung: { vergiss: (x: unknown): void => { zaehle(a, 'vergiss'); a.notizen.push(`call vergiss ${JSON.stringify(x)}`); } },
+  };
+  k['getGroundHeight'] = hoeheMitEmpfaenger(a, () => k);
+  try {
+    versuche(a, () => F['registerTeleportCommand']!(k));
+    versuche(a, () => F['registerSpielerCommand']!(k));
+    const sp = (z: string, p: Record<string, unknown> = selbst): void => { befehlB(a, handler.get('spieler'), z, p); a.notizen.push(`saved ${[...saved.keys()].join(',')}`); a.zustand.push(saved.size); };
+    const tp = (z: string, p: Record<string, unknown>): void => befehlB(a, handler.get('teleport'), z, p);
+    // the caller is online and has a record: it sees itself in `online` and cannot remove itself
+    sp('online');
+    sp('entfernen Selbst');
+    sp('entfernen selbst');
+    // the same name twice in one command, then two records with the same name in `liste`
+    sp('liste');
+    sp('entfernen Einmal Einmal');
+    // names that differ only in Unicode form or by a trailing space: online (NFD) typed NFC, record NFD typed NFC, record NFC typed NFD, record with a space
+    sp('entfernen björn');
+    sp('entfernen JÖRG');
+    sp('entfernen Åsa');
+    sp('entfernen ulf');
+    // exactly one player online
+    online = [peerB(a, 'Allein', { spielerId: 'id-allein' })];
+    sp('online');
+    // `dungeons` replaced after the registration: the handler reads k.dungeons at the call
+    k['dungeons'] = { getInstance: (id: unknown): unknown => { zaehle(a, 'getInstanceNeu'); a.notizen.push(`call getInstanceNeu ${String(id)}`); return id === 'd-neu' ? { players: inInstanz } : undefined; } };
+    tp('5 6', peerB(a, 'Drin', { userId: 9, dungeonId: 'd-neu', dungeonReturn: { x: 1, y: 1, z: 1 } }));
+    a.notizen.push(`instance players ${[...inInstanz].join(',')}`);
+  } finally {
+    ruecksetzen();
+  }
+  return a;
+}
+function messeSpielerEchtN1(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  const tmp = mkdtempSync(join(tmpdir(), 'i1-form-k-'));
+  try {
+    const server = createWovServer({
+      port: 0, worldFeatures: false, worldName: 'i1-form-k1cn1', everyoneAdmin: true,
+      worldsDir: join(tmp, 'worlds'), kontenDir: join(tmp, 'konten'), forumDir: join(tmp, 'forum'), generiertDir: join(tmp, 'generiert'),
+    } as never) as unknown as Record<string, unknown>;
+    const haupt = { id: HAUPTWELT_ID, zdos: new ZDOManager(1n), heightmaps: { listTerrainComps: (): unknown[] => [] } };
+    (server['welten'] as Map<string, unknown>).set(HAUPTWELT_ID, haupt);
+    server['hauptwelt'] = haupt;
+    server['getGroundHeight'] = hoeheMitEmpfaenger(a, () => server);
+    server['spielerSicherung'] = { vergiss: (x: unknown): void => { zaehle(a, 'vergiss'); a.notizen.push(`call vergiss ${JSON.stringify(x)}`); } };
+    const saved = server['savedPlayers'] as Map<string, Record<string, unknown>>;
+    for (const [id, r] of gespeichertN1()) saved.set(id, r);
+    const selbst = peerB(a, 'Selbst', { spielerId: 'id-selbst', userId: 31 });
+    let online: unknown[] = [selbst, peerB(a, 'Björn', { spielerId: 'id-bjoern', userId: 32 }), peerB(a, 'EdAdmin', { nurEditor: true, isAdmin: true, spielerId: 'ed-a', userId: 33 })];
+    (server['net'] as Record<string, unknown>)['getPeers'] = (): unknown[] => { zaehle(a, 'getPeers'); return online; };
+    const registry = server['adminCommands'] as { execute(p: unknown, l: string): unknown };
+    const ex = (zeile: string, p: Record<string, unknown> = selbst): void => {
+      try { a.notizen.push(`> ${zeile} = ${JSON.stringify(registry.execute(p, zeile))}`); } catch (e) { a.ausnahmen.push((e as Error).name); a.notizen.push(`> ${zeile} throws ${(e as Error).name}`); }
+      a.notizen.push(zustandB(p));
+      a.zustand.push(saved.size);
+    };
+    for (const z of ['spieler online', 'spieler entfernen Selbst', 'spieler liste', 'spieler entfernen Einmal Einmal', 'spieler entfernen björn', 'spieler entfernen JÖRG', 'spieler entfernen Åsa', 'spieler entfernen ulf', 'teleport 3 4']) ex(z);
+    online = [peerB(a, 'Allein', { spielerId: 'id-allein', userId: 34 })];
+    ex('spieler online');
+    // `dungeons` replaced on the instance after the construction: the registered handler reads the new one
+    const inInstanz = new Set<number>([31, 35]);
+    server['dungeons'] = { getInstance: (id: unknown): unknown => { zaehle(a, 'getInstanceNeu'); a.notizen.push(`call getInstanceNeu ${String(id)}`); return id === 'd-neu' ? { players: inInstanz } : undefined; } };
+    ex('teleport 5 6', peerB(a, 'Selbst', { spielerId: 'id-selbst', userId: 31, dungeonId: 'd-neu', dungeonReturn: { x: 1, y: 1, z: 1 } }));
+    a.notizen.push(`instance players ${[...inInstanz].join(',')}`);
+    (server['kontenDb'] as { close?: () => void } | undefined)?.close?.();
   } finally {
     ruecksetzen();
     rmSync(tmp, { recursive: true, force: true });
@@ -2046,6 +2176,103 @@ const SOLL_SPIELER_ECHT: Aufzeichnung = {
   ],
 };
 
+/** Step 1, package C, N1: measured with `--messen-basis` on C0 (`2d4bb0bd`, the three methods still in the class). */
+const SOLL_SPIELER_ATTRAPPE_N1: Aufzeichnung = {
+  paket: [],
+  aufrufe: { register: 2, getPeers: 9, vergiss: 4, getInstanceNeu: 1, getGroundHeight: 1, teleportPeer: 1 },
+  konsole: { log: 0, warn: 0 },
+  zustand: [8, 8, 8, 8, 7, 7, 6, 5, 4, 4],
+  ausnahmen: [],
+  notizen: [
+    '> ["online"] = {"ok":true,"active":false,"message":"Selbst [id-selbst] (admin) | Bjo\u0308rn [id-bjoern] (admin) | EdAdmin [ed-a] (admin)"} args=[]',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-joerg,id-asa,id-bjoern,id-ulf,id-selbst,id-z1,id-z2,id-einmal',
+    '> ["entfernen","Selbst"] = {"ok":true,"active":false,"message":"Entfernt: — | Uebersprungen: Selbst (verbunden) | Noch 8 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["Selbst"]',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-joerg,id-asa,id-bjoern,id-ulf,id-selbst,id-z1,id-z2,id-einmal',
+    '> ["entfernen","selbst"] = {"ok":true,"active":false,"message":"Entfernt: — | Uebersprungen: selbst (verbunden) | Noch 8 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["selbst"]',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-joerg,id-asa,id-bjoern,id-ulf,id-selbst,id-z1,id-z2,id-einmal',
+    '> ["liste"] = {"ok":true,"active":false,"message":"8 Datensaetze: Björn, Einmal, Jo\u0308rg, Selbst, Ulf , Zwilling, Zwilling, Åsa"} args=[]',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-joerg,id-asa,id-bjoern,id-ulf,id-selbst,id-z1,id-z2,id-einmal',
+    'call vergiss ["id-einmal","id-einmal"]',
+    '> ["entfernen","Einmal","Einmal"] = {"ok":true,"active":false,"message":"Entfernt: Einmal | Uebersprungen: Einmal (unbekannt) | Noch 7 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["Einmal","Einmal"]',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-joerg,id-asa,id-bjoern,id-ulf,id-selbst,id-z1,id-z2',
+    '> ["entfernen","björn"] = {"ok":true,"active":false,"message":"Entfernt: — | Uebersprungen: björn (verbunden) | Noch 7 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["björn"]',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-joerg,id-asa,id-bjoern,id-ulf,id-selbst,id-z1,id-z2',
+    'call vergiss ["id-joerg","id-joerg"]',
+    '> ["entfernen","JÖRG"] = {"ok":true,"active":false,"message":"Entfernt: JÖRG | Noch 6 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["JÖRG"]',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-asa,id-bjoern,id-ulf,id-selbst,id-z1,id-z2',
+    'call vergiss ["id-asa","id-asa"]',
+    '> ["entfernen","A\u030asa"] = {"ok":true,"active":false,"message":"Entfernt: A\u030asa | Noch 5 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["A\u030asa"]',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-bjoern,id-ulf,id-selbst,id-z1,id-z2',
+    'call vergiss ["id-ulf","id-ulf"]',
+    '> ["entfernen","ulf"] = {"ok":true,"active":false,"message":"Entfernt: ulf | Noch 4 Datensaetze (wird beim naechsten Speichern geschrieben)"} args=["ulf"]',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-bjoern,id-selbst,id-z1,id-z2',
+    '> ["online"] = {"ok":true,"active":false,"message":"Allein [id-allein] (admin)"} args=[]',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'saved id-bjoern,id-selbst,id-z1,id-z2',
+    'call getInstanceNeu d-neu',
+    'call getGroundHeight 5 6 receiver=context',
+    'call teleportPeer 3 Drin [{"x":5,"y":4.0625,"z":6},null]',
+    '> ["5","6"] = {"ok":true,"active":false,"message":"Teleportiert nach 5, 6 (Höhe 4.1)"} args=["5","6"]',
+    'peer Drin dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'instance players 7',
+  ],
+};
+const SOLL_SPIELER_ECHT_N1: Aufzeichnung = {
+  paket: [
+    'Selbst:Teleport:40:0710b164e45a6205',
+    'Selbst:Teleport:40:02774683002404dc',
+  ],
+  aufrufe: { getPeers: 8, vergiss: 4, getGroundHeight: 2, getInstanceNeu: 1 },
+  konsole: { log: 4, warn: 0 },
+  zustand: [8, 8, 8, 7, 7, 6, 5, 4, 4, 4, 4],
+  ausnahmen: [],
+  notizen: [
+    'log 53:f911fa34cfc45148:[Konto] Spalte konten.avatar_charakter_id nachge',
+    'log 42:0bcdb099a81be718:[Konto] Spalte konten.token_ab nachgezogen',
+    'log 44:1f27737a280d0efa:[Konto] Spalte konten.spieler_ab nachgezogen',
+    'log 45:63bbb1146dd82dc1:[Konto] Spalte konten.profil_text nachgezogen',
+    '> spieler online = {"ok":true,"active":false,"message":"Selbst [id-selbst] (admin) | Bjo\u0308rn [id-bjoern] (admin) | EdAdmin [ed-a] (admin)"}',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    '> spieler entfernen Selbst = {"ok":true,"active":false,"message":"Entfernt: — | Uebersprungen: Selbst (verbunden) | Noch 8 Datensaetze (wird beim naechsten Speichern geschrieben)"}',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    '> spieler liste = {"ok":true,"active":false,"message":"8 Datensaetze: Björn, Einmal, Jo\u0308rg, Selbst, Ulf , Zwilling, Zwilling, Åsa"}',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'call vergiss ["id-einmal","id-einmal"]',
+    '> spieler entfernen Einmal Einmal = {"ok":true,"active":false,"message":"Entfernt: Einmal | Uebersprungen: Einmal (unbekannt) | Noch 7 Datensaetze (wird beim naechsten Speichern geschrieben)"}',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    '> spieler entfernen björn = {"ok":true,"active":false,"message":"Entfernt: — | Uebersprungen: björn (verbunden) | Noch 7 Datensaetze (wird beim naechsten Speichern geschrieben)"}',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'call vergiss ["id-joerg","id-joerg"]',
+    '> spieler entfernen JÖRG = {"ok":true,"active":false,"message":"Entfernt: JÖRG | Noch 6 Datensaetze (wird beim naechsten Speichern geschrieben)"}',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'call vergiss ["id-asa","id-asa"]',
+    '> spieler entfernen A\u030asa = {"ok":true,"active":false,"message":"Entfernt: A\u030asa | Noch 5 Datensaetze (wird beim naechsten Speichern geschrieben)"}',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'call vergiss ["id-ulf","id-ulf"]',
+    '> spieler entfernen ulf = {"ok":true,"active":false,"message":"Entfernt: ulf | Noch 4 Datensaetze (wird beim naechsten Speichern geschrieben)"}',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":1,"y":2,"z":3} worldId="haupt" char=0:0',
+    'call getGroundHeight 3 4 receiver=context',
+    '> teleport 3 4 = {"ok":true,"active":false,"message":"Teleportiert nach 3, 4 (Höhe 2.6)"}',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":3,"y":2.5625,"z":4} worldId="haupt" char=0:0',
+    '> spieler online = {"ok":true,"active":false,"message":"Allein [id-allein] (admin)"}',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":3,"y":2.5625,"z":4} worldId="haupt" char=0:0',
+    'call getInstanceNeu d-neu',
+    'call getGroundHeight 5 6 receiver=context',
+    '> teleport 5 6 = {"ok":true,"active":false,"message":"Teleportiert nach 5, 6 (Höhe 4.1)"}',
+    'peer Selbst dungeonId=null dungeonReturn=null position={"x":5,"y":4.0625,"z":6} worldId="haupt" char=0:0',
+    'instance players 35',
+  ],
+};
+
 if (MESSEN_BASIS) {
   const attrappe = messeAttrappe();
   const echt = messeEcht();
@@ -2055,7 +2282,9 @@ if (MESSEN_BASIS) {
   const chatEcht = messeChatEcht();
   const spielerAttrappe = messeSpielerAttrappe();
   const spielerEcht = messeSpielerEcht();
-  process.stdout.write(`${JSON.stringify({ attrappe, echt, interAttrappe, interEcht, chatAttrappe, chatEcht, spielerAttrappe, spielerEcht }, null, 1)}\n`);
+  const spielerAttrappeN1 = messeSpielerAttrappeN1();
+  const spielerEchtN1 = messeSpielerEchtN1();
+  process.stdout.write(`${JSON.stringify({ attrappe, echt, interAttrappe, interEcht, chatAttrappe, chatEcht, spielerAttrappe, spielerEcht, spielerAttrappeN1, spielerEchtN1 }, null, 1)}\n`);
   process.exit(0);
 }
 
@@ -2106,6 +2335,18 @@ console.log('\n[4] Behaviour of step 1, package C: teleport and spieler give the
   };
   teil('teleport/spieler on a stand-in', messeSpielerAttrappe(), SOLL_SPIELER_ATTRAPPE);
   teil('teleport/spieler on a real instance (registry of the constructor, then the forwardings)', messeSpielerEcht(), SOLL_SPIELER_ECHT);
+}
+
+console.log('\n[4b] Behaviour of step 1, package C, after the attack (N1): Unicode forms, the caller online, receivers, replaced dungeons');
+{
+  const gleich = (a: Aufzeichnung, b: Aufzeichnung): boolean => JSON.stringify(a) === JSON.stringify(b);
+  for (const [titel, gemessen, soll] of [
+    ['N1 on a stand-in', messeSpielerAttrappeN1(), SOLL_SPIELER_ATTRAPPE_N1],
+    ['N1 on a real instance', messeSpielerEchtN1(), SOLL_SPIELER_ECHT_N1],
+  ] as const) {
+    check(`${titel}: the messages, the calls with their arguments and receivers, the peer after every command`, same(gemessen.notizen, soll.notizen), `${gemessen.notizen.length} notes, expected ${soll.notizen.length}; first difference: ${gemessen.notizen.find((x, i) => x !== soll.notizen[i])}`);
+    check(`${titel}: packets, calls, state numbers, console, exceptions`, gleich(gemessen, soll), JSON.stringify([gemessen.aufrufe, gemessen.zustand, gemessen.ausnahmen]));
+  }
 }
 
 console.log(failures === 0 ? `\n=== I1 form k: ALL PASSED (${total}) ===` : `\n=== I1 form k: ${failures} of ${total} FAILED ===`);

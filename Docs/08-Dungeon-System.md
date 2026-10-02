@@ -169,8 +169,11 @@ Räume außerhalb des Basis-Kits.
 
 `dungeon list | entrances | create <basis> [seed] | enter [id] | leave |
 assign <id> | regen <id> [seed] | reset <id> | delete <id>` — registriert in
-`WovServer.registerDungeonCommands()`. `teleport` ist dungeon-bewusst
-überschrieben (Strg+Klick auf die Karte verlässt die Instanz sauber).
+`WovServer.registerDungeonCommand()`. `teleport` ist dungeon-bewusst
+überschrieben (Strg+Klick auf die Karte verlässt die Instanz sauber); ihn
+und `spieler` registrieren `registerTeleportCommand()` und
+`registerSpielerCommand()` aus `server/src/spiel/befehle/Spieler.ts`, die der
+Konstruktor vor `registerDungeonCommand()` ruft.
 Serverantworten erscheinen als HUD-Meldung (AdminEvent-Handler im Client).
 
 ## Client

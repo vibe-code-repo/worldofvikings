@@ -106,10 +106,24 @@ export default [
   ['client', 'test/bild-namen.ts'],
   // D2: swing fields, AttackAck, combo follow-up and round trip on the client.
   ['client', 'test/d2-quittung.ts'],
-  // D5: the model table of loot against the files on disk (needs assets).
-  ['client', 'test/d5-beute-modelle.ts', brauchtModelle('assets/models/HolzTruhe.glb')],
-  // D5: E finds loot on the ground even when its model never loaded.
-  ['client', 'test/d5-beute-ziel.ts'],
+  /*
+    D3-K3: der gehaltene Block am Client. Avatar auf den ECHTEN Koerpern (56 Clips): Clipwahl vorn/rueckwaerts/seitwaerts,
+    nie block_links/block_rechts, Armpose und Rumpfschicht, Treffer-Zucken darueber, Rueckfall ohne die neuen Clips (in der
+    CI ohne Assets uebersprungen).
+  */
+  [
+    'client',
+    'test/d3-block-avatar.ts',
+    brauchtModelle('assets/models/wikinger/WikingerKoerper.glb', 'assets/models/wikingerin/WikingerinKoerper.glb'),
+  ],
+  // D3-K3: der echte PlayerController beim Blocken (ohne Havok): Drehung zur Kamera 540 Grad/s (180 Grad in 0,33 s auf 1 Grad),
+  // Blocktempo gegen den gemeinsamen Serverschritt (Versatz < 0,1 m ueber 5 s), kein Rennen, keine Ausdauer.
+  ['client', 'test/d3-block-controller.ts'],
+  // D3-K3: Paket Block (89) in beide Richtungen, die ganze Kette Maustaste -> Bytes, die HUD-Schluessel, und die Verdrahtung in main.ts am Syntaxbaum.
+  ['client', 'test/d3-block-netz.ts'],
+  // D3-K3: BlockSteuerung ohne DOM: die Konfliktmatrix des Rechtsklicks als Tabelle, Start/Halten/Ende (Blur, Fangverlust, Fenster, Tod,
+  // Wasser, Dekor, Baumodus, Schlag, Server), genau ein sendBlock je Wechsel, Gehrichtung, Drehung, Tempo.
+  ['client', 'test/d3-block-steuerung.ts'],
   /*
     D3-K2: die acht Clips fuer Block und Rolle auf den ECHTEN Koerpern (56 Clips): Reihenfolge, Laengen (die Rollen-Laenge ist
     das Unverwundbarkeitsfenster), Haltepose und Nahtstellen (<= 1 Grad), Wurzelweg je Clip, beide Koerper gleich. In der CI
@@ -120,6 +134,10 @@ export default [
     'test/d3-clips.ts',
     brauchtModelle('assets/models/wikinger/WikingerKoerper.glb', 'assets/models/wikingerin/WikingerinKoerper.glb'),
   ],
+  // D5: the model table of loot against the files on disk (needs assets).
+  ['client', 'test/d5-beute-modelle.ts', brauchtModelle('assets/models/HolzTruhe.glb')],
+  // D5: E finds loot on the ground even when its model never loaded.
+  ['client', 'test/d5-beute-ziel.ts'],
   // Account hand-off from wov-web: the legacy connection panel must be
   // absent from the static HTML, online entry requires a session, and
   // failures return to the one remaining login on the public website.

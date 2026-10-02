@@ -20,42 +20,61 @@
 
   ── Die Materialnamen-Tabelle ────────────────────────────────────────
   Der Export nennt die Materialien nach dem Ursprungsprogramm
-  (`Flowers_A 1`, `Plant_Leaves_1A3 1`). Im Labor heissen sie nach ihrer
+  (die Schlüssel der Tabelle unten). Im Labor heissen sie nach ihrer
   Rolle (wie `laub` beim Strauch): `blume`, `farn`. Ein Material, das
   nicht in der Tabelle steht, ist ein Befund und der Lauf wird rot.
 
-  ── Was nach `tools/store-lab-katalog.json` geht ─────────────────────
+  ── Was in `tools/store-lab-katalog.json` steht, und wer sie schreibt ─
   Die Messwerte (Hüllbox, Dreiecke, Grösse, Hash, Textur-Hash). Diese
   Datei ist EINGECHECKT, `assets/store-lab/` nicht: `store-prefabs.mjs`
   trägt die Modelle daraus in Katalog und Registry ein und läuft damit
   auf jedem Rechner zum selben Ergebnis, auch ohne die Binärdateien.
 
+  Der ROLLOUT SCHREIBT SIE NIE (und auch keine `shared/src/store*.ts`):
+  Ein Lauf auf DEV, der getrackte Dateien ändert, macht den Baum
+  schmutzig, und `wov-update.sh` bricht danach in der Sauberkeitsprüfung
+  ab. `pflanzenHolen()` VERGLEICHT deshalb nur. Weicht ein Modell von der
+  Liste ab (Mike hat eine Datei gültig ersetzt, oder sie ist beschädigt),
+  wird es NICHT gebaut und der Lauf warnt laut: „Messliste neu erzeugen
+  per PR". Die Liste ändert nur der ausdrückliche Schalter
+  `--messliste-schreiben` (von Hand, für Bauer und PR), und nur, wenn alle
+  drei Dateien gültig sind.
+
+  ── Was geprüft wird, bevor etwas gebaut wird ────────────────────────
+  GLB-Kopf, Gesamtlänge, Längen beider Chunks, bufferViews und Accessoren
+  im Bereich, Positionen endlich und innerhalb ihrer Hüllbox, und das
+  eingebettete PNG Chunk für Chunk (Länge, CRC, IHDR zuerst, IEND zuletzt,
+  keine Reste dahinter). Eine abgeschnittene oder beschädigte Datei wird
+  übersprungen, nie gebaut.
+
   ── Woher die Ausgangsdateien kommen, und wer dieses Werkzeug ruft ──
   Die rohen Export-GLBs liegen im Asset-Speicher: `assets/store/
   vegetation-export/<id>.glb` (Mike kopiert sie dorthin, Liste im Bericht
   Grauklamm K1). Der Ort lässt sich mit `WOV_EXPORT_MODELLE` überstimmen.
+  Gross- und Kleinschreibung des Dateinamens ist egal; eine Datei mit
+  anderem Namen (etwa Unterstrich statt Bindestrich) wird mit einem
+  Hinweis auf den erwarteten Namen übersprungen.
 
   `store-vegetation-aufbereiten.mjs` ruft `pflanzenHolen()` am Ende
   SELBST auf, weil es `assets/store-lab/vegetation/` bei jedem Lauf neu
   aufbaut: Die Rollout-Kette (`tools/wov-update.sh` 5b: `npm run
-  store:aufbereiten`) braucht so keinen zweiten Schritt. Als Kommando
-  (`node tools/store-pflanzen-quellen.mjs`) läuft es ebenfalls.
+  store:aufbereiten`) braucht so keinen zweiten Schritt.
 
-  ── Die Weiche ───────────────────────────────────────────────────────
-  Fehlt der Ordner GANZ (Mike hat noch nicht kopiert, CI), meldet der
-  Lauf das als WARNUNG und endet mit Code 0; die eingecheckte Liste
-  bleibt unverändert, die drei Prefabs bleiben registriert, ihre Dateien
-  fehlen dann nur im Labor. Fehlt eine einzelne Datei im vorhandenen
-  Ordner, ist das ein Befund (Code 2).
+  ── Der Rollout bricht NIE ab ────────────────────────────────────────
+  Fehlt der Ordner, ist er leer, ist er nur teilweise gefüllt, ist eine
+  Datei beschädigt oder weicht die Messliste ab: WARNUNG, das Gültige
+  wird gebaut, Code 0. Die Prefabs bleiben registriert, ihre Dateien
+  fehlen dann nur im Labor.
 
   Aufruf:
-    node tools/store-pflanzen-quellen.mjs
+    node tools/store-pflanzen-quellen.mjs                        (wie im Rollout)
+    node tools/store-pflanzen-quellen.mjs --messliste-schreiben  (Liste neu erzeugen)
 
   Brings three plant models from the model export into assets/store-lab/
-  and writes their measurements to the tracked tools/store-lab-katalog.json.
+  and compares them with the tracked tools/store-lab-katalog.json (written only with --messliste-schreiben).
 */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -90,14 +109,129 @@ const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 const runde = (x) => Math.round(x * 1e4) / 1e4;
 const auf4 = (n) => (n + 3) & ~3;
 
+const KOMPONENTEN = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };
+const TYPEN = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 };
+
+/**
+ * Liest eine GLB STRENG: Kopf, Gesamtlänge, beide Chunk-Längen, bufferViews
+ * und Accessoren im Bereich. Wirft bei der ersten Unstimmigkeit.
+ */
 export function glbLesen(buf) {
-  if (buf.readUInt32LE(0) !== 0x46546c67) throw new Error('keine GLB');
+  if (buf.length < 28) throw new Error(`zu kurz für eine GLB (${buf.length} B)`);
+  if (buf.readUInt32LE(0) !== 0x46546c67) throw new Error('keine GLB (Kennung)');
+  if (buf.readUInt32LE(4) !== 2) throw new Error('keine GLB-Version 2');
+  if (buf.readUInt32LE(8) !== buf.length) {
+    throw new Error(`Länge laut Kopf ${buf.readUInt32LE(8)} B, Datei ${buf.length} B (abgeschnitten oder verlängert)`);
+  }
   const jsonLaenge = buf.readUInt32LE(12);
-  const json = JSON.parse(buf.subarray(20, 20 + jsonLaenge).toString('utf8'));
+  if (buf.readUInt32LE(16) !== 0x4e4f534a) throw new Error('erster Chunk ist kein JSON');
   const binKopf = 20 + jsonLaenge;
+  if (binKopf + 8 > buf.length) throw new Error('JSON-Chunk reicht über die Datei hinaus');
   const binLaenge = buf.readUInt32LE(binKopf);
+  if (buf.readUInt32LE(binKopf + 4) !== 0x004e4942) throw new Error('zweiter Chunk ist kein BIN');
+  if (binKopf + 8 + binLaenge !== buf.length) throw new Error('BIN-Chunk endet nicht mit der Datei');
+  let json;
+  try {
+    json = JSON.parse(buf.subarray(20, binKopf).toString('utf8'));
+  } catch (e) {
+    throw new Error(`JSON nicht lesbar: ${e.message}`);
+  }
   const bin = buf.subarray(binKopf + 8, binKopf + 8 + binLaenge);
+  if (!Array.isArray(json.bufferViews) || !Array.isArray(json.accessors)) throw new Error('bufferViews/accessors fehlen');
+  if ((json.buffers?.[0]?.byteLength ?? Infinity) > bin.length) throw new Error('buffers[0] länger als der BIN-Chunk');
+  json.bufferViews.forEach((v, i) => {
+    if (!(v.byteLength >= 0) || (v.byteOffset ?? 0) + v.byteLength > bin.length) throw new Error(`bufferView ${i} reicht über den BIN-Chunk hinaus`);
+  });
+  json.accessors.forEach((a, i) => {
+    if (a.bufferView === undefined) return;
+    const v = json.bufferViews[a.bufferView];
+    const gr = (KOMPONENTEN[a.componentType] ?? NaN) * (TYPEN[a.type] ?? NaN);
+    const luecke = v?.byteStride ? v.byteStride - gr : 0;
+    if (!v || !(gr > 0) || (a.byteOffset ?? 0) + a.count * gr + (a.count - 1) * luecke > v.byteLength) {
+      throw new Error(`Accessor ${i} reicht über seinen bufferView hinaus`);
+    }
+  });
   return { json, bin };
+}
+
+const CRC_TABELLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+export function crc32(buf) {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABELLE[(c ^ buf[i]) & 255] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+/**
+ * Prüft ein PNG Chunk für Chunk: Kennung, IHDR zuerst, Länge und CRC jedes
+ * Chunks, IDAT vorhanden, IEND zuletzt und nichts dahinter.
+ * Gibt `{ breite, hoehe }` zurück, wirft bei der ersten Unstimmigkeit.
+ */
+export function pngPruefen(png) {
+  if (png.length < 57 || png.readUInt32BE(0) !== 0x89504e47 || png.readUInt32BE(4) !== 0x0d0a1a0a) {
+    throw new Error('Bild ist kein PNG');
+  }
+  let pos = 8;
+  let erster = true;
+  let idat = false;
+  let breite = 0;
+  let hoehe = 0;
+  for (;;) {
+    if (pos + 12 > png.length) throw new Error('PNG abgeschnitten (kein IEND)');
+    const laenge = png.readUInt32BE(pos);
+    const typ = png.toString('latin1', pos + 4, pos + 8);
+    if (pos + 12 + laenge > png.length) throw new Error(`PNG abgeschnitten (Chunk ${typ})`);
+    if (png.readUInt32BE(pos + 8 + laenge) !== crc32(png.subarray(pos + 4, pos + 8 + laenge))) {
+      throw new Error(`PNG beschädigt (Prüfsumme von ${typ})`);
+    }
+    if (erster) {
+      if (typ !== 'IHDR' || laenge !== 13) throw new Error('PNG: IHDR fehlt am Anfang');
+      breite = png.readUInt32BE(pos + 8);
+      hoehe = png.readUInt32BE(pos + 12);
+      if (!(breite > 0 && hoehe > 0 && breite <= 16384 && hoehe <= 16384)) throw new Error(`PNG: unsinnige Grösse ${breite}×${hoehe}`);
+      erster = false;
+    }
+    if (typ === 'IDAT') idat = true;
+    pos += 12 + laenge;
+    if (typ === 'IEND') {
+      if (laenge !== 0) throw new Error('PNG: IEND mit Inhalt');
+      if (pos !== png.length) throw new Error('PNG: Reste hinter IEND');
+      if (!idat) throw new Error('PNG ohne Bilddaten');
+      return { breite, hoehe };
+    }
+  }
+}
+
+/** Positionen endlich und in ihrer Hüllbox, Indizes im Bereich. Wirft sonst. */
+function geometriePruefen(json, bin) {
+  const prim = json.meshes[0].primitives[0];
+  const pos = json.accessors[prim.attributes.POSITION];
+  if (!pos?.min || !pos?.max || pos.componentType !== 5126 || pos.type !== 'VEC3') throw new Error('POSITION ohne Hüllbox oder nicht VEC3/FLOAT');
+  const v = json.bufferViews[pos.bufferView];
+  const schritt = v.byteStride ?? 12;
+  for (let i = 0; i < pos.count; i++) {
+    const ab = (v.byteOffset ?? 0) + (pos.byteOffset ?? 0) + i * schritt;
+    for (let k = 0; k < 3; k++) {
+      const x = bin.readFloatLE(ab + k * 4);
+      if (!Number.isFinite(x) || x < pos.min[k] - 1e-4 || x > pos.max[k] + 1e-4) throw new Error(`Position ${i} ausserhalb der Hüllbox oder nicht endlich`);
+    }
+  }
+  const ind = json.accessors[prim.indices];
+  if (!ind || ind.count % 3 !== 0 || ![5121, 5123, 5125].includes(ind.componentType)) throw new Error('Indizes ungültig');
+  const iv = json.bufferViews[ind.bufferView];
+  const gr = KOMPONENTEN[ind.componentType];
+  for (let i = 0; i < ind.count; i++) {
+    const ab = (iv.byteOffset ?? 0) + (ind.byteOffset ?? 0) + i * gr;
+    const x = gr === 1 ? bin.readUInt8(ab) : gr === 2 ? bin.readUInt16LE(ab) : bin.readUInt32LE(ab);
+    if (x >= pos.count) throw new Error(`Index ${i} verweist hinter die Positionen`);
+  }
 }
 
 export function glbSchreiben(json, bin) {
@@ -122,7 +256,13 @@ export function glbSchreiben(json, bin) {
  * Rückgabe: { glb, png, huellbox, dreiecke, material }.
  */
 export function umbauen(buf, id, dateiname) {
-  const { json, bin } = glbLesen(buf);
+  let gelesen;
+  try {
+    gelesen = glbLesen(buf);
+  } catch (e) {
+    throw new Error(`${dateiname}: ${e.message}`);
+  }
+  const { json, bin } = gelesen;
   if (json.meshes.length !== 1 || json.meshes[0].primitives.length !== 1) {
     throw new Error(`${dateiname}: erwartet ein Mesh mit einem Primitiv`);
   }
@@ -142,7 +282,12 @@ export function umbauen(buf, id, dateiname) {
   // Das eingebettete Bild: bufferView der Bildes, unverändert herausgeschrieben.
   const bildView = json.bufferViews[json.images[0].bufferView];
   const png = Buffer.from(bin.subarray(bildView.byteOffset ?? 0, (bildView.byteOffset ?? 0) + bildView.byteLength));
-  if (png.readUInt32BE(0) !== 0x89504e47) throw new Error(`${dateiname}: Bild ist kein PNG`);
+  try {
+    pngPruefen(png);
+    geometriePruefen(json, bin);
+  } catch (e) {
+    throw new Error(`${dateiname}: ${e.message}`);
+  }
   const bildName = `${rolle}-${sha256(png).slice(0, 8)}`;
 
   // bufferViews ohne das Bild, in alter Reihenfolge, neu gepackt.
@@ -211,60 +356,110 @@ export function umbauen(buf, id, dateiname) {
 
 // ── Hauptlauf ────────────────────────────────────────────────────────
 
+const WARNUNG = '[pflanzen-quellen] WARNUNG:';
+const HINWEIS_LISTE =
+  'Messliste neu erzeugen per PR: node tools/store-pflanzen-quellen.mjs --messliste-schreiben (Bauer, nicht im Rollout)';
+
+function eintragVon(m, r) {
+  return {
+    id: `vegetation/${m.id}`,
+    pfad: `vegetation/${m.id}.glb`,
+    prefab: `vegetation-${m.id}`,
+    textKey: m.textKey,
+    bytes: r.glb.length,
+    hash: `sha256-${sha256(r.glb)}`,
+    bounds: r.huellbox,
+    dreiecke: r.dreiecke,
+    material: r.material,
+    alphaModus: 'MASK',
+    zweiseitig: true,
+    textur: { datei: `textures/${r.bildName}.png`, bytes: r.png.length, hash: `sha256-${sha256(r.png)}` },
+  };
+}
+
 /**
- * Baut die Modelle aus `quelle` nach `ziel` und schreibt die Messliste.
- * Gibt die Zahl der gebauten Modelle zurück (0 = Quelle fehlt, Warnung).
+ * Baut die gültigen Modelle aus `quelle` nach `ziel` und VERGLEICHT sie mit der
+ * Messliste `katalog`. Wirft im Normalfall NIE; Probleme sind Warnungen
+ * (siehe Kopfkommentar). Nur mit `messlisteSchreiben` wird die Liste
+ * geschrieben, und nur, wenn alle drei Modelle gültig sind (sonst Fehler).
+ * Gibt die Zahl der gebauten Modelle zurück.
  */
-export function pflanzenHolen({ quelle = QUELLE, ziel = ZIEL, katalog = KATALOG } = {}) {
+export function pflanzenHolen({ quelle = QUELLE, ziel = ZIEL, katalog = KATALOG, messlisteSchreiben = false } = {}) {
+  const warn = (text) => console.warn(`${WARNUNG} ${text}`);
   if (!existsSync(quelle)) {
-    console.warn(
-      `[pflanzen-quellen] WARNUNG: ${quelle} fehlt — Blumen und Farn werden nicht gebaut.\n` +
+    warn(
+      `${quelle} fehlt — Blumen und Farn werden nicht gebaut.\n` +
         '                   Die Prefabs bleiben registriert (tools/store-lab-katalog.json), ihre\n' +
         '                   Dateien fehlen im Labor, bis die Export-GLBs im Speicher liegen.'
     );
+    if (messlisteSchreiben) throw new Error('Messliste nicht geschrieben: Quellordner fehlt');
     return 0;
   }
-  const fehlt = MODELLE.filter((m) => !existsSync(join(quelle, m.quelle)));
-  if (fehlt.length > 0) {
-    throw new Error(
-      '[pflanzen-quellen] Der Ordner ist unvollständig:\n  ' + fehlt.map((m) => join(quelle, m.quelle)).join('\n  ')
-    );
-  }
-  mkdirSync(join(ziel, 'textures'), { recursive: true });
-  const eintraege = [];
+  const namen = new Map(readdirSync(quelle).map((n) => [n.toLowerCase(), n]));
+  const gueltig = [];
+  const probleme = [];
   for (const m of MODELLE) {
-    const r = umbauen(readFileSync(join(quelle, m.quelle)), m.id, m.quelle);
+    const echt = namen.get(m.quelle);
+    if (!echt) {
+      const aehnlich = [...namen.values()].find((n) => n.toLowerCase().replace(/[^a-z0-9]/g, '') === m.quelle.replace(/[^a-z0-9]/g, ''));
+      probleme.push(`${m.quelle} fehlt${aehnlich ? ` (gefunden: ${aehnlich} — bitte als ${m.quelle} benennen)` : ''}`);
+      continue;
+    }
+    try {
+      const r = umbauen(readFileSync(join(quelle, echt)), m.id, echt);
+      gueltig.push({ m, r, eintrag: eintragVon(m, r) });
+    } catch (e) {
+      probleme.push(`${e.message} — übersprungen`);
+    }
+  }
+  for (const p of probleme) warn(p);
+  if (messlisteSchreiben) {
+    if (probleme.length > 0) throw new Error(`Messliste nicht geschrieben: ${probleme.join('; ')}`);
+  } else if (probleme.length > 0 && gueltig.length === 0) {
+    warn('keine gültige Datei im Ordner — nichts gebaut.');
+  }
+
+  // Vergleich mit der eingecheckten Liste (nur lesen).
+  let alt = null;
+  try {
+    alt = new Map(JSON.parse(readFileSync(katalog, 'utf8')).eintraege.map((e) => [e.id, e]));
+  } catch {
+    alt = null;
+  }
+  const zuBauen = messlisteSchreiben
+    ? gueltig
+    : gueltig.filter(({ eintrag }) => {
+        const soll = alt?.get(eintrag.id);
+        if (soll && JSON.stringify(soll) === JSON.stringify(eintrag)) return true;
+        warn(`Messliste weicht ab für ${eintrag.id}${soll ? '' : ' (kein Eintrag)'} — Modell NICHT gebaut. ${HINWEIS_LISTE}`);
+        return false;
+      });
+
+  if (zuBauen.length > 0) mkdirSync(join(ziel, 'textures'), { recursive: true });
+  for (const { m, r } of zuBauen) {
     writeFileSync(join(ziel, `${m.id}.glb`), r.glb);
     writeFileSync(join(ziel, 'textures', `${r.bildName}.png`), r.png);
-    eintraege.push({
-      id: `vegetation/${m.id}`,
-      pfad: `vegetation/${m.id}.glb`,
-      prefab: `vegetation-${m.id}`,
-      textKey: m.textKey,
-      bytes: r.glb.length,
-      hash: `sha256-${sha256(r.glb)}`,
-      bounds: r.huellbox,
-      dreiecke: r.dreiecke,
-      material: r.material,
-      alphaModus: 'MASK',
-      zweiseitig: true,
-      textur: { datei: `textures/${r.bildName}.png`, bytes: r.png.length, hash: `sha256-${sha256(r.png)}` },
-    });
     console.log(
       `[pflanzen-quellen] ${m.id}.glb  ${r.dreiecke} Dreiecke  ${r.glb.length} B  Material ${r.material}  Bild ${r.bildName}.png`
     );
   }
-  eintraege.sort((a, b) => (a.id < b.id ? -1 : 1));
-  const neu = `${JSON.stringify({ schemaVersion: 1, eintraege }, null, 2)}\n`;
-  if (!existsSync(katalog) || readFileSync(katalog, 'utf8') !== neu) writeFileSync(katalog, neu);
-  return eintraege.length;
+  if (messlisteSchreiben) {
+    const eintraege = gueltig.map((g) => g.eintrag).sort((a, b) => (a.id < b.id ? -1 : 1));
+    const neu = `${JSON.stringify({ schemaVersion: 1, eintraege }, null, 2)}\n`;
+    if (!existsSync(katalog) || readFileSync(katalog, 'utf8') !== neu) writeFileSync(katalog, neu);
+  }
+  return zuBauen.length;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const schreiben = process.argv.includes('--messliste-schreiben');
   try {
-    pflanzenHolen();
+    pflanzenHolen({ messlisteSchreiben: schreiben });
   } catch (e) {
-    console.error(e.message);
-    process.exit(2);
+    if (schreiben) {
+      console.error(`[pflanzen-quellen] ${e.message}`);
+      process.exit(2);
+    }
+    console.warn(`${WARNUNG} unerwarteter Fehler — ${e.message}`);
   }
 }

@@ -26,7 +26,7 @@ function check(name: string, ok: boolean, detail = ''): void {
   }
 }
 
-/** Datei im Speicher → sha256 der Export-Datei (`Rock_Texture_01.png`, `Rock_Moss_Normals.png`) und Größe. */
+/** Datei im Speicher → sha256 und Größe der Quelldatei (Dateibytes gleich, nur umbenannt). */
 export const ERWARTET: Record<string, { sha256: string; bytes: number }> = {
   'terrain-rock-grey.png': { sha256: 'ec0eb0ec4ca13fa4dfe600a7922d3a587f6fe347003db64e1dc041c3bb78cb25', bytes: 1254738 },
   'terrain-rock-moss-normal.png': { sha256: 'd49869f13ee6b17f04aee98b1ada4371f4b08ff8a14bca451df93903fda88a4d', bytes: 1832608 },

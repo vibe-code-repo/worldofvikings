@@ -1967,7 +1967,12 @@ if (ohneVorbild.size > 0) {
   Fehlt der Ordner, ist es eine Warnung und kein Abbruch.
 */
 if (!NUR_PRUEFEN && ZIEL === resolve(WURZEL, ZIEL_STANDARD) && QUELLE === resolve(WURZEL, QUELLE_STANDARD)) {
-  const { pflanzenHolen } = await import('./store-pflanzen-quellen.mjs');
   console.log('');
-  pflanzenHolen();
+  try {
+    const { pflanzenHolen } = await import('./store-pflanzen-quellen.mjs');
+    pflanzenHolen();
+  } catch (e) {
+    // Der Rollout bricht wegen der Pflanzen nie ab (siehe Kopf von store-pflanzen-quellen.mjs).
+    console.warn(`[pflanzen-quellen] WARNUNG: unerwarteter Fehler — ${e.message}`);
+  }
 }

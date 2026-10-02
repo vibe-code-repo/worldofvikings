@@ -57,6 +57,7 @@ import {
   XorShiftRandom,
   getStableHash,
   findPrefabByName,
+  yawQuaternion,
   HEALTH_MEMBER,
   SPAWN_TABLE,
   maxLeben,
@@ -65,6 +66,7 @@ import {
 } from '@wov/shared';
 import { CLIP_RATE_MAX, clipRate } from '../../client/src/entities/clipTempo.js';
 import { SpawnSystem } from '../src/world/SpawnSystem.js';
+import { steckbriefFuer } from '../src/spiel/KreaturenSteckbriefe.js';
 import { ZDOManager } from '../src/zdo/ZDOManager.js';
 import { ZoneManager } from '../src/world/ZoneManager.js';
 
@@ -74,6 +76,12 @@ function check(label: string, ok: boolean, detail = ''): void {
   if (!ok) failures++;
 }
 const f = (n: number, k = 2): string => n.toFixed(k);
+
+// D4: the wolf's strike interval comes from its species profile, not from a
+// literal 2 s; the retreat (after n strikes, with a chance) is switched off
+// here because this test isolates the strike-slot cap, not the retreat.
+const TAKT = steckbriefFuer('Wolf')!.ki!.taktSec;
+const OHNE_RUECKZUG = { rueckzugNach: 0 } as const;
 
 function eintrag(name: string): SpawnEntry {
   const e = SPAWN_TABLE.find((x) => x.prefab === name);
@@ -145,13 +153,14 @@ console.log('\n[2] At most two wolves strike the same player at once (pack cap)'
   // spawnChance 0 / globalMax 0: only the three wolves placed by hand below
   // exist — no natural spawn roll may add a fourth.
   const tabelle: SpawnEntry[] = [{ ...eintrag('Wolf'), spawnChance: 0, globalMax: 0 }];
-  const spawns = new SpawnSystem(zdos, geo, heightmaps, zones, { rng: new XorShiftRandom(1), table: tabelle });
+  const spawns = new SpawnSystem(zdos, geo, heightmaps, zones, { rng: new XorShiftRandom(1), table: tabelle, kiUeberschreibung: OHNE_RUECKZUG });
 
   const peer: Vector3 = { x: 0, y: 100, z: 0 };
   const WOLF_HASH = getStableHash('Wolf');
   function platziere(dx: number, dz: number) {
     const pos: Vector3 = { x: peer.x + dx, y: peer.y, z: peer.z + dz };
-    const zdo = zdos.createZDO(WOLF_HASH, pos);
+    // D4: wolves notice only inside their view cone — face them at the peer.
+    const zdo = zdos.createZDO(WOLF_HASH, pos, yawQuaternion(Math.atan2(-dx, -dz)));
     zdo.setInt(HEALTH_MEMBER, maxLeben('Wolf'));
     return zdo;
   }
@@ -181,11 +190,15 @@ console.log('\n[2] At most two wolves strike the same player at once (pack cap)'
   for (let i = 0; i < VOR_TICKS; i++) spawns.update(DT, [peer]);
   const vor = treffer.slice();
   const distinctVor = new Set(vor);
+  // Two engaged wolves strike once per interval each: n = floor(10 s / TAKT)
+  // strikes per wolf, counted with the same +-1 tolerance per wolf as before
+  // (8..10 at the old 2 s interval = 2*(n-1) .. 2*n with n = 5).
+  const schlaegeJeWolf = Math.floor(10 / TAKT);
 
   check('before any death: exactly two of the three wolves ever land a hit', distinctVor.size === 2, [...distinctVor].join(','));
   check(
     'before any death: about 2 hits/2s (2 engaged wolves), not 3 — the Befund\'s 24 dmg/9s pile-on',
-    vor.length >= 8 && vor.length <= 10,
+    vor.length >= 2 * (schlaegeJeWolf - 1) && vor.length <= 2 * schlaegeJeWolf,
     `${vor.length} hits in 10 s`
   );
 
@@ -213,11 +226,11 @@ console.log('\n[3] Leaving strike range clears the strike timer (N1/B2, m4)');
   const zdos = new ZDOManager(1n);
   const zones = new ZoneManager(geo, heightmaps, zdos, SEED, { worldFeatures: false, worldVegetation: false });
   const tabelle: SpawnEntry[] = [{ ...eintrag('Wolf'), spawnChance: 0, globalMax: 0, minAltitude: 1e9 }];
-  const spawns = new SpawnSystem(zdos, geo, heightmaps, zones, { rng: new XorShiftRandom(7), table: tabelle });
+  const spawns = new SpawnSystem(zdos, geo, heightmaps, zones, { rng: new XorShiftRandom(7), table: tabelle, kiUeberschreibung: OHNE_RUECKZUG });
 
   const WOLF_HASH = getStableHash('Wolf');
   function platziere(x: number, z: number) {
-    const zdo = zdos.createZDO(WOLF_HASH, { x, y: 100, z });
+    const zdo = zdos.createZDO(WOLF_HASH, { x, y: 100, z }, yawQuaternion(Math.atan2(-x, -z))); // faces the origin (view cone, D4)
     zdo.setInt(HEALTH_MEMBER, maxLeben('Wolf'));
     return zdo;
   }
@@ -242,8 +255,8 @@ console.log('\n[3] Leaving strike range clears the strike timer (N1/B2, m4)');
   // L (l1,l2) at dist ~0.54 m, H (h1,h2) at dist ~1.51 m — both bands are
   // within 1.7 m, so L wins the two slots by ZDO-id rank and builds up an
   // accumulator to just under the 2 s strike threshold.
-  lauf(1.9);
-  check('setup: no strike yet (L accumulator still below 2 s)', zeiten.length === 0, `${zeiten.length} Schläge`);
+  lauf(TAKT - 0.1);
+  check('setup: no strike yet (L accumulator still below one strike interval)', zeiten.length === 0, `${zeiten.length} Schläge`);
 
   // Move the peer so L falls to 2.0 m (out of the 1.7 m band, into chase)
   // and H falls to ~0.2 m (well inside): H now gets the freed slots and
@@ -277,12 +290,12 @@ console.log('\n[4] Only wolves within strike range occupy a slot (N1/m6)');
   const zdos = new ZDOManager(1n);
   const zones = new ZoneManager(geo, heightmaps, zdos, SEED, { worldFeatures: false, worldVegetation: false });
   const tabelle: SpawnEntry[] = [{ ...eintrag('Wolf'), spawnChance: 0, globalMax: 0, minAltitude: 1e9 }];
-  const spawns = new SpawnSystem(zdos, geo, heightmaps, zones, { rng: new XorShiftRandom(3), table: tabelle });
+  const spawns = new SpawnSystem(zdos, geo, heightmaps, zones, { rng: new XorShiftRandom(3), table: tabelle, kiUeberschreibung: OHNE_RUECKZUG });
 
   const WOLF_HASH = getStableHash('Wolf');
   const peer: Vector3 = { x: 0, y: 100, z: 0 };
   function platziere(x: number, z: number) {
-    const zdo = zdos.createZDO(WOLF_HASH, { x, y: 100, z });
+    const zdo = zdos.createZDO(WOLF_HASH, { x, y: 100, z }, yawQuaternion(Math.atan2(-x, -z))); // faces the origin (view cone, D4)
     zdo.setInt(HEALTH_MEMBER, maxLeben('Wolf'));
     return zdo;
   }

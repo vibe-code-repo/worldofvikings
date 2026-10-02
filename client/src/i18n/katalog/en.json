@@ -158,6 +158,7 @@
   "inventory.hint": "Drag to rearrange · Click to equip · I/Esc closes",
   "inventory.title": "Inventory",
   "inventory.weight": "Weight {weight}",
+  "kampf.unverwundbar": "The creature is heading home and cannot be hit",
   "language.name": "English",
   "loading.building": "Building the terrain",
   "loading.ready": "Ready",

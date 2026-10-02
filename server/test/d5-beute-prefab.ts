@@ -10,7 +10,7 @@
  * Run: npx tsx server/test/d5-beute-prefab.ts   (from the repo root)
  */
 import {
-  BEUTE_PREFAB, BEUTE_RUECKFALL_MODELL, EIGENE_MODELLE_SET, ITEM_DEFS, PrefabFlag,
+  BEUTE_PREFAB, BEUTE_RUECKFALL_MODELL, BEUTE_RUECKFALL_SKALA, EIGENE_MODELLE_SET, ITEM_DEFS, PrefabFlag,
   beuteDarstellung, beutePrefabFuer, findPrefabByHash, findPrefabByName, getStableHash,
 } from '@wov/shared';
 import { ZDOManager } from '../src/zdo/ZDOManager.js';
@@ -53,6 +53,7 @@ pruefe(schlecht.length === 0, `all ${namen.size} item names resolve to an ITEM_D
 pruefe(eigene > 0 && neutrale > 0, 'both ways are used', `own prefab ${eigene}, neutral ${neutrale}`);
 pruefe(BEUTE_RUECKFALL_MODELL === 'HolzTruhe' && EIGENE_MODELLE_SET.has('HolzTruhe'), 'the fallback model is the existing chest and is on the list');
 pruefe(beuteDarstellung({ model: null }).modell === BEUTE_RUECKFALL_MODELL, 'a prefab without a model gets the fallback');
+pruefe(BEUTE_RUECKFALL_SKALA >= 0.2 && BEUTE_RUECKFALL_SKALA <= 0.6 && beuteDarstellung({ model: null }).skala === BEUTE_RUECKFALL_SKALA, 'the fallback chest is drawn small (0.2 to 0.6 of its size)', String(BEUTE_RUECKFALL_SKALA));
 pruefe(beuteDarstellung({ model: 'Wood' }).modell === BEUTE_RUECKFALL_MODELL, 'a model that is not on the list (Wood) gets the fallback');
 pruefe(beuteDarstellung({ model: 'Messer' }).modell === 'Messer' && beuteDarstellung({ model: 'Messer' }).skala === 1, 'a listed own model is kept at scale 1');
 pruefe(beutePrefabFuer('') === BEUTE_PREFAB && beutePrefabFuer('NichtDa') === BEUTE_PREFAB, 'empty and unknown names go neutral');

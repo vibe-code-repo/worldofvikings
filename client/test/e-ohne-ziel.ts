@@ -37,6 +37,9 @@ const treffer = quelle.match(/sendAdminCommand\('dungeon enter'\)/g) ?? [];
 pruefe(treffer.length === 1, "main.ts sends the bare 'dungeon enter' exactly once", String(treffer.length));
 pruefe(/aktion === 'dungeon-enter'\)\s*socket\.sendAdminCommand\('dungeon enter'\)/.test(quelle), "... and only when the rule says 'dungeon-enter'");
 pruefe(/eOhneZiel\(\{[^}]*dungeonEingaenge/.test(quelle), 'the rule is fed with the entrances the server sent');
+pruefe(/aktion === 'dungeon-leave'\)\s*socket\.sendAdminCommand\('dungeon leave'\)/.test(quelle), "'dungeon-leave' sends `dungeon leave`");
+pruefe(/aktion === 'hinweis-eingang'\)\s*hud\.meldung\(/.test(quelle), "'hinweis-eingang' shows the hint");
+pruefe(/eOhneZiel\(\{ imDungeon, pos: player\.position, dungeonSpawn,/.test(quelle), 'the rule is fed with the dungeon flag, the position and the entry point');
 pruefe(zeilen <= 3682, 'main.ts did not grow', `${zeilen} lines (limit 3682, guard 3700)`);
 
 console.log(fehler === 0 ? '\ne-ohne-ziel: OK' : `\ne-ohne-ziel: ${fehler} FAIL`);

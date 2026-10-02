@@ -2,7 +2,7 @@
  * Prüft die Store-Labor-Pflanzen (Blumen, Farn): dass die eingecheckte
  * Messliste `tools/store-lab-katalog.json`, die erzeugte Registry und die
  * Übersetzungen zusammenpassen, und dass `store-pflanzen-quellen.mjs` aus
- * einer Export-GLB das Verlangte baut (Material, Alpha MASK, zweiseitig,
+ * einer Ausgangs-GLB das Verlangte baut (Material, Alpha MASK, zweiseitig,
  * Bild unverändert daneben, Geometrie unberührt).
  *
  * Dazu die Strenge des Werkzeugs: Eine abgeschnittene oder beschädigte
@@ -16,6 +16,7 @@
  *
  *   npx tsx tools/test/store-lab-katalog.ts
  */
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,9 +26,9 @@ import { STORE_PREFAB_DEFS } from '@wov/shared';
 import { STORE_KATALOG_NACH_ID } from '@wov/shared/src/storeKatalogDaten.js';
 import { repoText } from '@wov/shared/src/texte.js';
 // @ts-expect-error — .mjs ohne Typen
-import { MATERIALNAMEN, MODELLE, glbLesen, pflanzenHolen, pngPruefen, umbauen } from '../store-pflanzen-quellen.mjs';
+import { MATERIALNAMEN, MODELLE, glbLesen, pflanzenHolen, pngPruefen, quelleStatus, umbauen } from '../store-pflanzen-quellen.mjs';
 // @ts-expect-error — .mjs ohne Typen
-import { exportGlb, pngKlein } from '../lib/pflanzen-probe.mjs';
+import { exportGlb, ihdr, pngAusChunks, pngKlein } from '../lib/pflanzen-probe.mjs';
 
 const WURZEL = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 let fehler = 0;
@@ -99,7 +100,7 @@ for (const e of liste.eintraege) {
   check(`${e.id}: Texturname trägt die ersten 8 Hex des Textur-Hashs`, e.textur.datei === `textures/${e.material}-${e.textur.hash.slice(7, 15)}.png`, e.textur.datei);
 }
 
-// ── Umbau-Probe mit einer selbstgebauten Export-GLB ──────────────────
+// ── Umbau-Probe mit einer selbstgebauten Ausgangs-GLB ──────────────────
 const probeGlb: Buffer = exportGlb('Flowers_A 1', 1);
 const probePng: Buffer = pngKlein(1);
 const r = umbauen(probeGlb, 'flower-probe', 'probe.glb');
@@ -139,7 +140,7 @@ try {
 }
 check('Unbekanntes Material wird mit Namen abgewiesen', meldung.includes('unbekanntes Material Unbekannt 7'), meldung);
 
-// Die Ausgangsdateien, die Mike in den Speicher kopieren muss (`assets/store/vegetation-export/`).
+// Die Ausgangsdateien, die Mike in den Speicher kopieren muss (`assets/store/vegetation-roh/`).
 check(
   'Ausgangsdateien heissen flower-1a4.glb, flower-1a12.glb, fern-1a1.glb',
   JSON.stringify((MODELLE as { quelle: string }[]).map((m) => m.quelle)) === JSON.stringify(['flower-1a4.glb', 'flower-1a12.glb', 'fern-1a1.glb'])
@@ -182,6 +183,23 @@ const ohneBin = Buffer.from(glb);
 ohneBin.writeUInt32LE(0x41414141, 20 + ohneBin.readUInt32LE(12) + 4);
 check('GLB: zweiter Chunk ist kein BIN', wirft(() => glbLesen(ohneBin)).includes('kein BIN'));
 
+// Jede Strukturprüfung bekommt ihren eigenen Fall (so wird sie nicht vom Listenvergleich verdeckt).
+const umbauFehler = (g: Buffer): string => wirft(() => umbauen(g, 'x', 'probe.glb'));
+check('Struktur: BIN-Chunk endet vor der Datei (Gesamtlänge stimmt)', umbauFehler(exportGlb('Flowers_A 1', 1, { binKuerzer: 4 })).includes('BIN-Chunk endet nicht'));
+check('Struktur: GLB-Version 1 wird abgewiesen', umbauFehler(exportGlb('Flowers_A 1', 1, { version: 1 })).includes('Version 2'));
+check('Struktur: buffers[0] länger als der BIN-Chunk', umbauFehler(exportGlb('Flowers_A 1', 1, { puffer: 100000 })).includes('buffers[0]'));
+check('Struktur: bufferView reicht über den BIN-Chunk hinaus', umbauFehler(exportGlb('Flowers_A 1', 1, { viewPlus: 100000 })).includes('bufferView'));
+check('Struktur: Accessor reicht über seinen bufferView hinaus', umbauFehler(exportGlb('Flowers_A 1', 1, { posAnzahl: 4 })).includes('Accessor'));
+check('Struktur: Position knapp ausserhalb der Hüllbox (1,5 statt höchstens 1)', umbauFehler(exportGlb('Flowers_A 1', 1, { positionen: [0, 0, 0, 1.5, 0, 0, 0, 1, 1] })).includes('Position'));
+check('Struktur: Position knapp unterhalb der Hüllbox (-0,5 statt mindestens 0)', umbauFehler(exportGlb('Flowers_A 1', 1, { positionen: [-0.5, 0, 0, 1, 0, 0, 0, 1, 1] })).includes('Position'));
+check('Struktur: Position NaN', umbauFehler(exportGlb('Flowers_A 1', 1, { positionen: [0, 0, 0, Number.NaN, 0, 0, 0, 1, 1] })).includes('Position'));
+check('Struktur: Index == Zahl der Positionen wird abgewiesen', umbauFehler(exportGlb('Flowers_A 1', 1, { indizes: [0, 1, 3] })).includes('Index'));
+check('Struktur: Indexzahl nicht durch 3 teilbar', umbauFehler(exportGlb('Flowers_A 1', 1, { indizes: [0, 1, 2, 0] })).includes('Indizes ungültig'));
+check('Struktur: PNG ohne IDAT', umbauFehler(exportGlb('Flowers_A 1', 1, { png: pngAusChunks([['IHDR', ihdr(4, 4)], ['tEXt', Buffer.from('padpadpadpadpadpad')], ['IEND', Buffer.alloc(0)]]) })).includes('ohne Bilddaten'));
+check('Struktur: PNG ohne IHDR am Anfang', umbauFehler(exportGlb('Flowers_A 1', 1, { png: pngAusChunks([['tEXt', Buffer.from('padpadpadpadpadpad')], ['IHDR', ihdr(4, 4)], ['IDAT', Buffer.from([1, 2, 3])], ['IEND', Buffer.alloc(0)]]) })).includes('IHDR'));
+check('Struktur: PNG-Breite 20000 ist unsinnig', umbauFehler(exportGlb('Flowers_A 1', 1, { png: pngAusChunks([['IHDR', ihdr(20000, 4)], ['IDAT', Buffer.from([1, 2, 3])], ['IEND', Buffer.alloc(0)]]) })).includes('unsinnige Grösse'));
+check('Struktur: PNG-Breite 0 ist unsinnig', umbauFehler(exportGlb('Flowers_A 1', 1, { png: pngAusChunks([['IHDR', ihdr(0, 4)], ['IDAT', Buffer.from([1, 2, 3])], ['IEND', Buffer.alloc(0)]]) })).includes('unsinnige Grösse'));
+
 // ── pflanzenHolen: Warnungen statt Abbruch, Liste nur mit Schalter ────
 const tmp = mkdtempSync(join(tmpdir(), 'grauklamm-k1-holen-'));
 const modelle = MODELLE as { quelle: string; id: string }[];
@@ -207,7 +225,7 @@ function holen(name: string, quelle: string, opt: { schreiben?: boolean; katalog
   let n: number | null = null;
   let fehlerText = '';
   try {
-    n = pflanzenHolen({ quelle, ziel, katalog, messlisteSchreiben: opt.schreiben ?? false });
+    n = pflanzenHolen(opt.schreiben === undefined ? { quelle, ziel, katalog } : { quelle, ziel, katalog, messlisteSchreiben: opt.schreiben });
   } catch (e) {
     fehlerText = (e as Error).message;
   } finally {
@@ -288,7 +306,7 @@ try {
   check('Teilweise gefüllt: Warnung nennt die fehlenden, das Vorhandene wird gebaut, kein Fehler', teil.fehler === '' && teil.n === 1 && teil.warn.includes('flower-1a12.glb fehlt') && teil.warn.includes('fern-1a1.glb fehlt'), teil.warn + teil.fehler);
   const gross = holen('gross', roh('gross', Object.fromEntries(modelle.map((m, i) => [m.quelle.toUpperCase().replace('.GLB', '.glb'), gut[i]]))), { katalog: erst.katalog });
   check('Grossschreibung (FLOWER-1A4.glb) wird akzeptiert', gross.n === 3 && gross.warn === '', gross.warn);
-  const unterstrich = holen('unterstrich', roh('unterstrich', { 'Flower_1A4.glb': gut[0], [modelle[1].quelle]: gut[1], [modelle[2].quelle]: gut[2] }), { katalog: erst.katalog });
+  const unterstrich = holen('unterstrich', roh('unterstrich', { 'flower_1a4.glb': gut[0], [modelle[1].quelle]: gut[1], [modelle[2].quelle]: gut[2] }), { katalog: erst.katalog });
   check('Anderer Name (Unterstrich): Warnung mit erwartetem Namen, Rest gebaut', unterstrich.n === 2 && unterstrich.warn.includes('bitte als flower-1a4.glb benennen'), unterstrich.warn);
   const fremd = holen('fremd', roh('fremd', { ...Object.fromEntries(modelle.map((m, i) => [m.quelle, gut[i]])), '.DS_Store': Buffer.from('x'), 'flower-1a4.glb.bak': Buffer.from('x') }), { katalog: erst.katalog });
   check('Fremde Dateien daneben werden ignoriert', fremd.n === 3 && fremd.warn === '', fremd.warn);
@@ -298,6 +316,59 @@ try {
   check('Schalter mit unvollständigem Ordner: Fehler, Liste nicht geschrieben', unvollstaendig.fehler !== '' && !existsSync(unvollstaendig.katalog), unvollstaendig.fehler);
   const schreibKaputt = holen('schreibkaputt', roh('schreibkaputt', { [modelle[0].quelle]: gut[0], [modelle[1].quelle]: gut[1], [modelle[2].quelle]: gut[2].subarray(0, 100) }), { schreiben: true });
   check('Schalter mit beschädigter Datei: Fehler, Liste nicht geschrieben', schreibKaputt.fehler !== '' && !existsSync(schreibKaputt.katalog), schreibKaputt.fehler);
+
+  // N2-1: Der exakte Dateiname gewinnt, unabhängig von der Verzeichnisreihenfolge
+  const echtGut = roh('doppelt1', { [modelle[0].quelle]: gut[0], [modelle[0].quelle.toUpperCase().replace('.GLB', '.glb')]: Buffer.from('muell muell muell'), [modelle[1].quelle]: gut[1], [modelle[2].quelle]: gut[2] });
+  const d1 = holen('doppelt1', echtGut, { katalog: erst.katalog });
+  check('Zwei Schreibweisen (exakt gültig, GROSS Müll): exakter Name gewinnt, 3 gebaut, Warnung', d1.n === 3 && d1.warn.includes('mehrere Dateien mit gleichem Namen') && d1.warn.includes('es gilt flower-1a4.glb'), d1.warn);
+  const echtMuell = roh('doppelt2', { [modelle[0].quelle]: Buffer.from('muell muell muell'), [modelle[0].quelle.toUpperCase().replace('.GLB', '.glb')]: gut[0], [modelle[1].quelle]: gut[1], [modelle[2].quelle]: gut[2] });
+  const d2 = holen('doppelt2', echtMuell, { katalog: erst.katalog });
+  check('Zwei Schreibweisen (exakt Müll, GROSS gültig): der exakte Name gilt trotzdem, nicht gebaut, Warnung', d2.n === 2 && d2.warn.includes('es gilt flower-1a4.glb') && !gebaut(d2).includes('flower-1a4.glb'), d2.warn);
+  const d3 = holen('doppelt3', roh('doppelt3', { 'FLOWER-1A4.glb': gut[0], 'Flower-1A4.glb': Buffer.from('x'), [modelle[1].quelle]: gut[1], [modelle[2].quelle]: gut[2] }), { katalog: erst.katalog });
+  check('Zwei abweichende Schreibweisen: die alphabetisch erste gilt (nicht die Reihenfolge im Verzeichnis)', d3.n === 3 && d3.warn.includes('es gilt FLOWER-1A4.glb'), d3.warn);
+
+  // quelleStatus: die fünf Zustände einer Ausgangsdatei (die Tests unterscheiden damit "bewusst nicht gebaut" von "Fehler")
+  const stLeer = roh('st-leer', {});
+  const st = (q: string, katalogPfad: string, i = 0): string => quelleStatus(modelle[i], { quelle: q, katalog: katalogPfad });
+  check('quelleStatus: Ordner fehlt', st(join(tmp, 'nirgends'), erst.katalog) === 'quelle-fehlt');
+  check('quelleStatus: Datei fehlt', st(stLeer, erst.katalog) === 'datei-fehlt');
+  check('quelleStatus: gültig und gleich der Liste', st(ganz, erst.katalog) === 'passt');
+  check('quelleStatus: Grossschreibung zählt wie der Name', st(roh('st-gross', { 'FLOWER-1A4.glb': gut[0] }), erst.katalog) === 'passt');
+  check('quelleStatus: beschädigt', st(roh('st-kaputt', { [modelle[0].quelle]: gut[0].subarray(0, 50) }), erst.katalog) === 'ungueltig');
+  check('quelleStatus: gültig, aber andere Werte als die Liste', st(roh('st-anders', { [modelle[0].quelle]: exportGlb('Flowers_A 1', 9) }), erst.katalog) === 'weicht-ab');
+  check('quelleStatus: Liste fehlt ⇒ weicht ab', st(ganz, join(tmp, 'keine-liste.json')) === 'weicht-ab');
+
+  // Standardaufruf ohne Schalter: Messliste bleibt unverändert (der Schalter steht in der Vorgabe auf aus)
+  const vorlage = join(tmp, 'vorlage.json');
+  writeFileSync(vorlage, listeText.replace('"schemaVersion": 1', '"schemaVersion": 1'));
+  const standard = holen('standard', ganz, { katalog: vorlage });
+  check('Standardaufruf (ohne Schalter): Messliste unverändert', readFileSync(vorlage, 'utf8') === listeText && standard.n === 3, standard.warn);
+  const stale = join(tmp, 'veraltet.json');
+  writeFileSync(stale, listeText.replace(/"bytes": \d+/, '"bytes": 1'));
+  const staleVorher = readFileSync(stale, 'utf8');
+  const sl = holen('stale', ganz, { katalog: stale });
+  check('Standardaufruf mit veralteter Liste: Warnung, Liste nicht angefasst', sl.warn.includes('Messliste weicht ab') && readFileSync(stale, 'utf8') === staleVorher);
+
+  // Kommandozeile als Kindprozess: ohne Schalter nie schreiben, nur mit --messliste-schreiben
+  const cli = (args: string[], liste: string, quelle: string): { status: number | null; ausgabe: string } => {
+    const r = spawnSync(join(WURZEL, 'node_modules/.bin/tsx'), [join(WURZEL, 'tools/store-pflanzen-quellen.mjs'), ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, WOV_PFLANZEN_QUELLE: quelle, WOV_PFLANZEN_ZIEL: join(tmp, 'cli-ziel'), WOV_PFLANZEN_MESSLISTE: liste },
+    });
+    return { status: r.status, ausgabe: `${r.stdout}${r.stderr}` };
+  };
+  const cliListe = join(tmp, 'cli-liste.json');
+  writeFileSync(cliListe, '{"schemaVersion":1,"eintraege":[]}\n');
+  const c1 = cli([], cliListe, ganz);
+  check('Kommando ohne Schalter: Exit 0, Messliste unverändert', c1.status === 0 && readFileSync(cliListe, 'utf8') === '{"schemaVersion":1,"eintraege":[]}\n', c1.ausgabe.slice(-300));
+  check('Kommando ohne Schalter: Warnung "per PR"', c1.ausgabe.includes('per PR'));
+  const c2 = cli(['--messliste-schreiben'], cliListe, ganz);
+  const geschrieben = JSON.parse(readFileSync(cliListe, 'utf8')) as { eintraege: LabEintrag[] };
+  check('Kommando mit --messliste-schreiben: Exit 0, drei Einträge geschrieben', c2.status === 0 && geschrieben.eintraege.length === 3, c2.ausgabe.slice(-300));
+  const c3 = cli([], cliListe, ganz);
+  check('Kommando danach ohne Schalter: Exit 0, Liste unverändert, keine Abweichung', c3.status === 0 && JSON.stringify(JSON.parse(readFileSync(cliListe, 'utf8'))) === JSON.stringify(geschrieben) && !c3.ausgabe.includes('weicht ab'), c3.ausgabe.slice(-300));
+  const c4 = cli(['--messliste-schreiben'], join(tmp, 'cli-liste4.json'), roh('cli-teil', { [modelle[0].quelle]: gut[0] }));
+  check('Kommando mit Schalter bei unvollständigem Ordner: Exit 2, nichts geschrieben', c4.status === 2 && !existsSync(join(tmp, 'cli-liste4.json')), c4.ausgabe.slice(-300));
 } finally {
   rmSync(tmp, { recursive: true, force: true });
 }
@@ -307,6 +378,28 @@ const aufbereiten = readFileSync(join(WURZEL, 'tools/store-vegetation-aufbereite
 check(
   'Aufbereitung ruft pflanzenHolen() nur im Standardlauf (nicht bei --nur-pruefen, nicht bei Probeziel), ohne Schalter und in try/catch',
   /if \(!NUR_PRUEFEN && ZIEL === resolve\(WURZEL, ZIEL_STANDARD\) && QUELLE === resolve\(WURZEL, QUELLE_STANDARD\)\) \{\s*console\.log\(''\);\s*try \{\s*const \{ pflanzenHolen \} = await import\('\.\/store-pflanzen-quellen\.mjs'\);\s*pflanzenHolen\(\);\s*\} catch/.test(aufbereiten)
+);
+
+// ── Die Weichen im Sammellauf: über ALLE Dateien ─────────────────────
+// Der Rollout lässt Teilzustände zu (Mike kopiert gerade, eine Datei ist beschädigt
+// oder weicht von der Liste ab). Die dateiabhängigen Tests dürfen dann nicht rot
+// werden, sondern müssen überspringen: Die Weiche nennt deshalb jede der Dateien.
+const kern = readFileSync(join(WURZEL, 'scripts/kern/tools.mjs'), 'utf8');
+const eintragBlock = (test: string): string => {
+  const i = kern.indexOf(test);
+  return i < 0 ? '' : kern.slice(i, kern.indexOf('brauchtModelle(', i) >= 0 ? kern.indexOf(')', kern.indexOf('brauchtModelle(', i) + 15 + 600) : i);
+};
+const pflanzenWeiche = eintragBlock("'test/store-lab-pflanzen-dateien.ts'");
+check(
+  'Weiche der Pflanzen-Dateien nennt alle drei Labor-Modelle',
+  ['flower-1a4', 'flower-1a12', 'fern-1a1'].every((n) => pflanzenWeiche.includes(`assets/store-lab/vegetation/${n}.glb`)),
+  pflanzenWeiche.slice(0, 300)
+);
+const texturWeiche = eintragBlock("'test/store-boden-texturen.ts'");
+check(
+  'Weiche der Boden-Texturen nennt beide Texturen',
+  ['terrain-rock-grey', 'terrain-rock-moss-normal'].every((n) => texturWeiche.includes(`assets/store/textures/${n}.png`)),
+  texturWeiche.slice(0, 300)
 );
 
 if (fehler > 0) {

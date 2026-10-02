@@ -8,7 +8,7 @@
  *      dazu), aber `shared/test/store-verhalten.ts` wurde rot, sobald jemand
  *      das Feld wie vorgesehen füllte.
  *  (2) Zwei Quelleinträge auf DIESELBE GLB überschrieben sich still (die Map
- *      ist nach `asset` geschlüsselt): 568 statt 569 Prefabs, und beide
+ *      ist nach `asset` geschlüsselt): 571 statt 572 Prefabs, und beide
  *      bestehenden Tests blieben grün.
  *
  * Die Quelle ist ein Symlink auf einen Speicher außerhalb des Repos, und der

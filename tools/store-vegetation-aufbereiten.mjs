@@ -1959,8 +1959,8 @@ if (ohneVorbild.size > 0) {
 }
 
 /*
-  Zum Schluss die drei Pflanzen aus dem Export-Ordner des Speichers
-  (`assets/store/vegetation-export/`), denn der Zielordner wurde oben
+  Zum Schluss die drei Pflanzen aus dem Roh-Ordner des Speichers
+  (`assets/store/vegetation-roh/`), denn der Zielordner wurde oben
   NEU aufgebaut und hat sie sonst nicht mehr. Nur beim echten Lauf in den
   Standardordner: nicht bei `--nur-pruefen` und nicht bei einem
   Probeziel (`--ziel`, so fährt `tools/test/store-vegetation.ts`).

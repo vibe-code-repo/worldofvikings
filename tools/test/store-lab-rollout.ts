@@ -2,7 +2,7 @@
  * Prüft den Rollout-Weg der Labor-Pflanzen: `store:aufbereiten` (Schritt 5b
  * von `tools/wov-update.sh`) baut `assets/store-lab/vegetation/` bei jedem
  * Lauf NEU auf und muss Blumen und Farn aus den Ausgangsdateien in
- * `assets/store/vegetation-export/` ohne Extra-Schritt wieder hineinlegen,
+ * `assets/store/vegetation-roh/` ohne Extra-Schritt wieder hineinlegen,
  * OHNE je abzubrechen und OHNE getrackte Dateien zu schreiben. Sechs
  * Zustände des Ordners:
  *
@@ -18,7 +18,7 @@
  * unverändert (Hash vorher/nachher), die Store-Vegetation daneben da.
  *
  * Läuft in einem Wegwerf-Baum (Kopie der Werkzeuge, Verweise auf den
- * Speicher ohne `vegetation-export`), schreibt also nie in den Arbeitsbaum.
+ * Speicher ohne `vegetation-roh`), schreibt also nie in den Arbeitsbaum.
  * Braucht `assets/store/vegetation` (Weiche `brauchtModelle`); die
  * Ausgangsdateien baut der Test selbst.
  *
@@ -61,10 +61,10 @@ function baumBauen(tmp: string, name: string, dateien: Record<string, Buffer> | 
   copyFileSync(join(WURZEL, 'shared/src/laubSpitzen.ts'), join(baum, 'shared/src/laubSpitzen.ts'));
   symlinkSync(join(WURZEL, 'node_modules'), join(baum, 'node_modules'));
   for (const n of readdirSync(STORE)) {
-    if (n !== 'vegetation-export') symlinkSync(join(STORE, n), join(baum, 'assets/store', n));
+    if (n !== 'vegetation-roh') symlinkSync(join(STORE, n), join(baum, 'assets/store', n));
   }
   if (dateien) {
-    const roh = join(baum, 'assets/store/vegetation-export');
+    const roh = join(baum, 'assets/store/vegetation-roh');
     mkdirSync(roh);
     for (const [n, b] of Object.entries(dateien)) writeFileSync(join(roh, n), b);
   }
@@ -115,7 +115,7 @@ try {
   const echt = sha(join(WURZEL, 'tools/store-lab-katalog.json'));
 
   // (a) fehlt ganz
-  zustand('a', null, [], /WARNUNG.*vegetation-export/s);
+  zustand('a', null, [], /WARNUNG.*vegetation-roh/s);
   // (b) vollständig, Liste passend gemacht
   const b = zustand('b', ganz, modelle.map((m) => `${m.id}.glb`).sort(), null, messlisteErzeugen);
   const bytes1 = pflanzen(b).map((f) => readFileSync(join(lab(b), f)));

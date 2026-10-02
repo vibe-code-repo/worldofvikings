@@ -435,8 +435,9 @@ export default [
   ['tools', 'test/raster-generator-g4.ts'],
   // store-boden-quellen.mjs: verlustfrei (kein Palettenbild), Weichen je Quelle, mit Temp-Quellen (ohne Assets).
   ['tools', 'test/store-boden-quellen.ts'],
-  // Die zwei Grauklamm-Bodentexturen im Speicher (Hash = Export); ohne sie uebersprungen.
-  ['tools', 'test/store-boden-texturen.ts', brauchtModelle('assets/store/textures/terrain-rock-grey.png')],
+  // Die zwei Grauklamm-Bodentexturen im Speicher (Hash = Quelle). Weiche ueber BEIDE Dateien:
+  // der Rollout laesst Teilzustaende zu (Mike kopiert gerade), dann wird uebersprungen.
+  ['tools', 'test/store-boden-texturen.ts', brauchtModelle('assets/store/textures/terrain-rock-grey.png', 'assets/store/textures/terrain-rock-moss-normal.png')],
   ['tools', 'test/store-einsortierung.ts', brauchtModelle('assets/store')],
   ['tools', 'test/store-erzeugung.ts', brauchtStore()],
   /*
@@ -491,9 +492,19 @@ export default [
   // Store-Labor (Blumen, Farn): Messliste `tools/store-lab-katalog.json` gegen Registry,
   // Katalog und Uebersetzungen, dazu Umbau-Probe mit selbstgebauter GLB (ohne Assets).
   ['tools', 'test/store-lab-katalog.ts'],
-  // Die Binaerdateien dazu (Hash, GLB-Kopf, Textur): nur mit assets/store-lab.
-  ['tools', 'test/store-lab-pflanzen-dateien.ts', brauchtModelle('assets/store-lab/vegetation/fern-1a1.glb')],
-  // Rollout-Weg: store:aufbereiten legt die Pflanzen aus vegetation-export/ wieder ins Labor (Wegwerf-Baum).
+  // Die Binaerdateien dazu (Hash, GLB-Kopf, Textur): nur wenn ALLE drei im Labor liegen.
+  // Ein Modell, das der Rollout bewusst nicht gebaut hat (Warnung: Teilzustand, beschaedigt,
+  // Messliste weicht ab), laesst den Test ueberspringen statt rot werden.
+  [
+    'tools',
+    'test/store-lab-pflanzen-dateien.ts',
+    brauchtModelle(
+      'assets/store-lab/vegetation/flower-1a4.glb',
+      'assets/store-lab/vegetation/flower-1a12.glb',
+      'assets/store-lab/vegetation/fern-1a1.glb'
+    ),
+  ],
+  // Rollout-Weg: store:aufbereiten legt die Pflanzen aus vegetation-roh/ wieder ins Labor (Wegwerf-Baum).
   ['tools', 'test/store-lab-rollout.ts', brauchtModelle('assets/store/vegetation')],
   ['tools', 'test/store-quelle.ts', brauchtStore()],
   ['tools/test', 'store-vegetation.ts', brauchtModelle('assets/store')],

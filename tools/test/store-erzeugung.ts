@@ -37,6 +37,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// @ts-expect-error — .mjs ohne Typen
+import { MODELLE, quelleStatus } from '../store-pflanzen-quellen.mjs';
 import { STORE_PREFAB_DEFS } from '@wov/shared';
 // Der Katalog kommt ueber seinen Pfad — er steht mit Absicht nicht im
 // Barrel, damit er nicht im Spiel-Bundle landet.
@@ -146,14 +148,16 @@ try {
 
 // Labor-Modelle liegen unter `assets/store-lab/` (Messliste eingecheckt), nicht im Speicher.
 /**
- * Labor-Modell ohne Datei: TOT nur, wenn seine Ausgangsdatei im Speicher liegt
- * (`vegetation-export/`, dann hätte `store:aufbereiten` es bauen müssen). Fehlt
- * auch sie, hat Mike sie noch nicht kopiert: Warnung, kein Befund.
+ * Labor-Modell ohne Datei: TOT nur, wenn der Rollout es hätte bauen MÜSSEN, also
+ * wenn seine Ausgangsdatei im Speicher (`vegetation-roh/`) gültig ist und zur
+ * Messliste passt. Fehlt sie, ist sie beschädigt oder weicht sie von der Liste ab,
+ * hat `store:aufbereiten` es bewusst nicht gebaut (Warnung): hier nur Warnung.
  */
 function labDateiTot(pfad: string): boolean {
-  const roh = join(STORE, 'vegetation-export', pfad.replace(/^vegetation\//, ''));
-  if (!existsSync(roh)) console.warn(`WARN ${pfad}: weder im Labor noch als Ausgangsdatei im Speicher (vegetation-export/)`);
-  return existsSync(roh);
+  const m = (MODELLE as { quelle: string; id: string }[]).find((x) => pfad === `vegetation/${x.id}.glb`);
+  const status: string = m ? quelleStatus(m, { quelle: join(STORE, 'vegetation-roh') }) : 'passt';
+  if (status !== 'passt') console.warn(`WARN ${pfad}: nicht im Labor, Ausgangsdatei ${status} (vegetation-roh/) — vom Rollout bewusst nicht gebaut`);
+  return status === 'passt';
 }
 const labPfade = new Set(
   (JSON.parse(readFileSync(join(WURZEL, 'tools/store-lab-katalog.json'), 'utf8')) as { eintraege: { pfad: string }[] }).eintraege.map((l) => l.pfad)

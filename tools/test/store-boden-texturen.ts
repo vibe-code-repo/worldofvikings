@@ -1,6 +1,6 @@
 /**
  * Prüft die zwei Bodentexturen der Grauklamm, die in Mikes Speicher
- * liegen müssen (`assets/store/textures/`): Dateibytes gleich dem Export,
+ * liegen müssen (`assets/store/textures/`): Dateibytes gleich der Quelle,
  * Größe 2048², Kennungen ohne Leerzeichen. Sie brauchen kein Werkzeug:
  * `store-terrain-schichten.mjs` sucht im Speicher zuerst.
  *
@@ -39,7 +39,7 @@ for (const [datei, soll] of Object.entries(ERWARTET)) {
   const buf = readFileSync(pfad);
   check(`${datei}: Größe ${soll.bytes} B`, buf.length === soll.bytes, String(buf.length));
   const hash = createHash('sha256').update(buf).digest('hex');
-  check(`${datei}: sha256 gleich dem Export`, hash === soll.sha256, hash);
+  check(`${datei}: sha256 gleich der Quelle`, hash === soll.sha256, hash);
   check(`${datei}: PNG 2048×2048`, buf.readUInt32BE(16) === 2048 && buf.readUInt32BE(20) === 2048);
   check(`${datei}: Kennung ohne Leerzeichen`, !/\s/.test(datei));
 }

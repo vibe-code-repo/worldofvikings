@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
-  Holt drei Pflanzenmodelle aus dem Modell-Export in das Store-Labor:
+  Holt drei Pflanzenmodelle aus ihren Ausgangsdateien in das Store-Labor:
   `assets/store-lab/vegetation/<id>.glb` plus ihre Textur unter
   `assets/store-lab/vegetation/textures/`.
 
@@ -8,19 +8,19 @@
   `store-vegetation-aufbereiten.mjs` bereitet den Store-Bestand auf und
   baut seinen Zielordner bei jedem Lauf neu auf; ein Modell, das gar
   nicht im Store liegt, hat dort keinen Platz. Diese drei (zwei Blumen,
-  ein Farn) liegen nur im Export. Sie kommen deshalb hier herein, mit
+  ein Farn) liegen nur als Ausgangsdateien vor. Sie kommen deshalb hier herein, mit
   demselben Ergebnis wie dort: ein Material je Textur, `alphaMode: MASK`,
   zweiseitig, Bild als Datei NEBEN dem Modell (`textures/…`, relativ zur
   GLB), Geometrie bitgleich.
 
-  Der Export liefert die Textur EINGEBETTET (bufferView). Sie wird
-  unverändert herausgeschrieben (die PNG-Bytes sind die des Exports,
+  Die Ausgangsdatei liefert die Textur EINGEBETTET (bufferView). Sie wird
+  unverändert herausgeschrieben (die PNG-Bytes sind die der Quelle,
   Hash gleich) und der bufferView aus dem BIN-Block genommen. Der Rest
   des BIN wird bufferView-weise neu gepackt, nie byteweise.
 
   ── Die Materialnamen-Tabelle ────────────────────────────────────────
-  Der Export nennt die Materialien nach dem Ursprungsprogramm
-  (die Schlüssel der Tabelle unten). Im Labor heissen sie nach ihrer
+  Die Ausgangsdateien tragen die Materialnamen der Schlüssel in der
+  Tabelle unten (reine Nachschlagedaten). Im Labor heissen sie nach ihrer
   Rolle (wie `laub` beim Strauch): `blume`, `farn`. Ein Material, das
   nicht in der Tabelle steht, ist ein Befund und der Lauf wird rot.
 
@@ -48,9 +48,9 @@
   übersprungen, nie gebaut.
 
   ── Woher die Ausgangsdateien kommen, und wer dieses Werkzeug ruft ──
-  Die rohen Export-GLBs liegen im Asset-Speicher: `assets/store/
-  vegetation-export/<id>.glb` (Mike kopiert sie dorthin, Liste im Bericht
-  Grauklamm K1). Der Ort lässt sich mit `WOV_EXPORT_MODELLE` überstimmen.
+  Die rohen GLBs liegen im Asset-Speicher: `assets/store/
+  vegetation-roh/<id>.glb` (Mike kopiert sie dorthin, Liste im Bericht
+  Grauklamm K1). Der Ort lässt sich mit `WOV_PFLANZEN_QUELLE` überstimmen.
   Gross- und Kleinschreibung des Dateinamens ist egal; eine Datei mit
   anderem Namen (etwa Unterstrich statt Bindestrich) wird mit einem
   Hinweis auf den erwarteten Namen übersprungen.
@@ -70,7 +70,7 @@
     node tools/store-pflanzen-quellen.mjs                        (wie im Rollout)
     node tools/store-pflanzen-quellen.mjs --messliste-schreiben  (Liste neu erzeugen)
 
-  Brings three plant models from the model export into assets/store-lab/
+  Brings three plant models from their source files into assets/store-lab/
   and compares them with the tracked tools/store-lab-katalog.json (written only with --messliste-schreiben).
 */
 import { createHash } from 'node:crypto';
@@ -79,11 +79,13 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const QUELLE = process.env.WOV_EXPORT_MODELLE ?? join(WURZEL, 'assets/store/vegetation-export');
-const ZIEL = join(WURZEL, 'assets/store-lab/vegetation');
-const KATALOG = join(WURZEL, 'tools/store-lab-katalog.json');
+const QUELLE = process.env.WOV_PFLANZEN_QUELLE ?? join(WURZEL, 'assets/store/vegetation-roh');
+// Ziel und Messliste lassen sich umlenken, damit Tests das Kommando fahren können,
+// ohne den Arbeitsbaum zu berühren (im Betrieb nie gesetzt).
+const ZIEL = process.env.WOV_PFLANZEN_ZIEL ?? join(WURZEL, 'assets/store-lab/vegetation');
+const KATALOG = process.env.WOV_PFLANZEN_MESSLISTE ?? join(WURZEL, 'tools/store-lab-katalog.json');
 
-/** Quelldatei im Speicher (`vegetation-export/`) → Kennung im Labor und Prefab. */
+/** Quelldatei im Speicher (`vegetation-roh/`) → Kennung im Labor und Prefab. */
 export const MODELLE = [
   { quelle: 'flower-1a4.glb', id: 'flower-1a4', textKey: 'inhalt.prefab.vegetation_flower_1a4' },
   { quelle: 'flower-1a12.glb', id: 'flower-1a12', textKey: 'inhalt.prefab.vegetation_flower_1a12' },
@@ -91,12 +93,12 @@ export const MODELLE = [
 ];
 
 /**
- * Materialname im Export → Rolle (= Materialname im Labor) und Tönung.
+ * Materialname der Ausgangsdatei → Rolle (= Materialname im Labor) und Tönung.
  *
  * Die Blumenkarte ist farbig und braucht keine Tönung. Die Farnkarte ist
  * wie die Laubkarten eine Helligkeitsmaske (gemessen R = G = B = 0,75 über
- * die deckenden Texel); ohne Faktor rendert sie GRAU. Zum Farn gibt der
- * Export keine Materialdaten her, deshalb gilt hier der Faktor des
+ * die deckenden Texel); ohne Faktor rendert sie GRAU. Zum Farn gibt die
+ * Ausgangsdatei keine Materialdaten her, deshalb gilt hier der Faktor des
  * Laubs `Leaves 2` (Mittel aus Ober- und Unterfarbe, `laubSpitzen.ts`,
  * wie `bush-1a1`): eine Annahme, keine Messung am Original.
  */
@@ -252,7 +254,7 @@ export function glbSchreiben(json, bin) {
 }
 
 /**
- * Baut aus der Export-GLB die Labor-GLB.
+ * Baut aus der Ausgangs-GLB die Labor-GLB.
  * Rückgabe: { glb, png, huellbox, dreiecke, material }.
  */
 export function umbauen(buf, id, dateiname) {
@@ -378,6 +380,47 @@ function eintragVon(m, r) {
 }
 
 /**
+ * Welche Datei im Ordner gilt für `m`? Der EXAKTE Name gewinnt; sonst genau
+ * eine mit anderer Schreibweise (bei mehreren die alphabetisch erste, damit
+ * die Wahl nicht von der Verzeichnisreihenfolge abhängt). `doppelt` nennt die
+ * übrigen Dateien gleichen Namens, die ignoriert werden.
+ */
+function dateiWaehlen(namen, m) {
+  const passend = namen.filter((n) => n.toLowerCase() === m.quelle).sort();
+  const echt = passend.includes(m.quelle) ? m.quelle : passend[0];
+  return { echt, doppelt: passend.filter((n) => n !== echt) };
+}
+
+/**
+ * Zustand einer Ausgangsdatei gegen die Messliste, OHNE etwas zu bauen:
+ *   'quelle-fehlt'  der Ordner fehlt,
+ *   'datei-fehlt'   die Datei fehlt (Schreibweise egal),
+ *   'ungueltig'     die Datei ist beschädigt oder abgeschnitten,
+ *   'weicht-ab'     gültig, aber ihre Werte stehen nicht so in der Messliste,
+ *   'passt'         gültig und gleich der Liste: `pflanzenHolen` baut sie.
+ * Die Tests brauchen das, um ein bewusst nicht gebautes Labor-Modell
+ * (Warnung im Rollout) von einem Fehler des Rollouts zu unterscheiden.
+ */
+export function quelleStatus(m, { quelle = QUELLE, katalog = KATALOG } = {}) {
+  if (!existsSync(quelle)) return 'quelle-fehlt';
+  const { echt } = dateiWaehlen(readdirSync(quelle), m);
+  if (!echt) return 'datei-fehlt';
+  let eintrag;
+  try {
+    eintrag = eintragVon(m, umbauen(readFileSync(join(quelle, echt)), m.id, echt));
+  } catch {
+    return 'ungueltig';
+  }
+  let soll;
+  try {
+    soll = JSON.parse(readFileSync(katalog, 'utf8')).eintraege.find((e) => e.id === eintrag.id);
+  } catch {
+    return 'weicht-ab';
+  }
+  return soll && JSON.stringify(soll) === JSON.stringify(eintrag) ? 'passt' : 'weicht-ab';
+}
+
+/**
  * Baut die gültigen Modelle aus `quelle` nach `ziel` und VERGLEICHT sie mit der
  * Messliste `katalog`. Wirft im Normalfall NIE; Probleme sind Warnungen
  * (siehe Kopfkommentar). Nur mit `messlisteSchreiben` wird die Liste
@@ -390,18 +433,19 @@ export function pflanzenHolen({ quelle = QUELLE, ziel = ZIEL, katalog = KATALOG,
     warn(
       `${quelle} fehlt — Blumen und Farn werden nicht gebaut.\n` +
         '                   Die Prefabs bleiben registriert (tools/store-lab-katalog.json), ihre\n' +
-        '                   Dateien fehlen im Labor, bis die Export-GLBs im Speicher liegen.'
+        '                   Dateien fehlen im Labor, bis die Ausgangs-GLBs im Speicher liegen.'
     );
     if (messlisteSchreiben) throw new Error('Messliste nicht geschrieben: Quellordner fehlt');
     return 0;
   }
-  const namen = new Map(readdirSync(quelle).map((n) => [n.toLowerCase(), n]));
+  const verzeichnis = readdirSync(quelle);
   const gueltig = [];
   const probleme = [];
   for (const m of MODELLE) {
-    const echt = namen.get(m.quelle);
+    const { echt, doppelt } = dateiWaehlen(verzeichnis, m);
+    if (doppelt.length > 0) warn(`${m.quelle}: mehrere Dateien mit gleichem Namen (${[echt, ...doppelt].join(', ')}) — es gilt ${echt}, die anderen werden ignoriert`);
     if (!echt) {
-      const aehnlich = [...namen.values()].find((n) => n.toLowerCase().replace(/[^a-z0-9]/g, '') === m.quelle.replace(/[^a-z0-9]/g, ''));
+      const aehnlich = verzeichnis.find((n) => n.toLowerCase().replace(/[^a-z0-9]/g, '') === m.quelle.replace(/[^a-z0-9]/g, ''));
       probleme.push(`${m.quelle} fehlt${aehnlich ? ` (gefunden: ${aehnlich} — bitte als ${m.quelle} benennen)` : ''}`);
       continue;
     }

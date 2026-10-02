@@ -166,12 +166,14 @@ interface Socke extends WebSocket {
   meldungen: string[];
   bloecke: boolean[];
   admin: string[];
+  effekte: number[];
+  treffer: number;
 }
 function verbinde(name: string): Promise<Socke> {
   return new Promise((ok, fail) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}`) as Socke;
     ws.binaryType = 'nodebuffer';
-    ws.meldungen = []; ws.bloecke = []; ws.admin = [];
+    ws.meldungen = []; ws.bloecke = []; ws.admin = []; ws.effekte = []; ws.treffer = 0;
     let auth = false;
     const timer = setTimeout(() => fail(new Error(`handshake timeout: ${name}`)), 8000);
     ws.on('message', (data: Buffer) => {
@@ -192,6 +194,11 @@ function verbinde(name: string): Promise<Socke> {
         ws.meldungen.push(r.readString());
       } else if (type === PacketType.Block) {
         ws.bloecke.push(r.readBool());
+      } else if (type === PacketType.HitEffect) {
+        r.readVector3();
+        ws.effekte.push(r.readInt32());
+      } else if (type === PacketType.PlayerTreffer) {
+        ws.treffer++;
       } else if (type === PacketType.AdminEvent) {
         r.readString();
         r.readBool();
@@ -280,11 +287,16 @@ async function main(): Promise<void> {
       nah(verlust, eingehenderSchaden(wolf * 0.3, ruest), 1e-9) && nah(verlust, wolf * 0.3, 1e-9) && nah(anna.stamina, 96, 1e-9) && anna.blockSeit > 0, `life ${anna.health}, stamina ${anna.stamina}`);
     await warte(150);
     check('... and the message "@kampf.geblockt" reached the client', ws.meldungen.includes('@kampf.geblockt'), JSON.stringify(ws.meldungen));
+    check('... with ONE spark effect (art 2), no blood', ws.effekte.length === 1 && ws.effekte[0] === 2, JSON.stringify(ws.effekte));
+    ws.effekte.length = 0;
 
     // From behind: full.
     anna.health = 100; anna.stamina = 100;
     zugriff.applyCreatureAttack(von(0, 2), wolf, 2.4, anna.worldId, anna.position);
     check('WOLF FROM BEHIND: the full blow, stamina untouched', nah(100 - anna.health, eingehenderSchaden(wolf, ruest), 1e-9) && anna.stamina === 100, `life ${anna.health}, stamina ${anna.stamina}`);
+    await warte(100);
+    check('... with the blood effect (art 1)', ws.effekte.length === 1 && ws.effekte[0] === 1, JSON.stringify(ws.effekte));
+    ws.effekte.length = 0;
     // Off to the side (90 degrees): full.
     anna.health = 100;
     zugriff.applyCreatureAttack(von(2, 0), wolf, 2.4, anna.worldId, anna.position);
@@ -311,11 +323,13 @@ async function main(): Promise<void> {
     sendBlock(ws, true);
     const t0 = Date.now();
     while (anna.blockSeit === 0 && Date.now() - t0 < 1000) await warte(2);
+    ws.effekte.length = 0; const flinchVor = ws.treffer;
     zugriff.applyCreatureAttack(von(0, -2), wolf, 2.4, anna.worldId, anna.position);
     const seit = Date.now() - anna.blockSeit;
     check(`PARRY WINDOW (${seit} ms after the begin): life unchanged, the 4 stamina paid, the block goes on`, anna.health === 100 && anna.stamina === 96 && anna.blockSeit > 0 && seit < 200, `life ${anna.health}, stamina ${anna.stamina}`);
     await warte(150);
     check('... message "@kampf.pariert"', ws.meldungen.includes('@kampf.pariert'), JSON.stringify(ws.meldungen));
+    check('... a parry shows ONE spark (art 2), no blood and no flinch (no PlayerTreffer)', ws.effekte.length === 1 && ws.effekte[0] === 2 && ws.treffer === flinchVor, `${JSON.stringify(ws.effekte)}, flinches ${ws.treffer - flinchVor}`);
 
     // Click series over the wire.
     sendBlock(ws, false); sendBlock(ws, true); sendBlock(ws, false); sendBlock(ws, true);

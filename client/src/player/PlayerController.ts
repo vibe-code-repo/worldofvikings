@@ -24,13 +24,13 @@ import {
   KOERPER_RADIUS,
   STEIGUNGS_GRENZE_GRAD as STEIGUNGS_GRENZE_GRAD_GETEILT,
 } from '@wov/shared/src/bewegung/masse.js';
+import { BLOCK_TURN_SPEED, blockRichtung, blockSchrittTempo, dreheZu } from './BlockSteuerung';
 import type { Scene } from '@babylonjs/core/scene';
 import type { InputManager } from '../engine/InputManager';
 import type { ClientWorld } from '../world/World';
 import type { AssetManager } from '../engine/AssetManager';
 import { AvatarRig } from './AvatarRig';
 
-const WALK_SPEED = 4.5;
 const RUN_SPEED = 7.5;
 const MOUSE_SENSITIVITY = 0.0022;
 const BOOM_LENGTH = 4.5;
@@ -274,6 +274,12 @@ export class PlayerController {
    */
   private _figurYaw = 0;
   private _moveIntent = { x: 0, z: 0, running: false };
+  /**
+   * D3: Die Figur blockt (rechte Maustaste gehalten). Dann ist das Ziel der Figurdrehung die
+   * KAMERARICHTUNG (auch im Stand), das Tempo ist das Blocktempo und Rennen zaehlt nicht.
+   * While blocking the figure turns to the camera, walks at block speed and does not run.
+   */
+  private _blockt = false;
   /**
    * Mitgerechnete Ausdauer — dieselbe Regel wie im Server.
    *
@@ -926,6 +932,11 @@ export class PlayerController {
   }
 
   get yaw(): number { return this._yaw; }
+  /** Heading of the figure (rad), same convention as `yaw`. For HUD and measuring cells. */
+  get figurYaw(): number { return this._figurYaw; }
+  /** D3: blocking on or off (set by `main.ts` from `BlockSteuerung`). */
+  setzeBlock(an: boolean): void { this._blockt = an; }
+  get blockt(): boolean { return this._blockt; }
   get pitch(): number { return this._pitch; }
   /** World-space move intent (same values sent to the server). */
   get moveIntent(): { x: number; z: number; running: boolean } { return this._moveIntent; }
@@ -965,10 +976,12 @@ export class PlayerController {
     // Warten (frozen) zehrt nichts: Dort geht kein Bewegungswunsch hinaus,
     // der Server verbraucht also auch nichts.
     const rennWunsch = this.input.isDown('ShiftLeft');
+    const blockt = this._blockt && !this._bauModus;
     const ausdauer = ausdauerSchritt(
       { wert: this.ausdauer, zuletztVerbraucht: this.ausdauerZuletztVerbraucht },
       {
-        rennWunsch,
+        // Beim Blocken gibt es kein Rennen: Shift wirkt nicht und zehrt nicht (wie am Server).
+        rennWunsch: rennWunsch && !blockt,
         bewegt: (mx !== 0 || mz !== 0) && !this._bauModus && !this.frozen,
         dt,
         jetzt: Date.now(),
@@ -978,7 +991,8 @@ export class PlayerController {
     this.ausdauerZuletztVerbraucht = ausdauer.zuletztVerbraucht;
     const running = ausdauer.rennt;
     this._rennt = running;
-    const speed = running ? RUN_SPEED : WALK_SPEED;
+    // Die EINE Tempofunktion des gemeinsamen Schritts (shared/bewegung/masse): Gehen, Rennen, Blocken.
+    const speed = blockSchrittTempo(running, blockt);
 
     // Leertaste als FLANKE, nicht als Dauerzustand: Gedrückthalten soll nicht
     // bei jeder Landung erneut abheben lassen. Im Baumodus ist sie das
@@ -1126,7 +1140,11 @@ export class PlayerController {
     // (man läuft zum Fadenkreuz), beim seitlichen Ausweichen dreht sich
     // die Figur dorthin, wo sie tatsächlich hingeht, und läuft damit immer
     // vorwärts. Das entspricht `LookRotation` auf die Bewegungsrichtung im Original.
-    if (moving) {
+    if (blockt) {
+      // D3: Beim Blocken schaut die Figur dorthin, wohin die Kamera schaut, auch im Stand und auch beim
+      // Gehen seitwaerts oder rueckwaerts; zuegig (540 Grad/s), nicht mit der Laufrichtungs-Drehung.
+      this._figurYaw = dreheZu(this._figurYaw, this._yaw, BLOCK_TURN_SPEED, dt);
+    } else if (moving) {
       // Umkehrung der Basis oben: forward = (-sin yaw, -cos yaw).
       const zielYaw = Math.atan2(-wx, -wz);
       // Differenz auf [-π, π] bringen, damit über den kürzeren Weg gedreht
@@ -1145,6 +1163,7 @@ export class PlayerController {
     // Laufzyklus: tatsächlich zurückgelegte Horizontalstrecke pro Sekunde,
     // nicht die Wunschgeschwindigkeit — steht die Figur (kein Input), läuft
     // auch die Animation aus. `running` wählt zwischen Geh- und Rennzyklus.
+    this.avatar.setzeBlock(blockt, blockRichtung(mx, mz));
     this.avatar.update(dt, moving ? speed : 0, RUN_SPEED, running, this.inDerLuft);
   }
 }

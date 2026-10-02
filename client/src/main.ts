@@ -122,6 +122,7 @@ import { Equipment } from './player/Equipment';
 import { waffenStandHandler } from './player/WaffenAbgleich';
 import { KampfEffekte } from './engine/KampfEffekte';
 import { verdrahteKampf } from './net/KampfNetz';
+import { BlockSteuerung } from './player/BlockSteuerung';
 import { Hotbar } from './ui/Hotbar';
 import { InventoryPanel } from './ui/InventoryPanel';
 import { ContainerPanel } from './ui/ContainerPanel';
@@ -993,6 +994,9 @@ async function main() {
   let dungeon2Marke = 0;
   /** Schlag-Sperre (s) — verhindert Dauerfeuer beim Klicken. */
   let angriffCooldown = 0;
+  // D3: rechte Maustaste halten = Block (BlockSteuerung); das Paket geht nur bei einem Wechsel hinaus.
+  const block = new BlockSteuerung((an) => socket?.sendBlock(an));
+  window.addEventListener('blur', () => block.blur());
   /**
    * Schlagtakt in Sekunden — kürzester Abstand zwischen zwei Schlägen.
    *
@@ -1801,11 +1805,10 @@ async function main() {
         kampfEffekte.treffer(p, art);
         return true;
       },
-      /** Parade wie per Rechtsklick: Geste + Server-Fenster (Messzellen). */
-      pariere: () => {
+      /** Block wie per gehaltenem Rechtsklick an/aus (Messzellen): Zustand + Paket + Haltung. */
+      blocke: (an = true) => {
         if (!player || !socket?.connected) return false;
-        if (!player.avatar.starteAktion('parade')) return false;
-        socket.sendParry();
+        block.erzwinge(an);
         return true;
       },
       schlag: (waffe = '') => {
@@ -2481,7 +2484,7 @@ async function main() {
       }
     });
 
-    verdrahteKampf(socket, input, () => player?.avatar ?? null, { kampfEffekte, kampfToene });
+    verdrahteKampf(socket, input, () => player?.avatar ?? null, { kampfEffekte, kampfToene }, undefined, block);
 
     socket.on(PacketType.InteractResult, (reader) => {
       reader.readBool();
@@ -3432,6 +3435,7 @@ async function main() {
       !cursorNoetig()
     ) {
       angriffCooldown = ANGRIFF_TAKT;
+      block.schlag();
       // Die Geste ist für Waffe UND Faust dieselbe: Was der Schlag
       // anrichtet, entscheidet der Server anhand der geprüften Waffe
       // (handleAttack → WAFFEN_SCHADEN, Faust = 4). Zwei Animationen
@@ -3458,20 +3462,21 @@ async function main() {
         equipment?.rightItem?.shared.name ?? ''
       );
     }
-    // Rechtsklick = Parade (10.09.2026): rein sichtbar, nach dem Vorbild
-    // des Upperbody-Layers im Original (SwordParryLeft/Right/Down). Der
-    // Server kennt noch keinen Block-Zustand — die Geste ist das Erste,
-    // die Wirkung kommt spaeter. Nur mit Waffe in der Hand, damit die
-    // leere Faust nicht mit einem unsichtbaren Schwert pariert.
-    if (
-      input.wasMousePressed(2) &&
-      document.pointerLockElement &&
-      !placement?.selectedPiece &&
-      !cursorNoetig() &&
-      equipment?.rightItem
-    ) {
-      if (player.avatar.starteAktion('parade')) socket?.sendParry();
-    }
+    // Rechte Maustaste HALTEN = Block (D3): Regeln und Konfliktfaelle in BlockSteuerung, hier nur der Zustand des Augenblicks.
+    block.aktualisiere({
+      rechtsGedrueckt: input.isMouseDown(2),
+      rechtsFlanke: input.wasMousePressed(2),
+      zeigerGefangen: !!document.pointerLockElement,
+      fensterOffen: cursorNoetig(),
+      dekorPlatzieren: dekoPlatzierung.aktiv,
+      baumodus: player.bauModus,
+      bauteilGewaehlt: !!placement?.selectedPiece,
+      bauwerkzeug: !!equipment?.pieceTable,
+      gegenstandInHand: !!equipment?.rightItem,
+      tot: player.avatar.liegt,
+      imWasser: player.position.y < WATER_LEVEL,
+    });
+    player.setzeBlock(block.blockt);
 
     // E ist kontextsensitiv: Interagierbares in Reichweite (Pickable, Tür,
     // Truhe) gewinnt; sonst Dungeon betreten/verlassen.

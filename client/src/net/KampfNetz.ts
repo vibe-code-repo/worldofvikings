@@ -4,6 +4,7 @@
  *  - `HitEffect` (any blow within earshot): blood / sparks / parry flash and the hit sound;
  *  - `PlayerTod`, `PlayerTreffer`, `Teleport` for the own figure's death and flinch (TodTreffer);
  *  - `AttackAck` (D2): the server's count of the combo per swing; the figure follows it (Quittung.ts).
+ *  - `Block` (D3): the server ended or refused the block (`false`): the client's block ends.
  */
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { PacketType } from '@wov/shared';
@@ -23,7 +24,9 @@ export function verdrahteKampf(
   eingabe: TodTrefferEingabe,
   avatar: () => AvatarRig | null,
   ziele: KampfNetzZiele,
-  jetzt: () => number = () => performance.now()
+  jetzt: () => number = () => performance.now(),
+  /** D3: `Block=false` des Servers (er hat den Block beendet oder abgelehnt) beendet den Block des Clients. */
+  block?: { serverBeendet(): void }
 ): TodTreffer & { schlagBuch: SchlagBuch } {
   // Treffereffekt vom Server (Kreatur getroffen: Blut; Holz/Stein: Funken; Parade: Funke) — auch fuer Treffer, die Mitspieler landen.
   socket.on(PacketType.HitEffect, (reader) => {
@@ -43,6 +46,10 @@ export function verdrahteKampf(
   socket.on(PacketType.AttackAck, (reader) => {
     const antwort = buch.quittiere(liesQuittung(reader), jetzt());
     if (antwort?.kettenNeu) avatar()?.kettenEnde();
+  });
+  // D3: the server's answer to a block it ended (stamina out, break, own swing) or refused (nothing in the hand, dead).
+  socket.on(PacketType.Block, (reader) => {
+    if (!reader.readBool()) block?.serverBeendet();
   });
   const tod = new TodTreffer(eingabe, avatar);
   tod.verdrahte(socket);

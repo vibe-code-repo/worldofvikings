@@ -447,9 +447,15 @@ export class GameSocket {
     this.sendPacket(PacketType.Equip, w.toUint8Array());
   }
 
-  /** Parade (Rechtsklick mit Waffe): kein Payload, der Server oeffnet das Fenster. */
-  sendParry(): void {
-    this.sendPacket(PacketType.Parry, new Uint8Array(0));
+  /**
+   * D3: Block gehalten (`an`) oder losgelassen. Ein eigenes Paket statt eines Feldes im Eingabepaket: Es
+   * kommt sofort an, das Paradefenster des Servers ist nur 200 ms lang. Der Server antwortet mit
+   * Block=false, wenn ER den Block beendet oder ablehnt.
+   */
+  sendBlock(an: boolean): void {
+    const w = new BinaryWriter();
+    w.writeBool(an);
+    this.sendPacket(PacketType.Block, w.toUint8Array());
   }
 
   /** Interaktion (E): Position + Prefab-Hash des Ziels. */

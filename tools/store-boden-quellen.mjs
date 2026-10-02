@@ -22,6 +22,19 @@
   Rechner, auf dem er liegt, und nicht dieser Datei — ein Pfad im Repo
   wäre auf jeder anderen Maschine falsch.
 
+  ── Die zweite Quelle: der Export ───────────────────────────────────
+  Zwei Texturen (`terrain-rock-grey`, `terrain-rock-moss-normal`) hat
+  der Quellbestand nicht; sie kommen unmittelbar aus dem Textur-Export.
+  Dessen Ort steht in `WOV_EXPORT_TEXTUREN` (Vorgabe
+  `~/wov-assets/Assets/Texture2D`). Dieselbe Weiche wie oben, getrennt
+  je Quelle: Fehlt der Export GANZ, werden seine Einträge übersprungen
+  (Code 0); fehlt darin eine genannte Datei, ist das ein Befund.
+
+  Nicht übernommen wird `Ani Dark Pebbles_Sand under water.png`: Sie ist
+  BYTEGLEICH mit `terrain-gravel.png` im Speicher (sha256
+  30522dc5d667470c…, 346 391 B). Eine zweite Datei desselben Inhalts
+  wäre nur Speicher; die Schicht nimmt `terrain-gravel`.
+
   Mit `--neu` wird `erzeugen.sh` vorher aufgerufen, der Bestand also
   wirklich neu ausgewertet; ohne den Schalter werden die bereits
   erzeugten Dateien übernommen. Beides ist reproduzierbar: `erzeugen.sh`
@@ -61,6 +74,7 @@ const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ZIEL = join(WURZEL, 'assets/store-lab/textures');
 const QUELLE = process.env.WOV_BODEN_QUELLE ?? join(process.env.HOME ?? '', 'wov-assets/quellen/boden');
 const NEU = process.argv.includes('--neu');
+const EXPORT = process.env.WOV_EXPORT_TEXTUREN ?? join(process.env.HOME ?? '', 'wov-assets/Assets/Texture2D');
 
 /**
  * Was geholt wird, und unter welchem Namen es im Labor heisst.
@@ -85,19 +99,38 @@ const DATEIEN = [
     ziel: 'terrain-moss-dark.png',
     zweck: 'Diffuse-Karte der Moosschicht (Tiles 1 Forest, 10 SwampMud, 11 Moss)',
   },
+  {
+    aus: 'export',
+    quelle: 'Rock_Texture_01.png',
+    ziel: 'terrain-rock-grey.png',
+    zweck: 'Diffuse map of the grey rock layer (greyglen biome rock)',
+  },
+  {
+    aus: 'export',
+    quelle: 'Rock_Moss_Normals.png',
+    ziel: 'terrain-rock-moss-normal.png',
+    zweck: 'Normal map of the mossy rock layer (own normal for terrain-rock-moss)',
+  },
 ];
+const nachQuelle = (d) => (d.aus === 'export' ? EXPORT : QUELLE);
 
-if (!existsSync(QUELLE)) {
+const bestandDa = existsSync(QUELLE);
+const exportDa = existsSync(EXPORT);
+if (!bestandDa) {
   console.log(
     `[boden-quellen] Quellbestand fehlt (${QUELLE}) — übersprungen.\n` +
       '                Der Boden benutzt dann die Textur aus dem Asset-Speicher;\n' +
       '                store-schichten.json schreibt mit, welche das war.'
   );
-  process.exit(0);
 }
+if (!exportDa) {
+  console.log(`[boden-quellen] Textur-Export fehlt (${EXPORT}) — seine Einträge übersprungen.`);
+}
+if (!bestandDa && !exportDa) process.exit(0);
 
-const fehlt = DATEIEN.filter((d) => !existsSync(join(QUELLE, d.quelle)));
-if (NEU) {
+// Je Quelle nur dann geholt, wenn sie da ist; was darin fehlt, ist ein Befund.
+const aktiv = DATEIEN.filter((d) => (d.aus === 'export' ? exportDa : bestandDa));
+if (NEU && bestandDa) {
   const skript = join(QUELLE, 'erzeugen.sh');
   if (!existsSync(skript)) {
     console.error(`[boden-quellen] --neu, aber ${skript} fehlt`);
@@ -108,12 +141,15 @@ if (NEU) {
     console.error(`[boden-quellen] ${skript} endete mit Code ${String(lauf.status)}`);
     process.exit(2);
   }
-} else if (fehlt.length > 0) {
+}
+// Auch nach `--neu` geprüft: Die Auswertung kennt die Export-Einträge nicht.
+const fehlt = aktiv.filter((d) => !existsSync(join(nachQuelle(d), d.quelle)));
+if (fehlt.length > 0) {
   // Der Bestand ist DA, aber unvollständig — das ist ein Befund und kein
   // Umstand. Dieselbe Regel wie bei `brauchtStore()`.
   console.error(
     '[boden-quellen] Der Quellbestand ist unvollständig:\n  ' +
-      fehlt.map((d) => join(QUELLE, d.quelle)).join('\n  ') +
+      fehlt.map((d) => join(nachQuelle(d), d.quelle)).join('\n  ') +
       '\n  (mit --neu neu auswerten lassen)'
   );
   process.exit(2);
@@ -121,12 +157,15 @@ if (NEU) {
 
 mkdirSync(ZIEL, { recursive: true });
 const geschrieben = [];
-for (const d of DATEIEN) {
-  const von = join(QUELLE, d.quelle);
+for (const d of aktiv) {
+  const von = join(nachQuelle(d), d.quelle);
   const nach = join(ZIEL, d.ziel);
   // Alpha faellt weg: Eine Bodenkachel ist deckend, und ein Alphakanal
   // kostet ein Drittel mehr Speicher fuer eine Spalte aus 255ern.
-  const bild = await sharp(von).removeAlpha().png({ compressionLevel: 9, effort: 10 }).toBuffer();
+  // Verlustfrei: In sharp >= 0.33 schaltet `effort` auf PNG die Palette ein
+  // (256 Farben, gemessen: 5,7 % der Texel eines 2048²-Bilds um bis zu 8
+  // Stufen verändert). Die Pixel müssen die des Quellbilds bleiben.
+  const bild = await sharp(von).removeAlpha().png({ compressionLevel: 9, palette: false }).toBuffer();
   const alt = existsSync(nach) ? readFileSync(nach) : null;
   if (!alt || !alt.equals(bild)) writeFileSync(nach, bild);
   const info = await sharp(bild).metadata();

@@ -433,6 +433,8 @@ export default [
   // ~2 s.
   // The same G1 metrics measured against the new grid path.
   ['tools', 'test/raster-generator-g4.ts'],
+  // Export-Zweig von store-boden-quellen.mjs: verlustfrei, mit Temp-Quellen (ohne Assets).
+  ['tools', 'test/store-boden-export.ts'],
   ['tools', 'test/store-einsortierung.ts', brauchtModelle('assets/store')],
   ['tools', 'test/store-erzeugung.ts', brauchtStore()],
   /*
@@ -484,6 +486,11 @@ export default [
   // Die zwei Fallen in der Prefab-QUELLE: `verhalten` behaelt PERSISTENT, und
   // zwei Eintraege auf dieselbe GLB brechen den Lauf ab statt einen still zu
   // verlieren. Wegwerf-Baum mit veraenderter prefabs.json. ~3 s.
+  // Store-Labor (Blumen, Farn): Messliste `tools/store-lab-katalog.json` gegen Registry,
+  // Katalog und Uebersetzungen, dazu Umbau-Probe mit selbstgebauter GLB (ohne Assets).
+  ['tools', 'test/store-lab-katalog.ts'],
+  // Die Binaerdateien dazu (Hash, GLB-Kopf, Textur): nur mit assets/store-lab.
+  ['tools', 'test/store-lab-pflanzen-dateien.ts', brauchtModelle('assets/store-lab/vegetation/fern-1a1.glb')],
   ['tools', 'test/store-quelle.ts', brauchtStore()],
   ['tools/test', 'store-vegetation.ts', brauchtModelle('assets/store')],
   // ── Stufe 2: die Bodenschichten des Vorbilds ──────────────────────

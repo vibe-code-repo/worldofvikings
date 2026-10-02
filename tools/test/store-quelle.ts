@@ -77,6 +77,8 @@ try {
   const baum = join(tmp, 'baum');
   mkdirSync(join(baum, 'tools'), { recursive: true });
   copyFileSync(join(WURZEL, 'tools/store-prefabs.mjs'), join(baum, 'tools/store-prefabs.mjs'));
+  // Die Messliste der Labor-Modelle liest der Generator relativ zu sich selbst.
+  copyFileSync(join(WURZEL, 'tools/store-lab-katalog.json'), join(baum, 'tools/store-lab-katalog.json'));
   symlinkSync(join(WURZEL, 'client'), join(baum, 'client'));
   symlinkSync(join(WURZEL, 'shared'), join(baum, 'shared'));
   symlinkSync(join(WURZEL, 'node_modules'), join(baum, 'node_modules'));

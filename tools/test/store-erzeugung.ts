@@ -169,7 +169,13 @@ check(
 );
 
 // ── 4. Auch der Katalog beschreibt nur Vorhandenes ────────────────────
-const toteKatalogPfade = STORE_KATALOG.filter((e) => !existsSync(join(STORE, e.pfad)));
+// Labor-Modelle liegen unter `assets/store-lab/` (Messliste eingecheckt), nicht im Speicher.
+const labPfade = new Set(
+  (JSON.parse(readFileSync(join(WURZEL, 'tools/store-lab-katalog.json'), 'utf8')) as { eintraege: { pfad: string }[] }).eintraege.map((l) => l.pfad)
+);
+const toteKatalogPfade = STORE_KATALOG.filter((e) =>
+  labPfade.has(e.pfad) ? !existsSync(join(STORE_LAB, e.pfad)) : !existsSync(join(STORE, e.pfad))
+);
 check(
   `alle ${STORE_KATALOG.length} Katalogpfade zeigen auf eine vorhandene Datei`,
   toteKatalogPfade.length === 0,

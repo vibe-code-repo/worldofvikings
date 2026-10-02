@@ -222,9 +222,7 @@ export class BeuteAmBoden {
         s.raum.destroyZDO(s.zdo.zdoid);
         this.stuecke.delete(id);
       } else if (s.zdo.getInt(BEUTE_EXKLUSIV) === 1 && jetzt >= Number(s.zdo.getLong(BEUTE_FREI_AB))) {
-        s.zdo.setInt(BEUTE_EXKLUSIV, 0); // the window is over: the clients aim at it again
-        s.zdo.revision.reviseData();
-        s.zdo.dirty = true;
+        s.zdo.setInt(BEUTE_EXKLUSIV, 0); // the window is over: the clients aim at it again (`setMember` revises the data and marks it dirty)
       }
     }
     for (const [id, a] of this.anteile) {

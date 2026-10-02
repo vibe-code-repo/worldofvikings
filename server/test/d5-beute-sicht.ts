@@ -181,6 +181,14 @@ async function main(): Promise<void> {
     check('wire: the owner member `beute_besitzer` (string) never reached Bob', !bobBytes.includes(kopf(BEUTE_BESITZER, 5)));
     check('wire: the exclusive and tag members did reach Bob', bobBytes.includes(kopf(BEUTE_EXKLUSIV, 3)) && bobBytes.includes(kopf(BEUTE_BESITZER_TAG, 3)));
 
+    // A delta that carries NO member (the piece was pushed): the client must keep the state from the full set it had.
+    stueck.position = { x: 0.5, y: 0, z: 2.5 };
+    stueck.revision.reviseData();
+    stueck.dirty = true;
+    const bewegt = await bis(() => bob.zuletzt.get(schluessel)?.position.x === 0.5 && alice.zuletzt.get(schluessel)?.position.x === 0.5, 3000);
+    check('a position-only delta reached both clients (premise)', bewegt);
+    check('after the position-only delta the loot is still foreign for Bob and mine for Alice (state kept from the full set)', bob.zuletzt.get(schluessel)?.beuteFremd === true && alice.zuletzt.get(schluessel)?.beuteFremd === false && alice.zuletzt.get(schluessel)?.beuteTag === beuteBesitzerTag(alice.eigene) && bob.zuletzt.get(schluessel)?.beuteExklusiv === 1);
+
     console.log('\n[2] The window ends');
     bob.zerstoert.clear();
     boden.vorspulen(BEUTE_EXKLUSIV_MS + 1000);

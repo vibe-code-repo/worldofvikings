@@ -40,6 +40,7 @@ pruefe(a?.prefab === 'RawMeat' && a.prefabHash === getStableHash('RawMeat') && a
 pruefe(nah(10, 14) === null, 'out of reach (4 m, radius 3): no target');
 pruefe(nah(10, 12.9) !== null && nah(10, 13.1) === null, 'the radius edge is 3 m');
 pruefe(nah(10, 13) === null, 'exactly 3 m is out (strict, like the static search)');
+pruefe(nah(10, 12.99) !== null, 'just inside 3 m (2.99) is in');
 
 setze('1:2', BEUTE_PREFAB, 11, 2, 10);
 const b = nah(11.2, 10);
@@ -48,6 +49,7 @@ pruefe(nah(10.1, 10)?.prefab === 'RawMeat', 'the nearer of two pieces wins');
 
 setze('1:3', 'Pickable_Flint', 10.2, 0, 10); // static, nearer than the loot
 pruefe(nah(10.2, 10.1)?.prefab === 'Pickable_Flint', 'a nearer static pickable still wins over loot');
+pruefe(nah(9.9, 10)?.prefab === 'RawMeat', 'a nearer loot piece wins over a static pickable');
 setze('1:4', 'Pickable_Flint', 20, 0, 20);
 pruefe(nah(10.5, 10.5, 3)?.prefab !== undefined, 'static and loot share one search');
 

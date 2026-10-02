@@ -18,18 +18,25 @@ const pruefe = (bedingung: boolean, text: string, detail = ''): void => {
   console.log(`  ${bedingung ? 'PASS' : 'FAIL'}  ${text}${detail ? ' — ' + detail : ''}`);
   if (!bedingung) fehler++;
 };
-const lage = (o: Partial<Parameters<typeof eOhneZiel>[0]> = {}) => ({ imDungeon: false, pos: { x: 100, z: 100 }, dungeonSpawn: { x: 0, z: 0 }, eingaenge: [], ...o });
+// Asymmetric on purpose: x and z differ everywhere, so a swapped axis cannot hide behind equal numbers.
+const lage = (o: Partial<Parameters<typeof eOhneZiel>[0]> = {}) => ({ imDungeon: false, pos: { x: 100, z: 120 }, dungeonSpawn: { x: 10, z: 20 }, eingaenge: [], ...o });
 
 pruefe(eOhneZiel(lage()) === 'nichts', 'overworld, no entrance known: nothing (no dungeon enter)');
 pruefe(eOhneZiel(lage({ eingaenge: [{ x: 500, z: 500 }] })) === 'nichts', 'overworld, entrance far away: nothing');
-pruefe(eOhneZiel(lage({ eingaenge: [{ x: 100 + DUNGEON_BETRETEN_M, z: 100 }] })) === 'dungeon-enter', 'entrance exactly 16 m away: enter');
-pruefe(eOhneZiel(lage({ eingaenge: [{ x: 100 + DUNGEON_BETRETEN_M + 0.5, z: 100 }] })) === 'nichts', 'entrance 16.5 m away: nothing');
-pruefe(eOhneZiel(lage({ eingaenge: [{ x: 500, z: 500 }, { x: 105, z: 100 }] })) === 'dungeon-enter', 'any one near entrance is enough');
-pruefe(eOhneZiel(lage({ eingaenge: [{ x: 100, z: 108 }] })) === 'dungeon-enter', 'the distance counts in x AND z');
-pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: 3, z: 4 } })) === 'dungeon-leave', 'in a dungeon at 5 m from the entry: leave');
-pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: DUNGEON_VERLASSEN_M, z: 0 } })) === 'dungeon-leave', 'in a dungeon at exactly 6 m: leave');
-pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: DUNGEON_VERLASSEN_M + 0.5, z: 0 } })) === 'hinweis-eingang', 'in a dungeon at 6.5 m: the hint');
-pruefe(eOhneZiel(lage({ imDungeon: true, eingaenge: [{ x: 100, z: 100 }] })) === 'hinweis-eingang', 'in a dungeon the overworld entrances do not count');
+pruefe(eOhneZiel(lage({ eingaenge: [{ x: 100 + DUNGEON_BETRETEN_M, z: 120 }] })) === 'dungeon-enter', 'entrance exactly 16 m away in x: enter');
+pruefe(eOhneZiel(lage({ eingaenge: [{ x: 100 + DUNGEON_BETRETEN_M + 0.5, z: 120 }] })) === 'nichts', 'entrance 16.5 m away in x: nothing');
+pruefe(eOhneZiel(lage({ eingaenge: [{ x: 100, z: 120 + DUNGEON_BETRETEN_M }] })) === 'dungeon-enter', 'entrance exactly 16 m away in z: enter');
+pruefe(eOhneZiel(lage({ eingaenge: [{ x: 100, z: 120 + DUNGEON_BETRETEN_M + 0.5 }] })) === 'nichts', 'entrance 16.5 m away in z: nothing');
+pruefe(eOhneZiel(lage({ eingaenge: [{ x: 500, z: 500 }, { x: 105, z: 120 }] })) === 'dungeon-enter', 'any one near entrance is enough');
+pruefe(eOhneZiel(lage({ eingaenge: [{ x: 110, z: 130 }] })) === 'dungeon-enter', 'the distance counts in x AND z (14.1 m)');
+pruefe(eOhneZiel(lage({ eingaenge: [{ x: 112, z: 132 }] })) === 'nichts', 'the distance counts in x AND z (17 m)');
+const drin = (dx: number, dz: number) => eOhneZiel(lage({ imDungeon: true, pos: { x: 10 + dx, z: 20 + dz } }));
+pruefe(drin(3, 4) === 'dungeon-leave', 'in a dungeon at 5 m from the entry: leave');
+pruefe(drin(DUNGEON_VERLASSEN_M, 0) === 'dungeon-leave', 'in a dungeon at exactly 6 m in x: leave');
+pruefe(drin(DUNGEON_VERLASSEN_M + 0.5, 0) === 'hinweis-eingang', 'in a dungeon at 6.5 m in x: the hint');
+pruefe(drin(0, DUNGEON_VERLASSEN_M) === 'dungeon-leave', 'in a dungeon at exactly 6 m in z: leave');
+pruefe(drin(0, DUNGEON_VERLASSEN_M + 0.5) === 'hinweis-eingang', 'in a dungeon at 6.5 m in z: the hint');
+pruefe(eOhneZiel(lage({ imDungeon: true, eingaenge: [{ x: 100, z: 120 }] })) === 'hinweis-eingang', 'in a dungeon the overworld entrances do not count');
 
 const quelle = readFileSync(resolve(import.meta.dirname, '../src/main.ts'), 'utf8');
 const zeilen = quelle.split('\n').length - 1;

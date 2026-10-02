@@ -9,6 +9,8 @@
  *
  * Run: npx tsx server/test/d5-beute-prefab.ts   (from the repo root)
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   BEUTE_PREFAB, BEUTE_RUECKFALL_MODELL, BEUTE_RUECKFALL_SKALA, EIGENE_MODELLE_SET, ITEM_DEFS, PrefabFlag,
   beuteDarstellung, beutePrefabFuer, findPrefabByHash, findPrefabByName, getStableHash,
@@ -61,6 +63,34 @@ pruefe(beuteDarstellung({ model: 'Wood' }).modell === BEUTE_RUECKFALL_MODELL, 'a
 pruefe(beuteDarstellung({ model: 'Messer' }).modell === 'Messer' && beuteDarstellung({ model: 'Messer' }).skala === 1, 'a listed own model is kept at scale 1');
 pruefe(beutePrefabFuer('') === BEUTE_PREFAB && beutePrefabFuer('NichtDa') === BEUTE_PREFAB, 'empty and unknown names go neutral');
 pruefe(beutePrefabFuer('Pickable_Flint') === BEUTE_PREFAB, 'a prefab that is not an ITEM_DROP (a pickable bush) is not used for loot');
+
+// Z3 (N2): the model that is drawn really exists. The list of own models (`EIGENE_MODELLE_SET`) is the very list `beuteDarstellung`
+// reads, so a test against it alone proves nothing about the file. `assets/manifest.json` is tracked and measured from the files
+// (tools/asset-manifest.mjs, held against the disk by tools/test/manifest-vollstaendig.ts where the assets lie), so it is an
+// independent witness that the CI has. The test against the files themselves stays in client/test/d5-beute-modelle.ts (assets).
+interface ManifestModell { datei: string; huelle: { min: number[]; max: number[] }; breite: number; hoehe: number; tiefe: number }
+const manifest = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../assets/manifest.json'), 'utf8')) as { modelle: Record<string, ManifestModell | undefined> };
+const imManifest = (modell: string): boolean => manifest.modelle[modell]?.datei === `${modell}.glb`;
+const ohneDatei: string[] = [];
+for (const n of namen) {
+  const d = beuteDarstellung(findPrefabByName(beutePrefabFuer(n))!);
+  if (!imManifest(d.modell)) ohneDatei.push(`${n} -> ${d.modell}`);
+}
+pruefe(ohneDatei.length === 0, `every model that loot of the ${namen.size} item names is drawn with has a measured file in the tracked manifest`, ohneDatei.slice(0, 5).join(' | '));
+pruefe(imManifest(BEUTE_RUECKFALL_MODELL), 'the fallback model is in the manifest');
+pruefe(!imManifest('GibtEsNicht') && !imManifest(''), 'control: a made-up model name is not in the manifest (the test can fail)');
+// every prefab the server can lay loot under (own ITEM_DROP prefabs and the neutral one) resolves the same way
+const dropNamen = new Set<string>([BEUTE_PREFAB, ...[...namen].map(beutePrefabFuer)]);
+pruefe([...dropNamen].every((p) => { const def = findPrefabByName(p); return !!def && imManifest(beuteDarstellung(def).modell); }), `all ${dropNamen.size} loot prefabs resolve to a model with a file`, [...dropNamen].join(','));
+
+// Z5 (N2): the scale 0.4 against the measured box of the chest (manifest value; the real file is measured in d5-beute-modelle.ts).
+const truhe = manifest.modelle[BEUTE_RUECKFALL_MODELL]!;
+pruefe(truhe.huelle.min[1] === 0, 'the chest has its origin on the floor (min y = 0)', String(truhe.huelle.min[1]));
+pruefe(truhe.breite === 0.96 && truhe.hoehe === 0.605 && truhe.tiefe === 0.646, 'the chest box is 0.96 x 0.605 x 0.646 m (pinned: a new model file changes the scale question)', `${truhe.breite} x ${truhe.hoehe} x ${truhe.tiefe}`);
+const skala = beuteDarstellung({ model: null }).skala;
+pruefe(truhe.huelle.min[1] * skala >= -0.02, 'at the loot scale nothing sinks into the ground (min y x scale >= -0.02 m)', String(truhe.huelle.min[1] * skala));
+const kante = Math.max(truhe.breite, truhe.hoehe, truhe.tiefe) * skala;
+pruefe(kante >= 0.25 && kante <= 0.6, 'and the longest edge is between 0.25 and 0.6 m (seen, but no chest in the grass)', `${kante.toFixed(3)} m`);
 
 // [3] + [4] with the real BeuteAmBoden on a real ZDOManager
 const raum = new ZDOManager(1n);

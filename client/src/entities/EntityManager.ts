@@ -357,7 +357,7 @@ export class EntityManager {
     const beute = (def.flags & PrefabFlag.ITEM_DROP) !== 0n ? beuteDarstellung(def) : null;
     if (beute) {
       const p = u.position;
-      this.beuteZiele.merke(u.key, { prefab: def.name, prefabHash: u.prefabHash, x: p.x, y: p.y, z: p.z });
+      this.beuteZiele.merke(u.key, { prefab: def.name, prefabHash: u.prefabHash, x: p.x, y: p.y, z: p.z, fremd: u.beuteFremd === true });
     } else {
       this.beuteZiele.vergiss(u.key); // the key now carries something else: the old piece of loot is gone
     }
@@ -553,6 +553,15 @@ export class EntityManager {
     const welt = drin ? `d:${dungeonId}` : '';
     if (welt === this.beuteWelt) return;
     this.beuteWelt = welt;
+    this.beuteZiele.leere();
+  }
+
+  /**
+   * A (re)connection was accepted (`PeerInfo`). The new peer on the server starts in the overworld with nothing known and no
+   * Teleport packet follows, so loot targets and the remembered world of an earlier session (maybe in a dungeon) are gone.
+   */
+  neueVerbindung(): void {
+    this.beuteWelt = '';
     this.beuteZiele.leere();
   }
 

@@ -134,7 +134,7 @@ import { Namensschilder } from './ui/Namensschild';
 import { WorldMap } from './ui/WorldMap';
 import { setzeKartenMasse } from './ui/worldmap/mapTypes';
 import { baumenueHinweis } from './player/BaumenueHinweis';
-import { eOhneZiel } from './player/eOhneZiel';
+import { ESitzung } from './player/eSitzung';
 import { ladeTestflugEntwurf, starteTestflug } from './editor/testflug/Testflug';
 import { localStoragePersistenz } from './editor/testflug/LocalStoragePersistenz';
 import { checkJumpFromDraft } from './editor/testflug/inselwahl';
@@ -738,6 +738,7 @@ async function main() {
     // would recreate the legacy layer this flow removes.
     window.setTimeout(() => window.location.replace(websiteLoginUrl(Boolean(reason))), 1_200);
   };
+  const eSitzung = new ESitzung(() => entities?.neueVerbindung()); // E key state and loot targets per connection (PeerInfo)
   /** Auto-Reconnect (Review-Punkt 9, F10): Zähler, Backoff, Ansage — Reset bei erfolgreicher Verbindung. */
   const wiederverbinden = new WiederverbindenSteuerung({
     aufgegeben: () => zurueckZurAnmeldung(),
@@ -2527,9 +2528,8 @@ async function main() {
     // Serverantworten auf Admin-Kommandos (dungeon enter/leave, teleport …)
     // als Bildschirmmeldung — vorher liefen sie ins Leere.
     socket.on(PacketType.AdminEvent, (reader) => {
-      reader.readString(); // command
-      reader.readBool(); // active
-      const message = reader.readString();
+      reader.readString(); reader.readBool(); // command, active
+      const message = eSitzung.adminAntwort(reader.readString());
       if (message) hud.meldung(message);
     });
 
@@ -2855,7 +2855,7 @@ async function main() {
       if (wiederverbinden.beiGetrennt(reason)) return;
       zurueckZurAnmeldung(reason);
     };
-    socket.on(PacketType.PeerInfo, () => wiederverbinden.beiAngenommen());
+    socket.on(PacketType.PeerInfo, () => { wiederverbinden.beiAngenommen(); eSitzung.neueVerbindung(); });
     socket.on(PacketType.ServerNeustart, (r) => {
       r.readString(); // Schluessel: der Client kennt den Text, dem Server wird kein Schluessel geglaubt
       wiederverbinden.ansage(r.readInt32());
@@ -3492,7 +3492,7 @@ async function main() {
       } else if (ziel) {
         socket.sendInteract(ziel.x, ziel.y, ziel.z, ziel.prefabHash);
       } else {
-        const aktion = eOhneZiel({ imDungeon, pos: player.position, dungeonSpawn, eingaenge: dungeonEingaenge });
+        const aktion = eSitzung.aktion({ imDungeon, pos: player.position, dungeonSpawn, eingaenge: dungeonEingaenge });
         if (aktion === 'dungeon-leave') socket.sendAdminCommand('dungeon leave');
         else if (aktion === 'hinweis-eingang') hud.meldung('Zum Verlassen zurück zum Eingang (E)');
         else if (aktion === 'dungeon-enter') socket.sendAdminCommand('dungeon enter');

@@ -13,6 +13,8 @@ export interface BeuteZiel {
   x: number;
   y: number;
   z: number;
+  /** Exclusive to another player right now (the server would refuse the pick-up): not a target. */
+  fremd?: boolean;
 }
 
 export class BeuteZiele {
@@ -37,11 +39,12 @@ export class BeuteZiele {
     return this.stuecke.size;
   }
 
-  /** The nearest piece strictly closer than `sqrt(maxD2)` (horizontal distance), with its squared distance; `null` if none. */
+  /** The nearest piece strictly closer than `sqrt(maxD2)` (horizontal distance), with its squared distance; `null` if none. Foreign exclusive loot is skipped. */
   naechste(x: number, z: number, maxD2: number): { ziel: BeuteZiel; d2: number } | null {
     let best: { ziel: BeuteZiel; d2: number } | null = null;
     let bestD = maxD2;
     for (const s of this.stuecke.values()) {
+      if (s.fremd) continue;
       const d = (s.x - x) ** 2 + (s.z - z) ** 2;
       if (d < bestD) {
         bestD = d;

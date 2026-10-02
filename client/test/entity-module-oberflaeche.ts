@@ -148,7 +148,7 @@ const PUBLIC_MEMBERS: readonly string[] = [
   'dynamicList', 'dynamicMasse', 'dynamicPose', 'dynamicSprung', 'dynamischeInstanzen', 'enablePhysics', 'flush',
   'holeSteinMaterial', 'impostorGrenze', 'impostoren', 'indexStats', 'indexVon', 'instanzPosition', 'kollisionsLocals',
   'kollisionsMasters', 'lichtquellen', 'masterLocals', 'masterMeshes', 'naechstesInteragierbares', 'nearbyInstances',
-  'npcEinordnung', 'onMasterBelebt', 'onMasterEntsorgt', 'physicsEnabled', 'removeZDO', 'scene', 'setHundertFpsProfil',
+  'neueVerbindung', 'npcEinordnung', 'onMasterBelebt', 'onMasterEntsorgt', 'physicsEnabled', 'removeZDO', 'scene', 'setHundertFpsProfil',
   'setPlayerPosition', 'setVegetationsGrenze', 'setVegetationsSchattenEmpfaenger', 'setzeDokumentSteinKit',
   'setzeInstanzVerborgen', 'setzeNpcQuelle', 'staticCount', 'steinMasters', 'steinMaterials', 'teleportiert', 'toenungAn', 'toenungSetzen',
   'updateDynamics', 'vegetationsGrenzeInfo', 'weiseSteinMaterialZu', 'zellStats', 'zellen',

@@ -18,6 +18,10 @@
  *                            it is a player's identifier, and no client reads it.
  *   beute_frei_ab  long      epoch ms from which anybody may pick it up
  *   beute_ablauf   long      epoch ms at which the server destroys it
+ *   beute_exklusiv int        1 while the exclusive window runs and the loot has an owner, 0 after (`tick` flips it, so a
+ *                            client needs no clock). SENT: the client skips foreign exclusive loot when aiming.
+ *   beute_besitzer_tag int    `getStableHash` of the owner key (only with an owner). SENT: the client compares it with the
+ *                            hash of its own `userId`; the owner key itself stays hidden.
  * The world save (`momentaufnahme`) leaves marked ZDOs out, and `WeltZdoSicherung` only takes containers
  * and building pieces, so loot is never written: after a restart it is gone (a loss, which is allowed),
  * never doubled (a picked-up item is in the inventory, which F8 saves at once).
@@ -28,7 +32,10 @@
  */
 import type { ZDO } from '../zdo/ZDO.js';
 import type { ZDOManager } from '../zdo/ZDOManager.js';
-import { BEUTE_EXKLUSIV_MS, BEUTE_LEBEN_MS, Inventory, SERVER_MELDUNG_BEUTE_FREMD, beutePrefabFuer, findItem } from '@wov/shared';
+import {
+  BEUTE_BESITZER_TAG_MEMBER, BEUTE_EXKLUSIV_MEMBER, BEUTE_EXKLUSIV_MS, BEUTE_LEBEN_MS, Inventory, SERVER_MELDUNG_BEUTE_FREMD,
+  beuteBesitzerTag, beutePrefabFuer, findItem,
+} from '@wov/shared';
 import { getStableHash } from '../util/Hash.js';
 
 // The windows and the message keys live in `shared/src/beute.ts` (the client may need them); re-exported for the server.
@@ -42,6 +49,9 @@ export const BEUTE_MENGE = 'beute_menge';
 export const BEUTE_BESITZER = 'beute_besitzer';
 export const BEUTE_FREI_AB = 'beute_frei_ab';
 export const BEUTE_ABLAUF = 'beute_ablauf';
+/** What a client may see of the owner (D5 N2, Z1): see `shared/src/beute.ts`. Unlike `beute_besitzer` these two ARE sent. */
+export const BEUTE_EXKLUSIV = BEUTE_EXKLUSIV_MEMBER;
+export const BEUTE_BESITZER_TAG = BEUTE_BESITZER_TAG_MEMBER;
 
 interface Anteile {
   zdo: ZDO;
@@ -156,6 +166,10 @@ export class BeuteAmBoden {
       zdo.setString(BEUTE_BESITZER, besitzer);
       zdo.setLong(BEUTE_FREI_AB, BigInt(jetzt + BEUTE_EXKLUSIV_MS));
       zdo.setLong(BEUTE_ABLAUF, BigInt(jetzt + BEUTE_LEBEN_MS));
+      if (besitzer !== '') {
+        zdo.setInt(BEUTE_EXKLUSIV, 1);
+        zdo.setInt(BEUTE_BESITZER_TAG, beuteBesitzerTag(besitzer));
+      }
       zdo.revision.reviseData();
       zdo.dirty = true;
       this.stuecke.set(zdo.zdoid.toString(), { zdo, raum });
@@ -207,6 +221,10 @@ export class BeuteAmBoden {
       } else if (jetzt >= Number(s.zdo.getLong(BEUTE_ABLAUF))) {
         s.raum.destroyZDO(s.zdo.zdoid);
         this.stuecke.delete(id);
+      } else if (s.zdo.getInt(BEUTE_EXKLUSIV) === 1 && jetzt >= Number(s.zdo.getLong(BEUTE_FREI_AB))) {
+        s.zdo.setInt(BEUTE_EXKLUSIV, 0); // the window is over: the clients aim at it again
+        s.zdo.revision.reviseData();
+        s.zdo.dirty = true;
       }
     }
     for (const [id, a] of this.anteile) {

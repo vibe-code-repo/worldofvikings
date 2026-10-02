@@ -18,7 +18,13 @@ import type { PrefabDef } from './prefabs.js';
 export const BEUTE_PREFAB = 'BeuteStueck';
 /** The fallback model of loot: an existing chest model (no new asset). */
 export const BEUTE_RUECKFALL_MODELL = 'HolzTruhe';
-/** The chest is 0.96 m wide; as loot it is a small chest of about 0.4 m. */
+/**
+ * The chest as loot: scale 0.4. Measured on the file (`assets/manifest.json`, `huelle`, measured from `HolzTruhe.glb`):
+ * the origin is on the floor (min y = 0.000), the box is 0.96 x 0.605 x 0.646 m. At 0.4 the piece is 0.384 x 0.242 x 0.258 m:
+ * nothing sinks into the ground (min y x 0.4 = 0 >= -0.02 m) and the longest edge, 0.384 m, lies between 0.25 and 0.6 m, so it
+ * is seen but is not a chest in the grass. Tests: `server/test/d5-beute-prefab.ts` (value from the tracked manifest, runs in the CI)
+ * and `client/test/d5-beute-modelle.ts` (the file itself, with assets).
+ */
 export const BEUTE_RUECKFALL_SKALA = 0.4;
 
 /** The prefab the server lays a piece of loot of the item `name` under: its own `ITEM_DROP` prefab, else the neutral one. */

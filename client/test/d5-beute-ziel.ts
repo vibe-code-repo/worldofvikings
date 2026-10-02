@@ -30,8 +30,8 @@ const nie = () => new Promise<never>(() => {});
 const assets = { instantiate: () => { instanziiert++; return nie(); }, getMasters: nie, getKollisionsMasters: nie };
 const mgr = new EntityManager(null as never, null as never, assets as never, null as never);
 
-function setze(key: string, prefab: string, x: number, y: number, z: number): void {
-  const u: ZDOEntityUpdate = { key, prefabHash: getStableHash(prefab), position: { x, y, z }, rotation: { x: 0, y: 0, z: 0, w: 1 }, isOwnPlayer: false };
+function setze(key: string, prefab: string, x: number, y: number, z: number, extra: Partial<ZDOEntityUpdate> = {}): void {
+  const u: ZDOEntityUpdate = { key, prefabHash: getStableHash(prefab), position: { x, y, z }, rotation: { x: 0, y: 0, z: 0, w: 1 }, isOwnPlayer: false, ...extra };
   mgr.applyUpdate(u);
 }
 const nah = (x: number, z: number, r = 3) => mgr.naechstesInteragierbares(x, z, r);
@@ -115,24 +115,98 @@ pruefe(nah(500.5, 500)?.prefab === 'HolzTruhe', 'B3: chest nearer than loot -> c
 pruefe(nah(501.2, 500)?.prefab === 'RawMeat', 'B3: loot nearer than chest -> loot');
 pruefe(nah(500.75, 500)?.prefab === 'HolzTruhe', 'B3: an exact tie goes to the static target (the common strict < rule)');
 
-// The wiring in main.ts on the syntax tree: `entities?.teleportiert(drin, dungeonId)` inside the Teleport handler.
+// Z1 (N2): foreign exclusive loot is no target as long as the window runs; the own piece further away is.
+setze('7:1', 'RawMeat', 600, 0, 600, { beuteFremd: true });
+setze('7:2', 'Wood', 601.5, 0, 600, { beuteFremd: false });
+pruefe(nah(600.2, 600)?.prefab === 'Wood', 'Z1: the foreign piece is nearer (0.2 m) but skipped: E aims at the own piece (1.3 m away)', JSON.stringify(nah(600.2, 600)));
+pruefe(nah(599.9, 600)?.prefab === 'Wood', 'Z1: standing right on the foreign piece: still the own one');
+setze('7:1', 'RawMeat', 600, 0, 600, { beuteFremd: false });
+pruefe(nah(600.2, 600)?.prefab === 'RawMeat', 'Z1: the window is over (the update says "not foreign"): the nearer piece is the target again');
+setze('7:1', 'RawMeat', 600, 0, 600, { beuteFremd: true });
+pruefe(nah(600.2, 600)?.prefab === 'Wood', 'Z1: and foreign again if the update says so (the flag follows the last update)');
+mgr.removeZDO('7:2');
+pruefe(nah(600.2, 600) === null, 'Z1: only foreign loot in reach: no target at all (E does nothing instead of a refusal)');
+setze('7:3', 'Wood', 640, 0, 600);
+pruefe(nah(640, 600)?.prefab === 'Wood', 'Z1: an update without the flag (older server, ownerless loot) is a normal target');
+
+// P2 (N2): a (re)connection starts the client from scratch: no loot target and no remembered world survive.
+setze('8:1', 'RawMeat', 700, 0, 700);
+mgr.teleportiert(true, 'grab9');
+setze('8:2', 'Wood', 701, 0, 700);
+pruefe(nah(701, 700)?.prefab === 'Wood', 'P2 setup: loot in a dungeon session');
+mgr.neueVerbindung();
+pruefe(nah(701, 700) === null && nah(700, 700) === null, 'P2: after the reconnect no loot target is left');
+setze('8:3', 'Wood', 702, 0, 700);
+mgr.teleportiert(false, '');
+pruefe(nah(702, 700)?.prefab === 'Wood', 'P2: the remembered world is the overworld again: a teleport inside the overworld keeps loot');
+mgr.teleportiert(true, 'grab9');
+pruefe(nah(702, 700) === null, 'P2: and entering the dungeon again drops it (the world memory was reset, not left at "dungeon")');
+
+// The wiring in main.ts on the syntax tree.
 {
   const quelle = readFileSync(resolve(import.meta.dirname, '../src/main.ts'), 'utf8');
   const baum = ts.createSourceFile('main.ts', quelle, ts.ScriptTarget.Latest, true);
-  const treffer: ts.CallExpression[] = [];
-  const geh = (n: ts.Node): void => {
-    if (ts.isCallExpression(n) && n.expression.getText(baum) === 'entities?.teleportiert') treffer.push(n);
-    ts.forEachChild(n, geh);
+  const aufrufe = (text: string): ts.CallExpression[] => {
+    const treffer: ts.CallExpression[] = [];
+    const geh = (n: ts.Node): void => {
+      if (ts.isCallExpression(n) && n.expression.getText(baum) === text) treffer.push(n);
+      ts.forEachChild(n, geh);
+    };
+    geh(baum);
+    return treffer;
   };
-  geh(baum);
-  pruefe(treffer.length === 1, 'main.ts calls entities.teleportiert exactly once', String(treffer.length));
-  const t = treffer[0];
+  /**
+   * The call is a statement of its own (not inside a condition, an `&&`, a ternary or an `if` without a block), that statement is
+   * directly in the block of the handler passed to `socket.on(<paket>, ...)`, and nothing before it in that block can leave early.
+   */
+  const unbedingtImHandler = (t: ts.CallExpression | undefined, paket: string, name: string): void => {
+    const stmt = t?.parent;
+    pruefe(!!t && !!stmt && ts.isExpressionStatement(stmt) && stmt.expression === t, `${name}: the call is a statement of its own (no condition, \`&&\` or ternary around it)`);
+    const block = stmt?.parent;
+    pruefe(!!block && ts.isBlock(block), `${name}: that statement sits directly in a block (not the body of an \`if\`/loop)`);
+    const fn = block?.parent;
+    const handler = fn?.parent;
+    pruefe(
+      !!fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) && !!handler && ts.isCallExpression(handler) &&
+        handler.expression.getText(baum) === 'socket.on' && handler.arguments[0]?.getText(baum) === paket && handler.arguments[1] === fn,
+      `${name}: and that block is the body of the handler passed to socket.on(${paket}, ...)`
+    );
+    let vorher = false;
+    if (block && ts.isBlock(block) && stmt) {
+      for (const s of block.statements) {
+        if (s === stmt) break;
+        const suche = (n: ts.Node): void => {
+          if (ts.isReturnStatement(n) || ts.isThrowStatement(n)) vorher = true;
+          if (!ts.isFunctionLike(n)) ts.forEachChild(n, suche);
+        };
+        suche(s);
+      }
+    }
+    pruefe(!vorher, `${name}: no \`return\`/\`throw\` before it in the handler (it runs on every packet)`);
+  };
+
+  const tele = aufrufe('entities?.teleportiert');
+  pruefe(tele.length === 1, 'main.ts calls entities.teleportiert exactly once', String(tele.length));
+  const t = tele[0];
   pruefe(!!t && t.arguments.length === 2 && t.arguments[0]!.getText(baum) === 'drin' && t.arguments[1]!.getText(baum) === 'dungeonId', 'it hands over `drin` and `dungeonId` unchanged');
-  let handler = false;
-  for (let n: ts.Node | undefined = t; n; n = n.parent) {
-    if (ts.isCallExpression(n) && n.expression.getText(baum) === 'socket.on' && n.arguments[0]?.getText(baum) === 'PacketType.Teleport') handler = true;
-  }
-  pruefe(handler, 'and the call sits inside the PacketType.Teleport handler');
+  unbedingtImHandler(t, 'PacketType.Teleport', 'P1');
+
+  // P2: PeerInfo -> eSitzung.neueVerbindung() -> (the callback given at construction) entities?.neueVerbindung()
+  const neu = aufrufe('eSitzung.neueVerbindung');
+  pruefe(neu.length === 1 && neu[0]!.arguments.length === 0, 'main.ts calls eSitzung.neueVerbindung() exactly once, without arguments', String(neu.length));
+  unbedingtImHandler(neu[0], 'PacketType.PeerInfo', 'P2');
+  const bauen: ts.NewExpression[] = [];
+  const geh2 = (n: ts.Node): void => {
+    if (ts.isNewExpression(n) && n.expression.getText(baum) === 'ESitzung') bauen.push(n);
+    ts.forEachChild(n, geh2);
+  };
+  geh2(baum);
+  pruefe(bauen.length === 1 && bauen[0]!.arguments?.length === 1 && bauen[0]!.arguments[0]!.getText(baum) === '() => entities?.neueVerbindung()', 'P2: the one ESitzung is built with the callback `() => entities?.neueVerbindung()`', bauen.map((b) => b.getText(baum)).join(' | '));
+
+  // Z2: every destroyed key of a ZDOSync goes to entities.removeZDO (the one place that forgets a loot target)
+  const entf = aufrufe('entities.removeZDO');
+  const inSync = entf.filter((c) => c.parent && ts.isForOfStatement(c.parent.parent ?? c.parent) && (c.parent.parent as ts.ForOfStatement).expression.getText(baum) === 'sync.destroyed');
+  pruefe(inSync.length === 1 && inSync[0]!.arguments[0]?.getText(baum) === 'key', 'Z2: main.ts hands every key of `sync.destroyed` to entities.removeZDO(key)', String(inSync.length));
 }
 
 // The drawing: which model the client asks for and at what scale (a real scene on the NullEngine, the model "loads" at once).

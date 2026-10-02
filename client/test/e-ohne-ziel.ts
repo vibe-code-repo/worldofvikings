@@ -6,6 +6,8 @@
  *
  *  [1] The pure rule (`eOhneZiel`): overworld, no entrance near -> nothing; entrance within 16 m -> enter; dungeon -> leave / hint.
  *  [2] main.ts: the only `dungeon enter` goes through the rule, and the file did not grow (3679 lines at the start of N1).
+ *  [3] Z4 (N2): after the server's refusal ("Admin commands are not allowed for this player") E sends no `dungeon enter` in this
+ *      connection (`ESitzung`), a new connection starts fresh; the refusal text is the server's own; the wiring in main.ts.
  *
  * Run: npx tsx client/test/e-ohne-ziel.ts   (from the repo root)
  */
@@ -13,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import ts from 'typescript';
 import { eOhneZiel, DUNGEON_BETRETEN_M, DUNGEON_VERLASSEN_M } from '../src/player/eOhneZiel';
+import { ADMIN_VERWEIGERT_TEXT, ESitzung } from '../src/player/eSitzung';
 
 let fehler = 0;
 const pruefe = (bedingung: boolean, text: string, detail = ''): void => {
@@ -39,6 +42,27 @@ pruefe(drin(0, DUNGEON_VERLASSEN_M) === 'dungeon-leave', 'in a dungeon at exactl
 pruefe(drin(0, DUNGEON_VERLASSEN_M + 0.5) === 'hinweis-eingang', 'in a dungeon at 6.5 m in z: the hint');
 pruefe(eOhneZiel(lage({ imDungeon: true, eingaenge: [{ x: 100, z: 120 }] })) === 'hinweis-eingang', 'in a dungeon the overworld entrances do not count');
 
+// Z4: the refusal switches `dungeon enter` off; leaving a dungeon and the hint stay.
+const nahEingang = { eingaenge: [{ x: 105, z: 120 }] };
+pruefe(eOhneZiel(lage({ ...nahEingang, adminVerweigert: true })) === 'nichts', 'Z4: at a real entrance with the refusal known: nothing is sent');
+pruefe(eOhneZiel(lage({ ...nahEingang, adminVerweigert: false })) === 'dungeon-enter', 'Z4: without the refusal the entrance still enters');
+pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: 12, z: 20 }, adminVerweigert: true })) === 'dungeon-leave', 'Z4: in a dungeon the refusal does not hide `dungeon leave` (a player who is inside can get out)');
+pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: 90, z: 90 }, adminVerweigert: true })) === 'hinweis-eingang', 'Z4: nor the hint far from the entry');
+let nachgeladen = 0;
+const sitzung = new ESitzung(() => { nachgeladen++; });
+const lageEingang = { imDungeon: false, pos: { x: 100, z: 120 }, dungeonSpawn: { x: 10, z: 20 }, eingaenge: [{ x: 105, z: 120 }] };
+pruefe(sitzung.aktion(lageEingang) === 'dungeon-enter' && !sitzung.hatAdminVerweigert, 'Z4: a fresh session: the entrance enters');
+pruefe(sitzung.adminAntwort('Teleportiert nach 1, 2') === 'Teleportiert nach 1, 2' && sitzung.aktion(lageEingang) === 'dungeon-enter', 'Z4: another admin answer changes nothing and is passed on unchanged');
+pruefe(sitzung.adminAntwort('Kein Dungeon-Eingang in der Nähe') === 'Kein Dungeon-Eingang in der Nähe' && sitzung.aktion(lageEingang) === 'dungeon-enter', 'Z4: a refusal for another reason (no entrance near) is NOT a missing right');
+pruefe(sitzung.adminAntwort(ADMIN_VERWEIGERT_TEXT) === ADMIN_VERWEIGERT_TEXT, 'Z4: the refusal text is passed on unchanged (the HUD still shows it once)');
+pruefe(sitzung.hatAdminVerweigert && sitzung.aktion(lageEingang) === 'nichts', 'Z4: after the refusal: nothing at the entrance');
+pruefe(nachgeladen === 0, 'the reset callback did not run before a connection');
+sitzung.neueVerbindung();
+pruefe(nachgeladen === 1 && !sitzung.hatAdminVerweigert && sitzung.aktion(lageEingang) === 'dungeon-enter', 'Z4: a new connection (PeerInfo) runs the callback once and forgets the refusal (rights are read at connect)');
+pruefe(ADMIN_VERWEIGERT_TEXT === 'Admin commands are not allowed for this player', 'the refusal text is pinned');
+const serverQuelle = readFileSync(resolve(import.meta.dirname, '../../server/src/admin/AdminCommands.ts'), 'utf8');
+pruefe(serverQuelle.includes(`message: '${ADMIN_VERWEIGERT_TEXT}'`), "the server still answers with exactly this text (AdminCommands.ts `execute`); if it changes, the client must follow");
+
 const quelle = readFileSync(resolve(import.meta.dirname, '../src/main.ts'), 'utf8');
 const zeilen = quelle.split('\n').length - 1;
 const treffer = quelle.match(/sendAdminCommand\('dungeon enter'\)/g) ?? [];
@@ -50,11 +74,32 @@ pruefe(/aktion === 'hinweis-eingang'\)\s*hud\.meldung\(/.test(quelle), "'hinweis
 const baum = ts.createSourceFile('main.ts', quelle, ts.ScriptTarget.Latest, true);
 const aufrufe: ts.CallExpression[] = [];
 const besuche = (n: ts.Node): void => {
-  if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'eOhneZiel') aufrufe.push(n);
+  if (ts.isCallExpression(n) && n.expression.getText(baum) === 'eSitzung.aktion') aufrufe.push(n);
   ts.forEachChild(n, besuche);
 };
 besuche(baum);
-pruefe(aufrufe.length === 1, 'main.ts calls the rule exactly once', String(aufrufe.length));
+pruefe(aufrufe.length === 1, 'main.ts calls the rule (through eSitzung.aktion) exactly once', String(aufrufe.length));
+// Z4 wiring: the text of every AdminEvent goes through `eSitzung.adminAntwort`, and the handler shows what it returns.
+{
+  const ae: ts.CallExpression[] = [];
+  const such = (n: ts.Node): void => {
+    if (ts.isCallExpression(n) && n.expression.getText(baum) === 'eSitzung.adminAntwort') ae.push(n);
+    ts.forEachChild(n, such);
+  };
+  such(baum);
+  const a0 = ae[0];
+  pruefe(ae.length === 1 && a0!.arguments.length === 1 && a0!.arguments[0]!.getText(baum) === 'reader.readString()', 'main.ts: exactly one eSitzung.adminAntwort(reader.readString())', String(ae.length));
+  const decl = a0?.parent;
+  pruefe(!!decl && ts.isVariableDeclaration(decl) && decl.name.getText(baum) === 'message', '... and its result is the `message` that the handler shows');
+  let pakete = '';
+  for (let n: ts.Node | undefined = a0; n; n = n.parent) {
+    if (ts.isCallExpression(n) && n.expression.getText(baum) === 'socket.on') pakete = n.arguments[0]?.getText(baum) ?? '';
+  }
+  pruefe(pakete === 'PacketType.AdminEvent', '... inside the PacketType.AdminEvent handler', pakete);
+  const fn = decl?.parent?.parent?.parent;
+  const zeigt = !!fn && ts.isBlock(fn) && fn.statements.some((s) => ts.isIfStatement(s) && s.expression.getText(baum) === 'message' && /hud\.meldung\(message\)/.test(s.thenStatement.getText(baum)));
+  pruefe(zeigt, '... and `if (message) hud.meldung(message)` stays in that handler (the first refusal is still shown)');
+}
 const arg = aufrufe[0]?.arguments[0];
 const felder = new Map<string, string>();
 if (arg && ts.isObjectLiteralExpression(arg)) {

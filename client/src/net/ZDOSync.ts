@@ -18,7 +18,7 @@
 import {
   ANIM_MEMBER, ANIM_EINMAL_MEMBER, FIGUR_MEMBER, FRISUR_MEMBER, RUESTUNG_MEMBER, HAARFARBE_MEMBER,
   AUGENFARBE_MEMBER,
-  HEALTH_MEMBER, LAYOUT_ID_MEMBER, STEIN_KIT_MEMBER, getStableHash,
+  HEALTH_MEMBER, LAYOUT_ID_MEMBER, STEIN_KIT_MEMBER, BEUTE_EXKLUSIV_MEMBER, BEUTE_BESITZER_TAG_MEMBER, beuteFremdFuer, getStableHash,
 } from '@wov/shared';
 import type { Vector3, Quaternion, NpcEinordnung } from '@wov/shared';
 import type { BinaryReader } from './GameSocket';
@@ -45,6 +45,9 @@ const AUGENFARBE_HASH = getStableHash(AUGENFARBE_MEMBER);
  * Räume desselben Typs nicht unterscheiden.
  */
 const STEIN_KIT_HASH = getStableHash(STEIN_KIT_MEMBER);
+/** D5 N2: loot exclusive to somebody (shared/beute.ts). */
+const BEUTE_EXKLUSIV_HASH = getStableHash(BEUTE_EXKLUSIV_MEMBER);
+const BEUTE_TAG_HASH = getStableHash(BEUTE_BESITZER_TAG_MEMBER);
 
 export interface ZDOEntityUpdate {
   /** `${userId}:${id}` */
@@ -130,6 +133,11 @@ export interface ZDOEntityUpdate {
    * EntityManager's bucket key, so it is kept verbatim.
    */
   steinKit?: string;
+  /** D5 N2 (raw members `beute_exklusiv` / `beute_besitzer_tag`, kept for the deltas) and what they mean for THIS client. */
+  beuteExklusiv?: number;
+  beuteTag?: number;
+  /** Loot that is exclusive to another player right now: E must not aim at it (the server would refuse). */
+  beuteFremd?: boolean;
   isOwnPlayer: boolean;
 }
 
@@ -225,6 +233,8 @@ export function parseZDOSync(
     let augenfarbe: string | undefined = basis?.augenfarbe;
     let ruestung: string | undefined = basis?.ruestung;
     let steinKit: string | undefined = basis?.steinKit;
+    let beuteExklusiv: number | undefined = basis?.beuteExklusiv;
+    let beuteTag: number | undefined = basis?.beuteTag;
     const memberCount = reader.readInt32();
     for (let m = 0; m < memberCount; m++) {
       const memberHash = reader.readInt32();
@@ -255,6 +265,10 @@ export function parseZDOSync(
         steinKit = reader.readString();
       } else if (prefabHash === LOCATION_PROXY_HASH && memberHash === LOCATION_MEMBER_HASH && memberType === 3) {
         locationFeatureHash = reader.readInt32();
+      } else if (memberHash === BEUTE_EXKLUSIV_HASH && memberType === 3) {
+        beuteExklusiv = reader.readInt32();
+      } else if (memberHash === BEUTE_TAG_HASH && memberType === 3) {
+        beuteTag = reader.readInt32();
       } else {
         skipMemberValue(reader, memberType);
       }
@@ -287,6 +301,9 @@ export function parseZDOSync(
       augenfarbe,
       ruestung,
       steinKit,
+      beuteExklusiv,
+      beuteTag,
+      beuteFremd: beuteFremdFuer(beuteExklusiv, beuteTag, ownUserId),
       isOwnPlayer: hasOwner && ownerUserId === ownUserId,
     };
     spiegel.merke(update);

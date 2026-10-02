@@ -733,6 +733,18 @@ const basisWelt = (): ReturnType<typeof createWorld> => createWorld(NAME, {}, LA
   hausDazu(a, []);
   pruefe(a.steuerung.wiederholen() === true && ebene(a) === S1, '11: Haus weg: Wiederholen stellt den Strich bitgleich wieder her');
 
+  // N5: a failing write path is not a lock: the answer is 'nicht-moeglich' and the step STAYS (the shared order must not drop it)
+  const w = aufbau(LAYOUT as unknown as Record<string, unknown>);
+  w.ein.werkzeug = 'anheben';
+  w.ein.radius = 6;
+  strich(w, [0, 0], [0, 0], 4);
+  const wS1 = ebene(w);
+  w.entwurf.setze({ ...w.entwurf.doc(), heightDeltas: 'kaputt' }); // the draft field is unusable: `strichAbschliessen` refuses
+  pruefe(w.steuerung.rueckgaengigMitGrund() === 'nicht-moeglich', '11: N5: schlägt das Schreiben in den Entwurf fehl, ist der Grund „nicht möglich“, NICHT „gesperrt“');
+  pruefe(w.steuerung.kannRueckgaengig && w.steuerung.rueckgaengig() === false, '11: N5: der Schritt bleibt im Verlauf stehen (kein Verwerfen)');
+  w.entwurf.setze({ ...w.entwurf.doc(), heightDeltas: JSON.parse(wS1) });
+  pruefe(w.steuerung.rueckgaengig() === true && ebene(w) === 'null', '11: N5: ist der Entwurf wieder brauchbar, lässt sich derselbe Schritt zurücknehmen');
+
   // two strokes, a house over the second one: refused whole, the stroke before is NOT undone instead
   const b = aufbau(LAYOUT as unknown as Record<string, unknown>);
   b.ein.werkzeug = 'anheben';

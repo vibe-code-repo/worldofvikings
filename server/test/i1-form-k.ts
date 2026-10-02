@@ -3323,16 +3323,16 @@ const SOLL_CHAT_ECHT: Aufzeichnung = {
   ],
 };
 
-/** Step 1A, measured on the stand before the move (`--messen-basis`, base `bd94dfc7`): the admin-list and ban commands on a stand-in. */
+/** Step 1A, measured on the stand before the move (`--messen-basis`, base `bd94dfc7`): the admin-list and ban commands on a stand-in. Since D5 N4 the live rights packet (`gleicheAdminrechteAb`) is named `adminrechte` and carries the new rights in `active`: those lines were re-measured on c5a9a8c0 + N4, all others are as measured on `bd94dfc7`. */
 const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
   paket: [
-    "Anna:AdminEvent:[\"admin\",false,\"Du hast jetzt Adminrechte.\",0]:34:ad9db1326ead6019",
+    "Anna:AdminEvent:[\"adminrechte\",true,\"Du hast jetzt Adminrechte.\",0]:40:75e936abca20fc2b",
     "Carl:AdminEvent:[\"fly\",false,\"Fly mode OFF (Adminrechte entzogen)\",0]:41:009857b1146c12c7",
-    "Carl:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
-    "Dora:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
-    "Anna:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
+    "Carl:AdminEvent:[\"adminrechte\",false,\"Deine Adminrechte wurden entzogen.\",0]:48:f0f41edb0def5621",
+    "Dora:AdminEvent:[\"adminrechte\",false,\"Deine Adminrechte wurden entzogen.\",0]:48:f0f41edb0def5621",
+    "Anna:AdminEvent:[\"adminrechte\",false,\"Deine Adminrechte wurden entzogen.\",0]:48:f0f41edb0def5621",
     "Neu:AdminEvent:[\"fly\",false,\"Fly mode OFF (Adminrechte entzogen)\",0]:41:009857b1146c12c7",
-    "Neu:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
+    "Neu:AdminEvent:[\"adminrechte\",false,\"Deine Adminrechte wurden entzogen.\",0]:48:f0f41edb0def5621",
   ],
   aufrufe: {"adminCommands.register": 4, "adminListe.alle": 7, "spielerIdFuerName": 17, "adminListe.hinzufuegen": 2, "gleicheAdminrechteAb": 2, "net.getPeers": 8, "adminListe.enthaelt": 16, "adminListe.entfernen": 2, "adminListe.anzahl": 2, "net.findPeerByName": 25, "net.kick": 3, "kontenDb.bannListe": 4, "net.herkunftVon": 2, "kontenDb.bannSetzen": 12, "net.trenneGebannte": 12, "kontenDb.charakterNachName": 21, "kontenDb.charaktereVonKonto": 11, "kontenDb.kontoNachId": 4, "kontenDb.bannAufheben": 6},
   konsole: {"log": 5, "warn": 0},
@@ -3632,10 +3632,10 @@ const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
 /** The same on a real instance (player ids written as `<name>`). */
 const SOLL_BEFEHLE_ECHT: Aufzeichnung = {
   paket: [
-    "Editor:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
-    "Gast:AdminEvent:[\"admin\",false,\"Du hast jetzt Adminrechte.\",0]:34:ad9db1326ead6019",
-    "Gast:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
-    "Gast:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
+    "Editor:AdminEvent:[\"adminrechte\",false,\"Deine Adminrechte wurden entzogen.\",0]:48:f0f41edb0def5621",
+    "Gast:AdminEvent:[\"adminrechte\",true,\"Du hast jetzt Adminrechte.\",0]:40:75e936abca20fc2b",
+    "Gast:AdminEvent:[\"adminrechte\",false,\"Deine Adminrechte wurden entzogen.\",0]:48:f0f41edb0def5621",
+    "Gast:AdminEvent:[\"adminrechte\",false,\"Deine Adminrechte wurden entzogen.\",0]:48:f0f41edb0def5621",
   ],
   aufrufe: {"net.kick": 2, "net.trenneGebannte": 4},
   konsole: {"log": 8, "warn": 0},
@@ -3741,12 +3741,12 @@ const SOLL_BEFEHLE_ECHT: Aufzeichnung = {
   ],
 };
 
-/** Step 1A after the attack (I11A-B1, B2), measured on `bd94dfc7` before the move (`--messen-basis`). */
+/** Step 1A after the attack (I11A-B1, B2), measured on `bd94dfc7` before the move (`--messen-basis`). Exception: the 3 `AdminEvent` lines (`adminrechte`, 40/48/48 bytes) were re-measured on c5a9a8c0 + D5 N4 (the live rights packet got its own command name); all other lines are as measured on `bd94dfc7`. */
 const SOLL_BEFEHLE_N1_ATTRAPPE: Aufzeichnung = {
   paket: [
-    "Anna Maria:AdminEvent:[\"admin\",false,\"Du hast jetzt Adminrechte.\",0]:34:ad9db1326ead6019",
-    "Dora:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
-    "Anna Maria:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
+    "Anna Maria:AdminEvent:[\"adminrechte\",true,\"Du hast jetzt Adminrechte.\",0]:40:75e936abca20fc2b",
+    "Dora:AdminEvent:[\"adminrechte\",false,\"Deine Adminrechte wurden entzogen.\",0]:48:f0f41edb0def5621",
+    "Anna Maria:AdminEvent:[\"adminrechte\",false,\"Deine Adminrechte wurden entzogen.\",0]:48:f0f41edb0def5621",
   ],
   aufrufe: {"adminCommands.register": 4, "net.findPeerByName": 9, "kontenDb.charakterNachName": 9, "kontenDb.charaktereVonKonto": 6, "adminListe.enthaelt": 7, "kontenDb.bannSetzen": 9, "net.trenneGebannte": 9, "net.getPeers": 5, "net.herkunftVon": 3, "kontenDb.bannAufheben": 6, "spielerIdFuerName": 5, "adminListe.hinzufuegen": 1, "gleicheAdminrechteAb": 2, "adminListe.alle": 3, "adminListe.anzahl": 1, "adminListe.entfernen": 1, "kontenDb.bannListe": 1, "kontenDb.kontoNachId": 1},
   konsole: {"log": 3, "warn": 0},
@@ -3937,10 +3937,10 @@ const SOLL_TAKT_1A: Aufzeichnung = {
   paket: [
     "Takt:TimeSync:[]:20:f05060fd930e0712",
     "Takt:TimeSync:[]:20:f05060fd930e0712",
-    "Takt:AdminEvent:[\"admin\",false,\"Du hast jetzt Adminrechte.\",0]:34:ad9db1326ead6019",
+    "Takt:AdminEvent:[\"adminrechte\",true,\"Du hast jetzt Adminrechte.\",0]:40:75e936abca20fc2b",
     "Takt:TimeSync:[]:20:f05060fd930e0712",
     "Takt:AdminEvent:[\"fly\",false,\"Fly mode OFF (Adminrechte entzogen)\",0]:41:009857b1146c12c7",
-    "Takt:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
+    "Takt:AdminEvent:[\"adminrechte\",false,\"Deine Adminrechte wurden entzogen.\",0]:48:f0f41edb0def5621",
     "Takt:TimeSync:[]:20:f05060fd930e0712",
     "TaktE:TimeSync:[]:20:f05060fd930e0712",
     "TaktE:TimeSync:[]:20:f05060fd930e0712",

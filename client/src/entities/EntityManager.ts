@@ -21,6 +21,7 @@ import type { Plane } from '@babylonjs/core/Maths/math.plane';
 import type { Scene } from '@babylonjs/core/scene';
 import {
   PrefabFlag,
+  beuteDarstellung,
   findPrefabByHash,
   isRenderable,
   getFeatureByHash,
@@ -119,6 +120,7 @@ import {
 } from './zellMesh';
 import { composeZdoWorld } from './zdoMatrix';
 import { makePlaceholder } from './platzhalter';
+import { BeuteZiele } from './beuteZiele';
 import { nearbyInstances, indexSetzen, ausZelleLoesen, indexEntfernen } from './raumIndex';
 import { enablePhysics, rebuildBucketColliders } from './kollisionsEimer';
 // Re-exports: these names moved into the modules next to this file; importers keep their path.
@@ -169,6 +171,10 @@ export class EntityManager {
    * Einordnung nie.
    */
   private readonly npcs = new Map<string, NpcEinordnung>();
+  /** D5: loot on the ground, aimable by E before (and without) its model (beuteZiele.ts). */
+  private readonly beuteZiele = new BeuteZiele();
+  /** D5: the world the loot targets belong to: '' = overworld, else 'd:' + dungeon id (see `teleportiert`). */
+  private beuteWelt = '';
   /**
    * Auflösung `layoutId` → Einordnung. Setzt main.ts, sobald das
    * Weltdokument da ist; ohne Layout-Welt bleibt sie null und der ganze
@@ -330,7 +336,10 @@ export class EntityManager {
     }
 
     const def = findPrefabByHash(u.prefabHash);
-    if (!def || !isRenderable(def)) return;
+    if (!def || !isRenderable(def)) {
+      this.beuteZiele.vergiss(u.key); // the same key may have been loot before (D5)
+      return;
+    }
 
     // Einordnung mitführen: offline liegt sie am Update (Testflug), online
     // kommt sie über die Herkunft aus dem Layout-Dokument. Bewusst bei
@@ -345,6 +354,13 @@ export class EntityManager {
       this.npcs.delete(u.key);
     }
 
+    const beute = (def.flags & PrefabFlag.ITEM_DROP) !== 0n ? beuteDarstellung(def) : null;
+    if (beute) {
+      const p = u.position;
+      this.beuteZiele.merke(u.key, { prefab: def.name, prefabHash: u.prefabHash, x: p.x, y: p.y, z: p.z, fremd: u.beuteFremd === true });
+    } else {
+      this.beuteZiele.vergiss(u.key); // the key now carries something else: the old piece of loot is gone
+    }
     const isDynamic = (def.flags & DYNAMIC_FLAGS) !== 0n;
     if (isDynamic) {
       // Tiere/Monster ohne echten Clip bekommen den prozeduralen Gang;
@@ -357,8 +373,8 @@ export class EntityManager {
       // haengt und mit der eigenen Figur nie etwas zu tun hatte. Wer
       // seine Wahl im Spiel aendert, aendert denselben Member, und der
       // Sync traegt sie hierher.
-      const modell = u.figur ? modellZu(u.figur) : def.model;
-      void this.applyDynamic(u, def.name, modell, def.animation, belebt).then(() => {
+      const modell = u.figur ? modellZu(u.figur) : (beute?.modell ?? def.model);
+      void this.applyDynamic(u, def.name, modell, def.animation, belebt, beute?.skala).then(() => {
         if (u.augenfarbe !== undefined) {
           const dyn = this.dynamics.get(u.key);
           if (dyn && dyn.augenfarbe !== u.augenfarbe) {
@@ -527,8 +543,31 @@ export class EntityManager {
     this.bucketOf.delete(key);
   }
 
+  /**
+   * A Teleport packet arrived. The server numbers ZDOs per world and forgets what a peer knew when the world changes,
+   * without a destroy list: a loot target of the old world would stay and its key could mean something else over there.
+   * A change of the world (overworld <-> dungeon, or another dungeon) therefore drops the loot targets; a teleport inside
+   * one world keeps them (the server does not send them again).
+   */
+  teleportiert(drin: boolean, dungeonId: string): void {
+    const welt = drin ? `d:${dungeonId}` : '';
+    if (welt === this.beuteWelt) return;
+    this.beuteWelt = welt;
+    this.beuteZiele.leere();
+  }
+
+  /**
+   * A (re)connection was accepted (`PeerInfo`). The new peer on the server starts in the overworld with nothing known and no
+   * Teleport packet follows, so loot targets and the remembered world of an earlier session (maybe in a dungeon) are gone.
+   */
+  neueVerbindung(): void {
+    this.beuteWelt = '';
+    this.beuteZiele.leere();
+  }
+
   removeZDO(key: string): void {
     this.npcs.delete(key);
+    this.beuteZiele.vergiss(key);
     // Vor dem Bucket-Abbau: Der Index steht unabhängig davon, ob der Bucket
     // die Instanz noch kennt — ein Eintrag, der ihn überlebt, wäre ein
     // Geisterobjekt unter dem Fadenkreuz.
@@ -872,6 +911,9 @@ export class EntityManager {
         }
       }
     }
+    // D5: loot on the ground is dynamic (no bucket) and counts from the moment the ZDO arrived, model or not.
+    const beute = this.beuteZiele.naechste(x, z, bestD);
+    if (beute) best = { prefab: beute.ziel.prefab, prefabHash: beute.ziel.prefabHash, x: beute.ziel.x, y: beute.ziel.y, z: beute.ziel.z };
     return best;
   }
 
@@ -2341,7 +2383,8 @@ export class EntityManager {
     prefabName: string,
     model: string | null,
     animation?: string,
-    belebt = false
+    belebt = false,
+    zusatzSkala = 1
   ): Promise<void> {
     // Bewegungszustand des Servers ('idle'/'walk') hat Vorrang vor der
     // festen Prefab-Animation: Routen-NPCs wechseln damit zur Laufzeit,
@@ -2441,7 +2484,7 @@ export class EntityManager {
     const s = u.scale;
     const f =
       typeof s === 'number' ? { x: s, y: s, z: s } : s ? { x: s.x, y: s.y, z: s.z } : { x: 1, y: 1, z: 1 };
-    dyn.root.scaling = new Vector3(basis.x * f.x, basis.y * f.y, basis.z * f.z);
+    dyn.root.scaling = new Vector3(basis.x * f.x * zusatzSkala, basis.y * f.y * zusatzSkala, basis.z * f.z * zusatzSkala);
     // Animations-LOD B4: die Huelle EINMAL messen, nachdem Position, Rotation
     // UND Skalierung der neuen Instanz feststehen — nicht frueher (die rohe,
     // unskalierte Geometrie waere zu klein) und nicht jedes Mal (das waere

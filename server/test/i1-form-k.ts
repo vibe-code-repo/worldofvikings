@@ -7,6 +7,9 @@
  * Step 3 moved five more: the chest, appearance and figure handlers into `spiel/Interaktion.ts` (`handleTruheOeffnen`,
  * `sendeTruheInhalt`, `handleSetAussehen`, `handleSetFigur`) and `handleChatMessage` into `spiel/Chat.ts`. `handleInteract` and
  * `handleContainerAction` stay in the class (they read the static member `WovServer.FREMDER_BESITZ_MELDUNG`, rule 5).
+ * Step 1, package A moved three more into the sub-folder `spiel/befehle/`: `registerAdminListeCommands` and
+ * `gleicheAdminrechteAb` into `spiel/befehle/AdminListe.ts`, `registerBannCommands` into `spiel/befehle/Bann.ts`. Their
+ * callers are the constructor (the two registrations) and `update()` (the re-check of the admin rights once a second).
  * In the class stays one forwarding method per name, in the same place; `k` in the module IS the server. Rules:
  * `Karten/refactoring/01 Form k — Regeln für Methoden mit Kontext.md`. After the merge this test is the only guard
  * (the one-time proofs K1 to K8 of the step are history). Later steps add their modules to `MODULE` below and their
@@ -46,7 +49,11 @@
  *  state of a peer is held after every packet (all appearance fields, the armour as text, the position, the parts of the inventory with
  *  their flag), `sichereSpielerSofort` is held with ALL its arguments, the calls into the context are held as an ordered list with their
  *  arguments, and every console line is held by its text.
- *  Not applicable in steps 2 and 3: the identity of returned objects of the stock (K9-5), no function returns a value.
+ *  Step 1A: every sub-command of `admin`, `kick`, `bann` and `entbann` with valid and invalid arguments (success, missing
+ *  arguments, unknown and ambiguous names, the last admin, an admin as the target of a ban, bans with and without a deadline,
+ *  the origin of a connection), with a fixed clock and time zone; the message of every command is held as text, every call
+ *  into the context with its arguments, the rights of every open session after every command, the order of the registry.
+ *  Not applicable in steps 1A, 2 and 3: the identity of returned objects of the stock (K9-5), no function returns a value.
  *
  * Section [0] shows first that each check can turn red: the same checks run over small invented sources, one fault
  * each (`red:`), and over a good stand (`green:`).
@@ -73,6 +80,8 @@ import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import { WovServer, createWovServer } from '../src/WovServer.js';
 import { registryChecksum } from '../src/world/dungeon/ModuleBuild.js';
+import { spielerIdErzeugen } from '../src/net/Identitaet.js';
+import { NAME_NICHT_EINDEUTIG } from '../src/spiel/Konstanten.js';
 import { HAUPTWELT_ID } from '../src/world/Welt.js';
 import { ZDOManager } from '../src/zdo/ZDOManager.js';
 
@@ -99,7 +108,7 @@ interface FunktionSpec {
   readonly name: string;
   /** The head of the forwarding in the class, from the modifier to the return type (nothing after the type). */
   readonly kopf: string;
-  /** The method of the class that calls `this.<name>(<args>)` (`onPacket` for the packet handlers). */
+  /** The method of the class that calls `this.<name>(<args>)` (`onPacket` for the packet handlers, `constructor` for the registrations of step 1). */
   readonly aufrufer: { readonly methode: string; readonly args: string };
   /** `Function.length` of the method on the prototype: the number of parameters of the forwarding. */
   readonly laenge: number;
@@ -121,6 +130,8 @@ interface ModulSpec {
 const KOPF = (name: string): string => `private ${name}(peer: Peer, reader: Reader): void`;
 /** A packet handler: private forwarding `(peer, reader)`, called by `onPacket`. */
 const PAKET = (name: string): FunktionSpec => ({ name, kopf: KOPF(name), aufrufer: { methode: 'onPacket', args: 'peer, reader' }, laenge: 2, paketTyp: name.replace(/^handle/, '') });
+/** A registration of chat commands (step 1): a private forwarding without parameters, called once by the constructor. */
+const REGISTRIERUNG = (name: string): FunktionSpec => ({ name, kopf: `private ${name}(): void`, aufrufer: { methode: 'constructor', args: '' }, laenge: 0 });
 const MODULE: readonly ModulSpec[] = [
   {
     datei: 'server/src/spiel/AdminPakete.ts',
@@ -129,6 +140,26 @@ const MODULE: readonly ModulSpec[] = [
     mitglieder: ['adminCommands', 'net', 'worldTime', 'getTimeOfDay', 'getDay', 'sendTimeSync'],
     wertImporte: ['@wov/shared'],
     funktionen: [PAKET('handleAdminCommand'), PAKET('handleSetTimeOfDay')],
+  },
+  {
+    datei: 'server/src/spiel/befehle/AdminListe.ts',
+    spezifizierer: './spiel/befehle/AdminListe.js',
+    kontextTyp: 'AdminListeKontext',
+    mitglieder: ['adminCommands', 'adminListe', 'spielerIdFuerName', 'gleicheAdminrechteAb', 'config', 'net'],
+    wertImporte: ['@wov/shared', '../Konstanten.js'],
+    funktionen: [
+      REGISTRIERUNG('registerAdminListeCommands'),
+      // a context member (`admin add`/`admin remove` call it): the forwarding is public; called once a second by `update()`
+      { name: 'gleicheAdminrechteAb', kopf: 'gleicheAdminrechteAb(): void', aufrufer: { methode: 'update', args: '' }, laenge: 0 },
+    ],
+  },
+  {
+    datei: 'server/src/spiel/befehle/Bann.ts',
+    spezifizierer: './spiel/befehle/Bann.js',
+    kontextTyp: 'BannKontext',
+    mitglieder: ['adminListe', 'kontenDb', 'adminCommands', 'net', 'spielerIdFuerName'],
+    wertImporte: ['../../net/Namen.js', '../Konstanten.js'],
+    funktionen: [REGISTRIERUNG('registerBannCommands')],
   },
   {
     datei: 'server/src/spiel/Chat.ts',
@@ -166,7 +197,8 @@ const MODULE: readonly ModulSpec[] = [
 /**
  * The non-private members of `WovServer`, sorted: 36 before step 2, plus `dungeonsWurzel`, `sendTimeSync` and `worldTime`
  * (context members of step 2, relaxed from private), plus `inventarSync`, `kappeLeben`, `sendeTruheInhalt`,
- * `sichereSpielerSofort` and `zdosVon` (context members of step 3, relaxed from private). One per line; a later step adds
+ * `sichereSpielerSofort` and `zdosVon` (context members of step 3, relaxed from private), plus `gleicheAdminrechteAb`,
+ * `kontenDb` and `spielerIdFuerName` (context members of step 1A, relaxed from private). One per line; a later step adds
  * its relaxations here, each with a reason.
  */
 const PUBLIC_MEMBERS: readonly string[] = [
@@ -183,6 +215,7 @@ const PUBLIC_MEMBERS: readonly string[] = [
   'getGroundHeight',
   'getTimeOfDay',
   'getWorldTime',
+  'gleicheAdminrechteAb', // step 1A: context member of befehle/AdminListe (the forwarding itself is public)
   'hauptwelt',
   'heightmaps',
   'init',
@@ -191,6 +224,7 @@ const PUBLIC_MEMBERS: readonly string[] = [
   'inventarSync', // step 3: context member of Interaktion
   'kappeLeben', // step 3: context member of Interaktion
   'kollisionswelt',
+  'kontenDb', // step 1A: context member of befehle/Bann (the field stays in the class)
   'leaveDungeon',
   'liegezeitMs',
   'net',
@@ -204,6 +238,7 @@ const PUBLIC_MEMBERS: readonly string[] = [
   'serverUserId',
   'sichereSpielerSofort', // step 3: context member of Interaktion (F8, #146)
   'spawns',
+  'spielerIdFuerName', // step 1A: context member of befehle/AdminListe and befehle/Bann
   'start',
   'stop',
   'weltMarken',
@@ -222,6 +257,12 @@ const PUBLIC_MEMBERS: readonly string[] = [
 const parse = (name: string, text: string): ts.SourceFile => ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 const mods = (n: ts.Node): readonly ts.Modifier[] => (ts.canHaveModifiers(n) ? (ts.getModifiers(n) ?? []) : []);
 const hasMod = (n: ts.Node, kind: ts.SyntaxKind): boolean => mods(n).some((m) => m.kind === kind);
+
+/** The specifier of `server/src/spiel/Kontext.ts` seen from a module (`./Kontext.js` in `spiel/`, `../Kontext.js` in `spiel/befehle/`). */
+const kontextSpezifizierer = (datei: string): string => {
+  const tiefe = datei.split('/').length - 'server/src/spiel/X.ts'.split('/').length;
+  return tiefe === 0 ? './Kontext.js' : `${'../'.repeat(tiefe)}Kontext.js`;
+};
 
 /** The findings for one module: items 1 to 4 of the header. Empty when the module is as frozen. */
 function pruefeModul(spec: ModulSpec, text: string): string[] {
@@ -300,12 +341,13 @@ function pruefeModul(spec: ModulSpec, text: string): string[] {
     if (fn.body) gehe(fn.body);
   }
   if (!same([...gelesen].sort(), [...spec.mitglieder].sort())) f.push(`the members read as k.<member> are [${[...gelesen].sort()}], the context lists [${[...spec.mitglieder].sort()}]: none in reserve, none missing`);
-  // the context type is `SpielKontext` from `./Kontext.js`, imported as `import type { SpielKontext }` under its own name: a look-alike from another file could be `any`
+  // the context type is `SpielKontext` from `spiel/Kontext.ts` (`./Kontext.js`, from the sub-folder `befehle/` `../Kontext.js`), imported as `import type { SpielKontext }` under its own name: a look-alike from another file could be `any`
   {
+    const kontextPfad = kontextSpezifizierer(spec.datei);
     const importe = sf.statements.filter((x): x is ts.ImportDeclaration => ts.isImportDeclaration(x) && !!x.importClause?.namedBindings && ts.isNamedImports(x.importClause.namedBindings) && x.importClause.namedBindings.elements.some((e) => e.name.text === 'SpielKontext'));
     const el = importe[0]?.importClause?.namedBindings;
-    const ok = importe.length === 1 && importe[0]!.importClause!.isTypeOnly && ts.isStringLiteral(importe[0]!.moduleSpecifier) && importe[0]!.moduleSpecifier.text === './Kontext.js' && !!el && ts.isNamedImports(el) && el.elements.length === 1 && el.elements[0]!.propertyName === undefined;
-    if (!ok) f.push('`SpielKontext` must come from `import type { SpielKontext } from \'./Kontext.js\'`, one import, under its own name');
+    const ok = importe.length === 1 && importe[0]!.importClause!.isTypeOnly && ts.isStringLiteral(importe[0]!.moduleSpecifier) && importe[0]!.moduleSpecifier.text === kontextPfad && !!el && ts.isNamedImports(el) && el.elements.length === 1 && el.elements[0]!.propertyName === undefined;
+    if (!ok) f.push(`\`SpielKontext\` must come from \`import type { SpielKontext } from '${kontextPfad}'\`, one import, under its own name`);
   }
   // 4. the value imports
   if (!same(wertSpezifizierer, spec.wertImporte)) f.push(`the value imports are [${wertSpezifizierer}], expected exactly [${spec.wertImporte}] (an \`import { type X }\` counts as a value import)`);
@@ -360,7 +402,7 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       else if (davorText !== '\n\n  ') f.push(`${fn.name}: rule 4.5a wants exactly one new blank line before the forwarding`);
       if (body) {
         const gesamt = text.slice(m.getStart(sf), m.getEnd()).replace(/\s+/g, ' ');
-        const erwartet = `${fn.kopf} { return ${fn.name}(this, ${m.parameters.map((p) => p.name.getText(sf)).join(', ')}); }`;
+        const erwartet = `${fn.kopf} { return ${fn.name}(${['this', ...m.parameters.map((p) => p.name.getText(sf))].join(', ')}); }`;
         if (gesamt !== erwartet) f.push(`${fn.name}: the forwarding reads "${gesamt.slice(0, 120)}", expected "${erwartet}" (a comment or another token inside it)`);
       }
       // behind it on the same line: nothing; a comment there belongs to the trivia of the next member and escapes the comparison of the text above (H8)
@@ -380,7 +422,7 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       const ok = ts.isIdentifier(c.expression) && c.expression.text === fn.name && !c.typeArguments && !c.questionDotToken && c.arguments[0]?.kind === ts.SyntaxKind.ThisKeyword && same(args, soll);
       if (!ok) f.push(`${fn.name}: the call is \`${c.getText(sf)}\`, expected \`${fn.name}(${soll.join(', ')})\` with a plain \`this\``);
       // the caller in the class (`onPacket` or another method that stays) still calls the method by its name
-      const aufrufer = klasse.members.find((x): x is ts.MethodDeclaration => ts.isMethodDeclaration(x) && nameVon(x) === fn.aufrufer.methode);
+      const aufrufer = fn.aufrufer.methode === 'constructor' ? klasse.members.find(ts.isConstructorDeclaration) : klasse.members.find((x): x is ts.MethodDeclaration => ts.isMethodDeclaration(x) && nameVon(x) === fn.aufrufer.methode);
       let ruft = false;
       const gehe = (n: ts.Node): void => {
         if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.expression.kind === ts.SyntaxKind.ThisKeyword && n.expression.name.text === fn.name && n.arguments.map((a) => a.getText(sf)).join(',') === fn.aufrufer.args.replace(/ /g, '')) ruft = true;
@@ -606,6 +648,73 @@ console.log('\n[0] Self-test of the checks on invented sources');
     const f = pruefeKlasse([S3], text, oeff);
     check(`red: class, ${name}`, f.length > 0, show(f) || 'no finding');
   }
+  // step 1A: a module in the sub-folder `befehle/` (the context file one level up), a registration without parameters called by the constructor
+  const SB: ModulSpec = {
+    datei: 'server/src/spiel/befehle/TestB.ts', spezifizierer: './spiel/befehle/TestB.js', kontextTyp: 'TestBKontext', mitglieder: ['a'], wertImporte: ['../Konstanten.js'],
+    funktionen: [REGISTRIERUNG('fr'), { name: 'fg', kopf: 'fg(): void', aufrufer: { methode: 'update', args: '' }, laenge: 0 }],
+  };
+  const gutesModulB = [
+    "import { NAME_NICHT_EINDEUTIG } from '../Konstanten.js';",
+    "import type { SpielKontext } from '../Kontext.js';",
+    '',
+    "type TestBKontext = SpielKontext<'a'>;",
+    '',
+    'function fr(k: TestBKontext): void {',
+    '  k.a.register(NAME_NICHT_EINDEUTIG);',
+    '}',
+    '',
+    'function fg(k: TestBKontext): void {',
+    '  k.a.x();',
+    '}',
+    '',
+    'export { fr, fg };',
+    '',
+  ].join('\n');
+  check('green: a good module in the sub-folder befehle/', pruefeModul(SB, gutesModulB).length === 0, show(pruefeModul(SB, gutesModulB)));
+  for (const [name, text] of [
+    ['SpielKontext from ./Kontext.js in the sub-folder (another file)', gutesModulB.replace("from '../Kontext.js'", "from './Kontext.js'")],
+    ['SpielKontext from two levels up in the sub-folder', gutesModulB.replace("from '../Kontext.js'", "from '../../Kontext.js'")],
+    ['a value import of the class file from the sub-folder', gutesModulB.replace("import type { SpielKontext }", "import { WovServer } from '../../WovServer.js';\nimport type { SpielKontext }")],
+  ] as const) check(`red: module, ${name}`, pruefeModul(SB, text).length > 0, show(pruefeModul(SB, text)) || 'no finding');
+  check('red: module, SpielKontext from ../Kontext.js directly under spiel/', pruefeModul(S, gutesModul.replace("from './Kontext.js'", "from '../Kontext.js'")).length > 0);
+  const gutB = [
+    "import { fr, fg } from './spiel/befehle/TestB.js';",
+    'export class WovServer {',
+    '  readonly a = 1;',
+    '  constructor() {',
+    '    this.fr();',
+    '  }',
+    '',
+    '  update(): void {',
+    '    this.fg();',
+    '  }',
+    '',
+    '  private fr(): void {',
+    '    return fr(this);',
+    '  }',
+    '',
+    '  fg(): void {',
+    '    return fg(this);',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const OB = ['a', 'fg', 'update'];
+  check('green: a registration called by the constructor and a public forwarding called by update()', pruefeKlasse([SB], gutB, OB).length === 0, show(pruefeKlasse([SB], gutB, OB)));
+  for (const [name, text] of [
+    ['the constructor does not call the registration', gutB.replace('    this.fr();\n', '')],
+    ['the registration is called by another method, not the constructor', gutB.replace('    this.fr();\n', '').replace('    this.fg();\n', '    this.fg();\n    this.fr();\n')],
+    ['the constructor calls it with an argument', gutB.replace('this.fr();', 'this.fr(1);')],
+    ['update() does not call the re-check', gutB.replace('    this.fg();\n', '')],
+    ['the forwarding passes an argument', gutB.replace('return fr(this);', 'return fr(this, 1);')],
+    ['the forwarding passes nothing', gutB.replace('return fr(this);', 'return fr();')],
+    ['the forwarding gained a parameter', gutB.replace('private fr(): void {\n    return fr(this);', 'private fr(x?: number): void {\n    return fr(this, x);')],
+    ['the public forwarding became private', gutB.replace('  fg(): void {', '  private fg(): void {')],
+    ['the import from the folder above', gutB.replace('./spiel/befehle/TestB.js', './spiel/TestB.js')],
+  ] as const) {
+    const f = pruefeKlasse([SB], text, OB);
+    check(`red: class, ${name}`, f.length > 0, show(f) || 'no finding');
+  }
 }
 
 // ── [1] The real sources ───────────────────────────────────────────────
@@ -615,7 +724,8 @@ const alleNamen = MODULE.flatMap((m) => m.funktionen.map((x) => x.name));
 
 console.log('\n[1] The modules under server/src/spiel/ and the forwardings in WovServer.ts');
 if (!MESSEN_BASIS) {
-  const dateien = readdirSync(join(WURZEL, 'server/src/spiel')).filter((f) => f.endsWith('.ts')).map((f) => `server/src/spiel/${f}`);
+  // the files under spiel/ and its sub-folders (step 1 puts the commands into spiel/befehle/)
+  const dateien = (readdirSync(join(WURZEL, 'server/src/spiel'), { recursive: true }) as string[]).filter((f) => f.endsWith('.ts')).map((f) => `server/src/spiel/${f.split('\\').join('/')}`).sort();
   for (const spec of MODULE) {
     check(`${spec.datei} exists under spiel/`, dateien.includes(spec.datei));
     const t = readFileSync(join(WURZEL, spec.datei), 'utf8');
@@ -634,7 +744,8 @@ if (!MESSEN_BASIS) {
   // every module under spiel/ that uses the context type stands under this guard (only Kontext.ts itself defines it)
   const alleDateien = new Set(MODULE.map((m) => m.datei));
   const unbekannt = dateien.filter((d) => d !== 'server/src/spiel/Kontext.ts' && /\bSpielKontext\b/.test(readFileSync(join(WURZEL, d), 'utf8')) && !alleDateien.has(d));
-  check('every module under spiel/ that uses SpielKontext is in MODULE (under this guard)', unbekannt.length === 0, unbekannt.join(', '));
+  check('every module under spiel/ and its sub-folders that uses SpielKontext is in MODULE (under this guard)', unbekannt.length === 0, unbekannt.join(', '));
+  check('the sub-folder spiel/befehle/ is read (the list of files is recursive)', dateien.some((d) => d.startsWith('server/src/spiel/befehle/')), dateien.filter((d) => d.includes('/befehle/')).join(', '));
 }
 
 // ── [2] Behaviour ──────────────────────────────────────────────────────
@@ -1111,6 +1222,304 @@ function messeChatEcht(): Aufzeichnung3 {
   return a;
 }
 
+// ── [2c] Behaviour of step 1A: the commands admin, kick, bann, entbann and the re-check of the admin rights ──
+
+/**
+ * The clock and the time zone are fixed for the length of one measurement: `fristLesen` reads `Date.now()`, `fristText`
+ * formats with `toLocaleString('de-DE')` (the time zone of the machine would change the text), the ban list of the real
+ * database reads `Date.now()` for "still in effect".
+ */
+const BEFEHL_JETZT = Date.UTC(2026, 9, 2, 10, 30, 0);
+const ECHTE_UHR = Date.now;
+const ECHTE_TZ = process.env['TZ'];
+function mitUhr<T>(fn: () => T): T {
+  const orig = Date.now;
+  const tz = process.env['TZ'];
+  Date.now = (): number => BEFEHL_JETZT;
+  process.env['TZ'] = 'Europe/Berlin';
+  try { return fn(); } finally {
+    Date.now = orig;
+    if (tz === undefined) delete process.env['TZ'];
+    else process.env['TZ'] = tz;
+  }
+}
+/** A peer of the command handlers: what it is sent (the admin events with their whole text) and its rights after each command. */
+function befehlPeer(a: Aufzeichnung, name: string, o: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    name, spielerId: `S-${name}`, isAdmin: false, flying: false, nurEditor: false,
+    sendPacketWith(type: PacketType, fn: (w: Writer) => void): void {
+      const w = new Writer();
+      fn(w);
+      const r = new Reader(w.toBuffer());
+      const d = type === PacketType.AdminEvent ? [r.readString(), r.readBool(), r.readString(), r.remaining()] : [];
+      a.paket.push(`${name}:${PacketType[type]}:${JSON.stringify(d)}:${kennung(w.toBuffer())}`);
+    },
+    ...o,
+  };
+}
+const rechte = (peers: readonly Record<string, unknown>[]): string => peers.map((p) => `${String(p['name'])}=${p['isAdmin'] ? 'A' : '-'}${p['flying'] ? 'F' : '-'}`).join(' ');
+const ergebnisText = (r: unknown): string => JSON.stringify(r, (_k, v: unknown) => (v === undefined ? '<undefined>' : v));
+
+/** A stand-in for the server: every member of the two contexts records its calls with their arguments, in order. */
+function befehlsKontext(a: Aufzeichnung) {
+  const handler = new Map<string, (peer: unknown, args: string[]) => unknown>();
+  const liste = new Map<string, string>();
+  const peers: Record<string, unknown>[] = [];
+  const banns: { art: string; wert: string; grund: string; gesetztVon: string; bis: number | null }[] = [];
+  const namen = new Map<string, unknown>();
+  const charaktere = new Map<string, { id: number; kontoId: number; spielerId: string; name: string }>();
+  const konten = new Map<number, string>();
+  const herkunft = new Map<string, string>();
+  const zustand = { getrennt: [] as string[], kickTrifft: true };
+  const notiz = (t: string): void => { a.notizen.push(t); };
+  const ruf = (name: string, ...x: unknown[]): void => { zaehle(a, name); notiz(`call ${name}${x.map((y) => ` ${typeof y === 'string' ? JSON.stringify(y) : ergebnisText(y)}`).join('')}`); };
+  const gleich = (x: string, y: string): boolean => x.trim().toLowerCase() === y.trim().toLowerCase();
+  const k: Record<string, unknown> = {
+    config: { everyoneAdmin: false },
+    adminCommands: { register: (n: string, h: (peer: unknown, args: string[]) => unknown): void => { ruf('adminCommands.register', n, typeof h); handler.set(n, h); } },
+    adminListe: {
+      alle: (): unknown[] => { ruf('adminListe.alle'); return [...liste].map(([spielerId, name]) => ({ spielerId, name })); },
+      enthaelt: (id: string): boolean => { ruf('adminListe.enthaelt', id); return liste.has(id); },
+      hinzufuegen: (id: string, name: string): boolean => { ruf('adminListe.hinzufuegen', id, name); if (liste.has(id)) return false; liste.set(id, name); return true; },
+      entfernen: (id: string): boolean => { ruf('adminListe.entfernen', id); return liste.delete(id); },
+      get anzahl(): number { ruf('adminListe.anzahl'); return liste.size; },
+    },
+    spielerIdFuerName: (n: string): unknown => { ruf('spielerIdFuerName', n); return namen.get(n.trim().toLowerCase()); },
+    // a moved method that is a context member: before the move through the prototype, after it through the function (R12)
+    gleicheAdminrechteAb(this: unknown, ...x: unknown[]): unknown { ruf('gleicheAdminrechteAb', ...x); return F['gleicheAdminrechteAb']!(this, ...x); },
+    net: {
+      getPeers: (): unknown[] => { ruf('net.getPeers'); return peers; },
+      findPeerByName: (n: string): unknown => { ruf('net.findPeerByName', n); return peers.find((p) => !p['nurEditor'] && gleich(String(p['name']), n)); },
+      kick: (n: string): unknown => { ruf('net.kick', n); return zustand.kickTrifft ? (peers.find((p) => gleich(String(p['name']), n)) ?? { name: n }) : undefined; },
+      herkunftVon: (p: { name: string }): string => { ruf('net.herkunftVon', p.name); return herkunft.get(p.name) ?? ''; },
+      trenneGebannte: (): unknown[] => { ruf('net.trenneGebannte'); return zustand.getrennt.map((name) => ({ name })); },
+    },
+    kontenDb: {
+      charakterNachName: (n: string): unknown => { ruf('kontenDb.charakterNachName', n); return charaktere.get(n.trim().toLowerCase()) ?? null; },
+      charaktereVonKonto: (id: number): unknown[] => { ruf('kontenDb.charaktereVonKonto', id); return [...charaktere.values()].filter((c) => c.kontoId === id); },
+      bannListe: (): unknown[] => { ruf('kontenDb.bannListe'); return banns.map((b) => ({ ...b })); },
+      kontoNachId: (id: number): unknown => { ruf('kontenDb.kontoNachId', id); return konten.has(id) ? { id, benutzername: konten.get(id) } : null; },
+      bannSetzen: (art: string, wert: string, angaben: { grund: string; gesetztVon: string; bis: number | null }): unknown => {
+        ruf('kontenDb.bannSetzen', art, wert, angaben);
+        const i = banns.findIndex((b) => b.art === art && b.wert === wert);
+        const b = { art, wert, grund: angaben.grund, gesetztVon: angaben.gesetztVon, bis: angaben.bis };
+        if (i >= 0) banns[i] = b;
+        else banns.push(b);
+        return b;
+      },
+      bannAufheben: (art: string, wert: string): boolean => {
+        ruf('kontenDb.bannAufheben', art, wert);
+        const i = banns.findIndex((b) => b.art === art && b.wert === wert);
+        if (i < 0) return false;
+        banns.splice(i, 1);
+        return true;
+      },
+    },
+  };
+  return { k, handler, liste, peers, banns, namen, charaktere, konten, herkunft, zustand };
+}
+
+/** All sub-commands of `admin`, `kick`, `bann` and `entbann` with valid and invalid arguments, and the re-check of the rights, on a stand-in. */
+function messeBefehleAttrappe(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  try {
+    mitUhr(() => {
+      const c = befehlsKontext(a);
+      versuche(a, () => F['registerAdminListeCommands']!(c.k));
+      versuche(a, () => F['registerBannCommands']!(c.k));
+      a.notizen.push(`registered ${[...c.handler.keys()].join(' ')}`);
+      const boss = befehlPeer(a, 'Boss', { isAdmin: true });
+      c.peers.push(
+        boss,
+        befehlPeer(a, 'Anna'),
+        befehlPeer(a, 'Carl', { isAdmin: true, flying: true }),
+        befehlPeer(a, 'Dora', { isAdmin: true }),
+        befehlPeer(a, 'Ohne', { isAdmin: true, spielerId: '' }),
+        befehlPeer(a, 'Editor', { nurEditor: true, spielerId: 'S-Ed' }),
+      );
+      for (const [n, id] of [['boss', 'S-Boss'], ['anna', 'S-Anna'], ['bert', 'S-Bert'], ['chef', 'S-Boss'], ['doppel', NAME_NICHT_EINDEUTIG], ['gast', undefined]] as const) c.namen.set(n, id);
+      c.charaktere.set('boss', { id: 1, kontoId: 1, spielerId: 'S-Boss', name: 'Boss' });
+      c.charaktere.set('zweit', { id: 2, kontoId: 1, spielerId: 'S-Zweit', name: 'Zweit' });
+      c.charaktere.set('gast', { id: 3, kontoId: 2, spielerId: 'S-Gast', name: 'Gast' });
+      c.charaktere.set('fremd', { id: 4, kontoId: 9, spielerId: 'S-Fremd', name: 'Fremd' });
+      c.konten.set(1, 'bosskonto');
+      c.konten.set(2, 'gastkonto');
+      c.herkunft.set('Anna', '203.0.113.7');
+      const lauf = (befehl: string, args: string[], wer: unknown = boss): void => {
+        const h = c.handler.get(befehl);
+        const kopie = [...args];
+        versuche(a, () => {
+          const r = h!(wer, kopie);
+          a.notizen.push(`${befehl} ${JSON.stringify(args)} -> ${ergebnisText(r)} args-after=${JSON.stringify(kopie)}`);
+        });
+        a.notizen.push(`rights ${rechte(c.peers)} list=${[...c.liste.keys()].join(',')} bans=${c.banns.length}`);
+      };
+      // admin: every sub-command, the aliases, the refusals, the last admin
+      lauf('admin', []);
+      lauf('admin', ['liste']);
+      c.liste.set('S-Boss', 'Boss');
+      lauf('admin', ['LISTE']);
+      lauf('admin', ['add']);
+      lauf('admin', ['add', ' ', ' ']);
+      lauf('admin', ['add', 'Doppel']);
+      lauf('admin', ['add', 'Gibts', 'Nicht']);
+      lauf('admin', ['add', 'Anna']);
+      lauf('admin', ['hinzufuegen', 'anna']);
+      lauf('admin', ['list']);
+      lauf('admin', ['remove']);
+      lauf('admin', ['entfernen', 'Doppel']);
+      lauf('admin', ['remove', 'Gibts']);
+      lauf('admin', ['remove', 'Bert']);
+      lauf('admin', ['Remove', 'Anna']);
+      lauf('admin', ['remove', 'Boss']);
+      lauf('admin', ['xyz', 'Anna']);
+      // the re-check directly: nothing to change, then everyone-admin (the list is not the gate, nothing is taken away)
+      c.peers.push(befehlPeer(a, 'Neu', { isAdmin: true, flying: true }));
+      (c.k['config'] as { everyoneAdmin: boolean }).everyoneAdmin = true;
+      versuche(a, () => F['gleicheAdminrechteAb']!(c.k));
+      a.notizen.push(`rights ${rechte(c.peers)}`);
+      (c.k['config'] as { everyoneAdmin: boolean }).everyoneAdmin = false;
+      versuche(a, () => F['gleicheAdminrechteAb']!(c.k));
+      a.notizen.push(`rights ${rechte(c.peers)}`);
+      versuche(a, () => F['gleicheAdminrechteAb']!(c.k));
+      // kick
+      lauf('kick', []);
+      lauf('kick', ['  ']);
+      lauf('kick', ['boss']);
+      lauf('kick', ['Anna']);
+      lauf('kick', ['Anna', 'Maria']);
+      c.zustand.kickTrifft = false;
+      lauf('kick', ['Niemand']);
+      // bann: usage, the list when empty, self-protection, the origin, account and player bans, the deadlines, the admin check
+      lauf('bann', []);
+      lauf('bann', ['herkunft']);
+      lauf('bann', ['liste']);
+      lauf('bann', ['BOSS']);
+      lauf('bann', ['herkunft', 'boss']);
+      lauf('bann', ['herkunft', 'Niemand']);
+      lauf('bann', ['herkunft', 'Editor']);
+      lauf('bann', ['ip', 'Dora']);
+      c.zustand.getrennt = ['Anna'];
+      lauf('bann', ['herkunft', 'Anna', '2h', 'Spam', 'Bot']);
+      c.zustand.getrennt = [];
+      lauf('bann', ['Zweit', '30m']);
+      lauf('bann', ['Chef']);
+      lauf('bann', ['Gast', '30m']);
+      lauf('bann', ['Gast', 'dauerhaft', 'wieder', 'da']);
+      lauf('bann', ['Gast', 'PERMANENT']);
+      lauf('bann', ['Gast', 'immer', 'x']);
+      lauf('bann', ['Gast', '7d', 'Grund']);
+      lauf('bann', ['Gast', '3t']);
+      lauf('bann', ['Gast', '2H']);
+      lauf('bann', ['Gast', '0m', 'null']);
+      lauf('bann', ['Gast', '12x']);
+      c.zustand.getrennt = ['Gast', 'Gast2'];
+      lauf('bann', ['Fremd', '1m']);
+      c.zustand.getrennt = [];
+      lauf('bann', ['Doppel']);
+      lauf('bann', ['Gibts']);
+      lauf('bann', ['Bert', '2h', 'Grund', 'mit', 'Umlaut', 'ä']);
+      lauf('bann', ['liste']);
+      lauf('bann', ['LIST']);
+      // entbann: usage, origin, account, player, nothing
+      lauf('entbann', []);
+      lauf('entbann', ['herkunft']);
+      lauf('entbann', ['herkunft', '203.0.113.7']);
+      lauf('entbann', ['ip', '203.0.113.7']);
+      lauf('entbann', ['Gast']);
+      lauf('entbann', ['Gast']);
+      lauf('entbann', ['Doppel']);
+      lauf('entbann', ['Bert']);
+      lauf('entbann', ['Fremd']);
+      lauf('entbann', ['Gibts']);
+      lauf('bann', ['liste']);
+      a.zustand.push(c.banns.length, c.liste.size);
+    });
+  } finally {
+    ruecksetzen();
+  }
+  return a;
+}
+
+/** The same commands on a real instance (real account database, real admin list, real name lookup), through the registry and the forwardings. */
+function messeBefehleEcht(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  const tmp = mkdtempSync(join(tmpdir(), 'i1-form-k-'));
+  const kennungen = new Map<string, string>();
+  try {
+    mitUhr(() => {
+      const server = createWovServer({
+        port: 0, worldFeatures: false, worldName: 'i1-form-k1a', everyoneAdmin: false,
+        worldsDir: join(tmp, 'worlds'), kontenDir: join(tmp, 'konten'), forumDir: join(tmp, 'forum'), generiertDir: join(tmp, 'generiert'),
+      } as never) as unknown as Record<string, unknown>;
+      const db = server['kontenDb'] as {
+        kontoAnlegen(n: string, e: string, p: string): { ok: boolean; konto?: { id: number } };
+        charakterAnlegen(kontoId: number, name: string, aussehen: Record<string, string>): { ok: boolean; charakter?: { spielerId: string } };
+        schliessen?(): void;
+      };
+      const liste = server['adminListe'] as { hinzufuegen(id: string, name: string): boolean; alle(): { spielerId: string; name: string }[] };
+      const aussehen = { figur: FIGUREN[0]!.id, frisur: FRISUR_VORGABE, haarfarbe: HAARFARBE_VORGABE, ober: '', beine: '' };
+      const char = (kontoId: number, name: string): string => { const id = db.charakterAnlegen(kontoId, name, aussehen).charakter!.spielerId; kennungen.set(id, `<${name}>`); return id; };
+      const kA = db.kontoAnlegen('adminkonto', 'a@example.invalid', 'x').konto!.id;
+      const kG = db.kontoAnlegen('gastkonto', 'g@example.invalid', 'x').konto!.id;
+      const kF = db.kontoAnlegen('fremdkonto', 'f@example.invalid', 'x').konto!.id;
+      const idAdmin = char(kA, 'Admin');
+      char(kA, 'Zweit');
+      const idGast = char(kG, 'Gast');
+      char(kF, 'Fremd');
+      liste.hinzufuegen(idAdmin, 'Admin');
+      const gespeichert = server['savedPlayers'] as Map<string, unknown>;
+      for (const [schluessel, name] of [['w', 'Wanderer'], ['d1', 'Doppel'], ['d2', 'Doppel']] as const) {
+        const id = spielerIdErzeugen();
+        kennungen.set(id, `<${name}-${schluessel}>`);
+        gespeichert.set(schluessel, { name, spielerId: id });
+      }
+      // the open sessions: real lookups of the network layer (by name, the origin of a connection) over these peers
+      const net = server['net'] as Record<string, unknown>;
+      const admin = befehlPeer(a, 'Admin', { spielerId: idAdmin, isAdmin: true, flying: true, verbindungsId: 'v1', authenticated: true });
+      const gast = befehlPeer(a, 'Gast', { spielerId: idGast, verbindungsId: 'v2', authenticated: true });
+      const editor = befehlPeer(a, 'Editor', { spielerId: 'editor', nurEditor: true, isAdmin: true, verbindungsId: 'v3', authenticated: true });
+      const peers = [admin, gast, editor];
+      (net['onlinePeers'] as unknown[]).push(...peers);
+      (net['herkunftJeVerbindung'] as Map<string, string>).set('v2', '198.51.100.4');
+      // what would close a real connection is recorded instead
+      net['kick'] = (n: string): unknown => { zaehle(a, 'net.kick'); a.notizen.push(`call net.kick ${JSON.stringify(n)}`); return (net['findPeerByName'] as (x: string) => unknown).call(net, n); };
+      net['trenneGebannte'] = (): unknown[] => { zaehle(a, 'net.trenneGebannte'); a.notizen.push('call net.trenneGebannte'); return []; };
+      const registry = server['adminCommands'] as { execute(p: unknown, line: string): unknown; handlers: Map<string, unknown> };
+      a.notizen.push(`registry ${[...registry.handlers.keys()].join(' ')}`);
+      const rufe = (line: string, wer: unknown = admin): void => {
+        versuche(a, () => { a.notizen.push(`${JSON.stringify(line)} -> ${ergebnisText(registry.execute(wer, line))}`); });
+        a.notizen.push(`rights ${rechte(peers)} list=${liste.alle().map((e) => e.name).join(',')}`);
+      };
+      for (const line of [
+        'admin', 'admin liste', 'admin add Wanderer', 'admin add Doppel', 'admin add Niemand', 'admin list', 'admin remove Wanderer',
+        'admin remove Admin', 'admin add gast', 'admin remove Gast', 'admin remove Fremd', 'admin quatsch',
+        'kick', 'kick admin', 'kick Gast', 'kick Niemand',
+        'bann', 'bann liste', 'bann ADMIN', 'bann Zweit 2h', 'bann Gast 2h Spam Bot', 'bann herkunft Gast 30m', 'bann herkunft Editor', 'bann ip Niemand',
+        'bann Wanderer 7d', 'bann Doppel', 'bann Niemand', 'bann Fremd dauerhaft', 'bann liste',
+        'entbann', 'entbann Gast', 'entbann Gast', 'entbann herkunft 198.51.100.4', 'entbann herkunft 198.51.100.4', 'entbann Wanderer', 'entbann Doppel', 'entbann Fremd', 'entbann Niemand', 'bann liste',
+      ]) rufe(line);
+      rufe('bann Gast', gast);
+      // the re-check of the rights directly (also run once a second by update()): the editor keeps its flag, the guest gets none
+      gast['isAdmin'] = true;
+      versuche(a, () => (server['gleicheAdminrechteAb'] as () => unknown).call(server));
+      a.notizen.push(`rights ${rechte(peers)}`);
+      a.zustand.push(liste.alle().length);
+      db.schliessen?.();
+    });
+  } finally {
+    ruecksetzen();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  // the player ids are drawn at random: they are written by the name they belong to
+  const ersetze = (t: string): string => { let x = t; for (const [id, n] of kennungen) x = x.split(id).join(n); return x; };
+  a.notizen = a.notizen.map(ersetze);
+  a.paket = a.paket.map(ersetze);
+  return a;
+}
+
 /** Measured on the stand before the move (`--messen-basis`); the packets: peer:type:[ok, first 22 characters of the message]. */
 const SOLL_ATTRAPPE: Aufzeichnung = {
   paket: [
@@ -1582,6 +1991,424 @@ const SOLL_CHAT_ECHT: Aufzeichnung = {
   ],
 };
 
+/** Step 1A, measured on the stand before the move (`--messen-basis`, base `bd94dfc7`): the admin-list and ban commands on a stand-in. */
+const SOLL_BEFEHLE_ATTRAPPE: Aufzeichnung = {
+  paket: [
+    "Anna:AdminEvent:[\"admin\",false,\"Du hast jetzt Adminrechte.\",0]:34:ad9db1326ead6019",
+    "Carl:AdminEvent:[\"fly\",false,\"Fly mode OFF (Adminrechte entzogen)\",0]:41:009857b1146c12c7",
+    "Carl:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
+    "Dora:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
+    "Anna:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
+    "Neu:AdminEvent:[\"fly\",false,\"Fly mode OFF (Adminrechte entzogen)\",0]:41:009857b1146c12c7",
+    "Neu:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
+  ],
+  aufrufe: {"adminCommands.register": 4, "adminListe.alle": 7, "spielerIdFuerName": 17, "adminListe.hinzufuegen": 2, "gleicheAdminrechteAb": 2, "net.getPeers": 8, "adminListe.enthaelt": 16, "adminListe.entfernen": 2, "adminListe.anzahl": 2, "net.findPeerByName": 25, "net.kick": 3, "kontenDb.bannListe": 4, "net.herkunftVon": 2, "kontenDb.bannSetzen": 12, "net.trenneGebannte": 12, "kontenDb.charakterNachName": 21, "kontenDb.charaktereVonKonto": 11, "kontenDb.kontoNachId": 4, "kontenDb.bannAufheben": 6},
+  konsole: {"log": 5, "warn": 0},
+  zustand: [0, 1],
+  ausnahmen: [],
+  notizen: [
+    "call adminCommands.register \"admin\" \"function\"",
+    "call adminCommands.register \"kick\" \"function\"",
+    "call adminCommands.register \"bann\" \"function\"",
+    "call adminCommands.register \"entbann\" \"function\"",
+    "registered admin kick bann entbann",
+    "admin [] -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: admin liste | admin add <Name> | admin remove <Name>\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=AF Dora=A- Ohne=A- Editor=-- list= bans=0",
+    "call adminListe.alle",
+    "admin [\"liste\"] -> {\"ok\":true,\"active\":false,\"message\":\"Admin-Liste ist leer\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=AF Dora=A- Ohne=A- Editor=-- list= bans=0",
+    "call adminListe.alle",
+    "admin [\"LISTE\"] -> {\"ok\":true,\"active\":false,\"message\":\"1 dauerhafte Admins: Boss [S-Boss]\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=AF Dora=A- Ohne=A- Editor=-- list=S-Boss bans=0",
+    "admin [\"add\"] -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: admin add <Name>\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=AF Dora=A- Ohne=A- Editor=-- list=S-Boss bans=0",
+    "admin [\"add\",\" \",\" \"] -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: admin add <Name>\"} args-after=[\" \",\" \"]",
+    "rights Boss=A- Anna=-- Carl=AF Dora=A- Ohne=A- Editor=-- list=S-Boss bans=0",
+    "call spielerIdFuerName \"Doppel\"",
+    "admin [\"add\",\"Doppel\"] -> {\"ok\":false,\"active\":false,\"message\":\"Spieler nicht eindeutig gefunden\"} args-after=[\"Doppel\"]",
+    "rights Boss=A- Anna=-- Carl=AF Dora=A- Ohne=A- Editor=-- list=S-Boss bans=0",
+    "call spielerIdFuerName \"Gibts Nicht\"",
+    "admin [\"add\",\"Gibts\",\"Nicht\"] -> {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Spieler: \\\"Gibts Nicht\\\" (muss schon einmal verbunden gewesen sein)\"} args-after=[\"Gibts\",\"Nicht\"]",
+    "rights Boss=A- Anna=-- Carl=AF Dora=A- Ohne=A- Editor=-- list=S-Boss bans=0",
+    "call spielerIdFuerName \"Anna\"",
+    "call adminListe.hinzufuegen \"S-Anna\" \"Anna\"",
+    "call gleicheAdminrechteAb",
+    "call adminListe.alle",
+    "call net.getPeers",
+    "log 62:d37f570698cab7ec:[Admin] \"Anna\" — Rechte an der Liste nachgezogen",
+    "log 63:e84ae5d94609e587:[Admin] \"Carl\" — Rechte an der Liste nachgezogen",
+    "log 63:0c761ba5779e1aa8:[Admin] \"Dora\" — Rechte an der Liste nachgezogen",
+    "admin [\"add\",\"Anna\"] -> {\"ok\":true,\"active\":false,\"message\":\"Anna [S-Anna] ist jetzt dauerhaft Admin\"} args-after=[\"Anna\"]",
+    "rights Boss=A- Anna=A- Carl=-- Dora=-- Ohne=A- Editor=-- list=S-Boss,S-Anna bans=0",
+    "call spielerIdFuerName \"anna\"",
+    "call adminListe.hinzufuegen \"S-Anna\" \"anna\"",
+    "admin [\"hinzufuegen\",\"anna\"] -> {\"ok\":true,\"active\":false,\"message\":\"anna war schon Admin\"} args-after=[\"anna\"]",
+    "rights Boss=A- Anna=A- Carl=-- Dora=-- Ohne=A- Editor=-- list=S-Boss,S-Anna bans=0",
+    "call adminListe.alle",
+    "admin [\"list\"] -> {\"ok\":true,\"active\":false,\"message\":\"2 dauerhafte Admins: Boss [S-Boss], Anna [S-Anna]\"} args-after=[]",
+    "rights Boss=A- Anna=A- Carl=-- Dora=-- Ohne=A- Editor=-- list=S-Boss,S-Anna bans=0",
+    "admin [\"remove\"] -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: admin remove <Name>\"} args-after=[]",
+    "rights Boss=A- Anna=A- Carl=-- Dora=-- Ohne=A- Editor=-- list=S-Boss,S-Anna bans=0",
+    "call spielerIdFuerName \"Doppel\"",
+    "admin [\"entfernen\",\"Doppel\"] -> {\"ok\":false,\"active\":false,\"message\":\"Spieler nicht eindeutig gefunden\"} args-after=[\"Doppel\"]",
+    "rights Boss=A- Anna=A- Carl=-- Dora=-- Ohne=A- Editor=-- list=S-Boss,S-Anna bans=0",
+    "call spielerIdFuerName \"Gibts\"",
+    "admin [\"remove\",\"Gibts\"] -> {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Spieler: \\\"Gibts\\\"\"} args-after=[\"Gibts\"]",
+    "rights Boss=A- Anna=A- Carl=-- Dora=-- Ohne=A- Editor=-- list=S-Boss,S-Anna bans=0",
+    "call spielerIdFuerName \"Bert\"",
+    "call adminListe.enthaelt \"S-Bert\"",
+    "call adminListe.entfernen \"S-Bert\"",
+    "admin [\"remove\",\"Bert\"] -> {\"ok\":true,\"active\":false,\"message\":\"Bert war nicht in der Admin-Liste\"} args-after=[\"Bert\"]",
+    "rights Boss=A- Anna=A- Carl=-- Dora=-- Ohne=A- Editor=-- list=S-Boss,S-Anna bans=0",
+    "call spielerIdFuerName \"Anna\"",
+    "call adminListe.enthaelt \"S-Anna\"",
+    "call adminListe.anzahl",
+    "call adminListe.entfernen \"S-Anna\"",
+    "call gleicheAdminrechteAb",
+    "call adminListe.alle",
+    "call net.getPeers",
+    "log 63:a74f867cb092273d:[Admin] \"Anna\" — Rechte an der Liste nachgezogen",
+    "admin [\"Remove\",\"Anna\"] -> {\"ok\":true,\"active\":false,\"message\":\"Anna [S-Anna] ist kein dauerhafter Admin mehr\"} args-after=[\"Anna\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- list=S-Boss bans=0",
+    "call spielerIdFuerName \"Boss\"",
+    "call adminListe.enthaelt \"S-Boss\"",
+    "call adminListe.anzahl",
+    "admin [\"remove\",\"Boss\"] -> {\"ok\":false,\"active\":false,\"message\":\"Boss ist der letzte Admin. Erst \\\"admin add <Name>\\\" fuer jemand anderen, sonst steht der Server ohne Admin da.\"} args-after=[\"Boss\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- list=S-Boss bans=0",
+    "admin [\"xyz\",\"Anna\"] -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: admin liste | admin add <Name> | admin remove <Name>\"} args-after=[\"Anna\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- list=S-Boss bans=0",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=AF",
+    "call adminListe.alle",
+    "call net.getPeers",
+    "log 62:a3eabbd0446965ed:[Admin] \"Neu\" — Rechte an der Liste nachgezogen:",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=--",
+    "call adminListe.alle",
+    "call net.getPeers",
+    "kick [] -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: kick <Name>\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "kick [\"  \"] -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: kick <Name>\"} args-after=[\"  \"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "call net.findPeerByName \"boss\"",
+    "kick [\"boss\"] -> {\"ok\":false,\"active\":false,\"message\":\"Dich selbst kannst du nicht werfen\"} args-after=[\"boss\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "call net.findPeerByName \"Anna\"",
+    "call net.kick \"Anna\"",
+    "kick [\"Anna\"] -> {\"ok\":true,\"active\":false,\"message\":\"Anna wurde getrennt (kein Bann — er kann sofort wiederkommen)\"} args-after=[\"Anna\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "call net.findPeerByName \"Anna Maria\"",
+    "call net.kick \"Anna Maria\"",
+    "kick [\"Anna\",\"Maria\"] -> {\"ok\":true,\"active\":false,\"message\":\"Anna Maria wurde getrennt (kein Bann — er kann sofort wiederkommen)\"} args-after=[\"Anna\",\"Maria\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "call net.findPeerByName \"Niemand\"",
+    "call net.kick \"Niemand\"",
+    "kick [\"Niemand\"] -> {\"ok\":false,\"active\":false,\"message\":\"Niemand ist nicht verbunden\"} args-after=[\"Niemand\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "bann [] -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: bann <Name> [30m|2h|7d|dauerhaft] [Grund] | bann herkunft <Name> ... | bann liste\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "bann [\"herkunft\"] -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: bann <Name> [30m|2h|7d|dauerhaft] [Grund] | bann herkunft <Name> ... | bann liste\"} args-after=[\"herkunft\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "call kontenDb.bannListe",
+    "bann [\"liste\"] -> {\"ok\":true,\"active\":false,\"message\":\"Keine wirksamen Banns\"} args-after=[\"liste\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "call net.findPeerByName \"BOSS\"",
+    "bann [\"BOSS\"] -> {\"ok\":false,\"active\":false,\"message\":\"Dich selbst kannst du nicht bannen\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "call net.findPeerByName \"boss\"",
+    "bann [\"herkunft\",\"boss\"] -> {\"ok\":false,\"active\":false,\"message\":\"Dich selbst kannst du nicht bannen\"} args-after=[\"herkunft\",\"boss\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "call net.findPeerByName \"Niemand\"",
+    "call net.getPeers",
+    "bann [\"herkunft\",\"Niemand\"] -> {\"ok\":false,\"active\":false,\"message\":\"Niemand ist nicht verbunden — eine Herkunft laesst sich nur an einer offenen Verbindung ablesen\"} args-after=[\"herkunft\",\"Niemand\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "call net.findPeerByName \"Editor\"",
+    "call net.getPeers",
+    "bann [\"herkunft\",\"Editor\"] -> {\"ok\":false,\"active\":false,\"message\":\"Editor ist nicht verbunden — eine Herkunft laesst sich nur an einer offenen Verbindung ablesen\"} args-after=[\"herkunft\",\"Editor\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "call net.findPeerByName \"Dora\"",
+    "call net.getPeers",
+    "call net.herkunftVon \"Dora\"",
+    "bann [\"ip\",\"Dora\"] -> {\"ok\":false,\"active\":false,\"message\":\"Herkunft von Dora ist unbekannt\"} args-after=[\"ip\",\"Dora\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "call net.findPeerByName \"Anna\"",
+    "call net.getPeers",
+    "call net.herkunftVon \"Anna\"",
+    "call kontenDb.bannSetzen \"herkunft\" \"203.0.113.7\" {\"grund\":\"Spam Bot\",\"gesetztVon\":\"Boss\",\"bis\":1790944200000}",
+    "call net.trenneGebannte",
+    "bann [\"herkunft\",\"Anna\",\"2h\",\"Spam\",\"Bot\"] -> {\"ok\":true,\"active\":false,\"message\":\"Herkunft von Anna gebannt (bis 2.10.2026, 14:30:00, Spam Bot) — getrennt: Anna\"} args-after=[\"herkunft\",\"Anna\",\"2h\",\"Spam\",\"Bot\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=1",
+    "call net.findPeerByName \"Zweit\"",
+    "call kontenDb.charakterNachName \"Zweit\"",
+    "call kontenDb.charaktereVonKonto 1",
+    "call adminListe.enthaelt \"S-Boss\"",
+    "bann [\"Zweit\",\"30m\"] -> {\"ok\":false,\"active\":false,\"message\":\"Zweit steht auf der Admin-Liste. Erst \\\"admin remove Zweit\\\", dann bannen — sonst sperrt man sich womoeglich den letzten Admin aus.\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=1",
+    "call net.findPeerByName \"Chef\"",
+    "call kontenDb.charakterNachName \"Chef\"",
+    "call spielerIdFuerName \"Chef\"",
+    "call adminListe.enthaelt \"S-Boss\"",
+    "bann [\"Chef\"] -> {\"ok\":false,\"active\":false,\"message\":\"Chef steht auf der Admin-Liste. Erst \\\"admin remove Chef\\\", dann bannen — sonst sperrt man sich womoeglich den letzten Admin aus.\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=1",
+    "call net.findPeerByName \"Gast\"",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.charaktereVonKonto 2",
+    "call adminListe.enthaelt \"S-Gast\"",
+    "call kontenDb.bannSetzen \"konto\" \"2\" {\"grund\":\"\",\"gesetztVon\":\"Boss\",\"bis\":1790938800000}",
+    "call net.trenneGebannte",
+    "bann [\"Gast\",\"30m\"] -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (bis 2.10.2026, 13:00:00)\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=2",
+    "call net.findPeerByName \"Gast\"",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.charaktereVonKonto 2",
+    "call adminListe.enthaelt \"S-Gast\"",
+    "call kontenDb.bannSetzen \"konto\" \"2\" {\"grund\":\"wieder da\",\"gesetztVon\":\"Boss\",\"bis\":null}",
+    "call net.trenneGebannte",
+    "bann [\"Gast\",\"dauerhaft\",\"wieder\",\"da\"] -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (dauerhaft, wieder da)\"} args-after=[\"wieder\",\"da\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=2",
+    "call net.findPeerByName \"Gast\"",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.charaktereVonKonto 2",
+    "call adminListe.enthaelt \"S-Gast\"",
+    "call kontenDb.bannSetzen \"konto\" \"2\" {\"grund\":\"\",\"gesetztVon\":\"Boss\",\"bis\":null}",
+    "call net.trenneGebannte",
+    "bann [\"Gast\",\"PERMANENT\"] -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (dauerhaft)\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=2",
+    "call net.findPeerByName \"Gast\"",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.charaktereVonKonto 2",
+    "call adminListe.enthaelt \"S-Gast\"",
+    "call kontenDb.bannSetzen \"konto\" \"2\" {\"grund\":\"x\",\"gesetztVon\":\"Boss\",\"bis\":null}",
+    "call net.trenneGebannte",
+    "bann [\"Gast\",\"immer\",\"x\"] -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (dauerhaft, x)\"} args-after=[\"x\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=2",
+    "call net.findPeerByName \"Gast\"",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.charaktereVonKonto 2",
+    "call adminListe.enthaelt \"S-Gast\"",
+    "call kontenDb.bannSetzen \"konto\" \"2\" {\"grund\":\"Grund\",\"gesetztVon\":\"Boss\",\"bis\":1791541800000}",
+    "call net.trenneGebannte",
+    "bann [\"Gast\",\"7d\",\"Grund\"] -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (bis 9.10.2026, 12:30:00, Grund)\"} args-after=[\"Grund\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=2",
+    "call net.findPeerByName \"Gast\"",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.charaktereVonKonto 2",
+    "call adminListe.enthaelt \"S-Gast\"",
+    "call kontenDb.bannSetzen \"konto\" \"2\" {\"grund\":\"\",\"gesetztVon\":\"Boss\",\"bis\":1791196200000}",
+    "call net.trenneGebannte",
+    "bann [\"Gast\",\"3t\"] -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (bis 5.10.2026, 12:30:00)\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=2",
+    "call net.findPeerByName \"Gast\"",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.charaktereVonKonto 2",
+    "call adminListe.enthaelt \"S-Gast\"",
+    "call kontenDb.bannSetzen \"konto\" \"2\" {\"grund\":\"\",\"gesetztVon\":\"Boss\",\"bis\":1790944200000}",
+    "call net.trenneGebannte",
+    "bann [\"Gast\",\"2H\"] -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (bis 2.10.2026, 14:30:00)\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=2",
+    "call net.findPeerByName \"Gast\"",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.charaktereVonKonto 2",
+    "call adminListe.enthaelt \"S-Gast\"",
+    "call kontenDb.bannSetzen \"konto\" \"2\" {\"grund\":\"0m null\",\"gesetztVon\":\"Boss\",\"bis\":null}",
+    "call net.trenneGebannte",
+    "bann [\"Gast\",\"0m\",\"null\"] -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (dauerhaft, 0m null)\"} args-after=[\"0m\",\"null\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=2",
+    "call net.findPeerByName \"Gast\"",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.charaktereVonKonto 2",
+    "call adminListe.enthaelt \"S-Gast\"",
+    "call kontenDb.bannSetzen \"konto\" \"2\" {\"grund\":\"12x\",\"gesetztVon\":\"Boss\",\"bis\":null}",
+    "call net.trenneGebannte",
+    "bann [\"Gast\",\"12x\"] -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (dauerhaft, 12x)\"} args-after=[\"12x\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=2",
+    "call net.findPeerByName \"Fremd\"",
+    "call kontenDb.charakterNachName \"Fremd\"",
+    "call kontenDb.charaktereVonKonto 9",
+    "call adminListe.enthaelt \"S-Fremd\"",
+    "call kontenDb.bannSetzen \"konto\" \"9\" {\"grund\":\"\",\"gesetztVon\":\"Boss\",\"bis\":1790937060000}",
+    "call net.trenneGebannte",
+    "bann [\"Fremd\",\"1m\"] -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Fremd gebannt (bis 2.10.2026, 12:31:00) — getrennt: Gast, Gast2\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=3",
+    "call net.findPeerByName \"Doppel\"",
+    "call kontenDb.charakterNachName \"Doppel\"",
+    "call spielerIdFuerName \"Doppel\"",
+    "bann [\"Doppel\"] -> {\"ok\":false,\"active\":false,\"message\":\"Spieler nicht eindeutig gefunden\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=3",
+    "call net.findPeerByName \"Gibts\"",
+    "call kontenDb.charakterNachName \"Gibts\"",
+    "call spielerIdFuerName \"Gibts\"",
+    "bann [\"Gibts\"] -> {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Spieler: \\\"Gibts\\\" (kein Konto dieses Namens und nie verbunden gewesen)\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=3",
+    "call net.findPeerByName \"Bert\"",
+    "call kontenDb.charakterNachName \"Bert\"",
+    "call spielerIdFuerName \"Bert\"",
+    "call adminListe.enthaelt \"S-Bert\"",
+    "call kontenDb.bannSetzen \"spieler\" \"S-Bert\" {\"grund\":\"Grund mit Umlaut ä\",\"gesetztVon\":\"Boss\",\"bis\":1790944200000}",
+    "call net.trenneGebannte",
+    "bann [\"Bert\",\"2h\",\"Grund\",\"mit\",\"Umlaut\",\"ä\"] -> {\"ok\":true,\"active\":false,\"message\":\"Bert gebannt (bis 2.10.2026, 14:30:00, Grund mit Umlaut ä)\"} args-after=[\"Grund\",\"mit\",\"Umlaut\",\"ä\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=4",
+    "call kontenDb.bannListe",
+    "call kontenDb.kontoNachId 2",
+    "call kontenDb.kontoNachId 9",
+    "bann [\"liste\"] -> {\"ok\":true,\"active\":false,\"message\":\"4 Banns: herkunft 203.0.113.7 (bis 2.10.2026, 14:30:00, Spam Bot); konto gastkonto (dauerhaft, 12x); konto 9 (bis 2.10.2026, 12:31:00); spieler S-Bert (bis 2.10.2026, 14:30:00, Grund mit Umlaut ä)\"} args-after=[\"liste\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=4",
+    "call kontenDb.bannListe",
+    "call kontenDb.kontoNachId 2",
+    "call kontenDb.kontoNachId 9",
+    "bann [\"LIST\"] -> {\"ok\":true,\"active\":false,\"message\":\"4 Banns: herkunft 203.0.113.7 (bis 2.10.2026, 14:30:00, Spam Bot); konto gastkonto (dauerhaft, 12x); konto 9 (bis 2.10.2026, 12:31:00); spieler S-Bert (bis 2.10.2026, 14:30:00, Grund mit Umlaut ä)\"} args-after=[\"LIST\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=4",
+    "entbann [] -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: entbann <Name> | entbann herkunft <Adresse>\"} args-after=[]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=4",
+    "entbann [\"herkunft\"] -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: entbann <Name> | entbann herkunft <Adresse>\"} args-after=[\"herkunft\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=4",
+    "call kontenDb.bannAufheben \"herkunft\" \"203.0.113.7\"",
+    "entbann [\"herkunft\",\"203.0.113.7\"] -> {\"ok\":true,\"active\":false,\"message\":\"Herkunftsbann auf 203.0.113.7 aufgehoben\"} args-after=[\"herkunft\",\"203.0.113.7\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=3",
+    "call kontenDb.bannAufheben \"herkunft\" \"203.0.113.7\"",
+    "entbann [\"ip\",\"203.0.113.7\"] -> {\"ok\":false,\"active\":false,\"message\":\"Kein Herkunftsbann auf 203.0.113.7\"} args-after=[\"ip\",\"203.0.113.7\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=3",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.bannAufheben \"konto\" \"2\"",
+    "entbann [\"Gast\"] -> {\"ok\":true,\"active\":false,\"message\":\"Kontobann auf Gast aufgehoben\"} args-after=[\"Gast\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=2",
+    "call kontenDb.charakterNachName \"Gast\"",
+    "call kontenDb.bannAufheben \"konto\" \"2\"",
+    "call spielerIdFuerName \"Gast\"",
+    "entbann [\"Gast\"] -> {\"ok\":false,\"active\":false,\"message\":\"Kein Bann auf Gast gefunden\"} args-after=[\"Gast\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=2",
+    "call kontenDb.charakterNachName \"Doppel\"",
+    "call spielerIdFuerName \"Doppel\"",
+    "entbann [\"Doppel\"] -> {\"ok\":false,\"active\":false,\"message\":\"Spieler nicht eindeutig gefunden\"} args-after=[\"Doppel\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=2",
+    "call kontenDb.charakterNachName \"Bert\"",
+    "call spielerIdFuerName \"Bert\"",
+    "call kontenDb.bannAufheben \"spieler\" \"S-Bert\"",
+    "entbann [\"Bert\"] -> {\"ok\":true,\"active\":false,\"message\":\"Spielerbann auf Bert aufgehoben\"} args-after=[\"Bert\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=1",
+    "call kontenDb.charakterNachName \"Fremd\"",
+    "call kontenDb.bannAufheben \"konto\" \"9\"",
+    "entbann [\"Fremd\"] -> {\"ok\":true,\"active\":false,\"message\":\"Kontobann auf Fremd aufgehoben\"} args-after=[\"Fremd\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "call kontenDb.charakterNachName \"Gibts\"",
+    "call spielerIdFuerName \"Gibts\"",
+    "entbann [\"Gibts\"] -> {\"ok\":false,\"active\":false,\"message\":\"Kein Bann auf Gibts gefunden\"} args-after=[\"Gibts\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+    "call kontenDb.bannListe",
+    "bann [\"liste\"] -> {\"ok\":true,\"active\":false,\"message\":\"Keine wirksamen Banns\"} args-after=[\"liste\"]",
+    "rights Boss=A- Anna=-- Carl=-- Dora=-- Ohne=A- Editor=-- Neu=-- list=S-Boss bans=0",
+  ],
+};
+/** The same on a real instance (player ids written as `<name>`). */
+const SOLL_BEFEHLE_ECHT: Aufzeichnung = {
+  paket: [
+    "Editor:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
+    "Gast:AdminEvent:[\"admin\",false,\"Du hast jetzt Adminrechte.\",0]:34:ad9db1326ead6019",
+    "Gast:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
+    "Gast:AdminEvent:[\"admin\",false,\"Deine Adminrechte wurden entzogen.\",0]:42:2e55bb6797bb46d4",
+  ],
+  aufrufe: {"net.kick": 2, "net.trenneGebannte": 4},
+  konsole: {"log": 8, "warn": 0},
+  zustand: [1],
+  ausnahmen: [],
+  notizen: [
+    "log 53:f911fa34cfc45148:[Konto] Spalte konten.avatar_charakter_id nachge",
+    "log 42:0bcdb099a81be718:[Konto] Spalte konten.token_ab nachgezogen",
+    "log 44:1f27737a280d0efa:[Konto] Spalte konten.spieler_ab nachgezogen",
+    "log 45:63bbb1146dd82dc1:[Konto] Spalte konten.profil_text nachgezogen",
+    "registry fly zone teleport spieler dungeon item spawn abbau admin kick bann entbann marke wetter",
+    "\"admin\" -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: admin liste | admin add <Name> | admin remove <Name>\"}",
+    "rights Admin=AF Gast=-- Editor=A- list=Admin",
+    "\"admin liste\" -> {\"ok\":true,\"active\":false,\"message\":\"1 dauerhafte Admins: Admin [<Admin>]\"}",
+    "rights Admin=AF Gast=-- Editor=A- list=Admin",
+    "log 65:a26bb210136965ad:[Admin] \"Editor\" — Rechte an der Liste nachgezog",
+    "\"admin add Wanderer\" -> {\"ok\":true,\"active\":false,\"message\":\"Wanderer [<Wanderer-w>] ist jetzt dauerhaft Admin\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin,Wanderer",
+    "\"admin add Doppel\" -> {\"ok\":false,\"active\":false,\"message\":\"Spieler nicht eindeutig gefunden\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin,Wanderer",
+    "\"admin add Niemand\" -> {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Spieler: \\\"Niemand\\\" (muss schon einmal verbunden gewesen sein)\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin,Wanderer",
+    "\"admin list\" -> {\"ok\":true,\"active\":false,\"message\":\"2 dauerhafte Admins: Admin [<Admin>], Wanderer [<Wanderer-w>]\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin,Wanderer",
+    "\"admin remove Wanderer\" -> {\"ok\":true,\"active\":false,\"message\":\"Wanderer [<Wanderer-w>] ist kein dauerhafter Admin mehr\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"admin remove Admin\" -> {\"ok\":false,\"active\":false,\"message\":\"Admin ist der letzte Admin. Erst \\\"admin add <Name>\\\" fuer jemand anderen, sonst steht der Server ohne Admin da.\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "log 62:da45e97efa7ab3b9:[Admin] \"Gast\" — Rechte an der Liste nachgezogen",
+    "\"admin add gast\" -> {\"ok\":true,\"active\":false,\"message\":\"gast [<Gast>] ist jetzt dauerhaft Admin\"}",
+    "rights Admin=AF Gast=A- Editor=-- list=Admin,gast",
+    "log 63:9b13dc799a107889:[Admin] \"Gast\" — Rechte an der Liste nachgezogen",
+    "\"admin remove Gast\" -> {\"ok\":true,\"active\":false,\"message\":\"Gast [<Gast>] ist kein dauerhafter Admin mehr\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"admin remove Fremd\" -> {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Spieler: \\\"Fremd\\\"\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"admin quatsch\" -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: admin liste | admin add <Name> | admin remove <Name>\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"kick\" -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: kick <Name>\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"kick admin\" -> {\"ok\":false,\"active\":false,\"message\":\"Dich selbst kannst du nicht werfen\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "call net.kick \"Gast\"",
+    "\"kick Gast\" -> {\"ok\":true,\"active\":false,\"message\":\"Gast wurde getrennt (kein Bann — er kann sofort wiederkommen)\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "call net.kick \"Niemand\"",
+    "\"kick Niemand\" -> {\"ok\":false,\"active\":false,\"message\":\"Niemand ist nicht verbunden\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"bann\" -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: bann <Name> [30m|2h|7d|dauerhaft] [Grund] | bann herkunft <Name> ... | bann liste\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"bann liste\" -> {\"ok\":true,\"active\":false,\"message\":\"Keine wirksamen Banns\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"bann ADMIN\" -> {\"ok\":false,\"active\":false,\"message\":\"Dich selbst kannst du nicht bannen\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"bann Zweit 2h\" -> {\"ok\":false,\"active\":false,\"message\":\"Zweit steht auf der Admin-Liste. Erst \\\"admin remove Zweit\\\", dann bannen — sonst sperrt man sich womoeglich den letzten Admin aus.\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "call net.trenneGebannte",
+    "\"bann Gast 2h Spam Bot\" -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Gast gebannt (bis 2.10.2026, 14:30:00, Spam Bot)\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "call net.trenneGebannte",
+    "\"bann herkunft Gast 30m\" -> {\"ok\":true,\"active\":false,\"message\":\"Herkunft von Gast gebannt (bis 2.10.2026, 13:00:00)\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"bann herkunft Editor\" -> {\"ok\":false,\"active\":false,\"message\":\"Editor ist nicht verbunden — eine Herkunft laesst sich nur an einer offenen Verbindung ablesen\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"bann ip Niemand\" -> {\"ok\":false,\"active\":false,\"message\":\"Niemand ist nicht verbunden — eine Herkunft laesst sich nur an einer offenen Verbindung ablesen\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "call net.trenneGebannte",
+    "\"bann Wanderer 7d\" -> {\"ok\":true,\"active\":false,\"message\":\"Wanderer gebannt (bis 9.10.2026, 12:30:00)\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"bann Doppel\" -> {\"ok\":false,\"active\":false,\"message\":\"Spieler nicht eindeutig gefunden\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"bann Niemand\" -> {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Spieler: \\\"Niemand\\\" (kein Konto dieses Namens und nie verbunden gewesen)\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "call net.trenneGebannte",
+    "\"bann Fremd dauerhaft\" -> {\"ok\":true,\"active\":false,\"message\":\"Konto von Fremd gebannt (dauerhaft)\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"bann liste\" -> {\"ok\":true,\"active\":false,\"message\":\"4 Banns: konto gastkonto (bis 2.10.2026, 14:30:00, Spam Bot); herkunft 198.51.100.4 (bis 2.10.2026, 13:00:00); spieler <Wanderer-w> (bis 9.10.2026, 12:30:00); konto fremdkonto (dauerhaft)\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"entbann\" -> {\"ok\":false,\"active\":false,\"message\":\"Aufruf: entbann <Name> | entbann herkunft <Adresse>\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"entbann Gast\" -> {\"ok\":true,\"active\":false,\"message\":\"Kontobann auf Gast aufgehoben\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"entbann Gast\" -> {\"ok\":false,\"active\":false,\"message\":\"Kein Bann auf Gast gefunden\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"entbann herkunft 198.51.100.4\" -> {\"ok\":true,\"active\":false,\"message\":\"Herkunftsbann auf 198.51.100.4 aufgehoben\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"entbann herkunft 198.51.100.4\" -> {\"ok\":false,\"active\":false,\"message\":\"Kein Herkunftsbann auf 198.51.100.4\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"entbann Wanderer\" -> {\"ok\":true,\"active\":false,\"message\":\"Spielerbann auf Wanderer aufgehoben\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"entbann Doppel\" -> {\"ok\":false,\"active\":false,\"message\":\"Spieler nicht eindeutig gefunden\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"entbann Fremd\" -> {\"ok\":true,\"active\":false,\"message\":\"Kontobann auf Fremd aufgehoben\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"entbann Niemand\" -> {\"ok\":false,\"active\":false,\"message\":\"Kein Bann auf Niemand gefunden\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"bann liste\" -> {\"ok\":true,\"active\":false,\"message\":\"Keine wirksamen Banns\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "\"bann Gast\" -> {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+    "rights Admin=AF Gast=-- Editor=-- list=Admin",
+    "log 63:9b13dc799a107889:[Admin] \"Gast\" — Rechte an der Liste nachgezogen",
+    "rights Admin=AF Gast=-- Editor=--",
+  ],
+};
+
 if (MESSEN_BASIS) {
   const attrappe = messeAttrappe();
   const echt = messeEcht();
@@ -1589,7 +2416,9 @@ if (MESSEN_BASIS) {
   const interEcht = messeInteraktionEcht();
   const chatAttrappe = messeChatAttrappe();
   const chatEcht = messeChatEcht();
-  process.stdout.write(`${JSON.stringify({ attrappe, echt, interAttrappe, interEcht, chatAttrappe, chatEcht }, null, 1)}\n`);
+  const befehleAttrappe = messeBefehleAttrappe();
+  const befehleEcht = messeBefehleEcht();
+  process.stdout.write(`${JSON.stringify({ attrappe, echt, interAttrappe, interEcht, chatAttrappe, chatEcht, befehleAttrappe, befehleEcht }, null, 1)}\n`);
   process.exit(0);
 }
 
@@ -1626,6 +2455,21 @@ console.log('\n[3] Behaviour of step 3: chest, appearance, figure and chat give 
   teil('chest/appearance/figure on a real instance through the forwardings', messeInteraktionEcht(), SOLL_INTERAKTION_ECHT);
   teil('chat on a stand-in', messeChatAttrappe(), SOLL_CHAT_ATTRAPPE);
   teil('chat on a real instance through the forwarding', messeChatEcht(), SOLL_CHAT_ECHT);
+}
+
+console.log('\n[4] Behaviour of step 1A: admin, kick, bann, entbann and the re-check of the rights give the numbers measured before the move');
+{
+  const gleich = (a: Aufzeichnung, b: Aufzeichnung): boolean => JSON.stringify(a) === JSON.stringify(b);
+  const teil = (titel: string, gemessen: Aufzeichnung, soll: Aufzeichnung): void => {
+    check(`${titel}: the packets sent, in order`, same(gemessen.paket, soll.paket), `${gemessen.paket.length} packets, expected ${soll.paket.length}; first difference: ${gemessen.paket.find((x, i) => x !== soll.paket[i])}`);
+    check(`${titel}: the calls into the context`, JSON.stringify(gemessen.aufrufe) === JSON.stringify(soll.aufrufe), JSON.stringify(gemessen.aufrufe));
+    check(`${titel}: the messages, the calls with their arguments and the rights after every command, in order`, same(gemessen.notizen, soll.notizen), `${gemessen.notizen.length} notes, expected ${soll.notizen.length}; first difference: ${gemessen.notizen.find((x, i) => x !== soll.notizen[i])}`);
+    check(`${titel}: the state numbers, the console output and the exceptions`, JSON.stringify([gemessen.zustand, gemessen.konsole, gemessen.ausnahmen]) === JSON.stringify([soll.zustand, soll.konsole, soll.ausnahmen]), JSON.stringify([gemessen.zustand, gemessen.konsole, gemessen.ausnahmen]));
+    check(`${titel}: all of it`, gleich(gemessen, soll));
+  };
+  teil('commands on a stand-in', messeBefehleAttrappe(), SOLL_BEFEHLE_ATTRAPPE);
+  teil('commands on a real instance through the registry and the forwardings', messeBefehleEcht(), SOLL_BEFEHLE_ECHT);
+  check('the clock and the time zone are restored after the measurements', Date.now === ECHTE_UHR && process.env['TZ'] === ECHTE_TZ);
 }
 
 console.log(failures === 0 ? `\n=== I1 form k: ALL PASSED (${total}) ===` : `\n=== I1 form k: ${failures} of ${total} FAILED ===`);

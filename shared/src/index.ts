@@ -15,6 +15,7 @@ export * from './protokollVersion.js';
 export * from './kreaturAnim.js';
 export * from './todTreffer.js';
 export * from './beute.js';
+export * from './beuteModell.js';
 export * from './types.js';
 export * from './protocol.js';
 export * from './hash.js';

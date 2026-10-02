@@ -2342,6 +2342,7 @@ export class WovServer {
   private static readonly TRUHE_INHALT_HASH = getStableHash(TRUHE_INHALT_MEMBER);
   private static readonly BESITZER_HASH = getStableHash('besitzer');
   private static readonly BEUTE_BESITZER_HASH = getStableHash(BEUTE_BESITZER);
+  private static readonly BEUTE_EXKLUSIV_HASH = getStableHash('beute_exklusiv'); // = BEUTE_EXKLUSIV_MEMBER (shared/beute.ts); no new import in this file
 
   /**
    * Ist `peer` selbst der ZDO-Owner (Satzkopf-Feld, heute nur beim
@@ -2364,6 +2365,8 @@ export class WovServer {
    * (`beute_besitzer`, die userId): der geht an KEINEN Client, auch nicht
    * an den Besitzer selbst, denn kein Client liest ihn, und fuer die
    * Entscheidung "darf aufheben" ist allein der Server zustaendig.
+   * `beute_exklusiv` bekommt jeder ausser dem Besitzer: "1" heisst fuer
+   * den Empfaenger "gehoert einem anderen", ohne dass eine Kennung mitreist.
    */
   private verdeckteMember(zdo: ZDO, peer: Peer): ReadonlySet<number> | undefined {
     const hatTruheInhalt = zdo.hasMember(WovServer.TRUHE_INHALT_HASH);
@@ -2372,6 +2375,7 @@ export class WovServer {
     if (!hatTruheInhalt && !hatBesitzerMember && !hatBeuteBesitzer) return undefined;
     const verdeckt = new Set<number>();
     if (hatBeuteBesitzer) verdeckt.add(WovServer.BEUTE_BESITZER_HASH);
+    if (hatBeuteBesitzer && zdo.getString(BEUTE_BESITZER) === peer.userId.toString()) verdeckt.add(WovServer.BEUTE_EXKLUSIV_HASH);
     if ((hatTruheInhalt || hatBesitzerMember) && !this.darfBenutzen(zdo, peer)) {
       if (hatTruheInhalt) verdeckt.add(WovServer.TRUHE_INHALT_HASH);
       if (hatBesitzerMember) verdeckt.add(WovServer.BESITZER_HASH);
@@ -2443,6 +2447,7 @@ export class WovServer {
           // trotzdem noch einmal in `baueModul` — dieses Bit ist eine
           // Auskunft, kein Recht.
           moduleBuild: this.config.dungeonsModulbau && peer.isAdmin,
+          admin: peer.isAdmin, // a hint for the UI only; every admin command is checked again on arrival
         })
       );
     });

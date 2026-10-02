@@ -14,6 +14,8 @@ export interface VerlaufQuelle {
   wiederholen(): boolean;
   readonly kannRueckgaengig: boolean;
   readonly kannWiederholen: boolean;
+  /** Drops the step that would be undone next from the history (it was refused and would block the older ones). */
+  verwirfRueckgaengig(): void;
 }
 
 /** Tags kept; the oldest falls off (both histories keep 100 steps each). */
@@ -24,11 +26,20 @@ export class VerlaufReihenfolge {
   private readonly vor: Werkzeugart[] = [];
   private quellen: Record<Werkzeugart, VerlaufQuelle> | null = null;
   private nichts: ((art: 'rueckgaengig' | 'wiederholen') => void) | null = null;
+  private verworfen: ((art: Werkzeugart) => void) | null = null;
 
-  /** `nichts` says "nothing to undo / redo" (HUD) when no history has a step left. */
-  verbinde(quellen: Record<Werkzeugart, VerlaufQuelle>, nichts?: (art: 'rueckgaengig' | 'wiederholen') => void): void {
+  /**
+   * `nichts` says "nothing to undo / redo" (HUD) when no history has a step left; `verworfen` says that a refused
+   * undo step was taken out of the order and its history (the refusal itself was already said by the history).
+   */
+  verbinde(
+    quellen: Record<Werkzeugart, VerlaufQuelle>,
+    nichts?: (art: 'rueckgaengig' | 'wiederholen') => void,
+    verworfen?: (art: Werkzeugart) => void
+  ): void {
     this.quellen = quellen;
     this.nichts = nichts ?? null;
+    this.verworfen = verworfen ?? null;
   }
 
   /** A stroke of this tool is now in its history and in the draft. A new stroke ends the redo line. */
@@ -67,7 +78,13 @@ export class VerlaufReihenfolge {
         }
         // The attempt failed (lock, conflict) and said why. This key press ends here: it is NOT passed on to an older
         // stroke of the other tool. A history that emptied itself on the way leaves a stale tag, which goes.
-        if (!kann(w)) quelle.pop();
+        quelle.pop();
+        if (kann(w) && art === 'rueckgaengig') {
+          // A refused undo step would block every older step of BOTH tools for good: it leaves the order and its
+          // history, the next Ctrl+Z takes the next older stroke. A refused redo blocks no undo and stays.
+          q[w].verwirfRueckgaengig();
+          this.verworfen?.(w);
+        } else if (kann(w)) quelle.push(w);
         return false;
       }
       quelle.pop();

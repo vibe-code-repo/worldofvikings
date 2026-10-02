@@ -800,6 +800,8 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     const gelaendeAktionen = new GelaendeAktionen(persistenz);
     // Strg+Z/Y über beide Werkzeuge: der zuletzt gemachte Strich zuerst (die Verläufe selbst bleiben getrennt).
     const reihenfolge = new VerlaufReihenfolge();
+    /** Die letzte Meldung der Pinsel: ein verworfener Schritt hängt seinen Hinweis an den Grund der Verweigerung. */
+    let letzteMeldung = '';
     const foliageNamen: ReadonlySet<string> = new Set(FOLIAGE.map((f) => f.prefabName));
     const sperrKatalog: SperrKatalog = {
       def: (n) => findPrefabByName(n),
@@ -850,7 +852,10 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       katalog: sperrKatalog,
       aktionen: gelaendeAktionen,
       einstellung: () => panel.gelaendeEinstellung,
-      meldung: (text) => hud.meldung(text),
+      meldung: (text) => {
+        letzteMeldung = text;
+        hud.meldung(text);
+      },
       kreis: kreisAnzeige,
       // Der Boden unter losen Objekten hat sich bewegt: nur diese neu aufsetzen (Gebäude und Sockel bleiben, wie sie sind).
       pipetteAnzeige: (an) => panel.setzePipetteBereit(an),
@@ -871,12 +876,15 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
     vegetationPinsel = new VegetationSteuerung({
       aktionen: new VegetationAktionen(persistenz),
       einstellung: () => ({ radius: panel.gelaendeEinstellung.radius, nurBaeume: panel.vegetationEinstellung.nurBaeume }),
-      meldung: (text) => hud.meldung(text),
+      meldung: (text) => {
+        letzteMeldung = text;
+        hud.meldung(text);
+      },
       kreis: kreisAnzeige,
       strichGemacht: () => reihenfolge.neu('vegetation'),
     });
     const vegPinsel = vegetationPinsel;
-    reihenfolge.verbinde({ gelaende, vegetation: vegPinsel }, (art) => hud.meldung(t(art === 'rueckgaengig' ? 'testflug.gelaende.nichts_rueckgaengig' : 'testflug.gelaende.nichts_wiederholen')));
+    reihenfolge.verbinde({ gelaende, vegetation: vegPinsel }, (art) => hud.meldung(t(art === 'rueckgaengig' ? 'testflug.gelaende.nichts_rueckgaengig' : 'testflug.gelaende.nichts_wiederholen')), () => hud.meldung(`${letzteMeldung} — ${t('testflug.gelaende.schritt_verworfen')}`));
     /** Strich offen (Maustaste unten im Gelände-Reiter) und der letzte Zeigerpunkt, für den Halte-Takt. */
     let gelaendeUnten = false;
     let gelaendeZeiger: { x: number; y: number } | null = null;

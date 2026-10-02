@@ -331,7 +331,7 @@ function viele4097(): Kreis[] {
     for (let i = 1; i <= 40; i++) z.steuerung.bewegen({ x: (100 * i) / 40 + rnd(), z: rnd() });
     z.steuerung.loslassen();
   }
-  pruefe(z.e.kreise().length <= 2 * nEinzel, `9: 20 Striche mit 0,5 m Zittern: ${z.e.kreise().length} Kreise, höchstens das Doppelte eines Strichs (${nEinzel})`);
+  pruefe(z.e.kreise().length <= 5 * nEinzel, `9: 20 Striche mit 0,5 m Zittern: ${z.e.kreise().length} Kreise (Einzelstrich ${nEinzel}); Warnschwelle 5 ×, keine feste Obergrenze (Korrektheit geht vor)`);
   // Eine Pflanze am Rand eines leicht versetzten Strichs wird trotzdem entfernt
   const r = aufbau({ placements: [], vegetationEntfernt: [{ x: 0, z: 0, r: 6 }] }, { radius: 6, nurBaeume: false });
   r.steuerung.druecken({ x: 0.5, z: 0 });
@@ -381,6 +381,9 @@ function viele4097(): Kreis[] {
         q.stapel.push(x);
         log.push(`y:${x}`);
         return true;
+      },
+      verwirfRueckgaengig(): void {
+        q.stapel.pop();
       },
       get kannRueckgaengig(): boolean {
         return q.stapel.length > 0;
@@ -439,7 +442,7 @@ function viele4097(): Kreis[] {
   const r3 = new VerlaufReihenfolge();
   r3.verbinde({ gelaende: b3, vegetation: falsch('V') });
   b3.neu(); r3.neu('gelaende');
-  pruefe(!r3.rueckgaengig() && r3.tiefe.rueckgaengig === 1, '9: ein verweigerter Schritt (Sperre) bleibt in der Reihenfolge stehen');
+  pruefe(!r3.rueckgaengig() && r3.tiefe.rueckgaengig === 0 && b3.stapel.length === 0, '9: ein verweigerter Rückgängig-Schritt (Sperre) verlässt Reihenfolge und Verlauf (Z2, siehe Abschnitt 11)');
 
   // Befund 5: Testlücken
   const entlang = stempelEntlang({ x: 0, z: 0 }, { x: 7, z: 0 }, 5);
@@ -508,7 +511,7 @@ function viele4097(): Kreis[] {
   pruefe(ja > 100 && schlimmster <= 0.04, `10: R1: ${ja} übersprungene Stempel, ungeräumt höchstens ${(schlimmster * 100).toFixed(2)} % der Stempelfläche (Grenze 4 %)`);
   // Randpflanze eines versetzten Stempels zwischen mehreren Basiskreisen
   const basis3: Kreis[] = [{ x: 0, z: 0, r: 10 }, { x: 2, z: 1, r: 10 }, { x: -2, z: 1.5, r: 10 }];
-  pruefe(!abgedeckt(basis3, { x: 0.3, z: -1.2, r: 10 }), '10: R1: ein Stempel, dessen Rand unten über die Basiskreise ragt, wird gelegt');
+  pruefe(!abgedeckt(basis3, { x: 0.3, z: -1.2, r: 10 }), '10: ein Stempel, dessen Rand unten über die Basiskreise ragt, wird gelegt');
   // Zittern: Kreiszahl erneut (Zahl für den Bericht)
   let zufall = 4242;
   const rnd = (): number => ((zufall = (zufall * 1103515245 + 12345) % 2147483648) / 2147483648 - 0.5);
@@ -521,7 +524,18 @@ function viele4097(): Kreis[] {
     zz.steuerung.loslassen();
   }
   console.log(`  (Zittern 0,5 m: ${zz.e.kreise().length} Kreise nach 20 Strichen, Einzelstrich ${ein.e.kreise().length})`);
-  pruefe(zz.e.kreise().length <= 2 * ein.e.kreise().length, `10: R1: 20 Striche mit 0,5 m Zittern: ${zz.e.kreise().length} Kreise ≤ 2 × ${ein.e.kreise().length}`);
+  pruefe(zz.e.kreise().length <= 5 * ein.e.kreise().length, `10: 20 Striche mit 0,5 m Zittern, r = 10: ${zz.e.kreise().length} Kreise (Einzelstrich ${ein.e.kreise().length}); keine feste Obergrenze, nur eine Warnschwelle bei 5 ×`);
+  // dasselbe mit r = 2 (das Zittern ist dort 25 % des Radius)
+  const klein = aufbau(undefined, { radius: 2, nurBaeume: false });
+  ziehe(klein, [0, 0], [100, 0]);
+  const kleinZ = aufbau(undefined, { radius: 2, nurBaeume: false });
+  for (let s2 = 0; s2 < 20; s2++) {
+    kleinZ.steuerung.druecken({ x: rnd(), z: rnd() });
+    for (let i = 1; i <= 100; i++) kleinZ.steuerung.bewegen({ x: i + rnd(), z: rnd() });
+    kleinZ.steuerung.loslassen();
+  }
+  console.log(`  (Zittern 0,5 m, r = 2: ${kleinZ.e.kreise().length} Kreise nach 20 Strichen, Einzelstrich ${klein.e.kreise().length})`);
+  pruefe(kleinZ.e.kreise().length < VEGETATION_KREISE_MAX && kleinZ.e.kreise().length >= klein.e.kreise().length, `10: 20 Striche mit 0,5 m Zittern, r = 2: ${kleinZ.e.kreise().length} Kreise, unter der Grenze von 4096`);
 
   // R2: ein Schritt, der seinen Verlauf selbst leert, wird nicht an das andere Werkzeug weitergereicht
   const mk = (name: string) => {
@@ -530,6 +544,7 @@ function viele4097(): Kreis[] {
       geleert: false,
       kannRueckgaengig: true,
       kannWiederholen: false,
+      verwirfRueckgaengig: (): void => undefined,
       rueckgaengig(): boolean {
         if (q.geleert) {
           q.stapel.length = 0;
@@ -556,7 +571,7 @@ function viele4097(): Kreis[] {
   pruefe(rr.rueckgaengig() === true && vv.stapel.length === 1 && rr.tiefe.rueckgaengig === 1, '10: R2: erst der NÄCHSTE Druck überspringt das tote Gelände-Tag und nimmt den Bewuchs-Strich zurück');
 
   // R3: die Kappe der Reihenfolge ist 200 Schritte
-  const a1 = { n: 0, kannRueckgaengig: true, kannWiederholen: false, rueckgaengig(): boolean { a1.n++; return true; }, wiederholen: (): boolean => false };
+  const a1 = { n: 0, kannRueckgaengig: true, kannWiederholen: false, verwirfRueckgaengig: (): void => undefined, rueckgaengig(): boolean { a1.n++; return true; }, wiederholen: (): boolean => false };
   const r4 = new VerlaufReihenfolge();
   r4.verbinde({ gelaende: a1, vegetation: a1 });
   for (let i = 0; i < REIHENFOLGE_MAX + 50; i++) r4.neu(i % 2 ? 'gelaende' : 'vegetation');
@@ -564,6 +579,72 @@ function viele4097(): Kreis[] {
   let n = 0;
   while (r4.rueckgaengig() && n < 1000) n++;
   pruefe(n === 200 && a1.n === 200, `10: R3: 200 Schritte lassen sich zurücknehmen (${n})`);
+}
+
+// ── 11. N3: Löcher zwischen Kreisen, verweigerte Schritte ─────────────────────
+{
+  // Z1: ein gemalter Ring (R = 12, 16 Stempel, r = 10) und ein Klick in der Mitte: der Stempel wird gelegt
+  const ring: Kreis[] = Array.from({ length: 16 }, (_, i) => ({ x: +(12 * Math.cos((2 * Math.PI * i) / 16)).toFixed(2), z: +(12 * Math.sin((2 * Math.PI * i) / 16)).toFixed(2), r: 10 }));
+  pruefe(!abgedeckt(ring, { x: -1, z: -1, r: 10 }), '11: Z1: Ring aus 16 Stempeln (R = 12, r = 10): der Klick bei (−1, −1) wird NICHT übersprungen');
+  const rg = aufbau({ placements: [], vegetationEntfernt: ring });
+  rg.steuerung.druecken({ x: -1, z: -1 });
+  rg.steuerung.loslassen();
+  pruefe(rg.e.kreise().length === 17, `11: Z1: … und steht danach im Entwurf (${rg.e.kreise().length} Kreise)`);
+  // Z1 Test 2: nur durch die Vereinigung mehrerer Kreise gedeckt: gelegt
+  pruefe(!abgedeckt([{ x: -3, z: 0, r: 10 }, { x: 3, z: 0, r: 10 }], { x: 0, z: 0, r: 12 }) && !abgedeckt([{ x: -4, z: 0, r: 8 }, { x: 4, z: 0, r: 8 }], { x: 0, z: 0, r: 5 }), '11: Z1: ein Stempel, der nur durch die Vereinigung zweier Kreise gedeckt ist, wird gelegt');
+  pruefe(abgedeckt([{ x: 0, z: 0, r: 10 }], { x: 3, z: 0, r: 7 }) && abgedeckt([{ x: 5, z: 5, r: 10 }, { x: 0, z: 0, r: 10 }], { x: 0.5, z: 0, r: 10 }), '11: Z1: ein einzelner Kreis, der den Stempel (mit 6 % Toleranz) enthält, genügt');
+
+  // Z2: ein verweigerter Rückgängig-Schritt blockiert die älteren Striche nicht dauerhaft
+  const mk2 = (name: string, verweigert: boolean) => {
+    const q = {
+      stapel: [`${name}1`, `${name}2`] as string[],
+      vorn: [] as string[],
+      verweigert,
+      get kannRueckgaengig(): boolean {
+        return q.stapel.length > 0;
+      },
+      get kannWiederholen(): boolean {
+        return q.vorn.length > 0;
+      },
+      rueckgaengig(): boolean {
+        if (q.verweigert) return false;
+        q.vorn.push(q.stapel.pop()!);
+        return true;
+      },
+      wiederholen(): boolean {
+        if (q.verweigert) return false;
+        q.stapel.push(q.vorn.pop()!);
+        return true;
+      },
+      verwirfRueckgaengig(): void {
+        q.stapel.pop();
+      },
+    };
+    return q;
+  };
+  const gq = mk2('G', true);
+  const vq = mk2('V', false);
+  const ro = new VerlaufReihenfolge();
+  const verworfen: string[] = [];
+  ro.verbinde({ gelaende: gq, vegetation: vq }, undefined, (w) => verworfen.push(w));
+  ro.neu('vegetation'); ro.neu('vegetation'); ro.neu('gelaende');
+  pruefe(!ro.rueckgaengig() && vq.stapel.length === 2 && verworfen.join() === 'gelaende', '11: Z2: der verweigerte Schritt (Sperre) tut sonst nichts: false, der Bewuchs bleibt, der Hinweis „verworfen“ kommt');
+  pruefe(gq.stapel.length === 1 && ro.tiefe.rueckgaengig === 2, '11: Z2: er ist aus der Reihenfolge UND aus seinem Verlauf genommen (der nächstältere Geländestrich ist nicht mehr blockiert)');
+  pruefe(ro.rueckgaengig() && vq.stapel.length === 1, '11: Z2: der NÄCHSTE Strg+Z nimmt den nächstälteren Strich (Bewuchs)');
+  // refused redo blocks no undo
+  const g2 = mk2('G', false);
+  const v2b = mk2('V', false);
+  const r5 = new VerlaufReihenfolge();
+  r5.verbinde({ gelaende: g2, vegetation: v2b });
+  r5.neu('gelaende'); r5.neu('vegetation');
+  r5.rueckgaengig();
+  v2b.verweigert = true; // das Wiederholen an der Grenze 4096 wird abgelehnt
+  pruefe(!r5.wiederholen() && r5.tiefe.wiederholen === 1, '11: Z2: ein verweigertes Wiederholen bleibt stehen (kein Verwerfen)');
+  v2b.verweigert = false;
+  pruefe(r5.rueckgaengig() && g2.stapel.length === 1 && g2.vorn.length === 1, '11: Z2: … und blockiert das Rückgängig nicht (der Geländestrich wird zurückgenommen)');
+  // Verdrahtung
+  const tf3 = readFileSync(resolve(HIER, '../src/editor/testflug/Testflug.ts'), 'utf-8');
+  pruefe(/schritt_verworfen/.test(tf3) && /verwirfRueckgaengig\(\): void/.test(readFileSync(resolve(HIER, '../src/editor/testflug/GelaendeSteuerung.ts'), 'utf-8')) && /verwirfRueckgaengig\(\): void/.test(readFileSync(resolve(HIER, '../src/editor/testflug/vegetationSteuerung.ts'), 'utf-8')), '11: Z2: Testflug.ts meldet den verworfenen Schritt; beide Steuerungen können ihren Verlauf kürzen');
 }
 
 // ── 8. Kern des Strichs, Tasten, Verdrahtung, Texte ─────────────────────────

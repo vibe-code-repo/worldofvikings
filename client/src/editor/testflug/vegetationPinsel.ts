@@ -32,34 +32,22 @@ const rundeCm = (v: number): number => Math.round(v * 100) / 100;
 export const gleicherKreis = (a: VegetationEntferntKreis, b: VegetationEntferntKreis): boolean =>
   a.x === b.x && a.z === b.z && a.r === b.r && (a.nur ?? null) === (b.nur ?? null);
 
-/** A sample point still counts as covered when it lies this far (share of the radius) outside the circles. */
+/** A stamp counts as inside an earlier circle when it sticks out by at most this share of its own radius. */
 export const RAND_TOLERANZ = 0.06;
 
-/** Fixed sample points of a circle (fractions of its radius): the middle, three inner rings and a dense rim ring. */
-const PROBEN: ReadonlyArray<readonly [number, number]> = (() => {
-  const p: Array<[number, number]> = [[0, 0]];
-  for (const [anteil, n] of [[0.4, 8], [0.7, 16], [0.9, 24], [1, 32]] as const) {
-    for (let i = 0; i < n; i++) p.push([anteil * Math.cos((2 * Math.PI * i) / n), anteil * Math.sin((2 * Math.PI * i) / n)]);
-  }
-  return p;
-})();
-
 /**
- * Is `neu` covered by circles of the same effect (same `nur`)? Covered means ALL of its 81 sample points (the middle,
- * three inner rings and 32 points on the rim) lie inside them, give or take `RAND_TOLERANZ` of the radius (at most
- * about 4 % of the stamp's area stays out). Without the tolerance a hand that wobbles by half a metre would lay a new
- * circle on every pass (about 8 times the circles of one stroke after 20 passes); with it, about twice. A circle for everything does not count for a trees-only one: undoing it
- * would otherwise change what the trees-only stroke showed.
+ * Is `neu` covered by ONE circle of the same effect (same `nur`)? Covered means `abstand + r_neu <= r_alt + 6 % of
+ * r_neu`: the stamp lies inside the older circle, give or take a sliver of at most 6 % of its radius (about 4 % of its
+ * area at worst). Only a single circle counts, never the union of several: between several circles holes can remain
+ * that no finite set of sample points finds (a ring of stamps with a click in the middle), and a skipped stamp would
+ * leave a plant standing. Without the tolerance a hand that wobbles by half a metre would lay a new circle on
+ * every pass. A circle for everything does not count for a trees-only one: undoing it would otherwise change what
+ * the trees-only stroke showed.
  */
 export function abgedeckt(vorhanden: readonly VegetationEntferntKreis[], neu: VegetationEntferntKreis): boolean {
-  const nah = vorhanden.filter((k) => (k.nur ?? null) === (neu.nur ?? null) && Math.hypot(k.x - neu.x, k.z - neu.z) < k.r + neu.r);
-  if (nah.length === 0) return false;
-  for (const [fx, fz] of PROBEN) {
-    const x = neu.x + fx * neu.r;
-    const z = neu.z + fz * neu.r;
-    if (!nah.some((k) => Math.hypot(x - k.x, z - k.z) <= k.r + RAND_TOLERANZ * neu.r + 1e-9)) return false;
-  }
-  return true;
+  return vorhanden.some(
+    (k) => (k.nur ?? null) === (neu.nur ?? null) && Math.hypot(k.x - neu.x, k.z - neu.z) + neu.r <= k.r + RAND_TOLERANZ * neu.r + 1e-9
+  );
 }
 
 /**

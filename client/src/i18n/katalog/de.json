@@ -328,6 +328,7 @@
   "testflug.gelaende.reiter_gelaende": "Gelände",
   "testflug.gelaende.reiter_objekte": "Objekte",
   "testflug.gelaende.rueckgaengig": "Strich rückgängig ({n} Punkte)",
+  "testflug.gelaende.schritt_verworfen": "Schritt aus dem Verlauf genommen, Strg+Z geht jetzt zum nächstälteren Strich",
   "testflug.gelaende.speichern": "In Welt speichern",
   "testflug.gelaende.speichern_neustart": "Speichern & neu starten",
   "testflug.gelaende.sperre.gebaeude": "Gebäude",

@@ -54,6 +54,11 @@ export class VegetationVerlauf {
     return v;
   }
 
+  /** Drops the step that would be undone next (it cannot be undone: refused), so the next older one is next. */
+  verwerfeRueckgaengig(): void {
+    this.zurueck.pop();
+  }
+
   /** The draft was changed from outside: what the steps refer to may be gone. */
   leeren(): void {
     this.zurueck.length = 0;

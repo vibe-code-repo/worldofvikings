@@ -207,6 +207,11 @@ export class GelaendeSteuerung {
     return this.verlauf.kannRueckgaengig;
   }
 
+  /** The shared order drops the refused step from this history too. */
+  verwirfRueckgaengig(): void {
+    this.verlauf.verwerfeRueckgaengig();
+  }
+
   get kannWiederholen(): boolean {
     return this.verlauf.kannWiederholen;
   }

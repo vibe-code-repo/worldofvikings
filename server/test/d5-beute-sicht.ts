@@ -180,6 +180,59 @@ async function main(): Promise<void> {
     }
   }
 
+  // N5-Z2: the server decides from the member the clients see (`beute_exklusiv`), and the member flips at the first tick at or after the end, not once a second.
+  console.log('[4c] Server and client read the same state at the end of the window');
+  {
+    const T0 = 1_800_000_000_000;
+    const E = BEUTE_EXKLUSIV_MS;
+    const neu = () => {
+      const raum = new ZDOManager(1n);
+      const boden = new BeuteAmBoden();
+      const uhr = { t: T0 };
+      (boden as unknown as { jetzt: () => number }).jetzt = () => uhr.t;
+      const kuh = raum.createZDO(getStableHash('Kuh'), { x: 0, y: 0, z: 0 });
+      boden.schaden(kuh, '4711', 10);
+      boden.legeAb(raum, kuh, [{ name: 'RawMeat', amount: 1 }]);
+      return { boden, uhr, z: raum.getZDOByPrefab(getStableHash('RawMeat'))[0]! };
+    };
+    {
+      const { boden, uhr, z } = neu();
+      uhr.t = T0 + E; // the clock is past the end, no tick yet: the member still says 1, so the server does not free it either
+      check('clock at the end, no tick yet: member 1 and a stranger may not yet (same state for both)', z.getInt(BEUTE_EXKLUSIV) === 1 && !boden.darfAufheben(z, '4712'));
+      boden.tick();
+      check('... after the next tick: member 0 and a stranger may', z.getInt(BEUTE_EXKLUSIV) === 0 && boden.darfAufheben(z, '4712'));
+    }
+    {
+      const { boden, uhr, z } = neu();
+      let verschieden = 0;
+      let kippt = -1;
+      for (let t = E - 40; t <= E + 40; t++) { // every millisecond around the end, a tick each (the real loop ticks every 33 ms)
+        uhr.t = T0 + t;
+        boden.tick();
+        const client = z.getInt(BEUTE_EXKLUSIV) === 0; // what a client reads (not foreign)
+        const server = boden.darfAufheben(z, '4712');
+        if (client !== server) verschieden++;
+        if (client && kippt < 0) kippt = t;
+      }
+      check('1 ms steps around the end: server and client never judge differently', verschieden === 0, String(verschieden));
+      check('... and the member flips at the first tick at or after the end (t = E)', kippt === E, String(kippt - E));
+    }
+    {
+      const { boden, uhr, z } = neu();
+      uhr.t = T0 + E - 1;
+      boden.tick(); // the once-a-second housekeeping ran 1 ms before the end
+      uhr.t = T0 + E;
+      boden.tick(); // 1 ms later: the flip must not wait for the next second
+      check('a tick 1 ms after another one flips at once (the flip is not throttled to once a second)', z.getInt(BEUTE_EXKLUSIV) === 0 && boden.darfAufheben(z, '4712'));
+    }
+    {
+      const { boden, uhr, z } = neu();
+      uhr.t = T0 + E - 1;
+      boden.tick();
+      check('the owner may at any time, a stranger not before the end', boden.darfAufheben(z, '4711') && !boden.darfAufheben(z, '4712'));
+    }
+  }
+
   const server = createWovServer({ port: 0, everyoneAdmin: true, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'd5-beute-sicht', saveIntervalMs: 3600_000 });
   server.start();
   PORT = portVon(server);

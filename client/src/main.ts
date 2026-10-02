@@ -2228,7 +2228,7 @@ async function main() {
       const worldGenVersion = reader.readInt32();
       const flags = reader.readUInt8(); eSitzung.serverConfig(flags); // the rights of this login (FLAG_ADMIN)
       console.log(
-        `[Client] ServerConfig: world "${worldName}", seed "${worldSeed}", gen v${worldGenVersion}, flags 0b${flags.toString(2).padStart(7, '0')}`
+        `[Client] ServerConfig: world "${worldName}", seed "${worldSeed}", gen v${worldGenVersion}, flags 0b${flags.toString(2).padStart(8, '0')}`
       );
       const settings = {
         worldGenVersion,

@@ -24,7 +24,9 @@ function handleAdminCommand(k: AdminPaketeKontext, peer: Peer, reader: Reader): 
   const line = reader.readString();
   const result = k.adminCommands.execute(peer, line);
 
-  const command = line.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+  const wort = line.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+  // `adminrechte` is the name of the live rights packet (`gleicheAdminrechteAb`): the answer to a typed command never carries it (the client takes it as a grant or withdrawal)
+  const command = wort === 'adminrechte' ? 'admin' : wort;
   peer.sendPacketWith(PacketType.AdminEvent, (w) => {
     w.writeString(command);
     w.writeBool(result.active);

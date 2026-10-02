@@ -180,12 +180,15 @@ export class BeuteAmBoden {
 
   /**
    * May the owner key `kennung` pick `zdo` up? Anything that is not loot: yes (the normal pick-up path decides).
-   * Loot: the owner, anybody when it has no owner, anybody after the exclusive time.
+   * Loot: the owner, anybody when it has no owner, anybody once the window is over. The window is read from the SAME state the
+   * clients see (`beute_exklusiv`, flipped to 0 by `tick` at the first server tick at or after `beute_frei_ab`), not from the clock:
+   * the server never frees a piece a client still aims past as foreign, apart from the sync of that one delta. The largest delay
+   * against the clock is one server tick (1/30 s, `update()`) plus that sync.
    */
   darfAufheben(zdo: ZDO, kennung: string): boolean {
     if (!this.istBeute(zdo)) return true;
     const besitzer = zdo.getString(BEUTE_BESITZER);
-    return besitzer === '' || besitzer === kennung || this.jetzt() >= Number(zdo.getLong(BEUTE_FREI_AB));
+    return besitzer === '' || besitzer === kennung || zdo.getInt(BEUTE_EXKLUSIV) === 0;
   }
 
   /**
@@ -208,6 +211,12 @@ export class BeuteAmBoden {
   /** Once a second: destroy loot past its life, forget picked-up loot and stale damage tallies. */
   tick(): void {
     const jetzt = this.jetzt();
+    // The window flip runs on EVERY call (30 per second), not only once a second: `darfAufheben` reads the flipped member.
+    for (const s of this.stuecke.values()) {
+      if (!s.zdo.destroyed && s.zdo.getInt(BEUTE_EXKLUSIV) === 1 && jetzt >= Number(s.zdo.getLong(BEUTE_FREI_AB))) {
+        s.zdo.setInt(BEUTE_EXKLUSIV, 0); // the window is over: the clients aim at it again (`setMember` revises the data and marks it dirty)
+      }
+    }
     if (jetzt - this.letzterTick < 1000 && jetzt >= this.letzterTick) return;
     this.letzterTick = jetzt;
     for (const [id, s] of this.stuecke) {
@@ -216,8 +225,6 @@ export class BeuteAmBoden {
       } else if (jetzt >= Number(s.zdo.getLong(BEUTE_ABLAUF))) {
         s.raum.destroyZDO(s.zdo.zdoid);
         this.stuecke.delete(id);
-      } else if (s.zdo.getInt(BEUTE_EXKLUSIV) === 1 && jetzt >= Number(s.zdo.getLong(BEUTE_FREI_AB))) {
-        s.zdo.setInt(BEUTE_EXKLUSIV, 0); // the window is over: the clients aim at it again (`setMember` revises the data and marks it dirty)
       }
     }
     for (const [id, a] of this.anteile) {

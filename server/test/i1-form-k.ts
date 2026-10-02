@@ -3741,7 +3741,7 @@ const SOLL_BEFEHLE_ECHT: Aufzeichnung = {
   ],
 };
 
-/** Step 1A after the attack (I11A-B1, B2), measured on `bd94dfc7` before the move (`--messen-basis`). */
+/** Step 1A after the attack (I11A-B1, B2), measured on `bd94dfc7` before the move (`--messen-basis`). Exception: the 3 `AdminEvent` lines (`adminrechte`, 40/48/48 bytes) were re-measured on c5a9a8c0 + D5 N4 (the live rights packet got its own command name); all other lines are as measured on `bd94dfc7`. */
 const SOLL_BEFEHLE_N1_ATTRAPPE: Aufzeichnung = {
   paket: [
     "Anna Maria:AdminEvent:[\"adminrechte\",true,\"Du hast jetzt Adminrechte.\",0]:40:75e936abca20fc2b",

@@ -18,6 +18,7 @@ import ts from 'typescript';
 import { eOhneZiel, DUNGEON_BETRETEN_M, DUNGEON_VERLASSEN_M } from '../src/player/eOhneZiel';
 import { FLAG_ADMIN, FLAG_MODULE_BUILD } from '@wov/shared';
 import { ESitzung } from '../src/player/eSitzung';
+import * as flaggen from '../../shared/src/serverConfigFlags';
 
 let fehler = 0;
 const pruefe = (bedingung: boolean, text: string, detail = ''): void => {
@@ -50,8 +51,18 @@ pruefe(eOhneZiel(lage({ ...nahEingang, istAdmin: false })) === 'nichts', 'Z4: at
 pruefe(eOhneZiel(lage({ ...nahEingang, istAdmin: true })) === 'dungeon-enter', 'Z4: an admin at a real entrance enters');
 pruefe(eOhneZiel(lage({ istAdmin: true })) === 'nichts', 'Z4: an admin with no entrance within 16 m: nothing');
 pruefe(eOhneZiel(lage({ eingaenge: [{ x: 100 + DUNGEON_BETRETEN_M + 0.5, z: 120 }], istAdmin: true })) === 'nichts', 'Z4: an admin 16.5 m from the entrance: nothing');
-pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: 12, z: 20 }, istAdmin: false })) === 'dungeon-leave', 'Z4: in a dungeon the missing flag does not hide `dungeon leave` (a player who is inside can get out)');
-pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: 90, z: 90 }, istAdmin: false })) === 'hinweis-eingang', 'Z4: nor the hint far from the entry');
+pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: 12, z: 20 }, istAdmin: false })) === 'nichts', 'N5-Z1: in a dungeon at the entry point without the flag: nothing (the server would refuse `dungeon leave`)');
+pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: 90, z: 90 }, istAdmin: false })) === 'nichts', 'N5-Z1: nor the hint far from the entry');
+pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: 12, z: 20 }, istAdmin: true })) === 'dungeon-leave', 'N5-Z1: an admin in a dungeon at the entry point: `dungeon leave`');
+pruefe(eOhneZiel(lage({ imDungeon: true, pos: { x: 90, z: 90 }, istAdmin: true })) === 'hinweis-eingang', 'N5-Z1: an admin far from the entry: the hint');
+{
+  const s = new ESitzung(() => undefined);
+  const imDungeonLage = { imDungeon: true, pos: { x: 12, z: 20 }, dungeonSpawn: { x: 10, z: 20 }, eingaenge: [] };
+  s.serverConfig(FLAG_ADMIN);
+  pruefe(s.aktion(imDungeonLage) === 'dungeon-leave', 'N5-Z1: session, admin in a dungeon: leave');
+  s.adminEreignis('adminrechte', false, '');
+  pruefe(s.aktion(imDungeonLage) === 'nichts', 'N5-Z1: rights withdrawn while in the dungeon: E sends nothing at the exit');
+}
 let nachgeladen = 0;
 const sitzung = new ESitzung(() => { nachgeladen++; });
 const lageEingang = { imDungeon: false, pos: { x: 100, z: 120 }, dungeonSpawn: { x: 10, z: 20 }, eingaenge: [{ x: 105, z: 120 }] };
@@ -79,6 +90,16 @@ pruefe(nachgeladen === 0, 'the reset callback did not run before a connection');
 sitzung.neueVerbindung();
 pruefe(nachgeladen === 1 && !sitzung.istAdmin && sitzung.aktion(lageEingang) === 'nichts', 'Z4: a new connection (PeerInfo) runs the callback once and forgets the rights (ServerConfig sets them again)');
 pruefe(FLAG_ADMIN === 128, 'the admin bit is bit 7');
+// N5-Z3: the flag byte is full. Every flag fits into a UInt8 and no two share a bit.
+{
+  const alle = Object.entries(flaggen).filter(([n, v]) => n.startsWith('FLAG_') && typeof v === 'number') as Array<[string, number]>;
+  pruefe(alle.length === 8, 'N5-Z3: the module defines 8 flags (a ninth needs a wider field first)', alle.map(([n]) => n).join(','));
+  pruefe(alle.every(([, v]) => Number.isInteger(v) && v >= 1 && v <= 0xff && (v & (v - 1)) === 0), 'N5-Z3: every flag is a single bit that fits into a UInt8', alle.map(([n, v]) => `${n}=${v}`).join(' '));
+  pruefe(new Set(alle.map(([, v]) => v)).size === alle.length, 'N5-Z3: no two flags share a bit');
+  pruefe(alle.reduce((a, [, v]) => a | v, 0) === 0xff, 'N5-Z3: the byte is full (all 8 bits taken)');
+  const voll = flaggen.serverConfigFlags({ blendSmoothStep: true, bilinearHeight: true, ashlandsModernNoise: true, riverAffectsOcean: true, disableDistantRivers: true, layoutMode: true, moduleBuild: true, admin: true });
+  pruefe(voll === 0xff, 'N5-Z3: all sources on give exactly 0xff', String(voll));
+}
 
 const quelle = readFileSync(resolve(import.meta.dirname, '../src/main.ts'), 'utf8');
 const zeilen = quelle.split('\n').length - 1;
@@ -155,6 +176,7 @@ if (arg && ts.isObjectLiteralExpression(arg)) {
 const erwartet: Record<string, string> = { imDungeon: 'imDungeon', pos: 'player.position', dungeonSpawn: 'dungeonSpawn', eingaenge: 'dungeonEingaenge' };
 for (const [name, wert] of Object.entries(erwartet)) pruefe(felder.get(name) === wert, `the rule gets \`${name}\` as exactly \`${wert}\``, felder.get(name) ?? 'missing');
 pruefe(felder.size === 4, 'and no other field', [...felder.keys()].join(','));
+pruefe(/flags\.toString\(2\)\.padStart\(8, '0'\)/.test(quelle), 'N5-Z3: the log shows the 8 bits of the flag byte');
 pruefe(zeilen <= 3679, 'main.ts did not grow', `${zeilen} lines (limit 3679, guard 3700)`);
 
 console.log(fehler === 0 ? '\ne-ohne-ziel: OK' : `\ne-ohne-ziel: ${fehler} FAIL`);

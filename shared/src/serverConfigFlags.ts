@@ -58,6 +58,11 @@ export const FLAG_MODULE_BUILD = 1 << 6;
  * Befehl `adminrechte` und `active = Adminrechte ja/nein` (nicht `admin`: so heisst die Antwort auf `admin list`, `admin add`, `admin remove`, mit active=false) (`gleicheAdminrechteAb`); das Bit gilt nur bis dahin.
  */
 export const FLAG_ADMIN = 1 << 7;
+/**
+ * The flag byte is FULL: bits 0 to 7 are all taken and the packet reads a `UInt8` (`readUInt8` in client/src/main.ts). `1 << 8`
+ * would silently drop in the byte. The next flag needs a wider field (UInt16 in `ServerConfig`, on both sides) before it can
+ * be added. `client/test/e-ohne-ziel.ts` checks that every flag here fits into a byte and no two share a bit.
+ */
 
 /**
  * Woraus das Flagbyte gebildet wird.

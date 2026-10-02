@@ -203,6 +203,28 @@ async function main(): Promise<void> {
     await bis(() => carol.ereignisse.some((e) => e.command === 'admin'), 3000);
     check('a guest\'s `admin list` is refused and gives her no flag', carol.ereignisse[0]?.text === VERWEIGERT && !carol.sitzung.istAdmin && carol.sitzung.aktion(lage) === 'nichts', JSON.stringify(carol.ereignisse));
 
+    console.log('\n[4b] N5-B1b: a typed command named like the live packet never takes the flag');
+    for (const zeile of ['adminrechte', 'AdminRechte ja', 'ADMINRECHTE', '  adminRechte  nein']) {
+      await warte(1300); // the AdminCommand bucket
+      dave.ereignisse.length = 0;
+      sendAdmin(dave.ws, zeile);
+      await bis(() => dave.ereignisse.length >= 1, 3000);
+      const e = dave.ereignisse[0];
+      check(`"${zeile}": the answer is named \`admin\` (never \`adminrechte\`) with active = false`, dave.ereignisse.length === 1 && e?.command === 'admin' && e.active === false && e.text.length > 0, JSON.stringify(dave.ereignisse));
+      check('... the server still has isAdmin = true, the client keeps the flag, E at the entrance sends `dungeon enter`', peerVon('Dave').isAdmin === true && dave.sitzung.istAdmin && dave.sitzung.aktion(lage) === 'dungeon-enter');
+    }
+    // the live channel still works after that: grant and withdrawal reach the client (Frieda is a fresh guest)
+    {
+      const frieda = await verbinde('Frieda');
+      server.adminListe.hinzufuegen(peerVon('Frieda').spielerId, 'Frieda');
+      const ja = await bis(() => frieda.ereignisse.some((e) => e.command === 'adminrechte' && e.active), 5000);
+      check('live grant still arrives as `adminrechte` / true and the client takes it', ja && frieda.sitzung.istAdmin);
+      server.adminListe.entfernen(peerVon('Frieda').spielerId);
+      const nein = await bis(() => frieda.ereignisse.some((e) => e.command === 'adminrechte' && !e.active), 5000);
+      check('live withdrawal still arrives as `adminrechte` / false and the client takes it', nein && !frieda.sitzung.istAdmin);
+      frieda.ws.close();
+    }
+
     console.log('\n[5] N4-B2: editor connections get the bit exactly like game connections: by the rights of the account, not by being an editor');
     // Editor sessions get their rights the same way (`NetManager.handlePasswordAuth`: everyoneAdmin or the admin list on the spielerId, whatever `nurEditor` says).
     const editorGast = await verbinde('Eddie', '', true);

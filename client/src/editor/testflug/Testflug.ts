@@ -884,7 +884,7 @@ export function starteTestflug(kontext: TestflugKontext, testflug: unknown): voi
       strichGemacht: () => reihenfolge.neu('vegetation'),
     });
     const vegPinsel = vegetationPinsel;
-    reihenfolge.verbinde({ gelaende, vegetation: vegPinsel }, (art) => hud.meldung(t(art === 'rueckgaengig' ? 'testflug.gelaende.nichts_rueckgaengig' : 'testflug.gelaende.nichts_wiederholen')), () => hud.meldung(`${letzteMeldung} — ${t('testflug.gelaende.schritt_verworfen')}`));
+    reihenfolge.verbinde({ gelaende, vegetation: vegPinsel }, (art) => hud.meldung(t(art === 'rueckgaengig' ? 'testflug.gelaende.nichts_rueckgaengig' : 'testflug.gelaende.nichts_wiederholen')), () => hud.meldung(t('testflug.gelaende.schritt_verworfen', { grund: letzteMeldung })));
     /** Strich offen (Maustaste unten im Gelände-Reiter) und der letzte Zeigerpunkt, für den Halte-Takt. */
     let gelaendeUnten = false;
     let gelaendeZeiger: { x: number; y: number } | null = null;

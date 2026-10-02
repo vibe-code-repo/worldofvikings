@@ -328,7 +328,7 @@
   "testflug.gelaende.reiter_gelaende": "Terrain",
   "testflug.gelaende.reiter_objekte": "Objects",
   "testflug.gelaende.rueckgaengig": "Stroke undone ({n} points)",
-  "testflug.gelaende.schritt_verworfen": "step removed from the history, Ctrl+Z now takes the next older stroke",
+  "testflug.gelaende.schritt_verworfen": "{grund} — step removed from the history, Ctrl+Z now takes the next older stroke",
   "testflug.gelaende.speichern": "Save to world",
   "testflug.gelaende.speichern_neustart": "Save & restart",
   "testflug.gelaende.sperre.gebaeude": "building",

@@ -129,10 +129,11 @@ export class RolleLauf {
    * The running roll ends (the server ended or refused it, a teleport, a window, build mode, a flight). The lock mirrors
    * the server's: it stays as it was, and a roll cut in the middle keeps the rest of its clip plus the 0.5 s (the server's
    * `rolleSperreBis` counts from the end of the clip), so Q right after a teleport does not start a roll the server refuses.
-   * `sperreLoeschen`: death and revival, where the server clears the locks.
+   * `sperreLoeschen`: death and revival, where the server clears the locks. `sperreSek`: the rest the server named ("still locked").
    */
-  abbrechen(sperreLoeschen = false): void {
-    if (sperreLoeschen) this._abkling = 0;
+  abbrechen(sperreLoeschen = false, sperreSek?: number): void {
+    if (sperreSek !== undefined) this._abkling = Math.max(0, sperreSek); // the server says how long it still holds the lock
+    else if (sperreLoeschen) this._abkling = 0;
     else if (this._rollt) this._abkling = Math.max(0, ROLLE_DAUER_MS / 1000 - this.t) + ROLLE_ABKLINGZEIT_MS / 1000;
     this._rollt = false;
   }

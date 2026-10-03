@@ -15,6 +15,9 @@ import {
   ROLLE_DAUER_MS,
   ROLLE_AUS_ABGELEHNT,
   ROLLE_AUS_BEENDET,
+  ROLLE_AUS_GESPERRT,
+  ROLLE_PAKETE_JE_SEKUNDE,
+  ROLLE_SPERRE_TOLERANZ_MS,
   SERVER_MELDUNG_AUSGEWICHEN,
   SERVER_MELDUNG_ROLLE_BLOCKIERT,
   SERVER_MELDUNG_ROLLE_ZU_ERSCHOEPFT,
@@ -56,19 +59,36 @@ function meldung(peer: Pick<Peer, 'sendPacketWith'>, text: string): void {
 }
 
 /** Tell the client that the roll was refused or ended by the server. */
-function meldeRolleAus(peer: Pick<Peer, 'sendPacketWith'>, grund: number, nr: number): void {
+function meldeRolleAus(peer: Pick<Peer, 'sendPacketWith'>, grund: number, nr: number, restMs?: number): void {
   peer.sendPacketWith(PacketType.Rolle, (w) => {
     w.writeBool(false);
-    w.writeUInt8(grund); // refused (free, roll again at once) or ended (the lock stays)
+    w.writeUInt8(grund); // refused (free, roll again at once), ended (the lock stays) or still locked (the rest follows)
     w.writeInt32(nr); // the roll number of the client's request
+    if (restMs !== undefined) w.writeInt32(restMs); // only with `ROLLE_AUS_GESPERRT`: ms until the server takes a roll
   });
 }
 
-function lehneAb(peer: RollePeer, grund: RolleAblehnung | 'platz', nr: number): false {
+function lehneAb(peer: RollePeer, grund: RolleAblehnung | 'platz', nr: number, jetzt: number): false {
   if (grund === 'ausdauer') meldung(peer, SERVER_MELDUNG_ROLLE_ZU_ERSCHOEPFT);
   else if (grund === 'platz') meldung(peer, SERVER_MELDUNG_ROLLE_BLOCKIERT);
-  meldeRolleAus(peer, ROLLE_AUS_ABGELEHNT, nr);
+  if (grund === 'laeuft' || grund === 'abklingzeit') {
+    // still locked: tell the client how long, so it does not try again before (no repeated refusals, no pull-backs)
+    meldeRolleAus(peer, ROLLE_AUS_GESPERRT, nr, Math.max(1, Math.ceil(peer.rolleSperreBis - ROLLE_SPERRE_TOLERANZ_MS - jetzt)));
+  } else meldeRolleAus(peer, ROLLE_AUS_ABGELEHNT, nr);
   return false;
+}
+
+/**
+ * A simple throttle per peer: at most `ROLLE_PAKETE_JE_SEKUNDE` `Rolle` packets in a window of one second are looked at, the
+ * rest is dropped without an answer (a flood costs one comparison each, no path preview, no reply). The client sends one per key press.
+ */
+export function rolleDrossel(peer: Pick<Peer, 'rolleFensterStart' | 'rolleFensterZahl'>, jetzt: number): boolean {
+  if (!(jetzt - (peer.rolleFensterStart ?? 0) < 1000) || jetzt < (peer.rolleFensterStart ?? 0)) {
+    peer.rolleFensterStart = jetzt;
+    peer.rolleFensterZahl = 0;
+  }
+  peer.rolleFensterZahl = (peer.rolleFensterZahl ?? 0) + 1;
+  return peer.rolleFensterZahl <= ROLLE_PAKETE_JE_SEKUNDE;
 }
 
 /** Is a roll running `jetzt`? Safe on a peer without the fields (a stand-in of another test): no roll. */
@@ -105,9 +125,9 @@ export function rollePaket(peer: RollePeer, yaw: number, jetzt: number, umfeld: 
     },
     jetzt
   );
-  if (grund !== null) return lehneAb(peer, grund, nr);
+  if (grund !== null) return lehneAb(peer, grund, nr, jetzt);
   const richtung = rolleRichtung(yaw);
-  if (umfeld.freiraum && !rolleFreiraumOk(umfeld.freiraum(richtung.x, richtung.z))) return lehneAb(peer, 'platz', nr);
+  if (umfeld.freiraum && !rolleFreiraumOk(umfeld.freiraum(richtung.x, richtung.z))) return lehneAb(peer, 'platz', nr, jetzt);
 
   peer.stamina -= ROLLE_AUSDAUER;
   peer.staminaZuletztVerbraucht = jetzt;

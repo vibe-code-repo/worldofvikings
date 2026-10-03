@@ -38,7 +38,7 @@ import { RolleLauf, ROLLE_SPERREN, SprungMeldung, rolleRichtungYaw, rolleSperre,
 import { BlockVerdrahtung, type BlockQuellen } from '../src/player/BlockVerdrahtung.js';
 import { Abgleicher } from '../src/net/Positionsverlauf.js';
 import { GameSocket } from '../src/net/GameSocket.js';
-import { ROLLE_AUS_ABGELEHNT, ROLLE_AUS_BEENDET, ROLLE_ABKLINGZEIT_MS, ROLLE_AUSDAUER, ROLLE_BEWEGUNG_S, ROLLE_DAUER_MS, ROLLE_TEMPO, ROLLE_WEG_M, rolleRichtung, rolleWegAnteil } from '@wov/shared/src/kampf/rolle.js';
+import { ROLLE_AUS_ABGELEHNT, ROLLE_AUS_BEENDET, ROLLE_AUS_GESPERRT, ROLLE_ABKLINGZEIT_MS, ROLLE_AUSDAUER, ROLLE_BEWEGUNG_S, ROLLE_DAUER_MS, ROLLE_TEMPO, ROLLE_WEG_M, rolleRichtung, rolleWegAnteil } from '@wov/shared/src/kampf/rolle.js';
 import { bewegungsSchritt } from '@wov/shared/src/bewegung/schritt.js';
 import { ebenerBoden, OHNE_HINDERNISSE } from '@wov/shared/src/bewegung/abfragen.js';
 import { AUSDAUER_REGEL } from '@wov/shared/src/bewegung/ausdauer.js';
@@ -423,10 +423,10 @@ console.log('\n[5] BlockVerdrahtung with the key Q');
 interface Spiel {
   q: boolean; rechts: boolean; flanke: boolean; online: boolean; gesendet: Array<string>; meldungen: string[];
   gefangen: boolean; ausdauer: number; rollt: boolean; inLuft: boolean; abkling: number; bereit: boolean; liegt: boolean; y: number;
-  starts: number[]; abbrueche: number; fenster: boolean; abzuege: number; blockPose: boolean[]; nrs: number[]; loeschen: boolean[];
+  starts: number[]; abbrueche: number; fenster: boolean; abzuege: number; blockPose: boolean[]; nrs: number[]; loeschen: boolean[]; sperren: Array<number | undefined>;
 }
 function neuesSpiel(): { v: BlockVerdrahtung; spiel: Spiel } {
-  const spiel: Spiel = { q: false, rechts: false, flanke: false, online: true, gesendet: [], meldungen: [], gefangen: true, ausdauer: 100, rollt: false, inLuft: false, abkling: 0, bereit: true, liegt: false, y: 50, starts: [], abbrueche: 0, fenster: false, abzuege: 0, blockPose: [], nrs: [], loeschen: [] };
+  const spiel: Spiel = { q: false, rechts: false, flanke: false, online: true, gesendet: [], meldungen: [], gefangen: true, ausdauer: 100, rollt: false, inLuft: false, abkling: 0, bereit: true, liegt: false, y: 50, starts: [], abbrueche: 0, fenster: false, abzuege: 0, blockPose: [], nrs: [], loeschen: [], sperren: [] };
   const q: BlockQuellen = {
     sendBlock: (an) => { spiel.gesendet.push(`block:${an}`); },
     sendRolle: (yaw, nr) => { if (!spiel.online) return false; spiel.gesendet.push(`rolle:${yaw.toFixed(3)}`); spiel.nrs.push(nr); return true; },
@@ -438,7 +438,7 @@ function neuesSpiel(): { v: BlockVerdrahtung; spiel: Spiel } {
       get rollt() { return spiel.rollt; }, get rolleAbklingRest() { return spiel.abkling; }, get rolleBereit() { return spiel.bereit; },
       get inLuft() { return spiel.inLuft; }, get ausdauerStand() { return spiel.ausdauer; }, figurYaw: 0.25,
       moveIntent: { x: -1, z: 0 },
-      startRolle: (yaw: number) => spiel.starts.push(yaw), rolleAbbruch: (loeschen?: boolean) => { spiel.abbrueche++; spiel.loeschen.push(loeschen === true); },
+      startRolle: (yaw: number) => spiel.starts.push(yaw), rolleAbbruch: (loeschen?: boolean, sperre?: number) => { spiel.abbrueche++; spiel.loeschen.push(loeschen === true); spiel.sperren.push(sperre); },
     }),
     equipment: () => ({ rightItem: {}, pieceTable: null }),
     placement: () => null,
@@ -458,9 +458,10 @@ const taste = (v: BlockVerdrahtung, spiel: Spiel): void => { spiel.q = true; v.f
   check('no key press, no second roll', spiel.gesendet.length === 1);
 }
 /** A server `Rolle` packet as the handler reads it: bool false, then (null = absent) the reason byte and the roll number. */
-const rolleAus = (grund: number | null, nr: number | null): { readBool(): boolean; readonly remaining: number; readUInt8(): number; readInt32(): number } => {
-  let rest = 1 + (grund === null ? 0 : 1) + (nr === null ? 0 : 4);
-  return { readBool: () => { rest -= 1; return false; }, get remaining() { return rest; }, readUInt8: () => { rest -= 1; return grund!; }, readInt32: () => { rest -= 4; return nr!; } };
+const rolleAus = (grund: number | null, nr: number | null, restMs: number | null = null): { readBool(): boolean; readonly remaining: number; readUInt8(): number; readInt32(): number } => {
+  let rest = 1 + (grund === null ? 0 : 1) + (nr === null ? 0 : 4) + (restMs === null ? 0 : 4);
+  const zahlen = [nr, restMs];
+  return { readBool: () => { rest -= 1; return false; }, get remaining() { return rest; }, readUInt8: () => { rest -= 1; return grund!; }, readInt32: () => { rest -= 4; return zahlen.shift()!; } };
 };
 const verdrahtet = (v: BlockVerdrahtung): Record<number, (r: { readBool(): boolean }) => void> => {
   const h: Record<number, (r: { readBool(): boolean }) => void> = {};
@@ -799,6 +800,58 @@ console.log('\n[5a] Rolle=false with a reason and a roll number');
   taste(v3, s3);
   h3[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, 0));
   check('roll number 0 (an older client): applies to the current roll', s3.abbrueche === 1);
+}
+{
+  // N4-1: the Teleport handler of the wiring ends the roll WITHOUT clearing the lock (not only RolleLauf: the wiring itself)
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  taste(v, spiel);
+  spiel.rollt = true;
+  h[PacketType.Teleport]!({ readBool: () => false });
+  check('TELEPORT (the wiring, N4-1): the roll is ended with `rolleAbbruch()` and the lock is NOT cleared, no rest given', spiel.abbrueche === 1 && spiel.loeschen.at(-1) === false && spiel.sperren.at(-1) === undefined, JSON.stringify(spiel.loeschen) + JSON.stringify(spiel.sperren));
+  const { pc } = neu();
+  pc.update(1 / 60);
+  pc.startRolle(0);
+  lauf(pc, 0.95, 1 / 60);
+  const rest0 = pc.rolleAbklingRest;
+  pc.rolleAbbruch(); // what the handler calls
+  check('... and with the real controller the table refuses Q right after the teleport (the lock stands)', rest0 > 0.3 && pc.rolleAbklingRest === rest0 && rolleSperre({ ...ok, abklingRest: pc.rolleAbklingRest }) === 'abklingzeit');
+}
+{
+  // N4-3: refused because the server still holds the lock: the client's lock becomes the rest (reason 3)
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  taste(v, spiel);
+  spiel.rollt = true;
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_GESPERRT, spiel.nrs.at(-1)!, 800));
+  check('STILL LOCKED (reason 3, rest 800 ms): the roll ends, the lock is not cleared but set to 0.8 s', spiel.abbrueche === 1 && spiel.loeschen.at(-1) === false && spiel.sperren.at(-1) === 0.8, JSON.stringify(spiel.sperren));
+  const { pc } = neu();
+  pc.update(1 / 60);
+  pc.startRolle(0);
+  lauf(pc, 0.1, 1 / 60);
+  pc.rolleAbbruch(false, 0.8);
+  check('... the real controller: no roll, the lock is 0.8 s, the table refuses Q until then (no early retry), and lets it go after', !pc.rollt && nah(pc.rolleAbklingRest, 0.8, 1e-9) && rolleSperre({ ...ok, abklingRest: pc.rolleAbklingRest }) === 'abklingzeit');
+  lauf(pc, 0.81, 1 / 60);
+  check('... after 0.81 s the lock is over', pc.rolleAbklingRest === 0 && rolleSperre({ ...ok, abklingRest: pc.rolleAbklingRest }) === null);
+  const { v: v2, spiel: s2 } = neuesSpiel();
+  const h2 = verdrahtet(v2);
+  taste(v2, s2);
+  h2[PacketType.Rolle]!(rolleAus(ROLLE_AUS_GESPERRT, s2.nrs.at(-1)!, null));
+  check('reason 3 without the rest bytes: the rest is 0 (the lock is cleared by the value 0, no crash)', s2.abbrueche === 1 && s2.sperren.at(-1) === 0);
+  const { v: v3, spiel: s3 } = neuesSpiel();
+  const h3 = verdrahtet(v3);
+  taste(v3, s3);
+  h3[PacketType.Rolle]!(rolleAus(ROLLE_AUS_GESPERRT, s3.nrs.at(-1)! + 1, 500));
+  check('an answer "still locked" with another number is ignored like every other', s3.abbrueche === 0);
+  const { v: v4, spiel: s4 } = neuesSpiel();
+  const h4 = verdrahtet(v4);
+  s4.rechts = true; s4.flanke = true; v4.frame(); s4.flanke = false;
+  taste(v4, s4);
+  s4.rollt = true;
+  h4[PacketType.Rolle]!(rolleAus(ROLLE_AUS_GESPERRT, s4.nrs.at(-1)!, 300));
+  s4.rollt = false;
+  v4.frame();
+  check('"still locked" brings the hidden block back like a refusal (the server kept it), no Block(true), no stamina', v4.blockt && s4.abzuege === 1 && s4.gesendet.filter((g) => g === 'block:true').length === 1);
 }
 {
   // Q, Q (after the lock), then a LATE answer to the first: it must not stop or mix up the second

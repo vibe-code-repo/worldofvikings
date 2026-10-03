@@ -22,7 +22,7 @@ import { fileURLToPath } from 'url';
 import { readFileSync, rmSync } from 'fs';
 import { PacketType, WATER_LEVEL, eingehenderSchaden, npcKampf, type Vector3 } from '@wov/shared';
 import {
-  ROLLE_ABKLINGZEIT_MS, ROLLE_AUS_ABGELEHNT, ROLLE_AUS_BEENDET, ROLLE_BEWEGUNG_MS, ROLLE_BEWEGUNG_S, ROLLE_DAUER_MS, ROLLE_TEMPO, ROLLE_WEG_M, SPRUNG_AUSDAUER, rolleWegAnteil,
+  ROLLE_ABKLINGZEIT_MS, ROLLE_AUS_ABGELEHNT, ROLLE_AUS_BEENDET, ROLLE_AUS_GESPERRT, ROLLE_PAKETE_JE_SEKUNDE, ROLLE_SPERRE_TOLERANZ_MS, ROLLE_BEWEGUNG_MS, ROLLE_BEWEGUNG_S, ROLLE_DAUER_MS, ROLLE_TEMPO, ROLLE_WEG_M, SPRUNG_AUSDAUER, rolleWegAnteil,
 } from '@wov/shared/src/kampf/rolle.js';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
@@ -35,7 +35,7 @@ import { rolleScheibe } from '@wov/shared/src/kampf/rolle.js';
 import { ROLLE_SCHRITTE, Spielerbewegung, neuerRolleWeg } from '../src/world/Spielerbewegung.js';
 import type { KollisionsForm, Vek3 } from '@wov/shared/src/kollision/form.js';
 import { blockPaket } from '../src/spiel/Block.js';
-import { rolleBeenden, rolleLaeuft, rollePaket, rolleTakt, rolleUnverwundbar, rolleZuruecksetzen, sprungKosten, type RollePeer } from '../src/spiel/Rolle.js';
+import { rolleBeenden, rolleDrossel, rolleLaeuft, rollePaket, rolleTakt, rolleUnverwundbar, rolleZuruecksetzen, sprungKosten, type RollePeer } from '../src/spiel/Rolle.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-d3-rolle');
@@ -52,14 +52,14 @@ const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 const nah = (a: number, b: number, eps: number): boolean => Math.abs(a - b) <= eps;
 
 // ── [1] the module on a stand-in peer ────────────────────────────────────
-interface Gesendet { typ: number; inhalt: string; grund: number; nr: number }
+interface Gesendet { typ: number; inhalt: string; grund: number; nr: number; rest: number }
 type Attrappe = RollePeer & { gesendet: Gesendet[] };
 function attrappe(): Attrappe {
   const gesendet: Gesendet[] = [];
   return {
     blockSeit: 0, blockTaktZeit: 0, blockSperreBis: 0, blockOhneParade: false, stamina: 100, staminaZuletztVerbraucht: 0,
     waffe: 'SwordNorth', flying: false, totBis: 0, blickYaw: 0, position: { x: 0, y: 0, z: 0 },
-    rolleStart: 0, rolleBis: 0, rolleZeit: 0, rolleX: 0, rolleZ: 0, rolleSperreBis: 0, sprungSperreBis: 0, rolleWeg: null, rolleNr: 0,
+    rolleStart: 0, rolleBis: 0, rolleZeit: 0, rolleX: 0, rolleZ: 0, rolleSperreBis: 0, sprungSperreBis: 0, rolleWeg: null, rolleNr: 0, rolleFensterStart: 0, rolleFensterZahl: 0,
     gesendet,
     sendPacketWith(typ: PacketType, schreibe: (w: Writer) => void): void {
       const w = new Writer();
@@ -69,7 +69,8 @@ function attrappe(): Attrappe {
       // `Rolle=false`: the reason byte and the roll number follow (-1 = absent)
       const grund = typ === PacketType.Rolle && r.remaining() >= 1 ? r.readUInt8() : -1;
       const nr = typ === PacketType.Rolle && r.remaining() >= 4 ? r.readInt32() : -1;
-      gesendet.push({ typ, inhalt, grund, nr });
+      const rest = typ === PacketType.Rolle && r.remaining() >= 4 ? r.readInt32() : -1;
+      gesendet.push({ typ, inhalt, grund, nr, rest });
     },
   } as Attrappe;
 }
@@ -85,7 +86,7 @@ console.log('\n[1] spiel/Rolle.ts on a stand-in peer (fixed clock)');
   check('an accepted roll keeps the number the client gave it', p.rolleNr === 41);
   rollePaket(p, 0, 10_100, frei, 42);
   const abl = p.gesendet.at(-1)!;
-  check('REFUSED (a roll runs): `Rolle=false`, reason 1 (refused), the number of the refused REQUEST (42), the running roll keeps 41', abl.typ === PacketType.Rolle && abl.inhalt === 'false' && abl.grund === ROLLE_AUS_ABGELEHNT && abl.nr === 42 && p.rolleNr === 41, JSON.stringify(abl));
+  check('REFUSED (a roll runs): `Rolle=false`, reason 3 (still locked), the number of the refused REQUEST (42), the running roll keeps 41', abl.typ === PacketType.Rolle && abl.inhalt === 'false' && abl.grund === ROLLE_AUS_GESPERRT && abl.nr === 42 && p.rolleNr === 41, JSON.stringify(abl));
   p.gesendet.length = 0;
   rolleBeenden(p, 10_300);
   const ende = p.gesendet.at(-1)!;
@@ -102,6 +103,56 @@ console.log('\n[1] spiel/Rolle.ts on a stand-in peer (fixed clock)');
   const alt = attrappe();
   rollePaket(alt, 0, 1000, frei);
   check('a request without a number (an older client) is number 0', alt.rolleNr === 0);
+}
+{
+  // N4-3: refused because of the lock: reason 3 and the rest in ms (the jitter tolerance taken off)
+  const p = attrappe();
+  rollePaket(p, 0, 10_000, frei, 1); // rolls until 10875, the lock until 11375
+  p.gesendet.length = 0;
+  rollePaket(p, 0, 10_100, frei, 2);
+  const a = p.gesendet.at(-1)!;
+  check('STILL ROLLING: reason 3 (still locked), the number 2, the rest = lock end - tolerance - now = 11375 - 100 - 10100 = 1175 ms', a.grund === ROLLE_AUS_GESPERRT && a.nr === 2 && a.rest === 11_375 - ROLLE_SPERRE_TOLERANZ_MS - 10_100, JSON.stringify(a));
+  rollePaket(p, 0, 11_000, frei, 3);
+  const b = p.gesendet.at(-1)!;
+  check('IN THE LOCK AFTER THE ROLL: reason 3, the number 3, the rest 275 ms', b.grund === ROLLE_AUS_GESPERRT && b.nr === 3 && b.rest === 275, JSON.stringify(b));
+  rollePaket(p, 0, 11_274, frei, 4);
+  check('101 ms before the lock ends: still locked with the rest 1 ms (never 0 or negative)', p.gesendet.at(-1)!.grund === ROLLE_AUS_GESPERRT && p.gesendet.at(-1)!.rest === 1, JSON.stringify(p.gesendet.at(-1)));
+  check('the client may try again after that rest: at lock end - tolerance the roll is taken (stamina 80)', rollePaket(p, 0, 11_275, frei, 5) && p.stamina === 80);
+  const q = attrappe();
+  q.stamina = 5;
+  rollePaket(q, 0, 1000, frei, 6);
+  check('too little stamina: reason 1 (refused), no rest bytes', q.gesendet.at(-1)!.grund === ROLLE_AUS_ABGELEHNT && q.gesendet.at(-1)!.rest === -1);
+  for (const [name, setze] of [['dead', (x: Attrappe) => { x.totBis = 9e9; }], ['flying', (x: Attrappe) => { x.flying = true; }]] as const) {
+    const z = attrappe();
+    setze(z);
+    rollePaket(z, 0, 1000, frei, 7);
+    check(`${name}: reason 1 (refused), not "locked"`, z.gesendet.at(-1)!.grund === ROLLE_AUS_ABGELEHNT && z.gesendet.at(-1)!.rest === -1);
+  }
+  const w = attrappe();
+  rollePaket(w, 0, 1000, { imWasser: false, freiraum: () => 0 }, 8);
+  check('a wall (no room): reason 1 (refused), no rest', w.gesendet.at(-1)!.grund === ROLLE_AUS_ABGELEHNT && w.gesendet.at(-1)!.rest === -1);
+  const e = attrappe();
+  rollePaket(e, 0, 1000, frei, 9);
+  e.gesendet.length = 0;
+  rolleBeenden(e, 1200);
+  check('ended: reason 2, no rest bytes', e.gesendet.at(-1)!.grund === ROLLE_AUS_BEENDET && e.gesendet.at(-1)!.rest === -1);
+}
+{
+  // N4-2: the throttle per peer: ten packets in a window of one second are looked at, the rest is dropped
+  const p = attrappe();
+  let ja = 0;
+  for (let i = 0; i < 2000; i++) if (rolleDrossel(p, 50_000 + i * 0.1)) ja++; // 2000 packets in 200 ms
+  check(`a flood of 2000 packets in 200 ms: exactly ${ROLLE_PAKETE_JE_SEKUNDE} are looked at`, ja === ROLLE_PAKETE_JE_SEKUNDE, String(ja));
+  check('the 1000 ms window: a packet 999 ms after its start is still throttled, at 1000 ms a new window opens', !rolleDrossel(p, 50_000 + 999) && rolleDrossel(p, 50_000 + 1000));
+  const q = attrappe();
+  let nach = 0;
+  for (let i = 0; i < 10; i++) if (rolleDrossel(q, 1000 + i * 100)) nach++;
+  check('normal use is not hit: one packet every 100 ms (ten per second) all pass', nach === 10);
+  check('the 11th within the same second does not', !rolleDrossel(q, 1999));
+  const r = attrappe();
+  let hin = 0;
+  rolleDrossel(r, 9000);
+  check('a clock that jumped back opens a new window (no lock-out)', rolleDrossel(r, 100) && (() => { hin++; return hin === 1; })());
 }
 {
   const p = attrappe();
@@ -670,6 +721,22 @@ async function main(): Promise<void> {
     zugriff.spielerbewegung = echte;
     await warte(ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS);
 
+    // ── the throttle over the wire (N4-2): a flood of Rolle packets is answered at most ten times per second ──
+    anna.stamina = 100; anna.rolleSperreBis = 0; anna.rolleBis = 0;
+    await warte(1100); // a fresh window
+    ws.rollen.length = 0;
+    for (let i = 0; i < 300; i++) sendRolle(ws, 0, 1000 + i);
+    await warte(600);
+    check(`a flood of 300 Rolle packets in one burst: at most ${ROLLE_PAKETE_JE_SEKUNDE} answers or roll starts (${ws.rollen.length} answers), the connection lives`, ws.rollen.length <= ROLLE_PAKETE_JE_SEKUNDE - 1 && ws.readyState === WebSocket.OPEN && server.net.getPeers().includes(anna), `${ws.rollen.length}`);
+    check('... the first packet of the burst was taken (a roll runs or ran)', anna.rolleNr === 1000, `${anna.rolleNr}`);
+    await warte(1100 + ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS);
+    anna.stamina = 100;
+    ws.rollen.length = 0;
+    sendRolle(ws, 0, 5000);
+    await warte(100);
+    check('normal use afterwards (a fresh window): the next roll is taken at once', anna.rolleNr === 5000 && rolleLaeuft(anna, Date.now()));
+    await warte(ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS);
+
     // ── a packet of an older client (the yaw only, no number) ──
     anna.stamina = 100; anna.rolleSperreBis = 0;
     sendRolle(ws, 0, null);
@@ -678,7 +745,7 @@ async function main(): Promise<void> {
     ws.aus.length = 0;
     sendRolle(ws, 0, null);
     await warte(100);
-    check('... and its refusal comes back as reason 1 with the number 0', ws.aus.at(-1)?.grund === ROLLE_AUS_ABGELEHNT && ws.aus.at(-1)?.nr === 0, JSON.stringify(ws.aus));
+    check('... and its refusal (a roll runs) comes back as reason 3 (still locked) with the number 0', ws.aus.at(-1)?.grund === ROLLE_AUS_GESPERRT && ws.aus.at(-1)?.nr === 0, JSON.stringify(ws.aus));
     await warte(ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS);
 
     // ── in the water ──

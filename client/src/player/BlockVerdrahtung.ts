@@ -7,7 +7,7 @@
 import { PacketType, WATER_LEVEL } from '@wov/shared';
 import type { BinaryReader } from '../net/GameSocket';
 import { BLOCK_BEGINN_AUSDAUER, SERVER_MELDUNG_ZU_ERSCHOEPFT } from '@wov/shared/src/kampf/block.js';
-import { ROLLE_AUS_ABGELEHNT, SERVER_MELDUNG_ROLLE_ZU_ERSCHOEPFT } from '@wov/shared/src/kampf/rolle.js';
+import { ROLLE_AUS_ABGELEHNT, ROLLE_AUS_GESPERRT, SERVER_MELDUNG_ROLLE_ZU_ERSCHOEPFT } from '@wov/shared/src/kampf/rolle.js';
 import { BlockSteuerung } from './BlockSteuerung';
 import { rolleRichtungYaw, rolleSperre } from './RolleSteuerung';
 
@@ -20,7 +20,7 @@ export interface RolleSpieler {
   readonly figurYaw: number;
   readonly moveIntent: { readonly x: number; readonly z: number };
   startRolle(yaw: number): void;
-  rolleAbbruch(sperreLoeschen?: boolean): void;
+  rolleAbbruch(sperreLoeschen?: boolean, sperreSek?: number): void;
 }
 
 /** What the wiring needs of the game; every field is a getter, so late-created objects (`let player`) work. */
@@ -144,7 +144,12 @@ export class BlockVerdrahtung extends BlockSteuerung {
       const grund = reader.remaining >= 1 ? reader.readUInt8() : 0; // no reason byte (an older server): ended
       const nr = reader.remaining >= 4 ? reader.readInt32() : 0; // no number: the current roll
       if (nr !== 0 && nr !== this.rolleNr) return; // the answer to an older roll: it must not touch the one that runs now
-      if (grund === ROLLE_AUS_ABGELEHNT) {
+      if (grund === ROLLE_AUS_GESPERRT) {
+        // refused because the server still holds the lock: our lock becomes the rest it named (no clearing, no early retry)
+        const rest = reader.remaining >= 4 ? reader.readInt32() : 0;
+        this.rolleAbgelehnt();
+        this.q.player()?.rolleAbbruch?.(false, Math.max(0, rest) / 1000);
+      } else if (grund === ROLLE_AUS_ABGELEHNT) {
         // refused: free of cost at the server, so no lock here either: Q works again at once
         this.rolleAbgelehnt();
         this.q.player()?.rolleAbbruch?.(true);

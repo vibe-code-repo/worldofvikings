@@ -121,7 +121,7 @@ import { Kollisionswelt } from './world/Kollisionswelt.js';
 import { Spielerbewegung } from './world/Spielerbewegung.js';
 import { bewegungsTempo } from '@wov/shared/src/bewegung/masse.js';
 import { beendeBlockDurchSchlag, blockHalteTakt, blockPaket, blockTakt, blockTrifft, blockZuruecksetzen } from './spiel/Block.js';
-import { rolleLaeuft, rollePaket, rolleTakt, rolleUnverwundbar, rolleWeicheAus, rolleZuruecksetzen, sprungKosten, rolleBeenden } from './spiel/Rolle.js';
+import { rolleLaeuft, rollePaket, rolleTakt, rolleUnverwundbar, rolleWeicheAus, rolleZuruecksetzen, sprungKosten, rolleBeenden, rolleDrossel } from './spiel/Rolle.js';
 // Ueber den expliziten Pfad, nicht ueber den Barrel: eine Geo ohne
 // Landmasse braucht nur der Server, und der Client-Bundle-Schnitt soll
 // nicht daran wachsen.
@@ -4166,6 +4166,7 @@ export class WovServer {
 
   /** `PacketType.Rolle` (D3-K4): the rule and the state are in `spiel/Rolle.ts`; here only what the server knows. */
   private handleRolle(peer: Peer, reader: Reader): void {
+    if (!rolleDrossel(peer, Date.now())) return; // a flood of Rolle packets is dropped without an answer
     if (reader.remaining() < 4) return;
     const yaw = reader.readFloat32();
     const nr = reader.remaining() >= 4 ? reader.readInt32() : 0; // an older client sends no number

@@ -87,6 +87,14 @@ export const SPRUNG_SPERRE_MS = 800;
  */
 export const ROLLE_AUS_ABGELEHNT = 1;
 export const ROLLE_AUS_BEENDET = 2;
+/**
+ * Refused because a roll still runs or the lock after it holds (3): the packet carries one more `int32`, the milliseconds
+ * until the server would take a roll (jitter tolerance included). The client sets its lock to that rest instead of clearing it;
+ * an older client does not know the reason and treats it as ended (the lock stays).
+ */
+export const ROLLE_AUS_GESPERRT = 3;
+/** At most this many `Rolle` packets per second and peer are looked at; the rest is dropped without an answer. */
+export const ROLLE_PAKETE_JE_SEKUNDE = 10;
 
 /** Server messages (catalogue keys, `@key`, de/en). */
 export const SERVER_MELDUNG_ROLLE_ZU_ERSCHOEPFT = '@kampf.zu_erschoepft';

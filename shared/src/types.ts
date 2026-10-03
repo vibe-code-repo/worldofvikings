@@ -491,8 +491,8 @@ export enum PacketType {
   /**
    * Client → Server: Block halten (Bool an) bzw. loslassen (Bool aus). Der Server fuehrt den Zustand
    * (`blockSeit`), rechnet Halten, Paradefenster und Frontkegel und lehnt ab, wenn kein Gegenstand in der
-   * Hand ist, die Ausdauer leer ist oder der Spieler tot ist.
-   * Server → Client: Bool aus, wenn der SERVER den Block beendet hat (Ausdauer leer, Blockbruch, eigener Schlag)
+   * Hand ist, die Ausdauer unter 5 liegt (Kosten eines Beginns) oder der Spieler tot ist.
+   * Server → Client: Bool aus, wenn der SERVER den Block beendet hat (Ausdauer aufgebraucht, Blockbruch, eigener Schlag)
    * oder einen Beginn ablehnt; ein vom Client selbst beendeter Block wird nicht zurueckgemeldet.
    * `Parry` (58) wird nicht mehr ausgewertet.
    */

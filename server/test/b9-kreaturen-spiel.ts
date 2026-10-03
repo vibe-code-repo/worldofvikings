@@ -453,7 +453,7 @@ async function main(): Promise<void> {
       if (Math.hypot(pp.x - Math.round(p.x), pp.z - Math.round(p.z)) > 1) throw new Error('teleport did not take effect');
       peer!.health = 100;
       peer!.stamina = 100;
-      peer!.paradeBis = 0;
+      peer!.blockSeit = 0;
       meldungen.length = 0;
       return { ...peer!.position };
     }

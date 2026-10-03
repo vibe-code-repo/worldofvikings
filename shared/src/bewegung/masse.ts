@@ -23,6 +23,32 @@ export const GEH_TEMPO = 4.5;
 /** Lauftempo in m/s — nur mit Ausdauer. Run speed. */
 export const LAUF_TEMPO = 7.5;
 
+/** Faktor auf das Gehtempo, solange die Figur blockt (D3). Walk speed factor while blocking. */
+export const BLOCK_TEMPO_FAKTOR = 0.5;
+
+/**
+ * Die Rolle (D3-K4): Weg und Dauer der Bewegung. Der Weg ist der Wurzelweg des Clips `rolle` (4,853 m in
+ * 20 Intervallen zu 24 Bildern/s = 0,8333 s), das Tempo folgt daraus. Die Bewegung der Rolle steht hier und
+ * nicht in `kampf/rolle.ts`, weil `bewegungsTempo` sie kennen muss und `masse.ts` nichts importiert.
+ * The roll: path and time of the movement; the speed follows from the clip's root travel.
+ */
+export const ROLLE_WEG_M = 4.853;
+export const ROLLE_BEWEGUNG_S = 20 / 24;
+export const ROLLE_TEMPO = ROLLE_WEG_M / ROLLE_BEWEGUNG_S;
+
+/**
+ * Das Tempo eines Schritts in m/s — die EINE Stelle, an der Gehen, Rennen, Blocken und Rollen
+ * entschieden werden. Beim Blocken gilt Gehtempo mal `BLOCK_TEMPO_FAKTOR`, Rennen
+ * wird ignoriert; in der Rolle gilt `ROLLE_TEMPO` vor allem anderen. Client und Server rufen
+ * diese Funktion mit denselben Argumenten auf.
+ * The one place where walking, running, blocking and rolling pick the speed.
+ */
+export function bewegungsTempo(rennt: boolean, blockt: boolean, rollt = false): number {
+  if (rollt) return ROLLE_TEMPO;
+  if (blockt) return GEH_TEMPO * BLOCK_TEMPO_FAKTOR;
+  return rennt ? LAUF_TEMPO : GEH_TEMPO;
+}
+
 /**
  * Halbe Breite der Spielerkapsel in m. Capsule radius.
  * Original (Vermessung der Spieldaten): ebenfalls 0,4 — die eine Zahl,

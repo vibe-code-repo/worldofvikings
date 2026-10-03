@@ -198,7 +198,7 @@ function baue() {
 const peerVon = (server: ReturnType<typeof baue>['server'], name: string): Peer | undefined => server.net.getPeers().find((x) => x.name === name) as Peer | undefined;
 
 async function toete(server: ReturnType<typeof baue>['server'], zugriff: ReturnType<typeof baue>['zugriff'], anna: Peer): Promise<void> {
-  anna.health = 5; anna.paradeBis = 0;
+  anna.health = 5; anna.blockSeit = 0;
   zugriff.applyCreatureAttack({ x: anna.position.x + 1, y: anna.position.y, z: anna.position.z - 2 }, 8, 2.4, anna.worldId, anna.position);
   void server;
   await warte(300);

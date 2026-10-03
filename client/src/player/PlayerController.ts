@@ -24,13 +24,16 @@ import {
   KOERPER_RADIUS,
   STEIGUNGS_GRENZE_GRAD as STEIGUNGS_GRENZE_GRAD_GETEILT,
 } from '@wov/shared/src/bewegung/masse.js';
+import { BLOCK_TURN_SPEED, blockRichtung, blockSchrittTempo, dreheZu } from './BlockSteuerung';
+import { RolleLauf, SprungMeldung } from './RolleSteuerung';
+import { ROLLE_TEMPO } from '@wov/shared/src/bewegung/masse.js';
+import { ROLLE_AUSDAUER } from '@wov/shared/src/kampf/rolle.js';
 import type { Scene } from '@babylonjs/core/scene';
 import type { InputManager } from '../engine/InputManager';
 import type { ClientWorld } from '../world/World';
 import type { AssetManager } from '../engine/AssetManager';
 import { AvatarRig } from './AvatarRig';
 
-const WALK_SPEED = 4.5;
 const RUN_SPEED = 7.5;
 const MOUSE_SENSITIVITY = 0.0022;
 const BOOM_LENGTH = 4.5;
@@ -274,6 +277,16 @@ export class PlayerController {
    */
   private _figurYaw = 0;
   private _moveIntent = { x: 0, z: 0, running: false };
+  /**
+   * D3: Die Figur blockt (rechte Maustaste gehalten). Dann ist das Ziel der Figurdrehung die
+   * KAMERARICHTUNG (auch im Stand), das Tempo ist das Blocktempo und Rennen zaehlt nicht.
+   * While blocking the figure turns to the camera, walks at block speed and does not run.
+   */
+  private _blockt = false;
+  /** D3-K4: the clock of the roll (the client predicts the path of the server). */
+  private readonly rolle = new RolleLauf();
+  /** D3-K4: the cost side of the jump and its flag for the input packet (see `SprungMeldung`). */
+  private readonly sprung = new SprungMeldung();
   /**
    * Mitgerechnete Ausdauer — dieselbe Regel wie im Server.
    *
@@ -754,9 +767,16 @@ export class PlayerController {
     // nachträglich bei der Landung aus.
     const aufBoden = !this.inDerLuft;
     this.sprungSperre = Math.max(0, this.sprungSperre - dt);
-    const springt = this.sprungWunsch && aufBoden && this.sprungSperre === 0;
+    this.sprung.schritt(dt);
+    // D3-K4: a jump costs 5 stamina and the server locks the next billed one for 0.8 s: the client jumps only
+    // with the predicted stamina, not in a roll, and reports the jump once (`nimmSprung`).
+    const springt = this.sprungWunsch && aufBoden && this.sprungSperre === 0 && this.sprung.erlaubt(this.ausdauer, this.rolle.rollt);
     this.sprungWunsch = false;
-    if (springt) this.sprungSperre = SPRUNG_SPERRE;
+    if (springt) {
+      this.sprungSperre = SPRUNG_SPERRE;
+      this.ausdauer = this.sprung.springe(this.ausdauer);
+      this.ausdauerZuletztVerbraucht = Date.now();
+    }
     // Der Nullsetz-Zweig bleibt an `supported` gebunden — er soll das
     // bisherige Verhalten an Hängen nicht verändern, sondern nur einen
     // laufenden Absprung nicht abwürgen.
@@ -926,6 +946,35 @@ export class PlayerController {
   }
 
   get yaw(): number { return this._yaw; }
+  /** Heading of the figure (rad), same convention as `yaw`. For HUD and measuring cells. */
+  get figurYaw(): number { return this._figurYaw; }
+  /** D3: blocking on or off (set by `main.ts` from `BlockSteuerung`). */
+  setzeBlock(an: boolean): void { this._blockt = an; }
+  /** D3-K4: a roll is running (no swing, no block, WASD ignored). */
+  get rollt(): boolean { return this.rolle.rollt; }
+  /** D3-K4: seconds left of the lock after the last roll. */
+  get rolleAbklingRest(): number { return this.rolle.abklingRest; }
+  /** D3-K4: the controller can move the figure by a roll (not frozen, not in build mode; before Havok is up the plain path moves it). */
+  get rolleBereit(): boolean { return !this.frozen && !this._bauModus; }
+  /**
+   * D3-K4: begin a roll along `yaw` (the key was accepted: the predicted stamina is paid at once). The figure turns to
+   * the direction in the next frame (`update`) and plays `rolle`.
+   */
+  startRolle(yaw: number): void {
+    this.rolle.starte(yaw);
+    this.ausdauer = Math.max(0, this.ausdauer - ROLLE_AUSDAUER);
+    this.ausdauerZuletztVerbraucht = Date.now();
+  }
+  /** D3-K4: the roll ends at once (server refused it, teleport, death). */
+  rolleAbbruch(sperreLoeschen = false, sperreSek?: number): void { this.rolle.abbrechen(sperreLoeschen, sperreSek); }
+  /**
+   * D3-K4: did a jump happen since the last call? True ONCE per jump: the main loop puts it into the next input packet
+   * (50 ms apart), so a jump between two packets is not lost and one jump is not reported twice.
+   */
+  nimmSprung(): boolean {
+    return this.sprung.nimm();
+  }
+  get blockt(): boolean { return this._blockt; }
   get pitch(): number { return this._pitch; }
   /** World-space move intent (same values sent to the server). */
   get moveIntent(): { x: number; z: number; running: boolean } { return this._moveIntent; }
@@ -942,8 +991,20 @@ export class PlayerController {
     if (Number.isFinite(wert)) this.ausdauer = wert;
   }
 
-  /** dt in seconds. */
-  update(dt: number): void {
+  /**
+   * Eine Einmal-Abbuchung vorhersagen (Blockbeginn, 5): Wert runter, nie unter 0, und die Regeneration pausiert wie am Server
+   * (`staminaZuletztVerbraucht`). Der naechste PlayerState korrigiert, falls der Server anders rechnet.
+   */
+  zieheAusdauerAb(menge: number): void {
+    this.ausdauer = Math.max(0, this.ausdauer - menge);
+    this.ausdauerZuletztVerbraucht = Date.now();
+  }
+
+  /**
+   * dt in seconds (clamped by the caller); `echteDt` the real frame time. The roll runs on the real time: the server's
+   * roll lasts 875 ms whatever the frame rate, and the one in the client must end with it.
+   */
+  update(dt: number, echteDt: number = dt): void {
     const [dx, dy] = this.input.consumeMouseDelta();
     // dx>0 = mouse moved right → look right → yaw increases (verified via
     // the forward/right basis below: increasing yaw sweeps `forward` from
@@ -965,10 +1026,16 @@ export class PlayerController {
     // Warten (frozen) zehrt nichts: Dort geht kein Bewegungswunsch hinaus,
     // der Server verbraucht also auch nichts.
     const rennWunsch = this.input.isDown('ShiftLeft');
+    // D3-K4: a roll that cannot go on (dead, frozen, build mode) ends; while it runs it drives the figure
+    if (this.rolle.rollt && (this._bauModus || this.frozen || this.avatar.liegt)) this.rolle.abbrechen(this.avatar.liegt);
+    const rollt = this.rolle.rollt;
+    const rs = this.rolle.schritt(echteDt);
+    const blockt = this._blockt && !this._bauModus && !rollt;
     const ausdauer = ausdauerSchritt(
       { wert: this.ausdauer, zuletztVerbraucht: this.ausdauerZuletztVerbraucht },
       {
-        rennWunsch,
+        // Beim Blocken gibt es kein Rennen: Shift wirkt nicht und zehrt nicht (wie am Server).
+        rennWunsch: rennWunsch && !blockt && !rollt,
         bewegt: (mx !== 0 || mz !== 0) && !this._bauModus && !this.frozen,
         dt,
         jetzt: Date.now(),
@@ -978,7 +1045,8 @@ export class PlayerController {
     this.ausdauerZuletztVerbraucht = ausdauer.zuletztVerbraucht;
     const running = ausdauer.rennt;
     this._rennt = running;
-    const speed = running ? RUN_SPEED : WALK_SPEED;
+    // Die EINE Tempofunktion des gemeinsamen Schritts (shared/bewegung/masse): Gehen, Rennen, Blocken.
+    const speed = blockSchrittTempo(running, blockt);
 
     // Leertaste als FLANKE, nicht als Dauerzustand: Gedrückthalten soll nicht
     // bei jeder Landung erneut abheben lassen. Im Baumodus ist sie das
@@ -1015,7 +1083,7 @@ export class PlayerController {
       wx /= len;
       wz /= len;
     }
-    this._moveIntent = { x: wx, z: wz, running: rennWunsch };
+    this._moveIntent = rollt ? { x: this.rolle.x, z: this.rolle.z, running: false } : { x: wx, z: wz, running: rennWunsch };
 
     if (this._bauModus) {
       // ── Schweben im Baumodus ────────────────────────────────────────
@@ -1073,11 +1141,17 @@ export class PlayerController {
       );
       this.controller?.setVelocity(Vector3.Zero());
     } else if (this.controller) {
-      this.stepPhysics(wx, wz, moving, speed, dt);
+      // The roll moves for ROLLE_BEWEGUNG_S only; in the frame it ends the speed is scaled so the path stays exact.
+      if (rollt) this.stepPhysics(this.rolle.x, this.rolle.z, rs.bewegt > 0, ROLLE_TEMPO * (dt > 0 ? rs.bewegt / dt : 0), dt);
+      else this.stepPhysics(wx, wz, moving, speed, dt);
     } else {
       // Before Havok is up: move freely and clamp to the heightmap — the
       // nearest-vertex rule the server validates against.
-      if (moving) {
+      if (rollt) {
+        const weg = ROLLE_TEMPO * rs.bewegt;
+        this.position.x += this.rolle.x * weg;
+        this.position.z += this.rolle.z * weg;
+      } else if (moving) {
         this.position.x += wx * speed * dt;
         this.position.z += wz * speed * dt;
       }
@@ -1126,7 +1200,13 @@ export class PlayerController {
     // (man läuft zum Fadenkreuz), beim seitlichen Ausweichen dreht sich
     // die Figur dorthin, wo sie tatsächlich hingeht, und läuft damit immer
     // vorwärts. Das entspricht `LookRotation` auf die Bewegungsrichtung im Original.
-    if (moving) {
+    if (rollt) {
+      this._figurYaw = this.rolle.yaw; // D3-K4: turned to the direction of the roll from the first frame
+    } else if (blockt) {
+      // D3: Beim Blocken schaut die Figur dorthin, wohin die Kamera schaut, auch im Stand und auch beim
+      // Gehen seitwaerts oder rueckwaerts; zuegig (540 Grad/s), nicht mit der Laufrichtungs-Drehung.
+      this._figurYaw = dreheZu(this._figurYaw, this._yaw, BLOCK_TURN_SPEED, dt);
+    } else if (moving) {
       // Umkehrung der Basis oben: forward = (-sin yaw, -cos yaw).
       const zielYaw = Math.atan2(-wx, -wz);
       // Differenz auf [-π, π] bringen, damit über den kürzeren Weg gedreht
@@ -1145,6 +1225,9 @@ export class PlayerController {
     // Laufzyklus: tatsächlich zurückgelegte Horizontalstrecke pro Sekunde,
     // nicht die Wunschgeschwindigkeit — steht die Figur (kein Input), läuft
     // auch die Animation aus. `running` wählt zwischen Geh- und Rennzyklus.
-    this.avatar.update(dt, moving ? speed : 0, RUN_SPEED, running, this.inDerLuft);
+    this.avatar.setzeBlock(blockt, blockRichtung(mx, mz));
+    this.avatar.setzeRolle(rollt);
+    // Without the clip `rolle` (a 48-clip body) the roll falls back to the run cycle at the speed of the roll.
+    this.avatar.update(dt, rollt ? ROLLE_TEMPO : moving ? speed : 0, RUN_SPEED, rollt || running, this.inDerLuft && !rollt);
   }
 }

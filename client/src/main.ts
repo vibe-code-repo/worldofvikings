@@ -122,6 +122,7 @@ import { Equipment } from './player/Equipment';
 import { waffenStandHandler } from './player/WaffenAbgleich';
 import { KampfEffekte } from './engine/KampfEffekte';
 import { verdrahteKampf } from './net/KampfNetz';
+import { BlockVerdrahtung } from './player/BlockVerdrahtung';
 import { Hotbar } from './ui/Hotbar';
 import { InventoryPanel } from './ui/InventoryPanel';
 import { ContainerPanel } from './ui/ContainerPanel';
@@ -993,6 +994,12 @@ async function main() {
   let dungeon2Marke = 0;
   /** Schlag-Sperre (s) — verhindert Dauerfeuer beim Klicken. */
   let angriffCooldown = 0;
+  // D3: rechte Maustaste halten = Block (Regeln in BlockSteuerung, Verdrahtung in BlockVerdrahtung).
+  const block = new BlockVerdrahtung({
+    sendBlock: (an) => socket?.sendBlock(an) ?? false, input, player: () => player, equipment: () => equipment, placement: () => placement,
+    sendRolle: (yaw, nr) => socket?.sendRolle(yaw, nr) ?? false,
+    fensterOffen: () => cursorNoetig(), dekorAktiv: () => dekoPlatzierung.aktiv, meldung: (t) => hud.meldung(i18n.serverMeldung(t)),
+  });
   /**
    * Schlagtakt in Sekunden — kürzester Abstand zwischen zwei Schlägen.
    *
@@ -1801,11 +1808,10 @@ async function main() {
         kampfEffekte.treffer(p, art);
         return true;
       },
-      /** Parade wie per Rechtsklick: Geste + Server-Fenster (Messzellen). */
-      pariere: () => {
+      /** Block wie per gehaltenem Rechtsklick an/aus (Messzellen): Zustand + Paket + Haltung. */
+      blocke: (an = true) => {
         if (!player || !socket?.connected) return false;
-        if (!player.avatar.starteAktion('parade')) return false;
-        socket.sendParry();
+        block.erzwinge(an);
         return true;
       },
       schlag: (waffe = '') => {
@@ -2412,7 +2418,7 @@ async function main() {
       // Der Abgleich entscheidet hier, OB nachgezogen wird; angewandt
       // wird es im Bild (s. abgleicher.schritt weiter unten).
       if (serverPos && player) {
-        abgleicher.serverMeldung(serverPos, letzterBestaetigterInputSeq, player.position, imDungeon);
+        abgleicher.serverMeldung(serverPos, letzterBestaetigterInputSeq, player.position, imDungeon, player.rollt || player.rolleAbklingRest > 0);
       }
       hud.setVitals(health, stamina);
       // Ausdauer-Abgleich: Der Server ist die Wahrheit, der Controller rechnet
@@ -2482,6 +2488,7 @@ async function main() {
     });
 
     verdrahteKampf(socket, input, () => player?.avatar ?? null, { kampfEffekte, kampfToene });
+    block.verdrahte(socket);
 
     socket.on(PacketType.InteractResult, (reader) => {
       reader.readBool();
@@ -3147,7 +3154,7 @@ async function main() {
     // Any open menu means: cursor free, so it can be clicked.
     input.setUiOpen(cursorNoetig());
 
-    miss('spieler', () => player!.update(dt));
+    miss('spieler', () => player!.update(dt, engine.getDeltaTime() / 1000));
     weltToene.update(dt);
     // Abgleich Client↔Server. Die Entscheidung ist beim Eintreffen des
     // PlayerState gefallen (abgleicher.serverMeldung, gegen die eigene
@@ -3427,11 +3434,12 @@ async function main() {
       input.wasMousePressed(0) &&
       socket?.connected &&
       angriffCooldown === 0 &&
-      document.pointerLockElement &&
+      document.pointerLockElement && !player.rollt &&
       !placement?.selectedPiece &&
       !cursorNoetig()
     ) {
       angriffCooldown = ANGRIFF_TAKT;
+      block.schlag();
       // Die Geste ist für Waffe UND Faust dieselbe: Was der Schlag
       // anrichtet, entscheidet der Server anhand der geprüften Waffe
       // (handleAttack → WAFFEN_SCHADEN, Faust = 4). Zwei Animationen
@@ -3458,20 +3466,7 @@ async function main() {
         equipment?.rightItem?.shared.name ?? ''
       );
     }
-    // Rechtsklick = Parade (10.09.2026): rein sichtbar, nach dem Vorbild
-    // des Upperbody-Layers im Original (SwordParryLeft/Right/Down). Der
-    // Server kennt noch keinen Block-Zustand — die Geste ist das Erste,
-    // die Wirkung kommt spaeter. Nur mit Waffe in der Hand, damit die
-    // leere Faust nicht mit einem unsichtbaren Schwert pariert.
-    if (
-      input.wasMousePressed(2) &&
-      document.pointerLockElement &&
-      !placement?.selectedPiece &&
-      !cursorNoetig() &&
-      equipment?.rightItem
-    ) {
-      if (player.avatar.starteAktion('parade')) socket?.sendParry();
-    }
+    block.frame(); // rechte Maustaste HALTEN = Block (D3)
 
     // E ist kontextsensitiv: Interagierbares in Reichweite (Pickable, Tür,
     // Truhe) gewinnt; sonst Dungeon betreten/verlassen.
@@ -3515,7 +3510,7 @@ async function main() {
           player.pitch,
           imDungeon ? player.position.y : 0,
           mv.running,
-          false
+          player.nimmSprung()
         );
         // Wo standen wir, als diese Eingabe abging? Genau das braucht der
         // Abgleich, wenn der Server sie bestätigt.

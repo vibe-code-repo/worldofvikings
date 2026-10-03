@@ -25,7 +25,7 @@ import type { Vek3 } from '../kollision/form.js';
 import type { BodenAbfrage, HindernisAbfrage } from './abfragen.js';
 import { hangBremse, type HangSpeicher } from './gelaendeHang.js';
 import { gleitBewegung } from './gleiten.js';
-import { BODEN_KLEBEN, FALL_TEMPO, GEH_TEMPO, KOERPER_RADIUS, LAUF_TEMPO } from './masse.js';
+import { BODEN_KLEBEN, FALL_TEMPO, KOERPER_RADIUS, bewegungsTempo } from './masse.js';
 
 /** Wo die Figur steht — an den Fuessen. Where the body is, at its feet. */
 export interface BewegungsZustand {
@@ -41,6 +41,10 @@ export interface BewegungsEingabe {
   readonly z: number;
   /** Lauftempo statt Gehtempo. */
   readonly rennt: boolean;
+  /** Die Figur blockt: halbes Gehtempo, `rennt` gilt dann nicht (`bewegungsTempo`). Fehlt es, gilt false. */
+  readonly blockt?: boolean;
+  /** Die Figur rollt (D3-K4): `ROLLE_TEMPO` vor allem anderen (`bewegungsTempo`). Fehlt es, gilt false. */
+  readonly rollt?: boolean;
 }
 
 /**
@@ -69,7 +73,7 @@ export function bewegungsSchritt(
    */
   hangSpeicher?: HangSpeicher
 ): BewegungsZustand {
-  const tempo = eingabe.rennt ? LAUF_TEMPO : GEH_TEMPO;
+  const tempo = bewegungsTempo(eingabe.rennt, eingabe.blockt ?? false, eingabe.rollt ?? false);
   // Erst der HANG, dann die Formen. Die Steigungsgrenze gilt seit dem
   // 11.09.2026 auch am Gelaende (s. `gelaendeHang.ts`): Was bergauf in
   // eine zu steile Flaeche laeuft, faellt hier weg, und was uebrig
@@ -134,7 +138,7 @@ export function flaechenDesSchritts(
   boden: BodenAbfrage,
   hindernis: HindernisAbfrage
 ): { readonly normalen: readonly Vek3[]; readonly blockiert: boolean } {
-  const tempo = eingabe.rennt ? LAUF_TEMPO : GEH_TEMPO;
+  const tempo = bewegungsTempo(eingabe.rennt, eingabe.blockt ?? false, eingabe.rollt ?? false);
   const hang = hangBremse(
     boden,
     zustand.x,

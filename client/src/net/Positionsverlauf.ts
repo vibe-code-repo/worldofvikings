@@ -124,6 +124,14 @@ export interface AbgleichRegeln {
   readonly weich: number;
   /** Weiche Schwelle im Rückfall auf das alte Verhalten (m). */
   readonly weichRueckfall: number;
+  /**
+   * Weiche Schwelle waehrend einer Rolle und in der Abklingzeit danach (m). Der Clip legt in 42 ms 18 % seines Wegs zurueck
+   * (21,5 m/s): jede Millisekunde Netzjitter zwischen dem Rolle-Paket und den Eingaben verschiebt den Serverweg um bis zu
+   * 21 mm gegen die Clientposition. Gemessen am Rechenmodell (echter Abgleicher, 2000 Laeufe): groesster Drift bei
+   * 120 ms Jitter 1,83 m, bei 200 ms 2,39 m. 2,5 m deckt Jitter bis 200 ms und bleibt weit unter `hart` (8 m) und unter
+   * dem halben Rollweg (4,85 m): ein echtes Auseinanderlaufen (Wand nur auf einer Seite) wird weiter gefunden.
+   */
+  readonly weichRolle: number;
   /** Ab hier wird hart auf die Serverposition gesetzt (m). */
   readonly hart: number;
   /** Zeitkonstante des weichen Nachziehens (s). */
@@ -161,6 +169,7 @@ export interface AbgleichRegeln {
 export const ABGLEICH_STANDARD: AbgleichRegeln = {
   weich: 1.0,
   weichRueckfall: 1.5,
+  weichRolle: 2.5,
   hart: 8,
   tau: 0.4,
 };
@@ -219,11 +228,12 @@ export class Abgleicher {
   /**
    * Ein PlayerState ist eingetroffen. `seq` ist die zuletzt vom Server
    * verarbeitete Eingabe (−1: der Server hat das Feld nicht geschickt).
-   * `clientJetzt` dient nur als Rückfall-Bezug.
+   * `clientJetzt` dient nur als Rückfall-Bezug. `inRolle`: eine Rolle läuft oder ihre Abklingzeit (0,5 s) — dann gilt die
+   * höhere weiche Schwelle `weichRolle`; ohne das Flag ist alles wie vorher.
    *
    * Entscheidet, OB nachgezogen wird — das Anwenden macht `schritt()`.
    */
-  serverMeldung(serverPos: Punkt3, seq: number, clientJetzt: Punkt3, imDungeon: boolean): void {
+  serverMeldung(serverPos: Punkt3, seq: number, clientJetzt: Punkt3, imDungeon: boolean, inRolle = false): void {
     this.zaehlerMeldungen += 1;
     const punkt = seq >= 0 ? this.verlauf.hole(seq) : null;
     const bezug: Punkt3 = punkt ?? clientJetzt;
@@ -260,7 +270,8 @@ export class Abgleicher {
       serverPos.z - clientJetzt.z
     );
 
-    const schwelle = punkt ? this.regeln.weich : this.regeln.weichRueckfall;
+    const normal = punkt ? this.regeln.weich : this.regeln.weichRueckfall;
+    const schwelle = inRolle ? Math.max(normal, this.regeln.weichRolle) : normal;
     if (drift > this.regeln.hart || driftJetzt > this.regeln.hart) {
       this.hartZiel = { x: serverPos.x, y: imDungeon ? null : serverPos.y, z: serverPos.z };
       this.rest = null;

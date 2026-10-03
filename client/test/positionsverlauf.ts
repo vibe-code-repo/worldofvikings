@@ -192,7 +192,7 @@ console.log('\n[8] Dungeon:');
 // ── [9] Eigene Regeln (die Schwelle ist eine Zahl, kein Literal) ──
 console.log('\n[9] Regeln einstellbar:');
 {
-  const streng: AbgleichRegeln = { weich: 0.2, weichRueckfall: 1.5, hart: 8, tau: 0.4 };
+  const streng: AbgleichRegeln = { weich: 0.2, weichRueckfall: 1.5, weichRolle: 2.5, hart: 8, tau: 0.4 };
   const a = new Abgleicher(streng);
   a.merkeEingabe(1, { x: 0, y: 0, z: 0 });
   a.serverMeldung({ x: 0.3, y: 0, z: 0 }, 1, { x: 0, y: 0, z: 0 }, false);

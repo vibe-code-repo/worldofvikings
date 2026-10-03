@@ -20,6 +20,9 @@ import { Writer } from '../io/Writer.js';
 import { Reader } from '../io/Reader.js';
 import { neuerSchlagZustand, type SchlagZustand } from '../spiel/Treffer.js';
 import { Spielwerte } from '../spiel/Spielwerte.js';
+import { blockZuruecksetzen } from '../spiel/Block.js';
+import { rolleBeenden } from '../spiel/Rolle.js';
+import type { RolleWeg } from '../world/Spielerbewegung.js';
 import { PacketType } from '@wov/shared';
 import type { WebSocket } from 'ws';
 import { randomBytes } from 'node:crypto';
@@ -138,14 +141,40 @@ export class Peer {
   /** Akku fuer den 10-Hz-PlayerState-Versand (s), s. WovServer.handlePlayerInput. */
   staminaSyncAkku?: number;
   /**
-   * Parade: Zeitstempel (ms), bis zu dem Treffer abgewehrt werden. 0 =
-   * keine Parade. Gesetzt von handleParry, gelesen in applyCreatureAttack.
+   * Block (D3): Zeitstempel (ms) des Beginns eines gehaltenen Blocks, 0 = kein Block.
+   * Gesetzt von spiel/Block.ts, gelesen in applyCreatureAttack und handlePlayerInput.
    */
-  paradeBis: number;
+  blockSeit: number;
+  /** Block: Serverzeit (ms) der letzten Abbuchung des Haltens, 0 = kein Block. */
+  blockTaktZeit: number;
+  /** Block: bis zu diesem Zeitstempel (ms) bekommt ein neuer Block kein Paradefenster (Klickserien). */
+  blockSperreBis: number;
+  /** Block: der laufende Block begann innerhalb der Sperre, also ohne Paradefenster. */
+  blockOhneParade: boolean;
+  /** Rolle (D3-K4): Beginn (ms) der laufenden Rolle, 0 = keine. Gesetzt von spiel/Rolle.ts. */
+  rolleStart: number;
+  /** Rolle: Ende (ms, exklusiv) der laufenden Rolle: bis dahin unverwundbar, kein Schlag, kein Block. 0 = keine. */
+  rolleBis: number;
+  /** Rolle: Ende (ms) der bisher bewegten Zeitscheibe; die naechste beginnt hier. */
+  rolleZeit: number;
+  /** Rolle: Richtung des Wegs (Einheitsvektor am Boden). */
+  rolleX: number;
+  rolleZ: number;
+  /** Rolle: bis hierhin (ms) darf keine neue Rolle beginnen (Abklingzeit). */
+  rolleSperreBis: number;
+  /** Rolle: die Nummer, die der Client der laufenden (oder letzten) Rolle gab; `Rolle=false` des Servers traegt sie zurueck. */
+  rolleNr: number;
+  /** Rolle: Beginn (ms) des laufenden Sekundenfensters der Paketdrossel und die Zahl der Pakete darin. */
+  rolleFensterStart: number;
+  rolleFensterZahl: number;
+  /** Rolle: der Weg der laufenden Rolle (Raster und Hangspeicher wie in der Vorschau), null = keine. */
+  rolleWeg: RolleWeg | null;
+  /** Sprung (D3-K4): bis hierhin (ms) wird kein weiterer gemeldeter Sprung abgerechnet. */
+  sprungSperreBis: number;
   /**
    * Tod: Zeitstempel (ms), bis zu dem der Spieler tot am Boden liegt. 0 = lebt.
    * Solange er laeuft, nimmt der Spieler keinen Schaden, gilt Kreaturen nicht als
-   * Ziel und seine Eingaben (Bewegung, Schlag, Parade, Interaktion) werden
+   * Ziel und seine Eingaben (Bewegung, Schlag, Block, Interaktion) werden
    * ignoriert; danach belebt ihn der Server (WovServer.belebeFaellige).
    */
   totBis = 0;
@@ -288,7 +317,21 @@ export class Peer {
     this.health = 100;
     this.stamina = 100;
     this.staminaZuletztVerbraucht = 0;
-    this.paradeBis = 0;
+    this.blockSeit = 0;
+    this.blockTaktZeit = 0;
+    this.blockSperreBis = 0;
+    this.blockOhneParade = false;
+    this.rolleStart = 0;
+    this.rolleBis = 0;
+    this.rolleZeit = 0;
+    this.rolleX = 0;
+    this.rolleZ = 0;
+    this.rolleSperreBis = 0;
+    this.rolleNr = 0;
+    this.rolleFensterStart = 0;
+    this.rolleFensterZahl = 0;
+    this.rolleWeg = null;
+    this.sprungSperreBis = 0;
     this.spawnPoint = null;
     this.spawnBettId = '';
     this.spawnBettBesitzer = null;
@@ -349,6 +392,8 @@ export class Peer {
    * Nummern, die drüben etwas anderes bedeuten.
    */
   weltWechselVorbereiten(): void {
+    blockZuruecksetzen(this); // a held block ends with the world; the client is told
+    rolleBeenden(this); // a roll ends with the world (the locks stay)
     this.knownZDOs.clear();
     this.fenster.zuruecksetzen();
     this.quittiereZerstoerungen();

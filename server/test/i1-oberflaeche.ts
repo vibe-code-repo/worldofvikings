@@ -80,7 +80,8 @@ export const PACKET_FAELLE = [
   'AdminCommand',
   'Interact',
   'Attack',
-  'Parry',
+  'Block',
+  'Rolle', // D3-K4
   'TerrainOp',
   'PlacePiece',
   'RemovePiece',
@@ -123,6 +124,7 @@ export const METHODEN = [
   'gebeItem',
   'handleAdminCommand',
   'handleAttack',
+  'handleBlock',
   'handleChatMessage',
   'handleContainerAction',
   'handleCraft',
@@ -133,7 +135,6 @@ export const METHODEN = [
   'handleEat',
   'handleEquip',
   'handleInteract',
-  'handleParry',
   'handlePlacePiece',
   'handlePlayerInput',
   'handleRemovePiece',
@@ -186,6 +187,7 @@ export const FELDER = [
   'worldTime',
   'zustandWeltId', // F8 (#146): f8n3-kennung-kill liest die Weltkennung des Servers
   'gegenstandsWache', // G2: gegenstaende-g2-live liest den Zaehler interneFehler der Gegenstands-Wache
+  'spielerbewegung', // D3-K4: d3-rolle ersetzt die Spielerbewegung des Servers durch eine Testwelt mit einer Felswand
 ] as const;
 
 /**
@@ -198,13 +200,13 @@ export const UEBERSCHRIEBEN = [
   'ermittleGespeichertenStand',
   'handleAdminCommand',
   'handleAttack',
+  'handleBlock',
   'handleChatMessage',
   'handleContainerAction',
   'handleCraft',
   'handleEat',
   'handleEquip',
   'handleInteract',
-  'handleParry',
   'handlePlacePiece',
   'handleRemovePiece',
   'handleTerrainOp',
@@ -274,6 +276,7 @@ export const TEXT_AUSNAHMEN: readonly { datei: string; grund: string }[] = [
  */
 export const FEHLTREFFER: readonly { name: string; datei: string; grund: string }[] = [
   { name: 'zeigeTreffer', datei: 'client/test/tod-treffer-avatar.ts', grund: 'AvatarRig.zeigeTreffer (Client), nicht das Serverfeld gleichen Namens' },
+  { name: 'zeigeTreffer', datei: 'client/test/d3-block-avatar.ts', grund: 'AvatarRig.zeigeTreffer (Client), nicht das Serverfeld gleichen Namens' },
   { name: 'onPacket', datei: 'server/test/i1-form-k.ts', grund: 'Name, unter dem das Mitglied im Syntaxbaum der Klasse gesucht wird (Text, kein Zugriff zur Laufzeit)' },
   { name: 'geklemmteEintraege', datei: 'tools/verschiebung/pruefstand/echt.ts', grund: 'Name in der Namensliste der Echt-Probe des Verschiebebeweises (Zeichenkette), keine Server-Nutzung' },
 ];

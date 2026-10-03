@@ -18,6 +18,7 @@
 
 import { HeightmapProvider, WATER_LEVEL } from '@wov/shared';
 import type { Peer } from '../net/Peer.js';
+import { rolleBeenden } from '../spiel/Rolle.js';
 import {
   MAX_RADIUS_ZONEN,
   formatiereErgebnis,
@@ -65,6 +66,7 @@ export class AdminCommandRegistry {
   constructor(private readonly umgebung?: AdminUmgebung) {
     this.register('fly', (peer) => {
       peer.flying = !peer.flying;
+      if (peer.flying) rolleBeenden(peer); // the flight branch would take the roll direction as input
       return {
         ok: true,
         active: peer.flying,

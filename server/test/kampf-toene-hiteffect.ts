@@ -151,7 +151,7 @@ async function main(): Promise<void> {
     console.log('\n[2] Kreaturenangriff hat keinen Angreifer:');
     a.effekte.length = 0;
     b.effekte.length = 0;
-    pb.paradeBis = 0;
+    pb.blockSeit = 0;
     (server as unknown as { applyCreatureAttack(pos: { x: number; y: number; z: number }, damage: number, radius: number, weltId: string, target?: unknown): void })
       .applyCreatureAttack({ x: pb.position.x, y: pb.position.y, z: pb.position.z }, 8, 2.4, pb.worldId, pb.position);
     await warte(300);

@@ -574,7 +574,6 @@ console.log('\n[3e] An old-format copy keeps working as GD1 let it: a base entry
 
 console.log('\n[3f] The transition decides by the BASIS state, not by today\'s repo (N5)');
 {
-  const holzEintrag = leseGegenstandsDatei(dokument([holzaxt])).eintraege[0]!;
   const neuerBau = (text: string): (() => void) => {
     setzeGrundbestand([]);
     setzeGrundbestand(leseGegenstandsDatei(text).eintraege);

@@ -1,4 +1,5 @@
 {
+  "inhalt.biom.greyglen": "Grauklamm",
   "inhalt.item.ashenveil_boots": "Aschenschleier-Panzerstiefel",
   "inhalt.item.ashenveil_bracers": "Aschenschleier-Runenarmschienen",
   "inhalt.item.ashenveil_gloves": "Aschenschleier-Schattenhandschuhe",
@@ -54,6 +55,7 @@
   "inhalt.item.wildwarden_mantle": "Waldhüter-Blattschultern",
   "inhalt.item.wildwarden_robe": "Waldhüter-Waldrobe",
   "inhalt.item.wildwarden_vest": "Waldhüter-Rindenwams",
+  "inhalt.netz.veraltet": "Client-Version veraltet (Client v{client}, Server v{server}) — bitte Seite neu laden",
   "inhalt.prefab.vegetation_fern_1a1": "Farn",
   "inhalt.prefab.vegetation_flower_1a12": "Wiesenblume B",
   "inhalt.prefab.vegetation_flower_1a4": "Wiesenblume A",

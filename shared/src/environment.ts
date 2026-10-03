@@ -848,6 +848,7 @@ const BIOME_ENV: ReadonlyArray<readonly [Biome, string]> = [
   [Biome.Mistlands, ENV_MISTLANDS],
   [Biome.AshLands, ENV_ASH_RAIN],
   [Biome.DeepNorth, ENV_DEEP_NORTH],
+  [Biome.Greyglen, ENV_CLEAR],
   [Biome.Ocean, ENV_MISTY],
 ];
 

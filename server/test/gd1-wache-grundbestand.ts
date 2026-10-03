@@ -139,6 +139,39 @@ async function lauf(name: string, angewendet: GegenstandsEintrag[], halt: Record
     const q2 = JSON.parse(readFileSync(gegenstandsQuittungsDatei(pfad), 'utf-8')) as GegenstandsQuittung;
     check('N1-2: a broken file gives receipt abgelehnt with the reason code datei-kein-json', q2.status === 'abgelehnt' && q2.grund === 'datei-kein-json', JSON.stringify(q2));
   }
+
+  // ── N3-1: `ersetzt` also in the cold-start branch and in the "nothing to do" branch ──
+  const deviating = dateiMit(abweichend, holzaxt);
+  const wacheFuer = (name: string, extra: { ohneGutenStand?: boolean }) => {
+    const dir = resolve(DIR, name); mkdirSync(dir, { recursive: true });
+    const pfad = resolve(dir, 'gegenstaende.json');
+    writeFileSync(pfad, deviating);
+    // What the start applied: the file read with the base entry in place of the stale copy.
+    const vomStart = leseGegenstandsDatei(deviating).eintraege;
+    wendeGegenstandsDatenAn(vomStart);
+    const wache = new GegenstandsWache({
+      pfad, quittungsPfad: gegenstandsQuittungsDatei(pfad), bestaetigenPfad: gegenstandsBestaetigenDatei(pfad), angewendet: vomStart,
+      ...extra, gehalten: () => ({}), entfernen: () => undefined, neuBinden: () => undefined, log: laut,
+    });
+    const quittung = (): GegenstandsQuittung => JSON.parse(readFileSync(gegenstandsQuittungsDatei(pfad), 'utf-8')) as GegenstandsQuittung;
+    return { wache, quittung };
+  };
+  console.log('\n[N3-1a] start with a stale copy, first tick ("nothing to do" branch)');
+  {
+    const t = wacheFuer('n3-nichts', {});
+    await warte(30);
+    t.wache.tick();
+    const q = t.quittung();
+    check('receipt angewendet with ersetzt [Wood]', q.status === 'angewendet' && JSON.stringify(q.ersetzt) === '["Wood"]', JSON.stringify(q));
+  }
+  console.log('\n[N3-1b] cold start without a last good state, first tick (ohneGutenStand branch)');
+  {
+    const t = wacheFuer('n3-kalt', { ohneGutenStand: true });
+    await warte(30);
+    t.wache.tick();
+    const q = t.quittung();
+    check('receipt angewendet with ersetzt [Wood]', q.status === 'angewendet' && JSON.stringify(q.ersetzt) === '["Wood"]', JSON.stringify(q));
+  }
   wendeGegenstandsDatenAn([]);
   console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAIL`);
   rmSync(DIR, { recursive: true, force: true });

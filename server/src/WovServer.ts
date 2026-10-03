@@ -124,7 +124,7 @@ import { loeschsperreDatei } from '@wov/shared/src/worldlayout/loeschsperre.js';
 import { Kollisionswelt } from './world/Kollisionswelt.js';
 import { Spielerbewegung } from './world/Spielerbewegung.js';
 import { bewegungsTempo } from '@wov/shared/src/bewegung/masse.js';
-import { beendeBlockDurchSchlag, blockHalteTakt, blockPaket, blockTrifft, blockZuruecksetzen } from './spiel/Block.js';
+import { beendeBlockDurchSchlag, blockHalteTakt, blockPaket, blockTakt, blockTrifft, blockZuruecksetzen } from './spiel/Block.js';
 // Ueber den expliziten Pfad, nicht ueber den Barrel: eine Geo ohne
 // Landmasse braucht nur der Server, und der Client-Bundle-Schnitt soll
 // nicht daran wachsen.
@@ -1927,6 +1927,7 @@ export class WovServer {
     // Dead players whose lying time is over get up (respawn) — every tick, not
     // only in the 1-second block below: the lying time is a promise in ms.
     this.belebeFaellige(now);
+    blockTakt(this.net.getPeers(), now);
 
     // Advance world time
     this.worldTime += deltaSec * this.worldTimeMultiplier;
@@ -2894,7 +2895,7 @@ export class WovServer {
     // sind unveraendert; hier bleibt nur die Frage stehen, ob sie ueberhaupt
     // gilt (im Admin-Flug gilt sie nicht).
     const bewegt = moveX !== 0 || moveZ !== 0;
-    const blockt = blockHalteTakt(peer, deltaSec, now);
+    const blockt = blockHalteTakt(peer, now);
     const aus = ausdauerSchritt(
       { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
       { rennWunsch: !peer.flying && running && !blockt, bewegt, dt: deltaSec, jetzt: now }

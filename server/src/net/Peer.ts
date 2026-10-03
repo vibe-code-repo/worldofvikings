@@ -140,6 +140,8 @@ export class Peer {
    * Gesetzt von spiel/Block.ts, gelesen in applyCreatureAttack und handlePlayerInput.
    */
   blockSeit: number;
+  /** Block: Serverzeit (ms) der letzten Abbuchung des Haltens, 0 = kein Block. */
+  blockTaktZeit: number;
   /** Block: bis zu diesem Zeitstempel (ms) bekommt ein neuer Block kein Paradefenster (Klickserien). */
   blockSperreBis: number;
   /** Block: der laufende Block begann innerhalb der Sperre, also ohne Paradefenster. */
@@ -291,6 +293,7 @@ export class Peer {
     this.stamina = 100;
     this.staminaZuletztVerbraucht = 0;
     this.blockSeit = 0;
+    this.blockTaktZeit = 0;
     this.blockSperreBis = 0;
     this.blockOhneParade = false;
     this.spawnPoint = null;
@@ -354,6 +357,7 @@ export class Peer {
    */
   weltWechselVorbereiten(): void {
     this.blockSeit = 0;
+    this.blockTaktZeit = 0;
     this.blockSperreBis = 0;
     this.blockOhneParade = false;
     this.knownZDOs.clear();

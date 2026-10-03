@@ -1,0 +1,125 @@
+{
+  "biome": {
+    "1": "eb831a5fa2fa1ed64d39454041339183bad00ebb90de9113c5770e636a479ad4",
+    "2": "e28e5add0e921e294fcb4b9a9fba63c7f7193b4cf64ebbb87d302f0754f22bfc",
+    "4": "874fc314a9c82cdaa7cf4ca3d87614fcfb1deb855b34ff16483a477abb99de40",
+    "8": "290fe268ac0c966fc35227add15a64a72edaf7ecea0a9d5e4e43c2c04410f092",
+    "16": "3ae30d29d95daeb9d223f554ebe64086205d97b1a8dee6df27c84f795717a431",
+    "32": "87cf7627cd8a24f52eb1e5abf739a97b8acd6f169b5ea91d57b4bfc5e74dbd39",
+    "64": "31fd7b8db510ef3e0a7207c288622b3f78115597240868f8b91b7f40e7633c96",
+    "256": "414d3151756149f8cd5dc7a1918fef5354be1a6592da6091346c1105f6616f13",
+    "512": "290fe268ac0c966fc35227add15a64a72edaf7ecea0a9d5e4e43c2c04410f092"
+  },
+  "tabellen": {
+    "biomTile": {
+      "1": 0,
+      "2": 10,
+      "4": 4,
+      "8": 1,
+      "16": 8,
+      "32": 7,
+      "64": 4,
+      "256": 9,
+      "512": 11
+    },
+    "hang": [
+      11,
+      4,
+      2,
+      3,
+      4,
+      5,
+      14,
+      14,
+      2,
+      2,
+      13,
+      4,
+      12,
+      13,
+      14,
+      14
+    ],
+    "fels": [
+      4,
+      4,
+      4,
+      4,
+      4,
+      5,
+      14,
+      14,
+      5,
+      5,
+      4,
+      5,
+      4,
+      4,
+      14,
+      14
+    ],
+    "rau": [
+      5,
+      4,
+      5,
+      5,
+      5,
+      5,
+      14,
+      14,
+      5,
+      5,
+      4,
+      5,
+      5,
+      4,
+      14,
+      14
+    ],
+    "rampen": {
+      "hang": {
+        "beginn": 15,
+        "voll": 30
+      },
+      "fels": {
+        "beginn": 30,
+        "voll": 40,
+        "anteil": 0.4
+      },
+      "rau": {
+        "beginn": 40,
+        "voll": 50,
+        "anteil": 0.1
+      }
+    },
+    "bodenart": [
+      "gras",
+      "gras",
+      "erde",
+      "erde",
+      "fels",
+      "fels",
+      "fels",
+      "erde",
+      "gras",
+      "sand",
+      "erde",
+      "gras",
+      "pflaster",
+      "erde",
+      "fels",
+      "fels"
+    ],
+    "regeln": {
+      "sandUeberWasser": 2.5,
+      "sandSpanne": 3,
+      "sandAnteil": 0.8,
+      "schneeLinie": 80,
+      "schneeAnstieg": 20,
+      "schneeTiefNord": 0.9,
+      "schneeNyKante0": 0.4,
+      "schneeNyKante1": 0.65,
+      "lavaAnteil": 0.9
+    }
+  }
+}

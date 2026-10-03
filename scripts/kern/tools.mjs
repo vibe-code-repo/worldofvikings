@@ -245,6 +245,14 @@ export default [
   */
   ['tools/test', 'asset-paket-teile.ts'],
   /*
+    Greyglen K3: own ground. Tables of the new tiles 16-19, ramps per base tile,
+    area shares on a steep highland slope histogram (CPU ground mix, +-5 points,
+    calibration under 1), older biomes bit-identical against a golden from before
+    K3 (shared/test/golden/boden-mischung-alte-biome.json), shader reads the ramp
+    tables. No assets. ~5 s.
+  */
+  ['tools', 'test/boden-greyglen.ts'],
+  /*
     Dev-Log-Werkzeug (30.09.2026): tools/devlog/eintragen.mjs prueft einen Tageseintrag
     gegen das Schema aus wov-web/src/lib/devlog.ts, lehnt interne Spuren ab (PR-Nummer,
     Commit-Hash, Pfad, Endung, Sperrliste), fuegt ein/ersetzt/kuerzt auf 512 KB und

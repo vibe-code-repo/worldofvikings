@@ -43,7 +43,7 @@ import {
 } from '@wov/shared';
 import { BODEN_REGELN } from '@wov/shared/src/worldgen/bodenKacheln.js';
 import type { ClientWorld } from '../world/World';
-import { TerrainSplatMaterial, TILE, BIOME_TILE, FELS_TILE, kachelFuerStapel, stapelBrauchbar, maskUV, maskUVEmpty } from './TerrainSplat';
+import { TerrainSplatMaterial, TILE, BIOME_TILE, FELS_TILE, kachelFuerStapel, greyGewicht, markerLava, maskUV, maskUVEmpty } from './TerrainSplat';
 import type { HimmelsFarben } from './TerrainSplat';
 import { WaterPlugin } from './WaterPlugin';
 import { WaterRefraction } from './WaterRefraction';
@@ -1458,16 +1458,11 @@ export class TerrainManager {
         const biome = hm.getBiome(wx, wz);
         const tx = sstep(rx / ZONE_UNITS);
         const cb = hm.cornerBiomes;
-        // Die Greyglen-Kacheln (16-19) gelten nur in NAH-Chunks (eine Zone) und nur, wenn der
-        // Texturstapel zum Code passt. Sonst bekommen die Vertices ihre Grasland-Entsprechung
-        // (0, 11, 4, 5, `kachelFuerStapel`):
-        //  - passt der Stapel nicht, aus dem Grund der Rueckfall (K3);
-        //  - in FERN-Chunks (`zonesPerSide > 1`, 4-m-Raster) liegt der Vertex am Zonenrand schon in
-        //    der Nachbarzone, und das Dreieck dazwischen interpoliert die Kachel-NUMMER: zwischen 0
-        //    und 16 entstuenden dort die Kacheln 1-15 (Erde, Fels, Heide, Pflaster) als Streifen an
-        //    jeder Grenze Greyglen/Grasland. Mit denselben Nummern wie das Grasland (wie vor K3)
-        //    gibt es keine Zwischenwerte; dafuer gelten im Fernbild die Rampen des Graslands.
-        const stapelOk = stapelBrauchbar() && zonesPerSide === 1;
+        // Die Vertices tragen IMMER die Grasland-Entsprechung der Greyglen-Kacheln (16→0, 17→11, 18→4, 19→5,
+        // `kachelFuerStapel(…, false)`), nie die Nummer 16-19: Die Kachel ist ein Float, der ueber das Dreieck
+        // interpoliert wird, im Fern-Chunk (4-m-Raster) ueber Zonengrenzen; zwischen 0 und 16 entstuenden dort
+        // die Kacheln 1-15 (Erde, Fels, Heide, Pflaster) als Streifen. Die Greyglen-Zugehoerigkeit steht stattdessen
+        // als stetiges Gewicht im Lava-Kanal (`markerLava`, negativ); der Shader mischt damit die Rampen.
 
         // D5 fallback vertex colors (biome + sand/rock/snow/depth rules)
         const bc = BIOME_COLORS[biome] ?? COLOR_FALLBACK;
@@ -1491,19 +1486,22 @@ export class TerrainManager {
           const k = Math.min(1, (ROCK_SLOPE - ny) / 0.25);
           blend(colors, vi, ROCK, k * 0.85);
         }
-        aTiles[vi * 4] = kachelFuerStapel(BIOME_TILE[cb[0]] ?? TILE.Rock, stapelOk);
-        aTiles[vi * 4 + 1] = kachelFuerStapel(BIOME_TILE[cb[1]] ?? TILE.Rock, stapelOk);
-        aTiles[vi * 4 + 2] = kachelFuerStapel(BIOME_TILE[cb[2]] ?? TILE.Rock, stapelOk);
-        aTiles[vi * 4 + 3] = kachelFuerStapel(BIOME_TILE[cb[3]] ?? TILE.Rock, stapelOk);
+        aTiles[vi * 4] = kachelFuerStapel(BIOME_TILE[cb[0]] ?? TILE.Rock, false);
+        aTiles[vi * 4 + 1] = kachelFuerStapel(BIOME_TILE[cb[1]] ?? TILE.Rock, false);
+        aTiles[vi * 4 + 2] = kachelFuerStapel(BIOME_TILE[cb[2]] ?? TILE.Rock, false);
+        aTiles[vi * 4 + 3] = kachelFuerStapel(BIOME_TILE[cb[3]] ?? TILE.Rock, false);
         aWeights[vi * 4] = (1 - tx) * (1 - ty);
         aWeights[vi * 4 + 1] = tx * (1 - ty);
         aWeights[vi * 4 + 2] = (1 - tx) * ty;
         aWeights[vi * 4 + 3] = tx * ty;
 
-        aLava[vi] =
-          biome === Biome.AshLands
-            ? Math.min(1, Math.max(0, hm.getVegetationMask(wx, wz)))
-            : 0;
+        aLava[vi] = markerLava(
+          biome === Biome.AshLands ? Math.min(1, Math.max(0, hm.getVegetationMask(wx, wz))) : 0,
+          greyGewicht(
+            [BIOME_TILE[cb[0]] ?? 0, BIOME_TILE[cb[1]] ?? 0, BIOME_TILE[cb[2]] ?? 0, BIOME_TILE[cb[3]] ?? 0],
+            [aWeights[vi * 4]!, aWeights[vi * 4 + 1]!, aWeights[vi * 4 + 2]!, aWeights[vi * 4 + 3]!]
+          )
+        );
         aSnow[vi] =
           biome === Biome.Mountain && h > SNOW_LINE
             ? Math.min(1, (h - SNOW_LINE) / BODEN_REGELN.schneeAnstieg)

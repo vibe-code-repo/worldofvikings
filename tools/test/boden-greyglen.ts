@@ -38,6 +38,7 @@ import { E_WIDTH, WATER_LEVEL } from '../../shared/src/worldgen/Heightmap.js';
 import { Biome } from '../../shared/src/types.js';
 import { felsMaskeShaderBei } from '../../shared/src/worldgen/felsRauschen.js';
 import * as WZ from '../store-terrain-schichten.mjs';
+import * as DEVB from '../../scripts/dev-boden.mjs';
 import * as SPLAT from '../../client/src/engine/TerrainSplat.js';
 import { TerrainManager } from '../../client/src/engine/Terrain.js';
 import * as GEL from '../boden-greyglen-gelaende.js';
@@ -279,6 +280,21 @@ console.log('\n[2] Stapel alt/neu und Rueckfall:');
   pruefe('Layout 256 × 4096 und 1024 × 16384: Modus 0 (die Kante ist egal, das Verhaeltnis zaehlt)', lay(256, 4096).modus === 0 && lay(1024, 16384).modus === 0);
   pruefe('Layout 512 × 4096 (8 Zeilen): Modus 2, Zeilenzahl aus der Hoehe', lay(512, 4096).modus === 2 && lay(512, 4096).zeilen === 8);
   pruefe('Layout 512 × 6000 (nicht ganzzahlig) und 0 × 0: Modus 2', lay(512, 6000).modus === 2 && lay(0, 0).modus === 2 && lay(-1, 5).modus === 2);
+  pruefe('Layout rundet: 512 × 3891 (7,6) → 8 Zeilen, 512 × 3686 (7,2) → 7 Zeilen (nicht abgeschnitten, nicht aufgerundet)', lay(512, 3891).zeilen === 8 && lay(512, 3686).zeilen === 7);
+  pruefe('Layout: nie weniger als eine Zeile (512 × 100) und Hoehe 0 ist Modus 2', lay(512, 100).zeilen === 1 && lay(512, 100).modus === 2 && lay(512, 0).modus === 2 && lay(512, 0).zeilen === 16);
+  // F1: Babylon klemmt getSize() auf MAX_TEXTURE_SIZE; gelesen wird die Bildgroesse.
+  {
+    const karte4096 = { getSize: () => ({ width: 512, height: 4096 }), getBaseSize: () => ({ width: 512, height: 8192 }) };
+    const b4 = SPLAT.stapelBefundAusTextur(karte4096, 4096, 'Farbstapel');
+    pruefe('Grafikkarte mit 4096 px: getSize() ist auf 512 × 4096 geklemmt, der Befund liest die Bildgroesse 512 × 8192: Modus 0, 16 Zeilen, gut, Meldung zur Verkleinerung',
+      b4.layout.modus === 0 && b4.layout.zeilen === 16 && b4.ok && b4.meldung?.includes('verkleinert') === true);
+    const karte2048 = { getSize: () => ({ width: 256, height: 2048 }), getBaseSize: () => ({ width: 512, height: 8192 }) };
+    pruefe('Grafikkarte mit 2048 px: ebenfalls Modus 0', SPLAT.stapelBefundAusTextur(karte2048, 2048, 'Normalenstapel').layout.modus === 0);
+    const grosseKarte = { getSize: () => ({ width: 512, height: 8192 }), getBaseSize: () => ({ width: 512, height: 8192 }) };
+    pruefe('Karte mit 16384 px: Modus 0 ohne Meldung', SPLAT.stapelBefundAusTextur(grosseKarte, 16384, 'Farbstapel').meldung === null);
+    const stapel20 = { getSize: () => ({ width: 512, height: 8192 }), getBaseSize: () => ({ width: 512, height: 10240 }) };
+    pruefe('20-Zeilen-Stapel auf einer 8192-Karte (getSize geklemmt auf 8192): Modus 1 aus der Bildgroesse', SPLAT.stapelBefundAusTextur(stapel20, 8192, 'Farbstapel').layout.modus === 1);
+  }
   {
     const b0 = SPLAT.stapelBefundAusGroesse(512, 8192, 16384, 'Farbstapel');
     pruefe('Befund Modus 0: gut, keine Meldung', b0.ok && b0.meldung === null);
@@ -328,10 +344,17 @@ console.log('\n[2] Stapel alt/neu und Rueckfall:');
       pruefe('JSON nicht erreichbar: keine Hashes, keine Ausnahme', aus.farbe === undefined);
       const nok = await SPLAT.stapelHashesHolen(async () => ({ ok: false, json: async () => ({}) }), 'u');
       pruefe('JSON mit Fehlerstatus: keine Hashes', nok.farbe === undefined);
+      const nokMitHash = await SPLAT.stapelHashesHolen(async () => ({ ok: false, json: async () => ({ stapelHash: { farbe: 'aaaaaaaaaaaaaaaa', normale: 'bbbbbbbbbbbbbbbb' } }) }), 'u');
+      pruefe('JSON mit Fehlerstatus (404/500) und Hash im Koerper: der Hash wird NICHT uebernommen', nokMitHash.farbe === undefined && nokMitHash.normale === undefined);
       const kaputt = await SPLAT.stapelHashesHolen(async () => ({ ok: true, json: async () => { throw new Error('kein JSON'); } }), 'u');
       pruefe('JSON unlesbar: keine Hashes', kaputt.farbe === undefined);
       const boese = await SPLAT.stapelHashesHolen(async () => ({ ok: true, json: async () => ({ stapelHash: { farbe: '../x?y', normale: 12 } }) }), 'u');
       pruefe('Hash in falscher Form (Pfadzeichen, Zahl) wird nicht uebernommen', boese.farbe === undefined && boese.normale === undefined);
+      const formen = await Promise.all(['abcdef12/../x', 'abcdef0123456789zz', 'abc', 'ABCDEF0123456789', '', 'abcdef01'].map((h) => SPLAT.stapelHashesHolen(async () => ({ ok: true, json: async () => ({ stapelHash: { farbe: h } }) }), 'u')));
+      pruefe('Hashform: mit Pfadzeichen, mit Zeichen hinter den Ziffern, zu kurz, Grossbuchstaben, leer: abgelehnt; genau 8 Hexziffern: angenommen',
+        formen.slice(0, 5).every((f) => f.farbe === undefined) && formen[5]!.farbe === 'abcdef01');
+      const lang = await SPLAT.stapelHashesHolen(async () => ({ ok: true, json: async () => ({ stapelHash: { farbe: 'a'.repeat(64), normale: 'a'.repeat(65) } }) }), 'u');
+      pruefe('Hashform: 64 Hexziffern ja, 65 nein', lang.farbe === 'a'.repeat(64) && lang.normale === undefined);
     })());
   }
   {
@@ -341,15 +364,18 @@ console.log('\n[2] Stapel alt/neu und Rueckfall:');
   }
   const splat = readFileSync(resolve(WURZEL, 'client/src/engine/TerrainSplat.ts'), 'utf-8');
   const terrain = readFileSync(resolve(WURZEL, 'client/src/engine/Terrain.ts'), 'utf-8');
-  pruefe('Terrain: alle vier Eckkacheln und die Felskachel gehen durch kachelFuerStapel',
-    (terrain.match(/kachelFuerStapel\(BIOME_TILE\[cb\[[0-3]\]\] \?\? TILE\.Rock, stapelOk\)/g) ?? []).length === 4
-      && terrain.includes('aRockTile[vi] = kachelFuerStapel(FELS_TILE[BIOME_TILE[biome] ?? TILE.Rock] ?? TILE.Rock, false);'));
-  pruefe('Terrain: die Greyglen-Kacheln gelten nur im Nah-Chunk und bei brauchbarem Stapel', terrain.includes('const stapelOk = stapelBrauchbar() && zonesPerSide === 1;'));
+  const stapelQuelle = readFileSync(resolve(WURZEL, 'client/src/engine/StapelLayout.ts'), 'utf-8');
+  pruefe('Terrain: alle vier Eckkacheln gehen als Grasland-Entsprechung ins Gitter (immer, nicht nur bei Rueckfall), die Felskachel ebenso',
+    (terrain.match(/kachelFuerStapel\(BIOME_TILE\[cb\[[0-3]\]\] \?\? TILE\.Rock, false\)/g) ?? []).length === 4
+      && terrain.includes('aRockTile[vi] = kachelFuerStapel(FELS_TILE[BIOME_TILE[biome] ?? TILE.Rock] ?? TILE.Rock, false);') && !terrain.includes('stapelOk'));
+  pruefe('Terrain: das Greyglen-Gewicht steht im Lava-Kanal (markerLava, greyGewicht aus den Eckkacheln und -gewichten)',
+    terrain.includes('aLava[vi] = markerLava(') && terrain.includes('greyGewicht(') && terrain.includes('[aWeights[vi * 4]!, aWeights[vi * 4 + 1]!, aWeights[vi * 4 + 2]!, aWeights[vi * 4 + 3]!]')
+      && terrain.includes('biome === Biome.AshLands ? Math.min(1, Math.max(0, hm.getVegetationMask(wx, wz))) : 0'));
   pruefe('Splat: beide Texturen entstehen ohne URL und bekommen sie nach dem Lesen der JSON (mit Hash)',
     (splat.match(/new Texture\(null, scene, false, false, Texture\.TRILINEAR_SAMPLINGMODE, null, /g) ?? []).length === 2
       && splat.includes("splatTex.updateURL(stapelUrl(splatDatei, STORE_BODEN_AKTIV ? h.farbe : undefined), null, () => stapelGeladen(splatTex, 'Farbstapel'))")
       && splat.includes("nTexRef.updateURL(stapelUrl(`${STORE_TEX_BASE}store_n_array.png`, h.normale), null, () => stapelGeladen(nTexRef!, 'Normalenstapel'))")
-      && splat.includes('stapelHashesHolen((u) => fetch(u, { cache: \'no-cache\' }), `${STORE_TEX_BASE}store-schichten.json`)'));
+      && splat.includes('stapelHashesHolen(mitZeitlimit, `${STORE_TEX_BASE}store-schichten.json`)'));
   pruefe('Splat: Ladefehler beider Stapel gehen in stapelFehlgeschlagen (Rueckfall-Flag)',
     splat.includes("(msg) => stapelFehlgeschlagen('Farbstapel', msg)") && splat.includes("(msg) => stapelFehlgeschlagen('Normalenstapel', msg)"));
   pruefe('Splat: nach dem Laden Befund aus der Groesse, Uniforms und Flag gesetzt',
@@ -362,17 +388,123 @@ console.log('\n[2] Stapel alt/neu und Rueckfall:');
   pruefe('Splat: Zeilenzahl als Uniform an beiden GLSL-Bloecken und im WebGPU-Pfad geteilt',
     splat.includes('stapelZeilenBlock.output.connectTo(ot.zeilen);') && splat.includes('stapelZeilenBlock.output.connectTo(o.zeilen);')
       && splat.includes('stapelZeilenBlock.output.connectTo(yAtlas.right);') && splat.includes('const yAtlas = new DivideBlock(`tile_${name}_yAtlas`);'));
+  {
+    const aufrufe = ['uvO, dOx, dOy', 'uvX, dXx, dXy', 'uvZ, dZx, dZy'].flatMap((u) => [`vec3 m = vbEbene_\${name}(atlas, ${u}, zeile, zeilen) * 2.0 - 1.0; m.xy *= st;`, `acc += vbEbene_\${name}(atlas, ${u}, zeile, zeilen) * w.`]);
+    pruefe('Splat: alle sechs Abtastungen der drei Ebenen (Normale und Farbe) uebergeben Zeile und Zeilenzahl (Mutant M60: X-Ebene mit layer)',
+      aufrufe.every((t) => splat.includes(t)) && !/vbEbene_\$\{name\}\(atlas, [^)]*\blayer\b/.test(splat) && (splat.match(/vbEbene_\$\{name\}\(atlas, uv[OXZ], d[OXZ]x, d[OXZ]y, zeile, zeilen\)/g) ?? []).length === 6);
+  }
+  {
+    // Die Greyglen-Unterschiede im Shader (Greyglen minus Grasland), mit den Zahlen unabhaengig nachgerechnet.
+    const c = (g: number): number => Math.cos((g * Math.PI) / 180);
+    const r4 = (v: number): number => Number(v.toFixed(4));
+    const text = SPLAT.greyDeltaGlslVon(TR.rampenTabelle());
+    const wert = (n: string): number => Number(new RegExp(`const float VB_GREY_D_${n} = ([-0-9.e]+);`).exec(text.join('\n'))![1]);
+    const soll: Record<string, number> = {
+      HANG_B: r4(c(19)) - r4(c(15)), HANG_W: r4(c(19) - c(26)) - r4(c(15) - c(30)),
+      FELS_B: c(26) - c(30), FELS_W: (c(26) - c(34)) - (c(30) - c(40)), FELS_A: 0.94 - 0.4,
+      RAU_B: r4(c(36)) - r4(c(40)), RAU_W: r4(c(36) - c(50)) - r4(c(40) - c(50)), RAU_A: r4(0.42) - r4(0.1),
+    };
+    pruefe('greyDeltaGlslVon: acht Konstanten VB_GREY_D_* mit dem Unterschied Greyglen minus Grasland (Hang/Rau auf vier Stellen gerundet, Fels voll)',
+      text.length === 8 && Object.keys(soll).every((k) => Math.abs(wert(k) - soll[k]!) < 1e-12), Object.keys(soll).map((k) => `${k} ${wert(k).toFixed(6)}/${soll[k]!.toFixed(6)}`).join(' '));
+    pruefe('… die Vorzeichen: der Greyglen-Hang beginnt spaeter (kleineres ny: Beginn-Delta negativ), der Fels deckt staerker (Deckel-Delta positiv)', wert('HANG_B') < 0 && wert('FELS_A') > 0 && wert('RAU_A') > 0);
+  }
+  pruefe('Splat: Startwerte der Uniforms (Modus 0 bzw. 1 im toten Altbestand-Pfad, 16 Zeilen) und Meldungsstufen (gut: warn, schlecht: error)',
+    splat.includes('stapelModusBlock.value = STORE_BODEN_AKTIV ? 0 : 1;') && splat.includes('stapelZeilenBlock.value = STAPEL_ZEILEN;')
+      && splat.includes('if (befund.meldung) (befund.ok ? console.warn : console.error)(befund.meldung);') && stapelQuelle.includes('console.error(`[terrain] ${was} konnte nicht geladen werden'));
+  pruefe('Splat: fehlt der Hash in der JSON, gibt es eine Konsolenmeldung; der Abruf hat ein Zeitlimit von 4 s',
+    splat.includes("if (STORE_BODEN_AKTIV && (!h.farbe || !h.normale)) {") && splat.includes('console.warn(\'[terrain] store-schichten.json nennt keinen Stapel-Hash')
+      && splat.includes('AbortSignal.timeout(4000)') && splat.includes("fetch(u, { cache: 'no-cache', signal:"));
+  pruefe('Splat: das Layout wird aus der Bildgroesse gelesen (stapelBefundAusTextur), nirgends aus getSize()', splat.includes('stapelBefundAusTextur(tex, scene.getEngine().getCaps().maxTextureSize, was)') && !/\.getSize\(\)/.test(splat));
+  pruefe('Splat: das Greyglen-Gewicht im Shader: Eingang aus dem Lava-Kanal, Schalter greyOk, Rampe plus g mal Unterschied, Kacheln ab g > 0,5',
+    splat.includes('terrainMarkerSplit.z.connectTo(hw.marker);') && splat.includes('greyOkBlock.output.connectTo(hw.greyOk);')
+      && splat.includes("'  float g = clamp(-marker, 0.0, 1.0) * greyOk;'") && splat.includes('`    ${v} += g * VB_GREY_D_${n};`')
+      && splat.includes('`    if (g > 0.5) { hangTile = ${TILE.GreyMoss}.0; rauTile = ${TILE.GreyRockMoss}.0; }`')
+      && splat.includes("'void vbHangWahl(vec4 tiles, vec4 weights, float ny, float marker, float greyOk,',")
+      && splat.includes("stapelBeobachten((ok) => { greyOkBlock.value = ok ? 1 : 0; });"));
+  {
+    // Das Greyglen-Gewicht und der Lava-Kanal (Terrain schreibt, Shader liest).
+    const w = [0.1, 0.2, 0.3, 0.4];
+    pruefe('greyGewicht: Summe der Eckgewichte der Greyglen-Ecken (nur Kacheln ab 16)', Math.abs(BK.greyGewicht([0, 16, 0, 19], w) - 0.6) < 1e-12 && BK.greyGewicht([0, 1, 2, 15], w) === 0 && Math.abs(BK.greyGewicht([16, 17, 18, 19], w) - 1) < 1e-12);
+    pruefe('markerLava: Lava gewinnt, sonst minus das Gewicht (auf 1 geklemmt), sonst 0', BK.markerLava(0.7, 0.5) === 0.7 && BK.markerLava(0, 0.25) === -0.25 && BK.markerLava(0, 3) === -1 && BK.markerLava(0, 0) === 0);
+    pruefe('greyAusMarker: Spiegelbild; Lava (positiv) gibt kein Gewicht, ausserhalb geklemmt', BK.greyAusMarker(-0.25) === 0.25 && BK.greyAusMarker(0.7) === 0 && BK.greyAusMarker(-3) === 1 && BK.greyAusMarker(0) === 0);
+    pruefe('Hin und zurueck: greyAusMarker(markerLava(0, g)) = g fuer g in [0, 1]', [0, 0.1, 0.5, 0.99, 1].every((g) => Math.abs(BK.greyAusMarker(BK.markerLava(0, g)) - g) < 1e-12));
+    // Beobachter des Pruefergebnisses (stellt im Material das greyOk ein).
+    const gesehen: boolean[] = [];
+    const ab = SPLAT.stapelBeobachten((ok) => gesehen.push(ok));
+    const altE = console.error;
+    console.error = (): void => undefined;
+    SPLAT.stapelMelden(false);
+    SPLAT.stapelFehlgeschlagen('x', 'y');
+    SPLAT.stapelMelden(true);
+    console.error = altE;
+    ab();
+    SPLAT.stapelMelden(false);
+    SPLAT.stapelMelden(true);
+    pruefe('stapelBeobachten: meldet jede Aenderung (auch aus stapelFehlgeschlagen) und nach dem Abmelden nichts mehr', JSON.stringify(gesehen) === JSON.stringify([false, false, true]), JSON.stringify(gesehen));
+  }
   pruefe('Splat: WebGPU-Zeilenblock ist ein Float-Block mit den drei Eingaengen und dem Ausgang row (Mutanten N47/N48)',
     splat.includes("functionName: `vbZeileBlk_${name}`,") && splat.includes("{ name: 'tile', type: 'Float' },") && splat.includes("{ name: 'modus', type: 'Float' },")
       && splat.includes("outParameters: [{ name: 'row', type: 'Float' }],") && splat.includes('code: zeileBlockCode(name),') && splat.includes('return z.row!;'));
   const dev = readFileSync(resolve(WURZEL, 'scripts/dev.mjs'), 'utf-8');
-  pruefe('dev.mjs: entscheidet ueber das Werkzeug (stapelVeraltet) und baut NUR store:boden, unter der Bau-Sperre',
-    dev.includes('werkzeug.stapelVeraltet(tabelle)') && dev.includes("['build', '--', npm, 'run', 'store:boden']")
-      && dev.includes("if (storeDa && existsSync(storeLab) && existsSync(generiert) && (await stapelVeraltetPruefen())) {"));
-  pruefe('dev.mjs: store:aufbereiten (schreibt getrackte Dateien) laeuft nur, wenn store-lab oder generiert FEHLT',
-    dev.includes("if (storeDa && (!existsSync(storeLab) || !existsSync(generiert))) {") && dev.indexOf("['store:aufbereiten', 'store:boden']") > dev.indexOf("if (storeDa && (!existsSync(storeLab) || !existsSync(generiert))) {")
-      && (dev.match(/store:aufbereiten/g) ?? []).length === 2 && !dev.includes('|| stapelVeraltet()'));
-  pruefe('dev.mjs wartet auf die Vorbereitung (await)', dev.includes('\nawait assetsVorbereiten();\n'));
+  pruefe('dev.mjs: ruft bodenVorbereiten mit dem echten Dateisystem und dem Werkzeug-Import auf und wartet darauf',
+    dev.includes("import { bodenVorbereiten } from './dev-boden.mjs';") && dev.includes('await bodenVorbereiten({') && dev.includes("werkzeugLaden: () => import(pathToFileURL(resolve(WURZEL, 'tools/store-terrain-schichten.mjs')).href),")
+      && dev.includes('\nawait assetsVorbereiten();\n') && !dev.includes('stapelVeraltetPruefen'));
+  // Verhalten von dev-boden.mjs mit erfundenem Dateisystem und erfundenen Kindprozessen (alle Zweige).
+  asyncTests.push((async () => {
+    const W0 = '/w';
+    const res = (...t: string[]): string => t.join('/');
+    const sperre = `${W0}/tools/sperre.sh`;
+    const lauf = async (dateien: string[], tabelle: string | null | 'wirft', opt: { werkzeugWirft?: boolean; status?: number } = {}): Promise<{ r: string; aufrufe: string[][]; warn: string[] }> => {
+      const aufrufe: string[][] = [];
+      const warn: string[] = [];
+      const json = `${W0}/assets/generiert/terrain/store-schichten.json`;
+      const da = new Set(dateien);
+      if (tabelle !== null) da.add(json);
+      const r = await DEVB.bodenVorbereiten({
+        wurzel: W0, npm: 'NPM', resolve: res,
+        existsSync: (p: string) => da.has(p),
+        readFileSync: (p: string) => { if (p === json && tabelle !== null && tabelle !== 'wirft') return tabelle; throw new Error('lesen'); },
+        werkzeugLaden: async () => { if (opt.werkzeugWirft) throw new Error('Import'); return { stapelVeraltet: WZ.stapelVeraltet }; },
+        spawnSync: (c: string, a: string[]) => { aufrufe.push([c, ...a]); return { status: opt.status ?? 0 }; },
+        log: () => undefined, warn: (t: string) => warn.push(t),
+      });
+      return { r, aufrufe, warn };
+    };
+    const VOLL = [`${W0}/assets/store`, `${W0}/assets/store-lab`, `${W0}/assets/generiert`, sperre];
+    const gut = JSON.stringify({ zeilen: 16, version: 2 });
+    const z = (xs: string[][]): string => JSON.stringify(xs);
+    let t = await lauf([], gut);
+    pruefe('dev-boden: ohne assets/store geschieht nichts', t.r === 'kein-store' && t.aufrufe.length === 0);
+    t = await lauf(VOLL, gut);
+    pruefe('dev-boden: aktueller Stapel (16 Zeilen, Version 2): kein Kindprozess', t.r === 'aktuell' && t.aufrufe.length === 0);
+    t = await lauf(VOLL, JSON.stringify({ zeilen: 16 }));
+    pruefe('dev-boden: Tabelle von vor K3 (ohne Version): kein Kindprozess (rsync-Kopie von DEV)', t.r === 'aktuell' && t.aufrufe.length === 0);
+    t = await lauf(VOLL, JSON.stringify({ zeilen: 20, version: 2 }));
+    pruefe('dev-boden: andere Zeilenzahl: GENAU ein Aufruf, store:boden, unter der Bau-Sperre', t.r === 'neu-gebaut' && z(t.aufrufe) === z([[sperre, 'build', '--', 'NPM', 'run', 'store:boden']]));
+    t = await lauf(VOLL, JSON.stringify({ zeilen: 16, version: 1 }));
+    pruefe('dev-boden: andere Version: ebenso nur store:boden unter der Sperre', t.r === 'neu-gebaut' && z(t.aufrufe) === z([[sperre, 'build', '--', 'NPM', 'run', 'store:boden']]));
+    t = await lauf(VOLL, null);
+    pruefe('dev-boden: Tabelle fehlt: nur store:boden (store:aufbereiten schreibt getrackte Dateien und laeuft nicht)', t.r === 'neu-gebaut' && z(t.aufrufe) === z([[sperre, 'build', '--', 'NPM', 'run', 'store:boden']]));
+    t = await lauf(VOLL, '{');
+    pruefe('dev-boden: unlesbare Tabelle: neu bauen, nicht "aktuell"', t.r === 'neu-gebaut' && t.aufrufe.length === 1);
+    t = await lauf(VOLL, 'wirft');
+    pruefe('dev-boden: Lesefehler der Tabelle: neu bauen', t.r === 'neu-gebaut' && t.aufrufe.length === 1);
+    t = await lauf(VOLL, gut, { werkzeugWirft: true });
+    pruefe('dev-boden: das Werkzeug laesst sich nicht laden: neu bauen (nicht "aktuell")', t.r === 'neu-gebaut' && t.aufrufe.length === 1);
+    t = await lauf(VOLL.filter((p) => !p.endsWith('/generiert')), gut);
+    pruefe('dev-boden: assets/generiert fehlt: store:aufbereiten UND store:boden, nacheinander, BEIDE unter der Bau-Sperre',
+      t.r === 'aufbereitet' && z(t.aufrufe) === z([[sperre, 'build', '--', 'NPM', 'run', 'store:aufbereiten'], [sperre, 'build', '--', 'NPM', 'run', 'store:boden']]));
+    t = await lauf(VOLL.filter((p) => !p.endsWith('/store-lab')), gut);
+    pruefe('dev-boden: assets/store-lab fehlt: derselbe Weg, beide Schritte unter der Sperre', t.r === 'aufbereitet' && t.aufrufe.length === 2 && t.aufrufe.every((a) => a[0] === sperre && a[1] === 'build'));
+    t = await lauf(VOLL.filter((p) => p !== sperre), JSON.stringify({ zeilen: 20 }));
+    pruefe('dev-boden: ohne tools/sperre.sh (alter Stand) direkt npm, im Zweig "veraltet"', z(t.aufrufe) === z([['NPM', 'run', 'store:boden']]));
+    t = await lauf(VOLL.filter((p) => p !== sperre && !p.endsWith('/generiert')), gut);
+    pruefe('dev-boden: ohne tools/sperre.sh direkt npm, auch im Zweig "fehlt"', z(t.aufrufe) === z([['NPM', 'run', 'store:aufbereiten'], ['NPM', 'run', 'store:boden']]));
+    t = await lauf(VOLL.filter((p) => !p.endsWith('/generiert')), gut, { status: 1 });
+    pruefe('dev-boden: schlaegt der erste Schritt fehl: Warnung mit Namen, der zweite laeuft nicht', t.r === 'fehlgeschlagen' && t.aufrufe.length === 1 && t.warn.length === 1 && t.warn[0]!.includes('store:aufbereiten'));
+    t = await lauf(VOLL, JSON.stringify({ zeilen: 20 }), { status: 2 });
+    pruefe('dev-boden: schlaegt store:boden fehl: Warnung, Spiel startet trotzdem (Rueckgabe, keine Ausnahme)', t.r === 'fehlgeschlagen' && t.warn.length === 1 && t.warn[0]!.includes('store:boden'));
+  })());
   // Die Entscheidung selbst (Werkzeug).
   const alt16 = { zeilen: 16 };
   pruefe('stapelVeraltet: keine/kaputte Tabelle → veraltet', WZ.stapelVeraltet(null) === true && WZ.stapelVeraltet('x') === true && WZ.stapelVeraltet(undefined) === true);
@@ -684,85 +816,128 @@ console.log('\n[7] Shader:');
     SPLAT.glslTabelle('X', [felsAlt], 'exakt').join('').includes(String(felsAlt)) && !SPLAT.glslTabelle('X', [felsAlt], 'exakt').join('').includes('0.8660)'));
 }
 
-// ── 8. Fern-Chunks (N2/Z2) ───────────────────────────────────────────
-console.log('\n[8] Fern- und Nah-Chunks an einer Grenze Greyglen/Grasland (echter Gitterbau, erfundene Zonen):');
+// ── 8. Greyglen im Chunk-Gitter (N2/Z2, N3/F2) ───────────────────────
+console.log('\n[8] Greyglen im Gitter: keine fremden Kacheln, stetiges Gewicht (echter Gitterbau, erfundene Zonen):');
 {
-  // Greyglen ab der Zonenecke-Spalte 1 (Weltx >= 32); links Grasland.
-  const biomAnSpalte = (cx: number): number => (cx >= 1 ? 128 : 1);
-  const zonen = new Map<string, unknown>();
-  const zone = (zx: number, zy: number): unknown => {
-    const k = `${zx},${zy}`;
-    if (!zonen.has(k)) {
-      zonen.set(k, {
-        zoneX: zx, zoneY: zy, heights: new Float32Array(E_WIDTH * E_WIDTH).fill(50),
-        cornerBiomes: [biomAnSpalte(zx), biomAnSpalte(zx + 1), biomAnSpalte(zx), biomAnSpalte(zx + 1)],
-        getBiome: (x: number) => (x >= 32 ? 128 : 1), getVegetationMask: () => 0,
-      });
-    }
-    return zonen.get(k);
-  };
-  type Gitter = { aTiles: Float32Array; aRockTile: Float32Array };
-  const baue = (zx0: number, zonenJeSeite: number, schritt: number): { d: Gitter; n: number } => {
+  type Gitter = { aTiles: Float32Array; aRockTile: Float32Array; aLava: Float32Array; aWeights: Float32Array };
+  const baue = (biomAnSpalte: (cx: number) => number, punktBiom: (x: number, z: number) => number, zx0: number, zy0: number, zonenJeSeite: number, schritt: number): { d: Gitter; n: number } => {
+    const zonen = new Map<string, unknown>();
+    const zone = (zx: number, zy: number): unknown => {
+      const k = `${zx},${zy}`;
+      if (!zonen.has(k)) {
+        zonen.set(k, {
+          zoneX: zx, zoneY: zy, heights: new Float32Array(E_WIDTH * E_WIDTH).fill(50),
+          cornerBiomes: [biomAnSpalte(zx), biomAnSpalte(zx + 1), biomAnSpalte(zx), biomAnSpalte(zx + 1)],
+          getBiome: (x: number, z: number) => punktBiom(x, z), getVegetationMask: () => 0.5,
+        });
+      }
+      return zonen.get(k);
+    };
     const tm = Object.create(TerrainManager.prototype) as { world: unknown; buildGridGeometry: (...a: unknown[]) => Gitter };
     tm.world = { heightmaps: { getZone: zone } };
-    return { d: tm.buildGridGeometry(zx0, 0, zonenJeSeite, schritt, 0), n: (zonenJeSeite * 64) / schritt + 1 };
+    return { d: tm.buildGridGeometry(zx0, zy0, zonenJeSeite, schritt, 0), n: (zonenJeSeite * 64) / schritt + 1 };
   };
-  const erlaubt = new Set([BK.BIOME_TILE[1]!, BK.BIOME_TILE[128]!]);
-  const erlaubtFels = new Set([BK.FELS_TILE[BK.BIOME_TILE[1]!]!, BK.FELS_TILE[BK.BIOME_TILE[128]!]!]);
-  /** Alle Ganzzahlen, die beim Interpolieren entlang einer Dreieckskante (zwischen den Werten zweier Vertices) vorkommen. */
-  const fremde = (g: Gitter, n: number): { ecken: Set<number>; fels: Set<number> } => {
-    const ecken = new Set<number>();
-    const fels = new Set<number>();
-    const kante = (va: number, vb: number): void => {
-      for (let c = 0; c < 4; c++) {
-        const a = g.aTiles[va * 4 + c]!, b = g.aTiles[vb * 4 + c]!;
-        for (let k = Math.ceil(Math.min(a, b)); k <= Math.floor(Math.max(a, b)); k++) if (!erlaubt.has(k)) ecken.add(k);
-      }
-      const a = g.aRockTile[va]!, b = g.aRockTile[vb]!;
-      for (let k = Math.ceil(Math.min(a, b)); k <= Math.floor(Math.max(a, b)); k++) if (!erlaubtFels.has(k)) fels.add(k);
-    };
-    for (let iy = 0; iy < n; iy++) {
-      for (let ix = 0; ix < n; ix++) {
-        const v = iy * n + ix;
-        if (ix + 1 < n) kante(v, v + 1);
-        if (iy + 1 < n) kante(v, v + n);
-        if (ix + 1 < n && iy + 1 < n) { kante(v, v + n + 1); kante(v + 1, v + n); }
+  const gleich = (a: Float32Array, b: Float32Array): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
+  SPLAT.stapelMelden(true);
+  // (1) Grenze Greyglen/Grasland, Fern und Nah: die Kachel-Attribute sind BITGLEICH denen derselben Welt mit Grasland statt Greyglen.
+  const grenze = (cx: number): number => (cx >= 1 ? 128 : 1);
+  const grasAlles = (cx: number): number => (grenze(cx) === 128 ? 1 : grenze(cx));
+  const punkt = (x: number): number => (x >= 32 ? 128 : 1);
+  const punktGras = (x: number): number => (punkt(x) === 128 ? 1 : punkt(x));
+  for (const [name, zx0, zonen, schritt] of [['Fern 2×2, Schritt 4', 0, 2, 4], ['Fern 2×2, Schritt 2', 0, 2, 2], ['Nah an der Grenze (Zone 0)', 0, 1, 1], ['Nah, Greyglen innen (Zone 1)', 1, 1, 1]] as const) {
+    const a = baue(grenze, (x) => punkt(x), zx0, 0, zonen, schritt);
+    const b = baue(grasAlles, (x) => punktGras(x), zx0, 0, zonen, schritt);
+    pruefe(`${name}: aTiles und aRockTile sind bitgleich zu derselben Welt mit Grasland statt Greyglen (keine neue fremde Kachel, keine Kachel 16–19)`,
+      gleich(a.d.aTiles, b.d.aTiles) && gleich(a.d.aRockTile, b.d.aRockTile) && a.d.aTiles.every((t) => t < 16) && a.d.aRockTile.every((t) => t < 16));
+  }
+  // (2) Zufaellige Konfigurationen mit 1 bis 4 verschiedenen Biomen aus allen zehn, Nah und Fern.
+  {
+    const alle = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512];
+    let saat = 777;
+    const zuf = (): number => { saat = (Math.imul(saat, 1664525) + 1013904223) >>> 0; return saat / 4294967296; };
+    let mitGrey = 0;
+    let schlecht = 0;
+    for (let i = 0; i < 120; i++) {
+      const n = 1 + Math.floor(zuf() * 4);
+      const menge: number[] = [];
+      while (menge.length < n) { const b = alle[Math.floor(zuf() * alle.length)]!; if (!menge.includes(b)) menge.push(b); }
+      if (i % 3 === 0 && !menge.includes(128)) menge[0] = 128;
+      const tabEck = new Map<string, number>();
+      const eck = (cx: number, cy: number): number => { const k = `${cx},${cy}`; if (!tabEck.has(k)) tabEck.set(k, menge[Math.floor(zuf() * menge.length)]!); return tabEck.get(k)!; };
+      const tabPkt = new Map<string, number>();
+      const pkt = (x: number, z: number): number => { const k = `${Math.floor(x / 16)},${Math.floor(z / 16)}`; if (!tabPkt.has(k)) tabPkt.set(k, menge[Math.floor(zuf() * menge.length)]!); return tabPkt.get(k)!; };
+      const ersetze = (b: number): number => (b === 128 ? 1 : b);
+      const baueMit = (eckFn: (cx: number, cy: number) => number, pktFn: (x: number, z: number) => number, zonen: number, schritt: number) => {
+        const zonenMap = new Map<string, unknown>();
+        const zone = (zx: number, zy: number): unknown => {
+          const k = `${zx},${zy}`;
+          if (!zonenMap.has(k)) zonenMap.set(k, { zoneX: zx, zoneY: zy, heights: new Float32Array(E_WIDTH * E_WIDTH).fill(50), cornerBiomes: [eckFn(zx, zy), eckFn(zx + 1, zy), eckFn(zx, zy + 1), eckFn(zx + 1, zy + 1)], getBiome: pktFn, getVegetationMask: () => 0.5 });
+          return zonenMap.get(k);
+        };
+        const tm = Object.create(TerrainManager.prototype) as { world: unknown; buildGridGeometry: (...a: unknown[]) => Gitter };
+        tm.world = { heightmaps: { getZone: zone } };
+        return tm.buildGridGeometry(0, 0, zonen, schritt, 0);
+      };
+      for (const [zonen, schritt] of [[1, 1], [2, 4], [2, 2]] as const) {
+        const a = baueMit(eck, pkt, zonen, schritt);
+        const b = baueMit((cx, cy) => ersetze(eck(cx, cy)), (x, z) => ersetze(pkt(x, z)), zonen, schritt);
+        if (menge.includes(128)) {
+          mitGrey += 1;
+          if (!gleich(a.aTiles, b.aTiles) || !gleich(a.aRockTile, b.aRockTile) || !a.aTiles.every((t) => t < 16)) schlecht += 1;
+          // Lava (Asche) bleibt unveraendert, wo es Lava gibt; sonst nur das Greyglen-Gewicht, immer in [-1, ...].
+          if (!a.aLava.every((l, vi) => l >= -1 && (b.aLava[vi]! > 0 ? l === b.aLava[vi] : l <= 0))) schlecht += 1;
+        } else if (!gleich(a.aTiles, b.aTiles) || !gleich(a.aLava, b.aLava)) schlecht += 1;
       }
     }
-    return { ecken, fels };
-  };
-  SPLAT.stapelMelden(true);
-  const fern = baue(0, 2, 4);
-  const f = fremde(fern.d, fern.n);
-  pruefe('FERN-Chunk ueber die Grenze (Zonen 0 und 1, Schritt 4): zwischen zwei Vertices nur Eckkacheln der beiden Biome, keine Zwischenwerte (Erde, Fels, Heide, Pflaster …)',
-    f.ecken.size === 0, `fremde Kacheln: ${[...f.ecken].join(',')}`);
-  pruefe('FERN-Chunk: dasselbe fuer die Felskachel (aRockTile)', f.fels.size === 0, `fremde Felskacheln: ${[...f.fels].join(',')}`);
-  pruefe('FERN-Chunk: im Fernbild stehen die Grasland-Entsprechungen, keine Greyglen-Kachel 16–19', Array.from(fern.d.aTiles).every((t) => t < 16) && Array.from(fern.d.aRockTile).every((t) => t < 16));
-  const nah = baue(1, 1, 1);
-  pruefe('NAH-Chunk (eine Zone, Greyglen): behaelt die Greyglen-Kachel 16; die Felskachel ist die Entsprechung 4 (dieselbe Zeile und Werte wie GreyRock 18)', Array.from(nah.d.aTiles).every((t) => t === BK.TILE.GreyGrass) && Array.from(nah.d.aRockTile).every((t) => t === BK.TILE.Rock) && JSON.stringify(SCHICHT_OBERFLAECHE[BK.TILE.Rock]) === JSON.stringify(SCHICHT_OBERFLAECHE[BK.TILE.GreyRock]) && BK.TILE_ZEILE[BK.TILE.Rock] === BK.TILE_ZEILE[BK.TILE.GreyRock]);
-  const nahGrenze = baue(0, 1, 1);
-  const fg = fremde(nahGrenze.d, nahGrenze.n);
-  pruefe('NAH-Chunk an der Grenze (Zone 0): ebenfalls nur Kacheln der beiden Biome zwischen den Vertices', fg.ecken.size === 0 && fg.fels.size === 0, `${[...fg.ecken].join(',')} / ${[...fg.fels].join(',')}`);
-  // Passt der Stapel nicht (Ladefehler), bekommt auch ein NAH-Chunk die Grasland-Entsprechungen (Mutant N20).
-  SPLAT.stapelMelden(false);
-  const nahOhne = baue(1, 1, 1);
-  pruefe('Stapel unbrauchbar: ein Nah-Chunk in Greyglen bekommt Grasland (0 und Felskachel 4), keine 16–19', Array.from(nahOhne.d.aTiles).every((t) => t === 0) && Array.from(nahOhne.d.aRockTile).every((t) => t === BK.FELS_TILE[0]));
-  SPLAT.stapelMelden(true);
-  const nahWieder = baue(1, 1, 1);
-  pruefe('… und nach stapelMelden(true) wieder die Greyglen-Kacheln', Array.from(nahWieder.d.aTiles).every((t) => t === BK.TILE.GreyGrass));
-  // Vergleichsfall: zwei alte Biome (Grasland/Asche) im Fernbild bleiben wie vor K3 (die Klasse gibt es, K3 aendert sie nicht).
-  const biomAlt = (cx: number): number => (cx >= 1 ? 32 : 1);
-  const zonenAlt = new Map<string, unknown>();
-  const zoneAlt = (zx: number, zy: number): unknown => {
-    const k = `${zx},${zy}`;
-    if (!zonenAlt.has(k)) zonenAlt.set(k, { zoneX: zx, zoneY: zy, heights: new Float32Array(E_WIDTH * E_WIDTH).fill(50), cornerBiomes: [biomAlt(zx), biomAlt(zx + 1), biomAlt(zx), biomAlt(zx + 1)], getBiome: (x: number) => (x >= 32 ? 32 : 1), getVegetationMask: () => 0 });
-    return zonenAlt.get(k);
-  };
-  const tmAlt = Object.create(TerrainManager.prototype) as { world: unknown; buildGridGeometry: (...a: unknown[]) => Gitter };
-  tmAlt.world = { heightmaps: { getZone: zoneAlt } };
-  const dAlt = tmAlt.buildGridGeometry(0, 0, 2, 4, 0);
-  pruefe('Grasland/Asche im Fernbild: die Kacheln sind die Nummern 0 und 7 wie vor K3 (unveraendert, die Zwischenwerte dieser alten Grenze bleiben)',
-    new Set(Array.from(dAlt.aTiles)).size === 2 && new Set(Array.from(dAlt.aTiles)).has(0) && new Set(Array.from(dAlt.aTiles)).has(7));
+    pruefe('120 zufaellige Welten mit 1 bis 4 Biomen aus allen zehn (Nah 1 m, Fern 4 m und 2 m): Kachel-Attribute immer bitgleich zur Grasland-Welt, Greyglen nur im Lava-Kanal, Welten ohne Greyglen bitgleich', schlecht === 0 && mitGrey >= 100, `${schlecht} Abweichungen, ${mitGrey} Chunks mit Greyglen`);
+  }
+  // (3) Das Greyglen-Gewicht: Grasland links, Greyglen rechts; stetig, auch im Fern-Chunk ueber die Zonennaht.
+  {
+    const fern = baue(grenze, punkt, 0, 0, 2, 4);
+    const reihe = (iy: number): number[] => Array.from({ length: fern.n }, (_, ix) => BK.greyAusMarker(fern.d.aLava[iy * fern.n + ix]!));
+    let maxSchritt = 0;
+    let monoton = true;
+    for (const iy of [0, 8, 16, 24, 32]) {
+      const g = reihe(iy);
+      for (let i = 1; i < g.length; i++) { maxSchritt = Math.max(maxSchritt, Math.abs(g[i]! - g[i - 1]!)); if (g[i]! < g[i - 1]! - 1e-6) monoton = false; }
+    }
+    const g0 = reihe(8);
+    pruefe('Fern-Chunk ueber die Grenze: das Greyglen-Gewicht steigt von 0 (Grasland) auf 1 (Greyglen), monoton', g0[0] === 0 && g0[g0.length - 1]! > 0.999 && monoton, `Rand ${g0[0]} / ${g0[g0.length - 1]!.toFixed(4)}`);
+    pruefe('… und stetig: hoechstens 0,12 je 4-m-Schritt, auch ueber die Zonennaht (Fern-Chunk)', maxSchritt <= 0.12, maxSchritt.toFixed(4));
+    const nah = baue(grenze, punkt, 0, 0, 1, 1);
+    let maxNah = 0;
+    for (let iy = 0; iy < nah.n; iy += 8) for (let ix = 1; ix < nah.n; ix++) maxNah = Math.max(maxNah, Math.abs(BK.greyAusMarker(nah.d.aLava[iy * nah.n + ix]!) - BK.greyAusMarker(nah.d.aLava[iy * nah.n + ix - 1]!)));
+    pruefe('Nah-Chunk: das Gewicht ist stetig (hoechstens 0,05 je Meter)', maxNah <= 0.05, maxNah.toFixed(4));
+    const innen = baue(() => 128, () => 128, 1, 0, 1, 1);
+    pruefe('Greyglen innen (Nah): das Gewicht ist ueberall 1, die Kacheln Grasland', innen.d.aLava.every((l) => Math.abs(l + 1) < 1e-6) && innen.d.aTiles.every((t) => t === 0));
+    const innenFern = baue(() => 128, () => 128, 0, 0, 2, 4);
+    pruefe('Greyglen innen (Fern): ebenfalls Gewicht 1 — dieselbe Rampe wie nah, kein Wechsel auf die Grasland-Rampen', innenFern.d.aLava.every((l) => Math.abs(l + 1) < 1e-6));
+    const gras = baue(() => 1, () => 1, 0, 0, 2, 4);
+    pruefe('Grasland (Fern): Gewicht 0, Lava-Kanal 0', gras.d.aLava.every((l) => l === 0 || l > 0));
+  }
+  // (4) Der Zustand des Stapels aendert die Vertices nicht (das regelt das Uniform greyOk im Shader).
+  {
+    const a = baue(grenze, punkt, 0, 0, 2, 4);
+    const altE = console.error;
+    console.error = (): void => undefined;
+    SPLAT.stapelMelden(false);
+    console.error = altE;
+    const b = baue(grenze, punkt, 0, 0, 2, 4);
+    SPLAT.stapelMelden(true);
+    pruefe('Stapel unbrauchbar: die Vertex-Daten bleiben dieselben (Rueckfall im Shader ueber greyOk)', gleich(a.d.aTiles, b.d.aTiles) && gleich(a.d.aLava, b.d.aLava) && gleich(a.d.aRockTile, b.d.aRockTile));
+  }
+  // (5) Lava (Asche) neben Greyglen: die Lava gewinnt im Kanal.
+  {
+    const asche = (cx: number): number => (cx >= 1 ? 32 : 128);
+    const a = baue(asche, (x) => (x >= 32 ? 32 : 128), 0, 0, 2, 4);
+    pruefe('Asche (Lava 0,5) neben Greyglen: im Aschegebiet gilt die Lava (positiv), links das Gewicht (negativ)', a.d.aLava[0]! < 0 && a.d.aLava[a.n - 1]! === 0.5);
+  }
+  // Vergleichsfall: zwei alte Biome (Grasland/Asche) im Fernbild bleiben wie vor K3.
+  {
+    const a = baue((cx) => (cx >= 1 ? 32 : 1), (x) => (x >= 32 ? 32 : 1), 0, 0, 2, 4);
+    pruefe('Grasland/Asche im Fernbild: die Kacheln sind die Nummern 0 und 7 wie vor K3 (die Zwischenwerte dieser alten Grenze bleiben, wie entschieden)',
+      new Set(Array.from(a.d.aTiles)).size === 2 && new Set(Array.from(a.d.aTiles)).has(0) && new Set(Array.from(a.d.aTiles)).has(7));
+  }
 }
 
 function ende(): void {

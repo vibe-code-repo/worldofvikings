@@ -68,6 +68,36 @@ export const KACHEL_RUECKFALL: readonly number[] = [
   TILE.Grass, TILE.Moss, TILE.Rock, TILE.Cliff,
 ];
 
+/**
+ * Das Greyglen-Gewicht eines Vertex: die Summe der Eckgewichte, deren Eck-Kachel eine Greyglen-Kachel (≥ 16)
+ * ist. Es ist die Groesse, mit der die Rampen gemischt werden (`mischeRampen`), nur als EIN Wert je Vertex.
+ *
+ * Warum so und nicht die Kachelnummer: Die Vertex-Kachel ist ein Float, der ueber ein Dreieck interpoliert wird
+ * (im Fern-Chunk ueber Zonengrenzen). Zwischen 0 und 16 liegen die Kacheln 1-15 (Erde, Fels, Heide, Pflaster);
+ * ein Wert, der stetig von 0 nach 1 geht, hat keine fremden Zwischenwerte. Deshalb tragen die Vertices immer die
+ * Grasland-Entsprechung (`KACHEL_RUECKFALL`), und die Greyglen-Zugehoerigkeit steht in diesem Gewicht.
+ */
+export function greyGewicht(eckKacheln: readonly number[], gewichte: readonly number[]): number {
+  let g = 0;
+  for (let i = 0; i < 4; i++) if ((eckKacheln[i] ?? 0) >= TILE.GreyGrass) g += gewichte[i] ?? 0;
+  return g;
+}
+
+/**
+ * Der Wert des Lava-Kanals eines Vertex. Lava ist nur in der Asche groesser als 0; ein NEGATIVER Wert ist das
+ * Greyglen-Gewicht (`greyGewicht`, als Minus). Der Shader klemmt die Lava auf 0..1 (ein negativer Wert ist dort
+ * keine Lava) und liest das Gewicht mit `greyAusMarker`. Beides zugleich (Greyglen-Ecke an einem Vertex mit Lava)
+ * kommt praktisch nicht vor; dann gilt die Lava.
+ */
+export function markerLava(lava: number, grey: number): number {
+  return lava > 0 ? lava : grey > 0 ? -Math.min(1, grey) : 0;
+}
+
+/** Das Greyglen-Gewicht aus dem Lava-Kanal (Spiegelbild von `markerLava`). */
+export function greyAusMarker(marker: number): number {
+  return Math.min(1, Math.max(0, -marker));
+}
+
 /** Die Kachel, die ein Chunk wirklich bekommt: unveraendert, oder bei unbrauchbarem Stapel der Rueckfall. */
 export function kachelFuerStapel(kachel: number, stapelBrauchbar: boolean): number {
   return stapelBrauchbar ? kachel : (KACHEL_RUECKFALL[kachel] ?? kachel);

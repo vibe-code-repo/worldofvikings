@@ -45,30 +45,13 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { bodenVorbereiten } from './dev-boden.mjs';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '..');
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 // ── 1. Asset-Paket, falls es fehlt ───────────────────────────────────────
-
-/**
- * Ist der gebaute Texturstapel aelter als der Code? Die Entscheidung trifft das Werkzeug selbst
- * (`stapelVeraltet` in `tools/store-terrain-schichten.mjs`): keine `store-schichten.json`, andere Zeilenzahl
- * oder andere Layout-Version. Eine JSON von vor K3 (ohne Version, gleiche Zeilenzahl) gilt als aktuell.
- * Veraltet heisst: NUR der Bodenstapel wird neu gebaut (`store:boden`, unter der Bau-Sperre), nicht die
- * Store-Vegetation (`store:aufbereiten` schreibt getrackte Dateien).
- */
-async function stapelVeraltetPruefen() {
-  try {
-    const werkzeug = await import(pathToFileURL(resolve(WURZEL, 'tools/store-terrain-schichten.mjs')).href);
-    const datei = resolve(WURZEL, 'assets/generiert/terrain/store-schichten.json');
-    const tabelle = existsSync(datei) ? JSON.parse(readFileSync(datei, 'utf-8')) : null;
-    return werkzeug.stapelVeraltet(tabelle);
-  } catch {
-    return true;
-  }
-}
 
 async function assetsVorbereiten() {
   const modelle = resolve(WURZEL, 'assets/models');
@@ -86,27 +69,18 @@ async function assetsVorbereiten() {
     }
   }
 
-  const storeLab = resolve(WURZEL, 'assets/store-lab');
-  const generiert = resolve(WURZEL, 'assets/generiert');
-  const storeDa = existsSync(resolve(WURZEL, 'assets/store'));
-  if (storeDa && existsSync(storeLab) && existsSync(generiert) && (await stapelVeraltetPruefen())) {
-    console.log('[dev] Der Bodenstapel passt nicht zum Code (Zeilenzahl oder Layout-Version) — baue ihn neu (store:boden) …');
-    const sperre = resolve(WURZEL, 'tools/sperre.sh');
-    const ergebnis = existsSync(sperre)
-      ? spawnSync(sperre, ['build', '--', npm, 'run', 'store:boden'], { stdio: 'inherit', cwd: WURZEL })
-      : spawnSync(npm, ['run', 'store:boden'], { stdio: 'inherit', cwd: WURZEL });
-    if (ergebnis.status !== 0) console.warn('[dev] "npm run store:boden" ist fehlgeschlagen — Spiel startet trotzdem, siehe Meldung oben.');
-  }
-  if (storeDa && (!existsSync(storeLab) || !existsSync(generiert))) {
-    console.log('[dev] assets/store-lab oder assets/generiert fehlt — bereite die Store-Vegetation auf …');
-    for (const script of ['store:aufbereiten', 'store:boden']) {
-      const ergebnis = spawnSync(npm, ['run', script], { stdio: 'inherit', cwd: WURZEL });
-      if (ergebnis.status !== 0) {
-        console.warn(`[dev] "npm run ${script}" ist fehlgeschlagen — Spiel startet trotzdem, siehe Meldung oben.`);
-        break;
-      }
-    }
-  }
+  // Store-Vegetation und Bodenstapel (Entscheidung und Sperre: `dev-boden.mjs`).
+  await bodenVorbereiten({
+    wurzel: WURZEL,
+    npm,
+    existsSync,
+    readFileSync,
+    werkzeugLaden: () => import(pathToFileURL(resolve(WURZEL, 'tools/store-terrain-schichten.mjs')).href),
+    spawnSync,
+    resolve,
+    log: (t) => console.log(t),
+    warn: (t) => console.warn(t),
+  });
 
   // assets/appearance.json — die Charaktererstellung der Webseite
   // (wov-web /erstellen, /konto) liest diese Datei unter /assets/appearance.json.

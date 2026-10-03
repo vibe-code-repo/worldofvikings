@@ -74,9 +74,17 @@ import { Color3, Vector2, Vector3, Vector4 } from '@babylonjs/core/Maths/math';
 import type { Scene } from '@babylonjs/core/scene';
 
 import {
-  TILE, TILE_ANZAHL, STAPEL_ZEILEN, TILE_ZEILE, STAPEL_VERSION, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, BODEN_REGELN, KACHEL_RUECKFALL, kachelFuerStapel,
+  TILE, TILE_ANZAHL, STAPEL_ZEILEN, TILE_ZEILE, STAPEL_VERSION, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, BODEN_REGELN, KACHEL_RUECKFALL, kachelFuerStapel, greyGewicht, markerLava, greyAusMarker,
 } from '@wov/shared/src/worldgen/bodenKacheln.js';
-export { TILE, TILE_ANZAHL, STAPEL_ZEILEN, TILE_ZEILE, STAPEL_VERSION, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, kachelFuerStapel };
+import {
+  stapelBrauchbar, stapelMelden, stapelBeobachten, stapelFehlgeschlagen, stapelBefundAusGroesse, stapelBefundAusTextur,
+  stapelLayout, stapelPasst, stapelUrl, stapelHashesHolen, stapelZeile, type StapelLayout, type StapelBefundErgebnis,
+} from './StapelLayout';
+export {
+  stapelBrauchbar, stapelMelden, stapelBeobachten, stapelFehlgeschlagen, stapelBefundAusGroesse, stapelBefundAusTextur,
+  stapelLayout, stapelPasst, stapelUrl, stapelHashesHolen, stapelZeile, type StapelLayout, type StapelBefundErgebnis,
+};
+export { TILE, TILE_ANZAHL, STAPEL_ZEILEN, TILE_ZEILE, STAPEL_VERSION, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, kachelFuerStapel, greyGewicht, markerLava, greyAusMarker };
 
 const TEX_BASE = '/assets/textures/';
 
@@ -305,111 +313,27 @@ export function glslTabelle(name: string, werte: readonly number[], ziffern: num
 }
 
 /**
- * Wie ein geladener Stapel gelesen wird (N2): aus Breite und Hoehe.
- *
- *  - Modus 0: `STAPEL_ZEILEN` (16) Zeilen, die Kachel zeigt auf Zeile `TILE_ZEILE[kachel]` (das Layout dieses Codes).
- *  - Modus 1: `TILE_ANZAHL` (20) Zeilen, Zeile = Kachel (das Layout des ersten K3-Entwurfs; solche Stapel
- *    liegen noch in alten Arbeitsbaeumen). Jede Kachel hat dort ihre eigene Zeile, auch Greyglen.
- *  - Modus 2: jede andere Zeilenzahl: der Stapel gehoert nicht zu diesem Code. Die Greyglen-Kacheln lesen
- *    ihre Grasland-Entsprechung (`KACHEL_RUECKFALL`), jede Zeile wird auf die letzte vorhandene geklemmt.
- *    Der Boden ist dann nicht richtig, aber definiert, und es gibt eine laute Meldung.
- *
- * Die Werte gehen als Uniforms in den Shader: sie gelten fuer jeden Chunk sofort, auch fuer die vor dem
- * Ladeergebnis gebauten (kein Neubau noetig).
+ * Der Unterschied der Greyglen-Rampe zur globalen Rampe, je Wert, als GLSL-Konstanten `VB_GREY_D_<WERT>`
+ * (Greyglen minus Grasland). Der Shader addiert ihn mal dem Greyglen-Gewicht zur Rampe der Ecken. Hang und Rau
+ * rechnen mit den auf vier Stellen gerundeten Tabellenwerten (wie die Tabellen selbst), der Fels in voller Genauigkeit.
  */
-export interface StapelLayout {
-  readonly modus: 0 | 1 | 2;
-  readonly zeilen: number;
-}
-
-export function stapelLayout(breite: number, hoehe: number): StapelLayout {
-  if (!(breite > 0) || !(hoehe > 0)) return { modus: 2, zeilen: STAPEL_ZEILEN };
-  const zeilen = Math.max(1, Math.round(hoehe / breite));
-  if (hoehe === breite * STAPEL_ZEILEN) return { modus: 0, zeilen: STAPEL_ZEILEN };
-  if (hoehe === breite * TILE_ANZAHL) return { modus: 1, zeilen: TILE_ANZAHL };
-  return { modus: 2, zeilen };
-}
-
-/** Der Befund zu einem geladenen Stapel: Layout, ob die Greyglen-Kacheln gelten, und eine Meldung (oder null). */
-export interface StapelBefundErgebnis {
-  readonly layout: StapelLayout;
-  readonly ok: boolean;
-  readonly meldung: string | null;
-}
-
-export function stapelBefundAusGroesse(breite: number, hoehe: number, maxTextur: number, was: string): StapelBefundErgebnis {
-  const layout = stapelLayout(breite, hoehe);
-  if (layout.modus === 0) {
-    const gross = maxTextur > 0 && hoehe > maxTextur;
-    return { layout, ok: true, meldung: gross ? `[terrain] ${was}: ${hoehe} px hoch, die Grafikkarte laedt hoechstens ${maxTextur} px.` : null };
-  }
-  if (layout.modus === 1) {
-    return { layout, ok: true, meldung: `[terrain] ${was}: ${breite}x${hoehe} ist ein Stapel mit ${TILE_ANZAHL} Zeilen (altes Layout, Zeile = Kachel); er wird so gelesen. \`npm run store:boden\` baut ihn neu.` };
-  }
-  return {
-    layout,
-    ok: false,
-    meldung:
-      `[terrain] ${was}: ${breite}x${hoehe} (${layout.zeilen} Zeilen) gehoert nicht zu diesem Code (Layout ${STAPEL_VERSION}, ${STAPEL_ZEILEN} Zeilen); ` +
-      'Greyglen-Kacheln lesen Grasland, der Boden kann falsch sein. `npm run store:boden` baut den Stapel neu.',
-  };
-}
-
-/** Das Mass fuer die alte Pruefung (Tests): Hoehe = Breite mal `STAPEL_ZEILEN`. */
-export function stapelPasst(breite: number, hoehe: number): boolean {
-  return stapelLayout(breite, hoehe).modus === 0;
-}
-
-let stapelBrauchbarFlag = true;
-/** Falsch, sobald ein Stapel geladen wurde, der nicht zum Code passt (oder gar nicht lud). */
-export function stapelBrauchbar(): boolean {
-  return stapelBrauchbarFlag;
-}
-/** Setzt das Ergebnis der Stapelpruefung (fuer die Lade-Rueckrufe; Tests setzen es zurueck). */
-export function stapelMelden(ok: boolean): void {
-  stapelBrauchbarFlag = ok;
-}
-/** Ladefehler eines Stapels: laute Meldung und Rueckfall auf die Grasland-Kacheln. */
-export function stapelFehlgeschlagen(was: string, grund?: string): void {
-  stapelBrauchbarFlag = false;
-  console.error(`[terrain] ${was} konnte nicht geladen werden (${grund ?? '?'}); Greyglen-Kacheln fallen auf Grasland zurueck.`);
-}
-
-/**
- * Die URL eines Stapels, mit dem INHALTS-Hash aus `store-schichten.json` als Abfrageparameter. Ohne Hash
- * (alte JSON, JSON nicht lesbar) die nackte URL. Der Hash aendert sich genau dann, wenn sich die Bytes der
- * Datei aendern (zum Beispiel, wenn die echte Normale kopiert wird) und bleibt gleich bei einem Stapel, der
- * Byte fuer Byte derselbe ist (kein unnoetiges Neuladen).
- */
-export function stapelUrl(basis: string, hash: string | undefined): string {
-  return hash ? `${basis}?h=${hash}` : basis;
-}
-
-const HASH_FORM = /^[0-9a-f]{8,64}$/;
-
-/** Liest die Stapel-Hashes aus der JSON-Antwort. Liefert leere Felder bei jedem Fehler (kein Ausnahmefall nach aussen). */
-export async function stapelHashesHolen(
-  holen: (url: string) => Promise<{ ok: boolean; json: () => Promise<unknown> }>,
-  url: string,
-): Promise<{ farbe?: string; normale?: string }> {
-  try {
-    const antwort = await holen(url);
-    if (!antwort.ok) return {};
-    const roh = (await antwort.json()) as { stapelHash?: { farbe?: unknown; normale?: unknown } } | null;
-    const h = roh?.stapelHash;
-    const nimm = (v: unknown): string | undefined => (typeof v === 'string' && HASH_FORM.test(v) ? v : undefined);
-    return { farbe: nimm(h?.farbe), normale: nimm(h?.normale) };
-  } catch {
-    return {};
-  }
-}
-
-/** Die Stapelzeile einer Kachel nach Modus, wie der Shader sie rechnet (Vergleichsrechnung des Tests). */
-export function stapelZeile(kachel: number, layout: StapelLayout): number {
-  const t = Math.min(TILE_ANZAHL - 1, Math.max(0, Math.round(kachel)));
-  if (layout.modus === 0) return TILE_ZEILE[t]!;
-  if (layout.modus === 1) return t;
-  return Math.min(TILE_ZEILE[KACHEL_RUECKFALL[t]!]!, layout.zeilen - 1);
+export function greyDeltaGlslVon(saetze: ReturnType<typeof rampenTabelle>): string[] {
+  const werte = (r: (typeof saetze)[number]): Record<string, number> => ({
+    HANG_B: Number(nyBeiGrad(r.hang.beginn).toFixed(4)),
+    HANG_W: Number((nyBeiGrad(r.hang.beginn) - nyBeiGrad(r.hang.voll)).toFixed(4)),
+    FELS_B: nyBeiGrad(r.fels.beginn),
+    FELS_W: nyBeiGrad(r.fels.beginn) - nyBeiGrad(r.fels.voll),
+    FELS_A: r.fels.anteil,
+    RAU_B: Number(nyBeiGrad(r.rau.beginn).toFixed(4)),
+    RAU_W: Number((nyBeiGrad(r.rau.beginn) - nyBeiGrad(r.rau.voll)).toFixed(4)),
+    RAU_A: Number(r.rau.anteil.toFixed(4)),
+  });
+  const grey = werte(saetze[TILE.GreyGrass]!);
+  const global = werte(saetze[TILE.Grass]!);
+  return Object.keys(grey).map((k) => {
+    const d = grey[k]! - global[k]!;
+    return `const float VB_GREY_D_${k} = ${Number.isInteger(d) ? d.toFixed(1) : String(d)};`;
+  });
 }
 
 /** Der GLSL-Block, der aus Kachel, Modus und Zeilenzahl die Stapelzeile macht (je Abtaststelle ein eigener Name). */
@@ -1011,9 +935,13 @@ export class TerrainSplatMaterial {
     stapelModusBlock.value = STORE_BODEN_AKTIV ? 0 : 1;
     const stapelZeilenBlock = new InputBlock('stapelZeilen');
     stapelZeilenBlock.value = STAPEL_ZEILEN;
+    // Das Greyglen-Gewicht aus den Vertices (Lava-Kanal) gilt nur, solange der Stapel zum Code passt; sonst
+    // rechnet der Boden mit den globalen Rampen (Grasland).
+    const greyOkBlock = new InputBlock('greyOk');
+    greyOkBlock.value = stapelBrauchbar() ? 1 : 0;
+    stapelBeobachten((ok) => { greyOkBlock.value = ok ? 1 : 0; });
     const stapelGeladen = (tex: Texture, was: string): void => {
-      const gr = tex.getSize();
-      const befund = stapelBefundAusGroesse(gr.width, gr.height, scene.getEngine().getCaps().maxTextureSize, was);
+      const befund = stapelBefundAusTextur(tex, scene.getEngine().getCaps().maxTextureSize, was);
       stapelModusBlock.value = befund.layout.modus;
       stapelZeilenBlock.value = befund.layout.zeilen;
       if (!befund.ok) stapelMelden(false);
@@ -1021,7 +949,14 @@ export class TerrainSplatMaterial {
     };
     const splatTex = new Texture(null, scene, false, false, Texture.TRILINEAR_SAMPLINGMODE, null, (msg) => stapelFehlgeschlagen('Farbstapel', msg));
     let nTexRef: Texture | null = null;
-    void stapelHashesHolen((u) => fetch(u, { cache: 'no-cache' }), `${STORE_TEX_BASE}store-schichten.json`).then((h) => {
+    // Die JSON ist klein und wird zuerst gelesen (ein Roundtrip mehr, dafuer kennt der Client den Hash vor dem
+    // Laden der zwei grossen Dateien); nach 4 s Wartezeit laden die Stapel ohne Hash.
+    const mitZeitlimit = (u: string): Promise<Response> =>
+      fetch(u, { cache: 'no-cache', signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(4000) : undefined });
+    void stapelHashesHolen(mitZeitlimit, `${STORE_TEX_BASE}store-schichten.json`).then((h) => {
+      if (STORE_BODEN_AKTIV && (!h.farbe || !h.normale)) {
+        console.warn('[terrain] store-schichten.json nennt keinen Stapel-Hash (alte Tabelle oder nicht lesbar); die Stapel laden ohne Cache-Brecher. `npm run store:boden` schreibt ihn.');
+      }
       splatTex.updateURL(stapelUrl(splatDatei, STORE_BODEN_AKTIV ? h.farbe : undefined), null, () => stapelGeladen(splatTex, 'Farbstapel'));
       if (nTexRef) nTexRef.updateURL(stapelUrl(`${STORE_TEX_BASE}store_n_array.png`, h.normale), null, () => stapelGeladen(nTexRef!, 'Normalenstapel'));
     });
@@ -1832,6 +1767,7 @@ export class TerrainSplatMaterial {
     let hangTileAus: NodeMaterialConnectionPoint | null = null;
     let rauTileAus: NodeMaterialConnectionPoint | null = null;
     if (STORE_BODEN_AKTIV) {
+      const greyDeltaGlsl = greyDeltaGlslVon(rampenSaetze);
       const hangWahl = new CustomBlock('terrainHangWahl');
       hangWahl.options = {
         name: 'terrainHangWahl',
@@ -1841,6 +1777,8 @@ export class TerrainSplatMaterial {
           { name: 'tiles', type: 'Vector4' },
           { name: 'weights', type: 'Vector4' },
           { name: 'ny', type: 'Float' },
+          { name: 'marker', type: 'Float' },
+          { name: 'greyOk', type: 'Float' },
         ],
         outParameters: [
           { name: 'hangTile', type: 'Float' },
@@ -1866,7 +1804,9 @@ export class TerrainSplatMaterial {
           ...glslTabelle('VB_RAU_A', rampenSaetze.map((r) => r.rau.anteil)),
           // Welche Zeilen denselben Satz tragen (Kennung = erste Kachel mit diesem Satz).
           ...glslTabelle('VB_RAMPE_ID', rampenSaetze.map((r) => rampenSaetze.indexOf(r))),
-          'void vbHangWahl(vec4 tiles, vec4 weights, float ny,',
+          // Der Unterschied der Greyglen-Rampe zur globalen (Greyglen-Satz minus Grasland-Satz), je Wert.
+          ...greyDeltaGlsl,
+          'void vbHangWahl(vec4 tiles, vec4 weights, float ny, float marker, float greyOk,',
           '                out float hangTile, out float rauTile,',
           '                out float hangK, out float rauK, out float felsK) {',
           // Dominante Ecke, branchfrei über step(): das Tile mit dem
@@ -1899,6 +1839,19 @@ export class TerrainSplatMaterial {
             return `    ${v} = VB_${n}[i0] * weights.x + VB_${n}[i1] * weights.y + VB_${n}[i2] * weights.z + VB_${n}[i3] * weights.w;`;
           }),
           '  }',
+          // Das Greyglen-Gewicht aus dem Lava-Kanal (negativer Wert, `markerLava`): stetig ueber das Dreieck, auch im
+          // Fern-Chunk. Die Rampe = die der Ecken (alle Greyglen-Ecken tragen als Kachel Grasland) plus g mal dem Unterschied
+          // der Greyglen- zur globalen Rampe: dasselbe wie das Mittel ueber die Ecken (`mischeRampen`), nur mit einem Wert.
+          '  float g = clamp(-marker, 0.0, 1.0) * greyOk;',
+          '  if (g > 0.0) {',
+          ...['HANG_B', 'HANG_W', 'FELS_B', 'FELS_W', 'FELS_A', 'RAU_B', 'RAU_W', 'RAU_A'].map((n) => {
+            const v = { HANG_B: 'hb', HANG_W: 'hw', FELS_B: 'fb', FELS_W: 'fw', FELS_A: 'fa', RAU_B: 'rb', RAU_W: 'rw', RAU_A: 'ra' }[n]!;
+            return `    ${v} += g * VB_GREY_D_${n};`;
+          }),
+          // Die Hang- und Rau-Kachel der Greyglen-Ecke (GreyMoss, GreyRockMoss): im Bild dieselben Zeilen wie die des Graslands,
+          // nur die raue mit eigener Normale.
+          `    if (g > 0.5) { hangTile = ${TILE.GreyMoss}.0; rauTile = ${TILE.GreyRockMoss}.0; }`,
+          '  }',
           '  hangK = clamp((hb - ny) / hw, 0.0, 1.0);',
           '  felsK = clamp((fb - ny) / fw, 0.0, 1.0) * fa;',
           // Der Deckel: `rau` deckte bis zum 10.09.2026 VOLL, und damit
@@ -1912,6 +1865,8 @@ export class TerrainSplatMaterial {
       aTiles.output.connectTo(hw.tiles);
       aWeights.output.connectTo(hw.weights);
       nrmSplit.y.connectTo(hw.ny);
+      terrainMarkerSplit.z.connectTo(hw.marker);
+      greyOkBlock.output.connectTo(hw.greyOk);
       hangTileAus = hw.hangTile;
       rauTileAus = hw.rauTile;
       hangKAus = hw.hangK;

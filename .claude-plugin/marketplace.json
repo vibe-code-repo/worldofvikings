@@ -1,0 +1,11 @@
+{
+  "name": "worldofvikings",
+  "owner": { "name": "World of Vikings" },
+  "plugins": [
+    {
+      "name": "kanban",
+      "source": "./tools/kanban-plugin",
+      "description": "Kanban board for the tasks of this project (To Do, In Arbeit, In Review, In Merge, Ausgerollt)"
+    }
+  ]
+}

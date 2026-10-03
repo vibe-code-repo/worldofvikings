@@ -1,0 +1,6 @@
+{
+  "name": "kanban",
+  "version": "0.1.0",
+  "description": "Kanban board for the tasks of this project: To Do, In Arbeit, In Review, In Merge, Ausgerollt. Tasks are plain Markdown files in kanban/tasks/.",
+  "author": { "name": "World of Vikings" }
+}

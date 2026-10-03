@@ -26,7 +26,7 @@ let seed = 1;
 const rnd = (): number => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 2 ** 32; };
 
 interface Antwort { an: number; leser: Reader }
-function lauf(latMin: number, latMax: number, qJeSekunde: number): { starts: number; verstoesse: number; gesperrt: number; angenommen: number; antworten: number } {
+function lauf(latMin: number, latMax: number, qJeSekunde: number): { starts: number; verstoesse: number; gesperrt: number; angenommen: number; antworten: number; wiederholt: number } {
   let jetzt = 0;
   const zumServer: Array<{ an: number; yaw: number; nr: number }> = [];
   const zumClient: Antwort[] = [];
@@ -47,7 +47,8 @@ function lauf(latMin: number, latMax: number, qJeSekunde: number): { starts: num
   } as unknown as RollePeer;
   const bahn = new RolleLauf();
   let q = false;
-  let starts = 0, verstoesse = 0, gesperrt = 0, angenommen = 0, antworten = 0;
+  let starts = 0, verstoesse = 0, gesperrt = 0, angenommen = 0, antworten = 0, wiederholt = 0;
+  let letzteSperre = -1; // the lock the last refusal for the lock was about
   let bekanntBis = 0; // the server's lock as the client knows it from the last "still locked"
   const spieler = {
     get rollt() { return bahn.rollt; }, get rolleAbklingRest() { return bahn.abklingRest; }, rolleBereit: true, inLuft: false, figurYaw: 0,
@@ -78,6 +79,12 @@ function lauf(latMin: number, latMax: number, qJeSekunde: number): { starts: num
       const ok = rollePaket(peer, p.yaw, jetzt, { imWasser: false, freiraum: null }, p.nr);
       if (ok) angenommen++;
       void vorher;
+      // a request refused BECAUSE of the lock (the server's rule: before the lock end minus the tolerance) for the SAME lock as the
+      // refusal before: the client tried again within a lock it had been told about = a repeated refusal, a repeated pull-back
+      if (!ok && jetzt < peer.rolleSperreBis - 100) {
+        if (peer.rolleSperreBis === letzteSperre) wiederholt++;
+        letzteSperre = peer.rolleSperreBis;
+      }
     }
     for (let i = zumServer.length - 1; i >= 0; i--) if (zumServer[i]!.an <= jetzt) zumServer.splice(i, 1);
     for (const a of zumClient.filter((x) => x.an <= jetzt)) {
@@ -96,7 +103,7 @@ function lauf(latMin: number, latMax: number, qJeSekunde: number): { starts: num
     q = rnd() < qJeSekunde / 60;
     v.frame();
   }
-  return { starts, verstoesse, gesperrt, angenommen, antworten };
+  return { starts, verstoesse, gesperrt, angenommen, antworten, wiederholt };
 }
 
 console.log('\nthe lock under jitter: real client wiring against the real server rule');
@@ -106,10 +113,11 @@ for (const [name, a, b, qs] of [
   ['latency 10-900 (the attack\'s range)', 10, 900, 4],
   ['latency 10-900, Q spam 8 per second', 10, 900, 8],
 ] as const) {
-  let st = 0, vs = 0, gs = 0, an = 0, aw = 0;
-  for (let i = 0; i < 20; i++) { seed = 100 + i * 7919; const r = lauf(a, b, qs); st += r.starts; vs += r.verstoesse; gs += r.gesperrt; an += r.angenommen; aw += r.antworten; }
+  let st = 0, vs = 0, gs = 0, an = 0, aw = 0, wh = 0;
+  for (let i = 0; i < 20; i++) { seed = 100 + i * 7919; const r = lauf(a, b, qs); st += r.starts; vs += r.verstoesse; gs += r.gesperrt; an += r.angenommen; aw += r.antworten; wh += r.wiederholt; }
   console.log(`      ${name}: 20 runs of 120 s, ${st} rolls started at the client, ${an} taken by the server, ${gs} answers "still locked", ${aw} answers in all`);
   check(`${name}: after a "still locked" answer the client starts NO roll before the named rest is over (violations 0)`, vs === 0, `${vs}`);
+  check(`${name}: NO refusal for a lock the client had been told about before (repeated refusals 0: no early retry, no repeated pull-back)`, wh === 0, `${wh}`);
   check(`${name}: the run is not empty (rolls started, rolls taken)`, st > 100 && an > 100);
   if (b >= 400) check(`${name}: the model does produce "still locked" answers (${gs}), so the zero above is not blindness`, gs > 0);
 }

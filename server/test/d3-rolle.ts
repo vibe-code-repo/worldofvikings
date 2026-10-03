@@ -115,6 +115,10 @@ console.log('\n[1] spiel/Rolle.ts on a stand-in peer (fixed clock)');
   rollePaket(p, 0, 11_000, frei, 3);
   const b = p.gesendet.at(-1)!;
   check('IN THE LOCK AFTER THE ROLL: reason 3, the number 3, the rest 275 ms', b.grund === ROLLE_AUS_GESPERRT && b.nr === 3 && b.rest === 275, JSON.stringify(b));
+  const bruch = attrappe();
+  rollePaket(bruch, 0, 10_000, frei, 1);
+  rollePaket(bruch, 0, 11_274.5, frei, 2);
+  check('a fractional clock (11274.5): the rest is rounded UP to a whole millisecond (1), the Int32 does not throw or truncate to 0', bruch.gesendet.at(-1)!.grund === ROLLE_AUS_GESPERRT && bruch.gesendet.at(-1)!.rest === 1, JSON.stringify(bruch.gesendet.at(-1)));
   rollePaket(p, 0, 11_274, frei, 4);
   check('101 ms before the lock ends: still locked with the rest 1 ms (never 0 or negative)', p.gesendet.at(-1)!.grund === ROLLE_AUS_GESPERRT && p.gesendet.at(-1)!.rest === 1, JSON.stringify(p.gesendet.at(-1)));
   check('the client may try again after that rest: at lock end - tolerance the roll is taken (stamina 80)', rollePaket(p, 0, 11_275, frei, 5) && p.stamina === 80);
@@ -150,9 +154,9 @@ console.log('\n[1] spiel/Rolle.ts on a stand-in peer (fixed clock)');
   check('normal use is not hit: one packet every 100 ms (ten per second) all pass', nach === 10);
   check('the 11th within the same second does not', !rolleDrossel(q, 1999));
   const r = attrappe();
-  let hin = 0;
-  rolleDrossel(r, 9000);
-  check('a clock that jumped back opens a new window (no lock-out)', rolleDrossel(r, 100) && (() => { hin++; return hin === 1; })());
+  for (let i = 0; i < 12; i++) rolleDrossel(r, 9000 + i); // the window is full
+  check('a full window blocks (12 packets: the 11th and 12th were dropped)', !rolleDrossel(r, 9500));
+  check('a clock that jumped back opens a new window (no lock-out for the rest of the old second)', rolleDrossel(r, 100));
 }
 {
   const p = attrappe();

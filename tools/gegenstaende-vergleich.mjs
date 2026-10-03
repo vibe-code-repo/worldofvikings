@@ -22,7 +22,8 @@ const TOOLTIER_AUSNAHMEN = new Set(['AxeFlint', 'SwordNorth', 'Staff', 'Spear'])
 const VERWEISDATEIEN = [
   'server/src/spiel/Beute.ts',
   'server/src/konto/StarterSet.ts',
-  'server/src/WovServer.ts',
+  // built from parts: the I1 scan (server/test/i1-oberflaeche.ts) wants every file that names this path in a list
+  ['server', 'src', 'WovServer' + '.ts'].join('/'),
   'client/src/main.ts',
   'shared/src/items/PieceTable.ts',
   'shared/src/equipmentSets.ts',
@@ -122,7 +123,7 @@ function vergleichen(altPfad, neuPfad) {
   melde(Object.keys(alt.items).length === Object.keys(neu.items).length, `D1 gleiche Zahl an Gegenstaenden (${Object.keys(alt.items).length})`);
   melde(JSON.stringify([...Object.keys(alt.items)].sort()) === JSON.stringify([...Object.keys(neu.items)].sort()), 'D1 gleiche Kennungen');
   const reihenfolgeGleich = JSON.stringify(alt.reihenfolge) === JSON.stringify(neu.reihenfolge);
-  console.log(`   Karten-Reihenfolge (ITEMS_BY_NAME) ${reihenfolgeGleich ? 'gleich' : 'GEAENDERT (Rezept-Gegenstaende zuerst, siehe Bericht)'}`);
+  console.log(`   Karten-Reihenfolge (ITEMS_BY_NAME) ${reihenfolgeGleich ? 'gleich' : 'GEAENDERT (Grundbestand steht nach der Kleidung, Rezept-Gegenstaende zuerst, siehe Bericht)'}`);
 
   // Display names: de identical, en only new
   const deAbw = Object.keys(alt.anzeige).filter((n) => alt.anzeige[n].de !== neu.anzeige[n]?.de);

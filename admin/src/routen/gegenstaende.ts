@@ -39,15 +39,20 @@
  * `basis-unbestimmt`: it would switch the protection off ("any state exists").
  *
  * ── Base items (card GD2) ────────────────────────────────────────────
- * The 29 base items are not deletable (Mike, F1): a PUT that takes the entry of a base id out of the old working copy
- * is 422 `grundgegenstand-nicht-loeschbar` (`grundgegenstaende: [ids]`), even with `?bestaetigt=1`, and nothing is written.
- * The one way back to the base is the explicit act `POST /api/gegenstaende/zuruecksetzen` (body `{"id": "<base id>"}`,
- * `If-Match` like a PUT): it takes THAT entry out of the working copy (a separate route and not a flag of the PUT: a PUT
- * writes a whole document, and "this entry goes back to the base" must never be a side effect of a form that merely
- * lacks it). Nothing else in the file is touched, not even the format of the other entries. The answer carries
- * `grundErsetzt` of the new file. Before every read or write the route runs the same reconciliation as the game server's
- * start (`gegenstaendeAbgleichen`: repo moved on and working copy untouched = pulled), so the first save in the mask
- * never builds on a stale file.
+ * The working copy holds only DEVIATIONS (own items, base items edited on purpose); a base item without an entry follows
+ * the repo. A missing working copy is created EMPTY, and the reconciliation (`gegenstaendeAbgleichen`, the same as the
+ * game server's start) takes out entries that equal the repo, under the lock before every read and save, so the first
+ * save in the mask never builds on a stale file.
+ * The 29 base items are not deletable (Mike, F1): a PUT that takes the entry of a base id out of the old working copy is
+ * 422 `grundgegenstand-nicht-loeschbar` (`grundgegenstaende: [ids]`), even with `?bestaetigt=1`, and nothing is written.
+ * Exception: a copy the reader REPLACES (it deviates in a locked field, or it is invalid) is not in effect anyway, so
+ * a PUT without it heals the file. The explicit way back to the base is `POST /api/gegenstaende/zuruecksetzen` (body
+ * `{"id": "<base id>"}`, `If-Match` like a PUT): it takes THAT entry out of the working copy. A separate route and not a
+ * flag of the PUT: a PUT writes a whole document, and "this entry goes back to the base" must never be a side effect of a
+ * form that merely lacks it. The other entries keep their content; the file is rewritten as JSON with 2-space
+ * indentation (hand-made formatting is normalised, nothing else changes). A body that is no JSON object with a string
+ * `id` is 400 `anfrage-ungueltig`; a string that is no base id is 422 `kein-grundgegenstand`. The answer carries
+ * `grundErsetzt` of the new file.
  *
  * Every answer carries a stable `fehler` code (404 `unbekannter-endpunkt`, 405 `methode`, 500 `intern`); raw error texts
  * (paths, `EISDIR`, stacks) go to the log only. How many players hold
@@ -68,7 +73,7 @@ import {
   schreibeGegenstandsDatei,
   type GegenstandsLesung,
 } from '@wov/shared/src/items/gegenstandsDaten.js';
-import { gegenstaendeAbgleichenOhneSperre, gegenstandsArbeitsDatei, gegenstandsBasisNebenDatei as basisNeben, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
+import { gegenstaendeAbgleichenOhneSperre, gegenstandsArbeitsDatei, gegenstandsBasisLesen, nurAbweichungen, gegenstandsBasisNebenDatei as basisNeben, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 
 /**
  * The receipt written by the server watch (Game card G2), next to the working copy. The path rule lives here
@@ -302,7 +307,7 @@ function standLesen(arbeit: string, repo: string): Stand {
 
 /**
  * The current bytes of the working copy after the reconciliation with the repo state (`gegenstaende.basis`): a missing
- * copy is created, a copy that is untouched while the repo moved on is pulled, a conflict keeps the working copy (logged).
+ * copy is created (empty), entries that equal the repo are taken out, a conflict keeps the working copy (logged).
  * Must run inside the lock section (`layoutUnterSperre` is not re-entrant).
  */
 function arbeitsstandOhneSperre(arbeit: string, repo: string): Stand {
@@ -313,7 +318,7 @@ function arbeitsstandOhneSperre(arbeit: string, repo: string): Stand {
     if (abgleich.fall === 'repo-kaputt') return { fehler: 'repo-kaputt' };
   }
   if (abgleich.fall === 'konflikt' || abgleich.fall === 'arbeit-kaputt') console.warn(`[Admin] ${abgleich.meldung}`);
-  else if (abgleich.fall === 'nachgezogen' || abgleich.fall === 'angelegt') console.log(`[Admin] ${abgleich.meldung}`);
+  else if (abgleich.fall === 'bereinigt' || abgleich.fall === 'angelegt') console.log(`[Admin] ${abgleich.meldung}`);
   return standLesen(arbeit, repo);
 }
 
@@ -344,8 +349,12 @@ async function lesen(res: ServerResponse, wurzel: string): Promise<void> {
     return arbeitsstandOhneSperre(arbeit, repo);
   };
   // An existing working copy is read without the lock (writers replace it by `rename`, so a reader sees a whole file),
-  // unless the reconciliation has something to write (missing, or the repo moved on and the copy is untouched).
-  const nurLesen = existsSync(arbeit) && gegenstaendeAbgleichenOhneSperre(repo, arbeit, 'pruefen').fall !== 'nachgezogen';
+  // unless the reconciliation has something to write (entries to take out, a conflict to report once, a stale basis).
+  const repoBytes = dateiBytes(repo);
+  const nurLesen =
+    existsSync(arbeit) &&
+    !['bereinigt', 'konflikt'].includes(gegenstaendeAbgleichenOhneSperre(repo, arbeit, 'pruefen').fall) &&
+    (repoBytes === null || gegenstandsBasisLesen(arbeit) === layoutHash(repoBytes));
   const stand = nurLesen ? standLesen(arbeit, repo) : await unterSperre(arbeit, anlegen);
   if (!standAntwort(res, stand)) return;
   const text = stand.bytes.toString('utf-8');
@@ -455,7 +464,7 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     | { art: 'bestaetigung'; hash: string; entfernt: string[]; entferntOhneId: string[] }
     | { art: 'altKaputt'; hash: string; dateiFehler: string }
     | { art: 'grundEntfernt'; hash: string; ids: string[] }
-    | { art: 'geschrieben'; hash: string; entfernt: string[]; entferntOhneId: string[] };
+    | { art: 'geschrieben'; hash: string; entfernt: string[]; entferntOhneId: string[]; anzahl: number };
   // ONE synchronous section: read, compare, check removals, rename. No `await` in here (the wait for the lock is
   // asynchronous and happens BEFORE it).
   const ausgang = await unterSperre(arbeit, (): Ausgang => {
@@ -465,24 +474,32 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     if (!basen.includes(stand.hash)) return { art: 'veraltet', hash: stand.hash };
     const altText = stand.bytes.toString('utf-8');
     const alt = leseGegenstandsDatei(altText);
+    // The file holds only deviations: base entries that equal the repo are not written (the reconciliation would take
+    // them out at the next read and the hash the mask holds would be stale at once).
+    const repoBytes = dateiBytes(gegenstandsRepoDatei(wurzel));
+    const repoEintraege = repoBytes === null ? [] : leseGegenstandsDatei(repoBytes.toString('utf-8')).eintraege;
+    const abweichungen = nurAbweichungen(neu.eintraege, repoEintraege);
+    kanonisch = schreibeGegenstandsDatei(abweichungen);
     if (alt.dateiFehler !== null) {
       // The old state is broken: nothing of it can be compared, so overwriting needs the confirmation (and a copy).
       if (!bestaetigt) return { art: 'altKaputt', hash: stand.hash, dateiFehler: alt.dateiFehler };
       kaputtSichern(arbeit);
       atomarSchreiben(arbeit, kanonisch);
-      return { art: 'geschrieben', hash: layoutHash(kanonisch), entfernt: [], entferntOhneId: [] };
+      return { art: 'geschrieben', hash: layoutHash(kanonisch), entfernt: [], entferntOhneId: [], anzahl: abweichungen.length };
     }
     const neueIds = new Set(neu.eintraege.map((e) => e.id));
     const verworfen = verworfeneIds(altText, alt);
     // A base item is not deletable (F1): taking its entry out of the file is refused, with or without `?bestaetigt=1`.
     // The way back to the base is the explicit reset (`zuruecksetzen`), never a form that merely lacks the entry.
-    const grundWeg = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id) && istGrundItem(id));
+    // A copy the reader replaces (invalid or deviating in a locked field) is not in effect, so leaving it out is healing.
+    const wirksam = [...new Set([...alt.eintraege.map((e) => e.id).filter((id) => !alt.grundErsetzt.includes(id)), ...verworfen.ids])];
+    const grundWeg = wirksam.filter((id) => !neueIds.has(id) && istGrundItem(id));
     if (grundWeg.length > 0) return { art: 'grundEntfernt', hash: stand.hash, ids: grundWeg };
-    const entfernt = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id));
+    const entfernt = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id) && !istGrundItem(id));
     const entferntOhneId = verworfen.ohneId;
     if ((entfernt.length > 0 || entferntOhneId.length > 0) && !bestaetigt) return { art: 'bestaetigung', hash: stand.hash, entfernt, entferntOhneId };
     atomarSchreiben(arbeit, kanonisch);
-    return { art: 'geschrieben', hash: layoutHash(kanonisch), entfernt, entferntOhneId };
+    return { art: 'geschrieben', hash: layoutHash(kanonisch), entfernt, entferntOhneId, anzahl: abweichungen.length };
   });
 
   switch (ausgang.art) {
@@ -550,17 +567,18 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
       return;
     }
     case 'geschrieben':
-      console.log(`[Admin] Gegenstandsdatei geschrieben: ${neu.eintraege.length} Eintrag/Einträge, ${ausgang.entfernt.length + ausgang.entferntOhneId.length} entfernt (${basename(arbeit)})`);
-      json(res, 200, { ok: true, hash: ausgang.hash, eintraege: neu.eintraege.length, entfernt: ausgang.entfernt, entferntOhneId: ausgang.entferntOhneId }, etag(ausgang.hash));
+      console.log(`[Admin] Gegenstandsdatei geschrieben: ${ausgang.anzahl} Eintrag/Einträge, ${ausgang.entfernt.length + ausgang.entferntOhneId.length} entfernt (${basename(arbeit)})`);
+      json(res, 200, { ok: true, hash: ausgang.hash, eintraege: ausgang.anzahl, entfernt: ausgang.entfernt, entferntOhneId: ausgang.entferntOhneId }, etag(ausgang.hash));
       return;
   }
 }
 
 /**
  * `POST /api/gegenstaende/zuruecksetzen` `{"id": "<base id>"}`: takes the entry with that id out of the working copy, so
- * the base entry applies again. The other entries stay byte for byte (the raw list is filtered, nothing is read and
- * written back through the sanitiser). A file that cannot be read whole is refused: a reset must not turn into a quiet
- * clean-up of entries the reader would discard.
+ * the base entry applies again. The raw list is filtered (nothing is read and written back through the sanitiser), so the
+ * other entries keep their content; the file is rewritten with 2-space indentation. A file with entries the reader
+ * DISCARDS is refused: a reset must not turn into a quiet clean-up of them (an invalid copy of a BASE item is not
+ * discarded but replaced, so it can be reset).
  */
 async function zuruecksetzen(req: IncomingMessage, res: ServerResponse, wurzel: string): Promise<void> {
   const rumpf = await rumpfLesen(req, 4096);
@@ -572,11 +590,16 @@ async function zuruecksetzen(req: IncomingMessage, res: ServerResponse, wurzel: 
   if (basen === null) return;
   let id: unknown = null;
   try {
-    id = (JSON.parse(rumpf) as { id?: unknown } | null)?.id;
+    const roh: unknown = JSON.parse(rumpf);
+    if (typeof roh === 'object' && roh !== null) id = (roh as { id?: unknown }).id; // an array has no `id`: 400 as well
   } catch {
     /* no JSON: no id */
   }
-  if (typeof id !== 'string' || !istGrundItem(id)) {
+  if (typeof id !== 'string') {
+    json(res, 400, { ok: false, fehler: 'anfrage-ungueltig', message: 'Erwartet wird ein JSON-Objekt {"id": "<Kennung>"} — nichts geschrieben.' });
+    return;
+  }
+  if (!istGrundItem(id)) {
     json(res, 422, { ok: false, fehler: 'kein-grundgegenstand', message: 'Nur ein Grundgegenstand lässt sich auf den Grundstand zurücksetzen — nichts geschrieben.' });
     return;
   }
@@ -601,6 +624,7 @@ async function zuruecksetzen(req: IncomingMessage, res: ServerResponse, wurzel: 
     const dokument = JSON.parse(altText) as { gegenstaende: unknown[] };
     const rest = dokument.gegenstaende.filter((e) => !(typeof e === 'object' && e !== null && (e as { id?: unknown }).id === gewaehlt));
     if (rest.length === dokument.gegenstaende.length) return { art: 'fertig', hash: stand.hash, zurueckgesetzt: false, text: altText };
+    // The other entries keep their content; the file is written with 2-space indentation (formatting is normalised).
     const neuText = `${JSON.stringify({ ...dokument, gegenstaende: rest }, null, 2)}\n`;
     atomarSchreiben(arbeit, neuText);
     return { art: 'fertig', hash: layoutHash(neuText), zurueckgesetzt: true, text: neuText };

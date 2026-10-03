@@ -4,7 +4,7 @@
  * A base item is overridden, reset and refused when someone tries to take it out. What players, the chest and the ground
  * hold stays untouched in every step.
  *
- *  [1] Start: working copy `[]` (the DEV state) is reconciled (pulled, 29 entries), the server starts with it.
+ *  [1] Start: working copy `[]` (the DEV state) is reconciled (left alone: the base items follow the repo), the server starts with it.
  *      Anna holds 30 Wood + 1 Hammer more than her starter set, a chest holds 5 Wood + 1 Hammer, 3 Wood lie on the ground.
  *  [2] Override: a PUT with Wood's `ernte` changed: 200, the watch applies it (receipt `angewendet`, `ernte.baum` 3).
  *  [3] Removal attempt: a PUT without Wood is 422 (file byte-equal, the watch sees nothing, Wood keeps its value);
@@ -13,7 +13,9 @@
  *  [4] Reset: the override is back, `POST .../zuruecksetzen` removes it: receipt `angewendet`, Wood is the base item again.
  *  [5] A deviating copy (hand-edited stack size): the watch's receipt names it (`ersetzt`), the route reports `grundErsetzt`,
  *      the reset ends it (no `ersetzt` any more, the file is clean).
- *  After every step: Anna's inventory, the chest and the ground piece are byte-equal to the snapshot of step 1.
+ *  [6] The 29 repo copies an older build left in the file are cleaned out by the route; the game does not notice.
+ *  After every step: Anna's inventory (full serialisation), the chest and the ground piece (full ZDO snapshots) are
+ *  byte-equal to the snapshot of step 1.
  *
  * Run: npx tsx server/test/gd2-echter-server.ts   (from the repo root)
  */
@@ -88,6 +90,8 @@ const holeStand = async (): Promise<{ hash: string; eintraege: Array<Record<stri
   const g = await anfrage('GET', '/api/gegenstaende');
   return { hash: String(g.daten.hash), eintraege: g.daten.eintraege as Array<Record<string, unknown>>, grundErsetzt: g.daten.grundErsetzt as string[] };
 };
+const repoRoh = (): Array<Record<string, unknown>> => (JSON.parse(REPO_ECHT.toString('utf-8')) as { gegenstaende: Array<Record<string, unknown>> }).gegenstaende;
+const woodMit = (ueber: Record<string, unknown>): Record<string, unknown> => ({ ...repoRoh().find((e) => e.id === 'Wood')!, ...ueber });
 const rohListe = (): Array<Record<string, unknown>> => (JSON.parse(readFileSync(ARBEIT, 'utf-8')) as { gegenstaende: Array<Record<string, unknown>> }).gegenstaende;
 const dokument = (liste: unknown[]): string => `${JSON.stringify({ version: 1, gegenstaende: liste }, null, 2)}\n`;
 /** Hand edit past the route: atomic write like the route, so the watch sees a new inode. */
@@ -147,12 +151,13 @@ function verbinde(name: string): Promise<WebSocket> {
 
 async function main(): Promise<void> {
   console.log('\n[1] Start: reconcile, load, start the server; Anna, a chest and the ground hold Wood and Hammer');
-  writeFileSync(ARBEIT, dokument([])); // the DEV state: `[]`, no basis
+  writeFileSync(ARBEIT, dokument([])); // the DEV state: `[]` and a basis equal to it
+  writeFileSync(resolve(ARBEITSORDNER, 'gegenstaende.basis'), `${sha(dokument([]))}\n`);
   wendeGegenstandsDatenAn([]);
   const abgleich = gegenstaendeAbgleichenBeimStart(WURZEL, ARBEIT, { log: () => undefined, warn: () => undefined, error: () => undefined });
-  check('the reconciliation pulls the repo state into the `[]` copy', abgleich?.fall === 'nachgezogen' && rohListe().length === 29, abgleich?.fall);
+  check('the reconciliation leaves the `[]` copy alone (the 29 follow the repo, nothing is copied)', abgleich?.fall === 'unveraendert' && rohListe().length === 0, abgleich?.fall);
   const start = ladeGegenstandsDatei(ARBEIT, { log: () => undefined, warn: () => undefined, error: () => undefined });
-  check('the start loads it: 29 entries, art angewendet', start.art === 'angewendet' && start.eintraege.length === 29, `${start.art} ${start.eintraege.length}`);
+  check('the start loads it: 0 entries of the file, art angewendet, the 29 base items known', start.art === 'angewendet' && start.eintraege.length === 0 && GRUNDBESTAND_IDS.every((id) => findItem(id) !== undefined), `${start.art} ${start.eintraege.length}`);
 
   const server = createWovServer({
     port: 0, worldsDir: WORLDS_DIR, kontenDir: resolve(WORLDS_DIR, 'konten'), worldName: 'gd2',
@@ -186,25 +191,26 @@ async function main(): Promise<void> {
     const stueck = server.zdos.getAllZDOs().find((z) => z.getString('beute_item') === 'Wood');
     if (!stueck) throw new Error('ground piece missing');
 
+    // the WHOLE state: the full serialisation of the inventory (every field, every place), the chest ZDO with all its members and
+    // its revision, the ground piece ZDO likewise
     const momentaufnahme = (): string =>
       JSON.stringify({
-        inv: anna.inventar.serialize().map((s) => [s.name, s.stack]).sort(),
-        truhe: kiste.getString(TRUHE_INHALT_MEMBER),
-        boden: [stueck.destroyed, stueck.getString('beute_item'), stueck.getInt('beute_menge')],
+        inv: anna.inventar.serialize(),
+        truhe: kiste.toSnapshot(),
+        boden: [stueck.destroyed, stueck.toSnapshot()],
       });
     const vorher = momentaufnahme();
     check('setup: Anna +30 Wood and +1 Hammer on top of the starter set, chest 5 Wood + 1 Hammer, 3 Wood on the ground',
       anna.inventar.countOf('Wood') === w0 + 30 && anna.inventar.countOf('Hammer') === h0 + 1 && unpackContainer(kiste.getString(TRUHE_INHALT_MEMBER)).countOf('Wood') === 5 && !stueck.destroyed && stueck.getInt('beute_menge') === 3, vorher);
-    const unberuehrt = (wo: string): void => check(`${wo}: inventory, chest and ground piece are byte-equal to the snapshot`, momentaufnahme() === vorher, momentaufnahme());
+    const unberuehrt = (wo: string): void => check(`${wo}: inventory (full serialisation), chest and ground piece (full ZDO snapshot) are byte-equal to the snapshot`, momentaufnahme() === vorher, momentaufnahme().slice(0, 200));
     // the first tick of the watch settles the start (last good state is written), nothing changes
     await warte(1500);
     unberuehrt('after the first ticks');
 
     console.log('\n[2] Override: Wood with another harvest field');
     const s0 = await holeStand();
-    const roh0 = rohListe();
-    const put = await anfrage('PUT', '/api/gegenstaende', dokument(rohListe().map((e) => (e.id === 'Wood' ? { ...e, ernte: { baum: 3 } } : e))), s0.hash);
-    check('PUT with Wood.ernte.baum 3: 200', put.status === 200 && s0.eintraege.length === roh0.length, `${put.status} ${JSON.stringify(put.daten)}`);
+    const put = await anfrage('PUT', '/api/gegenstaende', dokument([woodMit({ ernte: { baum: 3 } })]), s0.hash);
+    check('PUT with Wood.ernte.baum 3: 200, the file holds this one deviation', put.status === 200 && s0.eintraege.length === 0 && rohListe().length === 1 && put.daten.eintraege === 1, `${put.status} ${JSON.stringify(put.daten)}`);
     const q2 = await wartePaketQuittung(String(put.daten.hash));
     check('the watch applies it: receipt angewendet for the new hash, no `ersetzt`', q2?.status === 'angewendet' && q2.ersetzt === undefined, JSON.stringify(q2));
     check('Wood now harvests 3 for trees (the override runs)', findItem('Wood')?.ernte?.baum === 3, JSON.stringify(findItem('Wood')?.ernte));
@@ -213,7 +219,7 @@ async function main(): Promise<void> {
     console.log('\n[3] Removal attempt');
     const s1 = await holeStand();
     const bytesVor = readFileSync(ARBEIT);
-    const ohne = dokument(rohListe().filter((e) => e.id !== 'Wood'));
+    const ohne = dokument([]);
     const abgelehnt = await anfrage('PUT', '/api/gegenstaende', ohne, s1.hash);
     check('PUT without Wood: 422 grundgegenstand-nicht-loeschbar, file byte-equal', abgelehnt.status === 422 && abgelehnt.daten.fehler === 'grundgegenstand-nicht-loeschbar' && readFileSync(ARBEIT).equals(bytesVor), `${abgelehnt.status} ${JSON.stringify(abgelehnt.daten)}`);
     const abgelehnt2 = await anfrage('PUT', '/api/gegenstaende?bestaetigt=1', ohne, s1.hash);
@@ -230,14 +236,14 @@ async function main(): Promise<void> {
 
     console.log('\n[4] Reset');
     const s2 = await holeStand();
-    const mitWieder = await anfrage('PUT', '/api/gegenstaende', dokument([...rohListe(), { ...roh0.find((e) => e.id === 'Wood')!, ernte: { baum: 3 } }]), s2.hash);
+    const mitWieder = await anfrage('PUT', '/api/gegenstaende', dokument([woodMit({ ernte: { baum: 3 } })]), s2.hash);
     check('setup: the override is back (PUT 200)', mitWieder.status === 200, `${mitWieder.status} ${JSON.stringify(mitWieder.daten)}`);
     await wartePaketQuittung(String(mitWieder.daten.hash));
     check('setup: Wood.ernte.baum 3 runs again', findItem('Wood')?.ernte?.baum === 3);
     const s3 = await holeStand();
     const reset = await anfrage('POST', '/api/gegenstaende/zuruecksetzen', JSON.stringify({ id: 'Wood' }), s3.hash);
     check('POST zuruecksetzen {Wood}: 200, zurueckgesetzt true', reset.status === 200 && reset.daten.zurueckgesetzt === true, `${reset.status} ${JSON.stringify(reset.daten)}`);
-    check('the entry is gone from the file, the other entries are still there', !rohListe().some((e) => e.id === 'Wood') && rohListe().length === 28, `${rohListe().length}`);
+    check('the entry is gone from the file (nothing else was in it)', rohListe().length === 0, `${rohListe().length}`);
     const q4 = await wartePaketQuittung(String(reset.daten.hash));
     check('the watch applies it: receipt angewendet', q4?.status === 'angewendet', JSON.stringify(q4));
     check('Wood is the base item again', findItem('Wood')?.ernte?.baum === undefined);
@@ -245,8 +251,7 @@ async function main(): Promise<void> {
 
     console.log('\n[5] A deviating copy and its reset');
     const s4 = await holeStand();
-    const abweichend = { ...roh0.find((e) => e.id === 'Wood')!, stapel: 77 };
-    const hand2 = handSchreiben(dokument([...rohListe(), abweichend]));
+    const hand2 = handSchreiben(dokument([woodMit({ stapel: 77 })]));
     check('setup: the route reads the hand-edited file and names the copy', (await holeStand()).grundErsetzt.join() === 'Wood' && hand2 !== s4.hash);
     const q5 = await wartePaketQuittung(hand2);
     check('the watch: receipt angewendet with `ersetzt: [Wood]`', q5?.status === 'angewendet' && JSON.stringify(q5.ersetzt) === '["Wood"]', JSON.stringify(q5));
@@ -261,6 +266,14 @@ async function main(): Promise<void> {
     const q6 = await wartePaketQuittung(String(reset2.daten.hash));
     check('the watch: receipt angewendet WITHOUT `ersetzt` (the permanent warning ends)', q6?.status === 'angewendet' && q6.ersetzt === undefined, JSON.stringify(q6));
     unberuehrt('after the second reset');
+    console.log('\n[6] The 29 repo copies of an older build: the route cleans them out, the game does not notice');
+    const alt = dokument(repoRoh());
+    handSchreiben(alt);
+    const g6 = await anfrage('GET', '/api/gegenstaende');
+    check('GET takes them out: no entries left, the hash is the hash of the cleaned file, a back-up holds the old bytes', g6.status === 200 && (g6.daten.eintraege as unknown[]).length === 0 && g6.daten.hash === sha(readFileSync(ARBEIT)), `${g6.status}`);
+    const q7 = await wartePaketQuittung(String(g6.daten.hash));
+    check('the watch applies the cleaned file: receipt angewendet, no `ersetzt`', q7?.status === 'angewendet' && q7.ersetzt === undefined, JSON.stringify(q7));
+    unberuehrt('after the clean-out');
     check('all 29 base items are known the whole time', GRUNDBESTAND_IDS.every((id) => findItem(id) !== undefined));
     server.zdos.destroyZDO(kiste.zdoid);
   } finally {

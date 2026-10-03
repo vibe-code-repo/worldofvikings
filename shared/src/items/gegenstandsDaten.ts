@@ -510,6 +510,25 @@ function verarbeiteListe(liste: readonly unknown[], z: Zaehler): { eintraege: Ge
     }
   });
 
+  // A base entry that is INVALID in the file (any reason; a second entry of an id that is already there stays discarded) is replaced by the base entry and reported in
+  // `ersetzt`, like a deviating one: a broken base copy never costs the whole file, and the editor can heal it (a PUT
+  // without it, or the reset). Not in strict mode (`pruefeEintrag` asks about ONE entry and wants the real reason).
+  if (z.ersetzt && !z.streng) {
+    const uebrig: VerworfenerEintrag[] = [];
+    for (const v of verworfen) {
+      const grund = v.id === null || karte.has(v.id) ? undefined : grundEintraege.find((g) => g.id === v.id);
+      if (!grund || v.id === null) {
+        uebrig.push(v);
+        continue;
+      }
+      karte.set(v.id, structuredClone(grund));
+      indexVon.set(v.id, v.index);
+      z.ersetzt.push(v.id);
+    }
+    verworfen.length = 0;
+    verworfen.push(...uebrig);
+  }
+
   // Recipes across entries: ingredients must exist, no cycles. Dropping an entry can orphan others, so repeat.
   const wirf = (id: string, grund: VerwerfGrund): void => {
     karte.delete(id);

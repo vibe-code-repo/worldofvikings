@@ -198,6 +198,7 @@
   "editor.gegenstand.rarity.rare": "Rare",
   "editor.gegenstand.rarity.uncommon": "Uncommon",
   "editor.gegenstand.route.alter_stand_kaputt": "The current working file is unusable. Nothing was saved.",
+  "editor.gegenstand.route.anfrage_ungueltig": "The request could not be read (an object with the id is expected). Nothing was changed.",
   "editor.gegenstand.route.anfrage_zu_gross": "The request is too large. Nothing was saved.",
   "editor.gegenstand.route.basis_fehlt": "The save lacked the state it builds on. Nothing was saved.",
   "editor.gegenstand.route.basis_unbestimmt": "The state the save builds on was unspecified. Nothing was saved.",

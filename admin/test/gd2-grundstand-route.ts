@@ -2,14 +2,15 @@
  * GD2: the item route and the base stock, in process (the route function behind a plain HTTP server, test root under
  * /tmp/gd2-route-*, no child process).
  *
- *  [1] Reconciliation before reading/saving: working copy `[]` without a basis is pulled (29 entries, new hash); a repo that
- *      moved on is pulled into an untouched copy (a PUT with the old hash is 412); a conflict keeps the working copy.
+ *  [1] Reconciliation before reading/saving (the file holds deviations only): the DEV state is not touched; a missing copy is
+ *      created EMPTY; the 29 repo copies of an older build are taken out (back-up, a PUT with the old hash is 412); a
+ *      conflict (deviation + moved repo) is one warning of the route.
  *  [2] A PUT that takes a base id out of the old working copy: 422 `grundgegenstand-nicht-loeschbar` (also with
- *      `?bestaetigt=1`), file byte-equal; a non-base id still needs the confirmation (409); a file without base entries
- *      (the DEV state `[]`) can be saved without them.
- *  [3] `POST /api/gegenstaende/zuruecksetzen`: removes exactly that entry, the others stay byte for byte (also other
- *      deviating copies); `grundErsetzt` of the new file; idempotent; refusals (not a base id, no `If-Match`, stale hash,
- *      unreadable file, discarded entries, wrong method) leave the file byte-equal.
+ *      `?bestaetigt=1`), file byte-equal; a non-base id still needs the confirmation (409); a PUT writes only deviations
+ *      (the hash stays valid); an invalid or locked-field copy can be healed by a PUT without it or by the reset.
+ *  [3] `POST /api/gegenstaende/zuruecksetzen`: removes exactly that entry, the others keep content and order, 2-space
+ *      indentation; `grundErsetzt` of the new file; idempotent; 400 for a body that is no `{id: string}`, 422 for a string that is
+ *      no base id; refusals (no `If-Match`, stale hash, unreadable file, discarded entries, wrong method) leave the file byte-equal.
  *  [4] The receipt answer carries `grundErsetzt` (from the watch's `ersetzt`).
  *
  * Run: npx tsx admin/test/gd2-grundstand-route.ts   (from the repo root)
@@ -91,70 +92,121 @@ function zustand(arbeitText: string | null, basis: string | null): void {
   if (basis !== null) writeFileSync(resolve(ARBEITSORDNER, 'gegenstaende.basis'), `${basis}\n`);
 }
 
+const warnungen: string[] = [];
+const echteWarnung = console.warn;
+console.warn = (...teile: unknown[]): void => {
+  warnungen.push(teile.join(' '));
+};
+const umgekehrt = (e: Record<string, unknown>): Record<string, unknown> => Object.fromEntries(Object.entries(e).reverse());
+
 try {
-  console.log('\n[1] Reconciliation before reading and saving');
+  console.log('\n[1] Reconciliation before reading and saving (the file holds deviations only)');
   {
-    zustand(dokument([]), null); // the DEV state
+    const leer = dokument([]);
+    zustand(leer, sha(leer)); // the DEV state: `[]` and a basis equal to it
     const g = await get();
-    check('1 working copy [] without a basis: GET pulls the repo state (29 entries)', g.status === 200 && (g.daten.eintraege as unknown[]).length === 29 && g.daten.hash === sha(REPO_ECHT), `${g.status} ${(g.daten.eintraege as unknown[])?.length}`);
-    check('1 ... the file is the repo file, basis = repo hash, quelle repo, grundErsetzt []', bytes().equals(REPO_ECHT) && gegenstandsBasisLesen(ARBEIT) === sha(REPO_ECHT) && g.daten.quelle === 'repo' && (g.daten.grundErsetzt as unknown[]).length === 0);
-    check('1 ... a backup of the old file lies there', readdirSync(ARBEITSORDNER).some((n) => n.endsWith('.bak')));
+    check('1 DEV state: GET returns no entries, the file is NOT touched (byte-equal), no back-up', g.status === 200 && (g.daten.eintraege as unknown[]).length === 0 && readFileSync(ARBEIT, 'utf-8') === leer && g.daten.hash === sha(leer) && !readdirSync(ARBEITSORDNER).some((n) => n.endsWith('.bak')), `${g.status}`);
+    check('1 ... the basis is the repo hash now, grundErsetzt []', gegenstandsBasisLesen(ARBEIT) === sha(REPO_ECHT) && (g.daten.grundErsetzt as unknown[]).length === 0);
   }
   {
     zustand(null, null);
     const g = await get();
-    check('1 working copy missing: GET creates it from the repo state', g.status === 200 && bytes().equals(REPO_ECHT) && gegenstandsBasisLesen(ARBEIT) === sha(REPO_ECHT));
+    check('1 working copy missing: GET creates an EMPTY document (the base items follow the repo), basis = repo hash', g.status === 200 && readFileSync(ARBEIT, 'utf-8') === dokument([]) && (g.daten.eintraege as unknown[]).length === 0 && gegenstandsBasisLesen(ARBEIT) === sha(REPO_ECHT));
   }
   {
-    // the repo moved on, the working copy is untouched (= basis)
-    zustand(null, null);
-    await get();
-    const alt = String((await get()).daten.hash);
-    const neuerRepo = dokument(rohe().map((e) => (e.id === 'Wood' ? { ...e, ernte: { baum: 4 } } : e)));
+    // the 29 repo copies an older build left, plus an own item: GET takes the 29 out
+    const alt = dokument([...rohe(), holzaxt]);
+    zustand(alt, null);
+    const g = await get();
+    check('1 29 repo copies + Holzaxt: GET shows only the Holzaxt, the file is cleaned, the hash is the new file hash', g.status === 200 && (g.daten.eintraege as Array<{ id: string }>).map((e) => e.id).join() === 'Holzaxt' && g.daten.hash === sha(bytes()), `${(g.daten.eintraege as unknown[]).length}`);
+    check('1 ... a back-up with the old bytes lies there; basis = repo hash', readdirSync(ARBEITSORDNER).filter((n) => n.endsWith('.bak')).some((n) => readFileSync(resolve(ARBEITSORDNER, n), 'utf-8') === alt) && gegenstandsBasisLesen(ARBEIT) === sha(REPO_ECHT));
+    const stale = await put(dokument([holzaxt]), sha(alt));
+    check('1 a PUT with the hash from BEFORE the clean-out is 412 (the first save never builds on the stale file)', stale.status === 412, `${stale.status}`);
+  }
+  {
+    // the repo moved on while the copy deviates: a conflict, reported ONCE, the copy wins
+    const eigen = dokument([mitWerten('AxeFlint', { ernte: { baum: 3 } }), holzaxt]);
+    zustand(eigen, sha(REPO_ECHT));
+    const neuerRepo = dokument(rohe().map((e) => (e.id === 'AxeFlint' ? { ...e, ernte: { baum: 2 } } : e)));
     writeFileSync(REPO, neuerRepo);
-    const stale = await put(dokument(rohe()), alt);
-    check('1 the repo moved on: a PUT with the OLD hash is 412 (the first save never builds on the stale file), the file is the new repo state', stale.status === 412 && readFileSync(ARBEIT, 'utf-8') === neuerRepo, `${stale.status}`);
+    warnungen.length = 0;
     const g = await get();
-    check('1 GET then shows the new state (Wood.ernte.baum 4), hash = the new repo hash', g.daten.hash === sha(neuerRepo) && (g.daten.eintraege as Array<{ id: string; ernte: { baum?: number } }>).find((e) => e.id === 'Wood')?.ernte.baum === 4);
+    check('1 conflict (AxeFlint overridden, repo moved): GET returns the working copy byte-equal, quelle arbeit', g.status === 200 && readFileSync(ARBEIT, 'utf-8') === eigen && g.daten.quelle === 'arbeit' && (g.daten.eintraege as Array<{ id: string }>).map((e) => e.id).join() === 'AxeFlint,Holzaxt');
+    check('1 ... the route logs ONE warning naming the conflict and AxeFlint', warnungen.length === 1 && warnungen[0]!.includes('Konflikt') && warnungen[0]!.includes('AxeFlint'), JSON.stringify(warnungen));
+    await get();
+    await get();
+    check('1 ... further reads do not repeat it (basis = repo now)', warnungen.length === 1 && gegenstandsBasisLesen(ARBEIT) === sha(neuerRepo), `${warnungen.length}`);
     writeFileSync(REPO, REPO_ECHT);
-  }
-  {
-    // a conflict: own entries, no basis, other than the repo
-    const eigen = dokument([holzaxt]);
-    zustand(eigen, null);
-    const g = await get();
-    check('1 conflict (a Holzaxt copy, no basis): GET returns the working copy, byte-equal, quelle arbeit', g.status === 200 && readFileSync(ARBEIT, 'utf-8') === eigen && g.daten.quelle === 'arbeit' && (g.daten.eintraege as Array<{ id: string }>).map((e) => e.id).join() === 'Holzaxt');
-    check('1 ... no basis written, no backup', gegenstandsBasisLesen(ARBEIT) === null && !readdirSync(ARBEITSORDNER).some((n) => n.endsWith('.bak')));
   }
 
   console.log('\n[2] Taking a base id out of the file');
   {
-    zustand(null, null);
+    // two base items are overridden on purpose
+    const text = dokument([mitWerten('Wood', { ernte: { baum: 3 } }), mitWerten('Stone', { ernte: { fels: 3 } }), holzaxt]);
+    zustand(text, sha(REPO_ECHT));
     const g0 = await get();
     const hash = String(g0.daten.hash);
-    const ohneWood = dokument(rohe().filter((e) => e.id !== 'Wood'));
     const vor = bytes();
+    const ohneWood = dokument([mitWerten('Stone', { ernte: { fels: 3 } }), holzaxt]);
     const a = await put(ohneWood, hash);
-    check('2 PUT without Wood: 422 grundgegenstand-nicht-loeschbar, names Wood, file byte-equal', a.status === 422 && a.daten.fehler === 'grundgegenstand-nicht-loeschbar' && JSON.stringify(a.daten.grundgegenstaende) === '["Wood"]' && bytes().equals(vor), `${a.status} ${JSON.stringify(a.daten)}`);
+    check('2 PUT without Wood (an override stood in the old file): 422 grundgegenstand-nicht-loeschbar, names Wood, file byte-equal', a.status === 422 && a.daten.fehler === 'grundgegenstand-nicht-loeschbar' && JSON.stringify(a.daten.grundgegenstaende) === '["Wood"]' && bytes().equals(vor), `${a.status} ${JSON.stringify(a.daten)}`);
     const b = await put(ohneWood, hash, '?bestaetigt=1');
     check('2 ... also with ?bestaetigt=1', b.status === 422 && b.daten.fehler === 'grundgegenstand-nicht-loeschbar' && bytes().equals(vor));
-    const ohneZwei = dokument(rohe().filter((e) => e.id !== 'Wood' && e.id !== 'Stone'));
-    const c = await put(ohneZwei, hash);
+    const c = await put(dokument([holzaxt]), hash);
     check('2 two base ids out: both named', c.status === 422 && JSON.stringify([...(c.daten.grundgegenstaende as string[])].sort()) === '["Stone","Wood"]', JSON.stringify(c.daten.grundgegenstaende));
-    const mitAxt = await put(dokument([...rohe(), holzaxt]), hash);
-    check('2 a file WITH all base entries and a new item: 200', mitAxt.status === 200, `${mitAxt.status} ${JSON.stringify(mitAxt.daten)}`);
-    const h2 = String(mitAxt.daten.hash);
-    const nurAxtWeg = await put(dokument(rohe()), h2);
-    check('2 a non-base item out: still 409 (needs the confirmation), not 422', nurAxtWeg.status === 409 && nurAxtWeg.daten.fehler === 'brauchtBestaetigung' && JSON.stringify(nurAxtWeg.daten.entfernt) === '["Holzaxt"]');
-    const beides = await put(dokument(rohe().filter((e) => e.id !== 'Wood')), h2);
+    const d = await put(dokument([mitWerten('Wood', { ernte: { baum: 3 } }), mitWerten('Stone', { ernte: { fels: 3 } }), holzaxt, { ...holzaxt, id: 'Eisenaxt', nameSchluessel: 'inhalt.gegenstand.Eisenaxt.name', texte: { 'inhalt.gegenstand.Eisenaxt.name': { de: 'Eisenaxt', en: 'Iron axe' } } }]), hash);
+    check('2 the overrides kept and a new item added: 200, 4 entries written', d.status === 200 && d.daten.eintraege === 4, `${d.status} ${JSON.stringify(d.daten)}`);
+    const h2 = String(d.daten.hash);
+    const nurAxtWeg = await put(dokument([mitWerten('Wood', { ernte: { baum: 3 } }), mitWerten('Stone', { ernte: { fels: 3 } }), holzaxt]), h2);
+    check('2 a non-base item out: still 409 (needs the confirmation), not 422', nurAxtWeg.status === 409 && nurAxtWeg.daten.fehler === 'brauchtBestaetigung' && JSON.stringify(nurAxtWeg.daten.entfernt) === '["Eisenaxt"]', JSON.stringify(nurAxtWeg.daten));
+    const beides = await put(dokument([mitWerten('Stone', { ernte: { fels: 3 } }), holzaxt]), h2);
     check('2 base id AND other change: the 422 comes first', beides.status === 422 && beides.daten.fehler === 'grundgegenstand-nicht-loeschbar');
   }
   {
+    // a PUT only writes deviations: base entries that equal the repo are left out (the hash the mask gets stays valid)
+    zustand(dokument([holzaxt]), sha(REPO_ECHT));
+    const g = await get();
+    const a = await put(dokument([...rohe().map(umgekehrt), holzaxt]), String(g.daten.hash));
+    check('2 a PUT with all 29 repo entries (reversed keys) + Holzaxt: 200, written is only the Holzaxt (eintraege 1)', a.status === 200 && a.daten.eintraege === 1 && (JSON.parse(readFileSync(ARBEIT, 'utf-8')) as { gegenstaende: Array<{ id: string }> }).gegenstaende.map((e) => e.id).join() === 'Holzaxt', `${a.status} ${JSON.stringify(a.daten)}`);
+    const g2 = await get();
+    check('2 ... the next GET has the SAME hash (nothing left to clean out, the mask is not made stale)', g2.daten.hash === a.daten.hash);
+  }
+  {
     // the old DEV state without base entries: saving without them is no removal
-    zustand(dokument([holzaxt]), sha(REPO_ECHT)); // repo = basis: the copy is kept as it is
+    zustand(dokument([holzaxt]), sha(REPO_ECHT));
     const g = await get();
     const a = await put(dokument([{ ...holzaxt, stapel: 3 }]), String(g.daten.hash));
     check('2 a working copy with no base entries: a PUT without them is 200 (nothing to remove)', a.status === 200, `${a.status} ${JSON.stringify(a.daten)}`);
+  }
+  {
+    // an INVALID base copy can be healed: it is replaced in the game, so leaving it out is no deletion
+    const kaputtWood = { ...rohe().find((e) => e.id === 'Wood')!, stapel: 'viel' };
+    const text = dokument([kaputtWood, holzaxt]);
+    zustand(text, sha(REPO_ECHT));
+    const g = await get();
+    check('2 invalid Wood copy: GET 200, nothing discarded, Wood named in grundErsetzt (the file is not lost)', g.status === 200 && (g.daten.verworfen as unknown[]).length === 0 && JSON.stringify(g.daten.grundErsetzt) === '["Wood"]' && (g.daten.eintraege as Array<{ id: string }>).map((e) => e.id).sort().join() === 'Holzaxt,Wood', JSON.stringify(g.daten.grundErsetzt));
+    const heil = await put(dokument([holzaxt]), String(g.daten.hash));
+    check('2 ... a PUT without it heals the file: 200 (no 422), the file is the Holzaxt only', heil.status === 200 && (JSON.parse(readFileSync(ARBEIT, 'utf-8')) as { gegenstaende: Array<{ id: string }> }).gegenstaende.map((e) => e.id).join() === 'Holzaxt', `${heil.status} ${JSON.stringify(heil.daten)}`);
+    zustand(text, sha(REPO_ECHT));
+    const g2 = await get();
+    const r = await zurueck('Wood', String(g2.daten.hash));
+    check('2 ... the reset heals it too: 200, Wood gone from the file, Holzaxt stays', r.status === 200 && r.daten.zurueckgesetzt === true && JSON.stringify(r.daten.grundErsetzt) === '[]' && (JSON.parse(readFileSync(ARBEIT, 'utf-8')) as { gegenstaende: Array<{ id: string }> }).gegenstaende.map((e) => e.id).join() === 'Holzaxt', `${r.status} ${JSON.stringify(r.daten)}`);
+    // a copy that deviates in a locked field (also not in effect): leaving it out is allowed as well
+    zustand(dokument([mitWerten('Wood', { stapel: 77 }), holzaxt]), sha(REPO_ECHT));
+    const g3 = await get();
+    const heil2 = await put(dokument([holzaxt]), String(g3.daten.hash));
+    check('2 a copy deviating in a locked field (stack 77): a PUT without it is 200 as well', heil2.status === 200, `${heil2.status}`);
+  }
+
+  {
+    // a duplicate id is NOT healed by the replacement: the file stays refused as a whole, as before
+    const wood = mitWerten('Wood', { ernte: { baum: 3 } });
+    zustand(dokument([wood, { ...wood }, holzaxt]), sha(REPO_ECHT));
+    const g = await get();
+    check('2 Wood twice (both valid): the second is discarded as id-doppelt, grundErsetzt []', (g.daten.verworfen as Array<{ grund: string }>).length === 1 && (g.daten.verworfen as Array<{ grund: string }>)[0]!.grund === 'id-doppelt' && (g.daten.grundErsetzt as unknown[]).length === 0, JSON.stringify(g.daten.verworfen));
+    zustand(dokument([wood, { ...wood, stapel: 'viel' }, holzaxt]), sha(REPO_ECHT));
+    const g2 = await get();
+    check('2 Wood valid + Wood invalid: the invalid second one is discarded (not replaced next to the valid one)', (g2.daten.verworfen as unknown[]).length === 1 && (g2.daten.grundErsetzt as unknown[]).length === 0, JSON.stringify(g2.daten.verworfen));
   }
 
   console.log('\n[3] Reset to the base state');
@@ -169,7 +221,7 @@ try {
     const nachRoh = JSON.parse(readFileSync(ARBEIT, 'utf-8')) as { gegenstaende: Array<{ id: string }> };
     check('3 reset Wood: 200, zurueckgesetzt true', r.status === 200 && r.daten.zurueckgesetzt === true && r.daten.id === 'Wood', `${r.status} ${JSON.stringify(r.daten)}`);
     check('3 the Wood entry is gone, Stone and Holzaxt stay', nachRoh.gegenstaende.map((e) => e.id).join() === 'Stone,Holzaxt', nachRoh.gegenstaende.map((e) => e.id).join());
-    check('3 the others are byte for byte what they were (Stone still deviates with stapel 66)', JSON.stringify(nachRoh.gegenstaende) === JSON.stringify([mitWerten('Stone', { stapel: 66 }), holzaxt]));
+    check('3 the others keep their content (Stone still deviates with stapel 66)', JSON.stringify(nachRoh.gegenstaende) === JSON.stringify([mitWerten('Stone', { stapel: 66 }), holzaxt]));
     check('3 the answer: new hash = file hash, grundErsetzt names only Stone, ETag', r.daten.hash === sha(bytes()) && JSON.stringify(r.daten.grundErsetzt) === '["Stone"]' && r.etag === `"${sha(bytes())}"`);
     check('3 no new side files (no lock, no tmp)', nebenDateien() === nebenVor, nebenDateien());
     const g2 = await get();
@@ -182,15 +234,14 @@ try {
     check('3 Holzaxt untouched', (JSON.parse(bytes().toString('utf-8')) as { gegenstaende: Array<{ id: string }> }).gegenstaende.map((e) => e.id).join() === 'Holzaxt');
   }
   {
-    // a full working copy (all 29): resetting one entry removes exactly that one, the other 28 stay byte-equal
-    zustand(null, null);
+    // the written form: other entries keep their content and ORDER, the file is indented with two spaces (a compact file is re-formatted)
+    const eintraege = [umgekehrt(mitWerten('Hammer', { ernte: { baum: 2 } })), mitWerten('Wood', { ernte: { baum: 3 } }), holzaxt];
+    const kompakt = JSON.stringify({ gegenstaende: eintraege, version: 1 });
+    zustand(kompakt, sha(REPO_ECHT));
     const g = await get();
-    const vorher = (JSON.parse(bytes().toString('utf-8')) as { gegenstaende: unknown[] }).gegenstaende;
-    const r = await zurueck('Hammer', String(g.daten.hash));
-    const nachher = (JSON.parse(bytes().toString('utf-8')) as { gegenstaende: Array<{ id: string }> }).gegenstaende;
-    check('3 all 29 present, reset Hammer: 28 entries left, the same ones in the same order, byte-equal', r.status === 200 && nachher.length === 28 && JSON.stringify(nachher) === JSON.stringify(vorher.filter((e) => (e as { id: string }).id !== 'Hammer')));
-    const g2 = await get();
-    check('3 the base entry of Hammer still applies: reading gives 28 entries and no error', g2.status === 200 && (g2.daten.eintraege as unknown[]).length === 28 && g2.daten.dateiFehler === null);
+    const r = await zurueck('Wood', String(g.daten.hash));
+    const erwartet = `${JSON.stringify({ gegenstaende: [eintraege[0], eintraege[2]], version: 1 }, null, 2)}\n`;
+    check('3 written form: 2-space indentation, trailing newline, the others in the same order with the same key order', r.status === 200 && readFileSync(ARBEIT, 'utf-8') === erwartet, readFileSync(ARBEIT, 'utf-8').slice(0, 80));
   }
   {
     zustand(dokument([mitWerten('Wood', { stapel: 77 }), holzaxt]), sha(REPO_ECHT));
@@ -203,11 +254,15 @@ try {
     const b = await zurueck('wood', hash);
     check('3 refusal: wrong spelling (wood): 422 kein-grundgegenstand', b.status === 422 && b.daten.fehler === 'kein-grundgegenstand' && gleich());
     const c = await zurueck(null, hash, '{"id": 5}');
-    check('3 refusal: id is no string: 422 kein-grundgegenstand', c.status === 422 && c.daten.fehler === 'kein-grundgegenstand' && gleich());
+    check('3 refusal: id is no string: 400 anfrage-ungueltig', c.status === 400 && c.daten.fehler === 'anfrage-ungueltig' && gleich(), `${c.status}`);
     const d = await zurueck(null, hash, 'das ist kein json');
-    check('3 refusal: body is no JSON: 422 kein-grundgegenstand', d.status === 422 && d.daten.fehler === 'kein-grundgegenstand' && gleich());
+    check('3 refusal: body is no JSON: 400 anfrage-ungueltig', d.status === 400 && d.daten.fehler === 'anfrage-ungueltig' && gleich(), `${d.status}`);
     const e = await zurueck(null, hash, 'null');
-    check('3 refusal: body null: 422 kein-grundgegenstand', e.status === 422 && e.daten.fehler === 'kein-grundgegenstand' && gleich());
+    check('3 refusal: body null: 400 anfrage-ungueltig', e.status === 400 && e.daten.fehler === 'anfrage-ungueltig' && gleich(), `${e.status}`);
+    const arr = await zurueck(null, hash, '["Wood"]');
+    check('3 refusal: body is an array: 400 anfrage-ungueltig', arr.status === 400 && arr.daten.fehler === 'anfrage-ungueltig' && gleich(), `${arr.status}`);
+    const fehlend = await zurueck(null, hash, '{}');
+    check('3 refusal: no id at all: 400 anfrage-ungueltig', fehlend.status === 400 && fehlend.daten.fehler === 'anfrage-ungueltig' && gleich(), `${fehlend.status}`);
     const f = await zurueck('Wood', null);
     check('3 refusal: no If-Match: 428 basis-fehlt', f.status === 428 && f.daten.fehler === 'basis-fehlt' && gleich(), `${f.status}`);
     const h = await zurueck('Wood', sha('ein anderer Stand'));
@@ -228,7 +283,7 @@ try {
     const mitMuell = dokument([mitWerten('Wood', { stapel: 77 }), { id: 'Kaputt' }, holzaxt]);
     zustand(mitMuell, sha(REPO_ECHT));
     const b = await zurueck('Wood', sha(mitMuell));
-    check('3 refusal: a file with a discarded entry: 422 eintraege-verworfen with the list, file byte-equal (no quiet clean-up)', b.status === 422 && b.daten.fehler === 'eintraege-verworfen' && Array.isArray(b.daten.verworfen) && (b.daten.verworfen as unknown[]).length === 1 && readFileSync(ARBEIT, 'utf-8') === mitMuell, `${b.status} ${JSON.stringify(b.daten)}`);
+    check('3 refusal: a file with a discarded NON-base entry: 422 eintraege-verworfen with the list, file byte-equal (no quiet clean-up)', b.status === 422 && b.daten.fehler === 'eintraege-verworfen' && Array.isArray(b.daten.verworfen) && (b.daten.verworfen as unknown[]).length === 1 && readFileSync(ARBEIT, 'utf-8') === mitMuell, `${b.status} ${JSON.stringify(b.daten)}`);
   }
 
   console.log('\n[4] The receipt answer');
@@ -247,6 +302,7 @@ try {
   }
   check('the base stock is the 29 ids this test works on', GRUNDBESTAND.length === 29 && GRUNDBESTAND_IDS.length === 29);
 } finally {
+  console.warn = echteWarnung;
   server.close();
   rmSync(ORDNER, { recursive: true, force: true });
 }

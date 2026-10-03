@@ -198,6 +198,7 @@
   "editor.gegenstand.rarity.rare": "Selten",
   "editor.gegenstand.rarity.uncommon": "Ungewöhnlich",
   "editor.gegenstand.route.alter_stand_kaputt": "Die bisherige Arbeitsdatei ist unbrauchbar. Nichts wurde gespeichert.",
+  "editor.gegenstand.route.anfrage_ungueltig": "Die Anfrage war nicht lesbar (erwartet wird ein Objekt mit der Kennung). Nichts wurde geändert.",
   "editor.gegenstand.route.anfrage_zu_gross": "Die Anfrage ist zu groß. Nichts wurde gespeichert.",
   "editor.gegenstand.route.basis_fehlt": "Dem Speichern fehlte der Stand, auf dem es aufbaut. Nichts wurde gespeichert.",
   "editor.gegenstand.route.basis_unbestimmt": "Der Stand, auf dem das Speichern aufbaut, war unbestimmt. Nichts wurde gespeichert.",

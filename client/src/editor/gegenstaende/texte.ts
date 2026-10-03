@@ -78,6 +78,7 @@ export const ROUTE_FEHLER_SCHLUESSEL: Readonly<Record<string, TranslationKey>> =
   ...DATEI_FEHLER_SCHLUESSEL,
   'repo-fehlt': 'editor.gegenstand.route.repo_fehlt',
   'repo-kaputt': 'editor.gegenstand.route.repo_kaputt',
+  'anfrage-ungueltig': 'editor.gegenstand.route.anfrage_ungueltig',
   'anfrage-zu-gross': 'editor.gegenstand.route.anfrage_zu_gross',
   'basis-fehlt': 'editor.gegenstand.route.basis_fehlt',
   'basis-unbestimmt': 'editor.gegenstand.route.basis_unbestimmt',

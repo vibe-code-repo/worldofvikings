@@ -60,6 +60,7 @@ const BIOME_COLORS: Record<number, [number, number, number]> = {
   [Biome.DeepNorth]: [0.85, 0.87, 0.9],
   [Biome.Ocean]: [0.25, 0.35, 0.35],
   [Biome.Mistlands]: [0.3, 0.35, 0.3],
+  [Biome.Greyglen]: [0.36, 0.48, 0.24],
 };
 const COLOR_FALLBACK: [number, number, number] = [0.4, 0.4, 0.4];
 const SAND: [number, number, number] = [0.76, 0.7, 0.5];

@@ -8,7 +8,7 @@
  * the blacklist, admin and whitelist sets.
  */
 
-import { KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, ruestungZu, canWearArmor, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
+import { mindestProtokollVersion, KEINE_WERTE, type Werte, lebenNachSchaden, ausgehenderNahkampfSchaden, eingehenderSchaden, lebensmaximum, schlagKosten, waffenSchaden, LAYOUT_ID_MEMBER, decodeArmor, encodeArmor, ruestungZu, canWearArmor, BOARD_SLUGS, istAusruestungsSlot } from '@wov/shared';
 import { grantStarterSet } from './konto/StarterSet.js';
 import { ANIM_EINMAL_MEMBER, ANIM_MEMBER, SERVER_MELDUNG_BETT_VERLOREN, SERVER_MELDUNG_BEUTE_FREMD, SERVER_MELDUNG_INVENTAR_VOLL, SERVER_MELDUNG_UNVERWUNDBAR, serverMeldungAufgesammelt, serverMeldungBesiegt, serverMeldungVollRest, TOD_LIEGEZEIT_MS, naechstesEinmal, richtungZuAngreifer, todClipFuer, todClipIndex, trefferClipFuer, trefferClipIndex, type TodClip, type TrefferClip } from '@wov/shared';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
@@ -95,6 +95,7 @@ import { ZoneManager } from './world/ZoneManager.js';
 import { setzeZonenZurueck } from './world/zonenRuecksetzer.js';
 import { SpawnSystem, type SpawnZielInfo } from './world/SpawnSystem.js';
 import { RoutenLaeufer } from './world/RoutenLaeufer.js';
+import { schickeLayout } from './net/layoutVerteilen.js';
 import { befreieSpielerbauten, istSpielerbau, layoutAbgleich, type LayoutAbgleichErgebnis, type LayoutAbgleichKontext } from './world/layoutAbgleich.js';
 import { AggroSystem } from './world/AggroSystem.js';
 import { WorldManager, type SavedPlayer, type WorldSaveData } from './world/WorldManager.js';
@@ -918,6 +919,7 @@ export class WovServer {
       maxPlayers: this.config.maxPlayers,
       everyoneAdmin: this.config.everyoneAdmin,
       sessionSecret,
+      mindestVersion: () => mindestProtokollVersion(this.worldLayoutRaw),
       istAdminId: (id) => this.adminListe.enthaelt(id),
       // Der Name kommt aus dem Konto, nicht aus der Behauptung des
       // Browsers -- Begruendung in NetManager.handlePasswordAuth.
@@ -1298,9 +1300,9 @@ export class WovServer {
           this.worldLayoutRaw = roh;
           for (const peer of this.net.getPeers()) {
             if (peer.worldId !== HAUPTWELT_ID) continue;
-            peer.sendPacketWith(PacketType.LayoutAktualisiert, (w) => {
+            schickeLayout(peer, roh, (p) => p.sendPacketWith(PacketType.LayoutAktualisiert, (w) => {
               w.writeString(JSON.stringify(roh));
-            });
+            }));
           }
         },
       });
@@ -2479,9 +2481,11 @@ export class WovServer {
     // Layout-Modus: Das Weltdokument folgt SOFORT auf die ServerConfig —
     // der Client wartet darauf, bevor er seine Welt baut (Flag Bit 5).
     if (this.config.worldMode === 'layout' && this.worldLayoutRaw) {
-      peer.sendPacketWith(PacketType.WorldLayoutData, (w) => {
+      // Turned away (the client is too old for this document)? Then the login ends here: no character, no
+      // further packets for a peer whose socket is closing.
+      if (!schickeLayout(peer, this.worldLayoutRaw, (p) => p.sendPacketWith(PacketType.WorldLayoutData, (w) => {
         w.writeString(JSON.stringify(this.worldLayoutRaw));
-      });
+      }))) return;
     }
 
     // Create player character ZDO — spawn at the saved position (G1) or on

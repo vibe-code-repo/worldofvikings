@@ -1,5 +1,5 @@
 /**
- * Biome names and biome tones of the map editor: the list of the eight biomes and
+ * Biome names and biome tones of the map editor: the list of the biomes and
  * the colours the region list and the map overlay draw them in.
  *
  * Load order: `editorMain.ts` imports this module, so it is evaluated BEFORE the two
@@ -11,6 +11,7 @@ import { BIOM_TON, F } from './design';
 
 const BIOME_NAMEN: BiomeName[] = [
   'grassland', 'blackforest', 'swamp', 'mountain', 'plains', 'mistlands', 'ashlands', 'deepnorth',
+  'greyglen',
 ];
 /**
  * Biomtöne — früher standen die acht Farbwerte hier als Literale und

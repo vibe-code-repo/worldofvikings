@@ -98,6 +98,14 @@ const assetManifest = JSON.parse(
 ) as AssetManifestDatei;
 const manifest = mitTonUndSymbolenErgaenzen(manifestRoh, assetManifest);
 const manifestNachPfad = new Map(manifest.assets.map((a) => [a.path, a]));
+// Modelle, die nur im Store-Labor liegen, stehen in der eingecheckten Messliste
+// (`tools/store-lab-katalog.json`) und nicht im Speicher-Manifest.
+const labListe = JSON.parse(readFileSync(join(WURZEL, 'tools/store-lab-katalog.json'), 'utf8')) as {
+  eintraege: { id: string; pfad: string; bytes: number; hash: string }[];
+};
+for (const l of labListe.eintraege) {
+  manifestNachPfad.set(l.pfad, { id: l.id, path: l.pfad, kind: 'prefab', bytes: l.bytes, hash: l.hash } as (typeof manifest.assets)[number]);
+}
 const kategorieNachPfad = new Map(prefabs.prefabs.map((p) => [p.asset, p.category ?? null]));
 
 const ohneManifest: string[] = [];

@@ -14,6 +14,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { sep } from 'node:path';
+import { PROTOCOL_VERSION, PROTOKOLL_KOPF } from '@wov/shared/src/protokollVersion.js';
 import { fileURLToPath } from 'node:url';
 import { sanitizeWorldLayout, layoutBounds, type WorldLayout } from '@wov/shared';
 import { instanzName, weltArbeitsOrdner, weltDatei } from '@wov/shared/src/instanz.js';
@@ -150,6 +151,7 @@ export async function adminAnfrage(
       method: methode,
       headers: {
         'x-wov-token': token,
+        [PROTOKOLL_KOPF]: String(PROTOCOL_VERSION),
         ...(leib !== undefined ? { 'content-type': 'application/json' } : {}),
       },
       body: leib !== undefined ? JSON.stringify(leib) : undefined,

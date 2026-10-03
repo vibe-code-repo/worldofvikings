@@ -193,7 +193,7 @@ check('kein Text ist leer', katalogSchluessel.every((k) => de[k].trim() !== '' &
 // ── [2] reader reasons ──
 console.log('\n[2] Grund-Codes des Lesers (VERWERF_GRUENDE):');
 {
-  check('23 Grund-Codes', VERWERF_GRUENDE.length === 23);
+  check('24 Grund-Codes', VERWERF_GRUENDE.length === 24);
   for (const code of VERWERF_GRUENDE) {
     const key = GRUND_SCHLUESSEL[code];
     check(`${code}: Schluessel ${key ?? '?'} in de und en`, typeof key === 'string' && Object.hasOwn(de, key) && Object.hasOwn(en, key));

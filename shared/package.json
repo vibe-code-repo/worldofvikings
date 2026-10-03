@@ -6,7 +6,8 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "//sideEffects": "Jedes Modul in shared/src ist reine Daten oder reine Funktionen - kein Import traegt eine Nebenwirkung (keine Registry-Eintraege, kein globalThis/window-Zugriff auf Modulebene). Diese Zusage erlaubt Rollup, aus dem Barrel wegzuwerfen, was ein Einstieg nicht anfasst: der Karten-Worker braucht nur die Weltgenerierung, schleppte aber die komplette Prefab-, Feature- und Dungeon-Tabelle mit, weil ohne diese Angabe jedes Modul als potenziell nebenwirkend gilt.",
-  "sideEffects": false,
+  "//sideEffects2": "Ausnahme (GD1): gegenstandsDaten.ts liest am Modulende den eingebackenen Grundbestand (shared/data/gegenstaende.json) und traegt ihn in die Gegenstandsregister ein, grundbestand.ts reicht ihn weiter. Diese beiden Module duerfen Rollup deshalb nie wegwerfen, auch wenn ein Einstieg keinen ihrer Namen anfasst.",
+  "sideEffects": ["./src/items/gegenstandsDaten.ts", "./src/items/grundbestand.ts"],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit"

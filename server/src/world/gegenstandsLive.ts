@@ -34,6 +34,7 @@
  * (reason `eintrag-ungueltig`, which no JSON input can produce) plus the errors of the watch itself.
  */
 import { findItem } from '@wov/shared';
+import { istGrundItem } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import {
   MAX_DATEI_BYTES,
@@ -59,6 +60,10 @@ export interface GegenstandsQuittung {
   gehalten?: Record<string, number>;
   /** `verworfen`: the discarded entries with a reason CODE (`VERWERF_GRUENDE`). */
   verworfen?: Array<{ index: number; id: string | null; grund: string }>;
+  /** `abgelehnt`: the reason as a CODE (`DateiFehler` of the sanitiser, or `zu-gross`, `gesperrt`, `anwenden-gescheitert`), translatable. */
+  grund?: string;
+  /** `angewendet`: base entries of the file that were replaced by the base entry (they differed); the status stays `angewendet`. */
+  ersetzt?: string[];
 }
 
 /** The tick takes the lock with ONE attempt (no waiting): a held lock means "skip, try again next tick". */
@@ -143,6 +148,7 @@ function letzterGuterLesen(arbeitsDatei: string, log: GegenstandsLog): Gegenstan
   if (standVon(pfad) === null) return null;
   try {
     const lesung = leseGegenstandsDatei(readFileSync(pfad, 'utf-8'));
+    meldeGrundErsetzt(lesung, pfad, log);
     if (lesung.dateiFehler || lesung.verworfen.length > 0) {
       log.error(`[Gegenstaende] ${pfad}: letzter guter Stand unbrauchbar (${lesung.dateiFehler ?? `${lesung.verworfen.length} verworfen`}), leerer Stand`);
       return null;
@@ -160,7 +166,9 @@ export interface LadeErgebnis {
   eintraege: GegenstandsEintrag[];
   hash: string | null;
   /** `letzter-guter`: the receipt the watch writes at its start for the (rejected) working copy. */
-  startQuittung?: { status: 'abgelehnt'; hash: string };
+  startQuittung?: { status: 'abgelehnt'; hash: string; grund?: string };
+  /** `abgelehnt`: the reason code (becomes `grund` of the start receipt). */
+  grund?: string;
   /**
    * There was no usable last good state, so the start cannot tell what the working copy lost. The watch then compares
    * the working copy with what is HELD (names without a definition) at its first check, and the last good state is NOT
@@ -190,7 +198,8 @@ export function ladeGegenstandsDatei(pfad: string, log: GegenstandsLog = console
     const guter = letzterGuterLesen(pfad, log);
     if (guter !== null) {
       const neueIds = new Set(r.eintraege.map((e) => e.id));
-      const fehlend = guter.map((e) => e.id).filter((id) => !neueIds.has(id));
+      // A base id missing from the file is no removal: the base stock stands in for it (nobody can lose Wood).
+      const fehlend = guter.map((e) => e.id).filter((id) => !neueIds.has(id) && !istGrundItem(id));
       if (fehlend.length > 0) {
         try {
           wendeGegenstandsDatenAn(guter);
@@ -232,7 +241,7 @@ function fallbackLetzterGuter(pfad: string, r: LadeErgebnis, log: GegenstandsLog
     return r;
   }
   log.error(`[Gegenstaende] Arbeitsdatei ${r.art === 'fehlt' ? 'fehlt' : 'abgelehnt'}: LETZTER GUTER STAND geladen (${guter.length} Datenitem(s)), Quittung abgelehnt`);
-  return { art: 'letzter-guter', eintraege: guter, hash: r.hash, startQuittung: { status: 'abgelehnt', hash: r.hash ?? '' } };
+  return { art: 'letzter-guter', eintraege: guter, hash: r.hash, startQuittung: { status: 'abgelehnt', hash: r.hash ?? '', ...(r.grund ? { grund: r.grund } : {}) } };
 }
 
 function ladeArbeitsDatei(pfad: string, log: GegenstandsLog): LadeErgebnis {
@@ -241,18 +250,19 @@ function ladeArbeitsDatei(pfad: string, log: GegenstandsLog): LadeErgebnis {
     gelesen = standVon(pfad) === null ? null : leseUnterSperre(pfad, 5000);
   } catch (fehler) {
     log.warn(`[Gegenstaende] Arbeitsdatei gesperrt (${(fehler as Error).message}): Start ohne die Datei, die Wache holt es nach`);
-    return { art: 'abgelehnt', eintraege: [], hash: null };
+    return { art: 'abgelehnt', eintraege: [], hash: null, grund: 'gesperrt' };
   }
   if (!gelesen) return { art: 'fehlt', eintraege: [], hash: null };
   if (!gelesen.bytes) {
     log.error(`[Gegenstaende] ${pfad}: Datei zu gross (${gelesen.groesse} Byte), nichts angewendet`);
-    return { art: 'abgelehnt', eintraege: [], hash: null };
+    return { art: 'abgelehnt', eintraege: [], hash: null, grund: 'zu-gross' };
   }
   const hash = layoutHash(gelesen.bytes);
   const lesung = leseGegenstandsDatei(gelesen.bytes.toString('utf-8'));
+  meldeGrundErsetzt(lesung, pfad, log);
   if (lesung.dateiFehler) {
     log.error(`[Gegenstaende] ${pfad}: Datei unbrauchbar (${lesung.dateiFehler}), NICHTS angewendet. Der Code-Bestand laeuft weiter.`);
-    return { art: 'abgelehnt', eintraege: [], hash };
+    return { art: 'abgelehnt', eintraege: [], hash, grund: lesung.dateiFehler };
   }
   if (lesung.verworfen.length > 0) {
     log.error(`[Gegenstaende] ${pfad}: ${lesung.verworfen.length} Eintrag/Eintraege verworfen (${beschreibe(lesung.verworfen)}), NICHTS angewendet.`);
@@ -262,10 +272,17 @@ function ladeArbeitsDatei(pfad: string, log: GegenstandsLog): LadeErgebnis {
     wendeGegenstandsDatenAn(lesung.eintraege);
   } catch (fehler) {
     log.error(`[Gegenstaende] ${pfad}: Anwenden gescheitert (${(fehler as Error).message}), NICHTS angewendet.`);
-    return { art: 'abgelehnt', eintraege: [], hash };
+    return { art: 'abgelehnt', eintraege: [], hash, grund: 'anwenden-gescheitert' };
   }
   log.log(`[Gegenstaende] ${lesung.eintraege.length} Datenitem(s) geladen`);
   return { art: 'angewendet', eintraege: lesung.eintraege, hash };
+}
+
+/** A base entry in the file that differs from the base was replaced by it on reading: loud, but nothing is lost. */
+function meldeGrundErsetzt(lesung: { grundErsetzt: readonly string[] }, wo: string, log: GegenstandsLog): void {
+  if (lesung.grundErsetzt.length > 0) {
+    log.warn(`[Gegenstaende] ${wo}: Grundgegenstand/Grundgegenstaende ${lesung.grundErsetzt.join(', ')} weichen vom Grundstand ab (eingebackener Stand, nur ernte darf abweichen): der Grundeintrag gilt, nichts anderes geht verloren`);
+  }
 }
 
 const beschreibe = (verworfen: readonly VerworfenerEintrag[]): string =>
@@ -286,7 +303,7 @@ export interface GegenstandsWacheAbhaengigkeiten {
   /** Keep unknown stacks raw when a player or chest is loaded (on while `ohneGutenStand` is open). */
   readonly verwahren?: (an: boolean) => void;
   /** Start fell back to the last good state: the receipt for the rejected working copy (written at once). */
-  readonly startQuittung?: { status: 'abgelehnt'; hash: string };
+  readonly startQuittung?: { status: 'abgelehnt'; hash: string; grund?: string };
   /** A save is running: do not apply now. */
   readonly speichertGerade?: () => boolean;
   /** How many copies of each of these ids do inventories, chests and saved players hold? Only ids with more than 0. */
@@ -325,7 +342,7 @@ export class GegenstandsWache {
         this.log.error(`[Gegenstaende] ${p} nicht entfernt: ${(fehler as Error).message}`);
       }
     }
-    if (d.startQuittung) this.quittiere(d.startQuittung.status, d.startQuittung.hash);
+    if (d.startQuittung) this.quittiere(d.startQuittung.status, d.startQuittung.hash, d.startQuittung.grund ? { grund: d.startQuittung.grund } : {});
   }
 
   private get log(): GegenstandsLog {
@@ -379,7 +396,7 @@ export class GegenstandsWache {
 
     if (!gelesen.bytes) {
       this.log.error(`[Gegenstaende] Arbeitsdatei zu gross (${gelesen.groesse} Byte), nichts angewendet`);
-      this.quittiere('abgelehnt', `zu-gross:${gelesen.groesse}`);
+      this.quittiere('abgelehnt', `zu-gross:${gelesen.groesse}`, { grund: 'zu-gross' });
       return;
     }
     const hash = layoutHash(gelesen.bytes);
@@ -388,9 +405,11 @@ export class GegenstandsWache {
     }
     const bestaetigt = bestaetigterHash === hash;
     const lesung = leseGegenstandsDatei(gelesen.bytes.toString('utf-8'));
+    meldeGrundErsetzt(lesung, 'Arbeitsdatei', this.log);
+    const ersetztZusatz = lesung.grundErsetzt.length > 0 ? { ersetzt: [...lesung.grundErsetzt] } : {};
     if (lesung.dateiFehler) {
       this.log.error(`[Gegenstaende] Arbeitsdatei unbrauchbar (${lesung.dateiFehler}), nichts angewendet, der alte Stand bleibt`);
-      this.quittiere('abgelehnt', hash);
+      this.quittiere('abgelehnt', hash, { grund: lesung.dateiFehler });
       return;
     }
     for (const v of lesung.verworfen) {
@@ -425,17 +444,19 @@ export class GegenstandsWache {
       this.d.verwahren?.(false);
       if (JSON.stringify(lesung.eintraege) === this.angewendetJson) {
         letzterGuterSchreiben(this.d.pfad, lesung.eintraege, this.log);
-        this.quittiere('angewendet', hash);
+        this.quittiere('angewendet', hash, ersetztZusatz);
         return;
       }
     }
     if (JSON.stringify(lesung.eintraege) === this.angewendetJson) {
-      this.quittiere('angewendet', hash); // nothing to do (also a re-formatted file)
+      this.quittiere('angewendet', hash, ersetztZusatz); // nothing to do (also a re-formatted file)
       return;
     }
 
     const neueIds = new Set(lesung.eintraege.map((e) => e.id));
-    const entfernt = new Set(this.angewendet.map((e) => e.id).filter((id) => !neueIds.has(id)));
+    // Removed is only what is really gone after `mitGrundbestand`: a base id that leaves the file falls back to the base
+    // entry (its held stacks stay, no confirmation, nothing deleted).
+    const entfernt = new Set(this.angewendet.map((e) => e.id).filter((id) => !neueIds.has(id) && !istGrundItem(id)));
     let gehalten: Record<string, number> = {};
     if (entfernt.size > 0) {
       gehalten = this.d.gehalten(entfernt);
@@ -458,7 +479,7 @@ export class GegenstandsWache {
     } catch (fehler) {
       this.interneFehler++;
       this.log.error(`[Gegenstaende] Anwenden gescheitert (${(fehler as Error).message}), der alte Stand bleibt`);
-      this.quittiere('abgelehnt', hash);
+      this.quittiere('abgelehnt', hash, { grund: 'anwenden-gescheitert' });
       return;
     }
     if (entfernt.size > 0) this.d.entfernen(entfernt);
@@ -468,7 +489,7 @@ export class GegenstandsWache {
     letzterGuterSchreiben(this.d.pfad, lesung.eintraege, this.log);
     this.d.neuBinden();
     this.log.log(`[Gegenstaende] angewendet: ${lesung.eintraege.length} Datenitem(s)${entfernt.size > 0 ? `, ${entfernt.size} entfernt` : ''}`);
-    this.quittiere('angewendet', hash);
+    this.quittiere('angewendet', hash, ersetztZusatz);
   }
 
   /**
@@ -503,7 +524,7 @@ export class GegenstandsWache {
     if (warteteAufBestaetigung) this.quittiere('angewendet', layoutHash(Buffer.alloc(0)));
   }
 
-  private quittiere(status: GegenstandsStatus, hash: string, zusatz: { gehalten?: Record<string, number>; verworfen?: GegenstandsQuittung['verworfen'] } = {}): void {
+  private quittiere(status: GegenstandsStatus, hash: string, zusatz: { gehalten?: Record<string, number>; verworfen?: GegenstandsQuittung['verworfen']; grund?: string; ersetzt?: string[] } = {}): void {
     const q: GegenstandsQuittung = { status, hash, zeit: new Date().toISOString(), ...zusatz };
     try {
       quittungSchreiben(this.d.quittungsPfad, q);

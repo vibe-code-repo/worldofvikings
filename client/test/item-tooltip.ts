@@ -14,7 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ITEM_DEFS, findItem, RARITY_IDS, STAT_IDS, ESSEN, inhaltText } from '@wov/shared';
+import { ITEM_DEFS, ITEMS_BY_NAME, findItem, RARITY_IDS, STAT_IDS, ESSEN, inhaltText } from '@wov/shared';
 import {
   tooltipInhalt, zeigtItemLevel, RARITY_FARBEN, FARBE_PLUS, FARBE_MINUS, type Uebersetzer, type TooltipInhalt,
 } from '../src/ui/itemTooltipInhalt';
@@ -68,14 +68,16 @@ const brustEn = tooltipInhalt(brustDef, en);
 check('axe en', ['Common', 'Weapon', 'Item level 5', 'Damage 15'].every((z) => texte(axtEn).includes(z)), texte(axtEn).join(' | '));
 check('chest en', ['Rare', 'Hemd', 'Item level 10', 'Armor 11', '+3 Strength', '+1 Vitality'].filter((z) => z !== 'Hemd').every((z) => texte(brustEn).includes(z)), texte(brustEn).join(' | '));
 check('de and en differ (rarity, type, values)', texte(axt)[0] !== texte(axtEn)[0] && texte(axt)[1] !== texte(axtEn)[1] && texte(brust)[3] !== texte(brustEn)[3]);
-check('no unreplaced placeholder anywhere', ITEM_DEFS.every((d) => [de, en].every((t) => !tooltipInhalt(d, t).zeilen.some((z) => z.text.includes('{')))));
+// All 118 items (89 code items + the 29 base items from the data file), as before GD1 when ITEM_DEFS held them all.
+const ALLE = [...ITEMS_BY_NAME.values()];
+check('no unreplaced placeholder anywhere', ALLE.length === 118 && ALLE.every((d) => [de, en].every((t) => !tooltipInhalt(d, t).zeilen.some((z) => z.text.includes('{')))));
 
 console.log('\n[3] completeness: every item in both languages, every key present in both catalogues');
 let fehler = '';
-for (const d of ITEM_DEFS) for (const l of ['de', 'en'] as const) {
+for (const d of ALLE) for (const l of ['de', 'en'] as const) {
   try { const i = tooltipInhalt(d, uebersetzer(l)); if (!i.name || i.zeilen.length < 2) fehler += `${d.name}:${l} leer `; } catch (e) { fehler += `${d.name}:${l} ${(e as Error).message} `; }
 }
-check(`${ITEM_DEFS.length} items x 2 languages render`, fehler === '', fehler);
+check(`${ALLE.length} items x 2 languages render`, fehler === '', fehler);
 const fehlt = [...benutzt].filter((k) => !(k in KATALOG.de) || !(k in KATALOG.en));
 check(`${benutzt.size} keys used, none missing in de/en`, fehlt.length === 0, fehlt.join(','));
 check('all rarity and stat keys exist', RARITY_IDS.every((r) => `rarity.${r}` in KATALOG.de && `rarity.${r}` in KATALOG.en) && STAT_IDS.every((s) => `stat.${s}` in KATALOG.de && `stat.${s}` in KATALOG.en));
@@ -105,12 +107,13 @@ check('with textKey: name from the catalogue in the language of the tooltip', to
 const satz = ITEM_DEFS.find((d) => d.ruestungsteil === 'ironward_brust' && (d as { textKey?: string }).textKey);
 if (!satz) console.log('  (no set part carries a textKey on this base: the tooltip check for a real set part is skipped)');
 else check('real set part: tooltip name is translated (de differs from en, both from the catalogue)', tooltipInhalt(satz, de, { sprache: 'de' }).name !== tooltipInhalt(satz, de, { sprache: 'en' }).name && tooltipInhalt(satz, de, { sprache: 'en' }).name === inhaltText((satz as { textKey?: string }).textKey!, 'en'), `${tooltipInhalt(satz, de, { sprache: 'de' }).name} / ${tooltipInhalt(satz, de, { sprache: 'en' }).name}`);
-check('without textKey: the label, whatever the language', tooltipInhalt(item('AxeFlint'), de, { sprache: 'en' }).name === item('AxeFlint').label);
+check('without textKey: the label, whatever the language', tooltipInhalt(item('LederBH'), de, { sprache: 'en' }).name === item('LederBH').label);
+check('with textKey (a base item): the catalogue text per language', tooltipInhalt(item('AxeFlint'), de, { sprache: 'en' }).name === 'Flint Axe' && tooltipInhalt(item('AxeFlint'), de, { sprache: 'de' }).name === 'Feuersteinaxt');
 
 console.log('\n[5] level only for tools, weapons and wearables');
-const material = ITEM_DEFS.filter((d) => d.ausruestung === undefined && d.itemType === 1);
+const material = ALLE.filter((d) => d.ausruestung === undefined && d.itemType === 1);
 check(`${material.length} materials/food/trophies show no level`, material.length > 15 && material.every((d) => !zeigtItemLevel(d) && art(tooltipInhalt(d, de), 'itemlevel').length === 0));
-check('every tool, weapon and wearable shows one', ITEM_DEFS.filter((d) => !material.includes(d)).every((d) => zeigtItemLevel(d) && art(tooltipInhalt(d, de), 'itemlevel').length === 1));
+check('every tool, weapon and wearable shows one', ALLE.filter((d) => !material.includes(d)).every((d) => zeigtItemLevel(d) && art(tooltipInhalt(d, de), 'itemlevel').length === 1));
 check('food / trophy / eikthyr types', texte(tooltipInhalt(item('CookedMeat'), de))[1] === 'Nahrung' && Object.keys(ESSEN).every((n) => texte(tooltipInhalt(item(n), de))[1] === 'Nahrung') && texte(tooltipInhalt(item('TrophyDeer'), de))[1] === 'Trophäe');
 const eik = tooltipInhalt(item('TrophyEikthyr'), de);
 check('Eikthyr trophy: uncommon green, no level', texte(eik)[0] === 'Ungewöhnlich' && eik.nameFarbe === '#1eff00' && art(eik, 'itemlevel').length === 0);

@@ -12,9 +12,13 @@
  * Run: npx tsx shared/test/item-stufen.ts   (from the repo root)
  */
 import {
-  ITEM_DEFS, findItem, RARITY_IDS, ITEM_STUFEN, SET_STUFEN, SET_TEILE, ESSEN, istRarity, anzeigeName,
+  ITEM_DEFS, ITEMS_BY_NAME, GRUNDBESTAND, findItem, RARITY_IDS, ITEM_STUFEN, SET_STUFEN, SET_TEILE, ESSEN, istRarity, anzeigeName,
   stufeFuerRuestungsteil, RARITY_TEXT_KEYS, inhaltText, loeseStufe, STUFE_RUECKFALL, MAX_ITEMLEVEL,
 } from '../src/index.js';
+
+// Since GD1 the 29 raw items come from the data file, so "every item" is every entry of ITEMS_BY_NAME (118 = 89 code
+// items + 29 base items), not ITEM_DEFS (the 89 code items) alone: the same 118 are checked as before.
+const ALLE = [...ITEMS_BY_NAME.values()];
 
 let failures = 0;
 function check(name: string, cond: boolean, detail = ''): void {
@@ -23,8 +27,8 @@ function check(name: string, cond: boolean, detail = ''): void {
 }
 
 console.log('\n[1] every definition has itemLevel >= 1 and a valid rarity');
-const schlecht = ITEM_DEFS.filter((d) => !(Number.isInteger(d.itemLevel) && d.itemLevel >= 1) || !istRarity(d.rarity));
-check(`${ITEM_DEFS.length} definitions, all with level and rarity`, ITEM_DEFS.length > 100 && schlecht.length === 0, schlecht.map((d) => d.name).join(','));
+const schlecht = ALLE.filter((d) => !(Number.isInteger(d.itemLevel) && d.itemLevel >= 1) || !istRarity(d.rarity));
+check(`${ALLE.length} definitions, all with level and rarity`, ALLE.length === 118 && schlecht.length === 0, schlecht.map((d) => d.name).join(','));
 check('rarity ids and text keys agree', RARITY_IDS.length === 5 && RARITY_IDS.every((r) => RARITY_TEXT_KEYS[r] === `rarity.${r}`));
 check('unknown rarity is refused', !istRarity('mythic') && !istRarity(undefined) && !istRarity('constructor'));
 
@@ -50,7 +54,7 @@ for (const d of teile) {
 }
 check(`${teile.length} set parts: Plainhide 1 common, class sets 10 rare`, teile.length === SET_TEILE.length && teile.every((d) => `${d.itemLevel}/${d.rarity}` === (d.name.startsWith('plainhide') ? '1/common' : '10/rare')));
 const gruppen = new Map<string, number>();
-for (const d of ITEM_DEFS) gruppen.set(`${d.itemLevel}/${d.rarity}`, (gruppen.get(`${d.itemLevel}/${d.rarity}`) ?? 0) + 1);
+for (const d of ALLE) gruppen.set(`${d.itemLevel}/${d.rarity}`, (gruppen.get(`${d.itemLevel}/${d.rarity}`) ?? 0) + 1);
 console.log('  table actually set:', [...gruppen].sort().map(([k, n]) => `${k} x${n}`).join(', '));
 
 console.log('\n[2b] the whole table, item by item (own expected list, not derived from the code under test)');
@@ -64,17 +68,23 @@ const SOLL: Record<string, string> = {
   TrophyEikthyr: '10/uncommon', LederBH: '1/common', LederShorts: '1/common',
 };
 const ist = Object.fromEntries(Object.entries(ITEM_STUFEN).map(([n, s]) => [n, `${s.itemLevel}/${s.rarity}`]));
-check(`ITEM_STUFEN has exactly the ${Object.keys(SOLL).length} expected rows`, JSON.stringify(Object.keys(ist).sort()) === JSON.stringify(Object.keys(SOLL).sort()));
-check('every row equals the expected value', Object.entries(SOLL).every(([n, v]) => ist[n] === v), Object.entries(SOLL).filter(([n, v]) => ist[n] !== v).map(([n, v]) => `${n}: ${ist[n]} != ${v}`).join('; '));
+// The code table keeps only the two leather pieces; the other 29 rows are the `itemLevel` / `rarity` of the base entries.
+const SOLL_CODE = ['LederBH', 'LederShorts'];
+check(`ITEM_STUFEN has exactly the ${SOLL_CODE.length} code rows (no second source for the base items)`, JSON.stringify(Object.keys(ist).sort()) === JSON.stringify(SOLL_CODE));
+check('every code row equals the expected value', SOLL_CODE.every((n) => ist[n] === SOLL[n]));
+const grund = Object.fromEntries(GRUNDBESTAND.map((e) => [e.id, `${e.itemLevel}/${e.rarity}`]));
+const SOLL_GRUND = Object.entries(SOLL).filter(([n]) => !SOLL_CODE.includes(n));
+check(`the data file carries the ${SOLL_GRUND.length} base rows, item by item`, GRUNDBESTAND.length === SOLL_GRUND.length && SOLL_GRUND.every(([n, v]) => grund[n] === v), SOLL_GRUND.filter(([n, v]) => grund[n] !== v).map(([n, v]) => `${n}: ${grund[n]} != ${v}`).join('; '));
 check('every definition of those rows carries exactly that', Object.entries(SOLL).every(([n, v]) => wert(n) === v));
 check('13 raw materials/food single-checked', ['Flint', 'Resin', 'Raspberry', 'Blueberries', 'Mushroom', 'Thistle', 'Dandelion', 'Carrot', 'RawMeat', 'Entrails', 'Coins', 'Amber', 'NeckTail'].every((n) => wert(n) === '1/common'));
 const SET_SOLL: Record<string, string> = { plainhide: '1/common', ironward: '10/rare', wildwarden: '10/rare', ashenveil: '10/rare', seidraven: '10/rare', emberrage: '10/rare', gravethorn: '10/rare', crowshade: '10/rare' };
 check('SET_STUFEN equals the expected families', JSON.stringify(Object.fromEntries(Object.entries(SET_STUFEN).map(([f, s]) => [f, `${s.itemLevel}/${s.rarity}`]))) === JSON.stringify(SET_SOLL));
 check('group counts asserted: 34x 1/common, 2x 2/common, 4x 5/common, 1x 10/uncommon, 77x 10/rare (118)',
-  JSON.stringify([...gruppen].sort()) === JSON.stringify([['1/common', 34], ['10/rare', 77], ['10/uncommon', 1], ['2/common', 2], ['5/common', 4]]) && ITEM_DEFS.length === 118);
+  JSON.stringify([...gruppen].sort()) === JSON.stringify([['1/common', 34], ['10/rare', 77], ['10/uncommon', 1], ['2/common', 2], ['5/common', 4]]) && ALLE.length === 118);
 
 console.log('\n[2c] a missing entry never throws; code items all have one');
-check('every CODE item resolves from the table (none uses the fallback)', ITEM_DEFS.every((d) => loeseStufe(d).quelle === 'tabelle'), ITEM_DEFS.filter((d) => loeseStufe(d).quelle !== 'tabelle').map((d) => d.name).join(','));
+check('every CODE item resolves from the table (none uses the fallback)', ITEM_DEFS.length === 89 && ITEM_DEFS.every((d) => loeseStufe(d).quelle === 'tabelle'), ITEM_DEFS.filter((d) => loeseStufe(d).quelle !== 'tabelle').map((d) => d.name).join(','));
+check('every base item carries its own values (source "eigen", none uses the fallback)', ALLE.length - ITEM_DEFS.length === 29 && ALLE.filter((d) => d.datenItem).every((d) => loeseStufe(d, d).quelle === 'eigen'));
 let geworfen = false; let kuenstlich = { stufe: STUFE_RUECKFALL, quelle: '' as string };
 try { kuenstlich = loeseStufe({ name: 'ErfundenesItem' }); } catch { geworfen = true; }
 check('artificial item without an entry: no throw, level 1 / common, source "rueckfall"', !geworfen && kuenstlich.stufe.itemLevel === 1 && kuenstlich.stufe.rarity === 'common' && kuenstlich.quelle === 'rueckfall');
@@ -88,7 +98,7 @@ const werfend2 = { itemLevel: 5, get rarity(): string { throw new Error('boese')
 let werfendGeworfen = false; let werfendQuelle = '';
 try { werfendQuelle = loeseStufe({ name: 'D' }, werfend).quelle + loeseStufe({ name: 'D' }, werfend2).quelle; } catch { werfendGeworfen = true; }
 check('a getter that throws on read: caught, fallback (both fields)', !werfendGeworfen && werfendQuelle === 'rueckfallrueckfall');
-check('the table wins over own values of a code item', loeseStufe({ name: 'Coins' }, { itemLevel: 50, rarity: 'legendary' }).stufe.rarity === 'common');
+check('the table wins over own values of a code item', loeseStufe({ name: 'LederBH' }, { itemLevel: 50, rarity: 'legendary' }).stufe.rarity === 'common');
 check('a name like "constructor" is not a table hit', loeseStufe({ name: 'constructor' }).quelle === 'rueckfall');
 
 console.log('\n[3] no orphan rows');
@@ -104,7 +114,7 @@ check('male == female for every part key', SET_TEILE.filter((t) => t.id.includes
 }));
 
 console.log('\n[5] display name: label, or textKey through the shared text function');
-check('no textKey: the label, in any language', ITEM_DEFS.filter((d) => !('textKey' in d)).every((d) => anzeigeName(d) === d.label && anzeigeName(d, 'en') === d.label));
+check('no textKey: the label, in any language', ALLE.filter((d) => !('textKey' in d)).every((d) => anzeigeName(d) === d.label && anzeigeName(d, 'en') === d.label));
 const mitSchluessel = { label: 'Rohtext', textKey: 'inhalt.item.beispiel' };
 check('textKey: catalogue text per language', anzeigeName(mitSchluessel, 'de') === 'Beispieltext' && anzeigeName(mitSchluessel, 'en') === 'Example text');
 check('textKey: unknown language falls back to German, no language too', anzeigeName(mitSchluessel, 'fr') === 'Beispieltext' && anzeigeName(mitSchluessel) === 'Beispieltext');

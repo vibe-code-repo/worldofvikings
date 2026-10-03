@@ -104,6 +104,8 @@ export default [
   // Namen, die andere Dateien per Zeichenkette suchen (Himmelskuppel, Refraktion,
   // Dungeon-Atmosphäre): Erzeuger und Verbraucher nennen denselben Namen.
   ['client', 'test/bild-namen.ts'],
+  // Greyglen on the map and in the editor: colour contrast, display names via keys, region preset. <1 s.
+  ['client', 'test/biom-greyglen-karte.ts'],
   // D2: swing fields, AttackAck, combo follow-up and round trip on the client.
   ['client', 'test/d2-quittung.ts'],
   // D5: the model table of loot against the files on disk (needs assets).
@@ -224,6 +226,8 @@ export default [
   // nothing is read from a registry or from the page while they load, and editorMain.ts declares none of
   // the moved names itself. Syntax tree plus the behaviour that loads without a browser. ~2 s.
   ['client', 'test/editor-module-grenze.ts'],
+  // The editor announces its protocol version when loading the world document and shows the 426 refusal. <1 s.
+  ['client', 'test/editor-protokollkopf.ts'],
   // Serversteuerung im Editor (29.09., Mikes Befund): die DOM-freie
   // Entscheidungslogik (welche der drei Knoepfe wann sichtbar/benutzbar
   // sind, was "Karte live testen" bei aktiver Testwelt jetzt tut, welche

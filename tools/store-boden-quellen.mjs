@@ -126,7 +126,10 @@ for (const d of DATEIEN) {
   const nach = join(ZIEL, d.ziel);
   // Alpha faellt weg: Eine Bodenkachel ist deckend, und ein Alphakanal
   // kostet ein Drittel mehr Speicher fuer eine Spalte aus 255ern.
-  const bild = await sharp(von).removeAlpha().png({ compressionLevel: 9, effort: 10 }).toBuffer();
+  // Verlustfrei: In sharp >= 0.33 schaltet `effort` auf PNG die Palette ein
+  // (256 Farben; gemessen an einem 2048²-Bild: 5,7 % der Texel um bis zu 8
+  // Stufen verändert). Die Pixel müssen die des Quellbilds bleiben.
+  const bild = await sharp(von).removeAlpha().png({ compressionLevel: 9, palette: false }).toBuffer();
   const alt = existsSync(nach) ? readFileSync(nach) : null;
   if (!alt || !alt.equals(bild)) writeFileSync(nach, bild);
   const info = await sharp(bild).metadata();

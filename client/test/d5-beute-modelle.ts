@@ -8,13 +8,15 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { BEUTE_RUECKFALL_MODELL, ITEM_DEFS, PrefabFlag, beuteDarstellung, beutePrefabFuer, findPrefabByName } from '@wov/shared';
+import { BEUTE_RUECKFALL_MODELL, ITEMS_BY_NAME, PrefabFlag, beuteDarstellung, beutePrefabFuer, findPrefabByName } from '@wov/shared';
 
 const wurzel = resolve(import.meta.dirname, '../..');
 let fehler = 0;
 const zeilen: string[] = [];
 const gruppen = new Map<string, string[]>();
-for (const it of ITEM_DEFS) {
+// Every item since GD1: the code items and the 29 base items of the data file (118 names, as ITEM_DEFS held before).
+const ALLE_ITEMS = [...ITEMS_BY_NAME.values()];
+for (const it of ALLE_ITEMS) {
   const p = beutePrefabFuer(it.name);
   const def = findPrefabByName(p);
   const dar = def ? beuteDarstellung(def) : null;
@@ -68,6 +70,7 @@ const trs = (n: { matrix?: Mat; translation?: number[]; rotation?: number[]; sca
   }
 }
 console.log(zeilen.join('\n'));
-console.log(`  ${ITEM_DEFS.length} item names checked`);
+console.log(`  ${ALLE_ITEMS.length} item names checked`);
+if (ALLE_ITEMS.length !== 118) { fehler++; console.log(`  FAIL  ${ALLE_ITEMS.length} item names, expected 118 (checking fewer than before)`); }
 console.log(fehler === 0 ? '\nd5-beute-modelle: OK' : `\nd5-beute-modelle: ${fehler} FAIL`);
 process.exit(fehler === 0 ? 0 : 1);

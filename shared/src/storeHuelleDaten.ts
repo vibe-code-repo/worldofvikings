@@ -3,7 +3,7 @@
  *
  *   npx tsx tools/store-prefabs.mjs
  *
- * Nur `bounds` und `gruppe` der 569 setzbaren
+ * Nur `bounds` und `gruppe` der 572 setzbaren
  * Store-Prefabs — der schmale Auszug aus `STORE_KATALOG`, den
  * `shared/src/weltbau/huelle.ts` fürs SPIEL braucht (Kollisionshülle).
  * Der volle Katalog (Lizenz, Hash, Ton, Symbole, … — `storeKatalogDaten.ts`)
@@ -511,6 +511,9 @@ export const STORE_HUELLE: ReadonlyMap<StorePrefabName, StoreHuelleEintrag> = ne
   ['vegetation-bush-1a2-small-1-dark', { gruppe: 'Vegetation', bounds: { min: [-1.5637, -0.7085, -1.4342], max: [1.5387, 2.0185, 1.4684] } }],
   ['vegetation-bush-1a2-small-1-snow', { gruppe: 'Vegetation', bounds: { min: [-1.5637, -0.7085, -1.4342], max: [1.5387, 2.0185, 1.4684] } }],
   ['vegetation-bush-1a3', { gruppe: 'Vegetation', bounds: { min: [-1.7953, -0.6785, -1.6714], max: [1.6396, 2.1279, 1.5466] } }],
+  ['vegetation-fern-1a1', { gruppe: 'Vegetation', bounds: { min: [-0.6427, -0.0333, -0.6632], max: [0.6991, 0.5571, 0.6249] } }],
+  ['vegetation-flower-1a12', { gruppe: 'Vegetation', bounds: { min: [-0.0494, -0.0255, -0.0914], max: [0.1243, 0.519, 0.1466] } }],
+  ['vegetation-flower-1a4', { gruppe: 'Vegetation', bounds: { min: [-0.0915, -0.0329, -0.2754], max: [0.1149, 0.4254, 0.0951] } }],
   ['vegetation-grass-short-clump-1', { gruppe: 'Vegetation', bounds: { min: [-0.5, -0.0269, -0.4262], max: [0.5, 0.2231, 0.5738] } }],
   ['vegetation-grass-short-clump-redblue', { gruppe: 'Vegetation', bounds: { min: [-0.5, -0.0269, -0.4262], max: [0.5, 0.2231, 0.5738] } }],
   ['vegetation-grass-short-clump-snow', { gruppe: 'Vegetation', bounds: { min: [-0.5, -0.0269, -0.4262], max: [0.5, 0.2231, 0.5738] } }],

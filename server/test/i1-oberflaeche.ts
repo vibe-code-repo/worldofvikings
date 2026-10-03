@@ -260,6 +260,7 @@ export const TEXT_TESTS: readonly { datei: string; muster: readonly string[]; sc
  * One entry per line, sorted by path. An entry needs a reason.
  */
 export const TEXT_AUSNAHMEN: readonly { datei: string; grund: string }[] = [
+  { datei: 'tools/gegenstaende-vergleich.mjs', grund: 'nennt den Pfad als Eintrag der Liste VERWEISDATEIEN (Daten): das Skript sammelt dort die Gegenstandsnamen in Anführungszeichen, es prüft keinen Block von WovServer.ts auf ein Muster' },
   { datei: 'tools/dungeon2-e2e.mjs', grund: 'nennt den Pfad nur in einem erzeugten Import (Pfad als Daten), liest die Datei nicht' },
   { datei: 'scripts/pruefe-groessen.mjs', grund: 'nennt den Pfad als Eintrag der Liste FREI_ERLAUBT (Daten), liest die Datei nur zum Zeilenzählen' },
   { datei: 'server/test/i1t-beute-waffe.ts', grund: 'nennt den Pfad server/src/WovServer.ts als Konstante seines Scanners (CLASS_FILE); liest Deklarationen und Importe aller Dateien unter server/src am Syntaxbaum, kein Muster an einen Block gebunden' },

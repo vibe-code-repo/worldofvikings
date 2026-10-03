@@ -161,6 +161,7 @@ export const ALLE_BIOME: number =
   Biome.Plains |
   Biome.AshLands |
   Biome.DeepNorth |
+  Biome.Greyglen |
   Biome.Ocean |
   Biome.Mistlands;
 

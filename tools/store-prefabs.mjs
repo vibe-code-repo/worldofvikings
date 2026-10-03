@@ -218,6 +218,51 @@ const assetManifest = existsSync(ASSET_MANIFEST_PFAD) ? lies(ASSET_MANIFEST_PFAD
 const manifest = mitTonUndSymbolenErgaenzen(manifestRoh, assetManifest);
 
 /*
+  Modelle, die nur im Store-LABOR liegen (`assets/store-lab/`, nie im
+  Speicher): Ihre Messwerte stehen eingecheckt in
+  `tools/store-lab-katalog.json` (geschrieben von
+  `tools/store-pflanzen-quellen.mjs`). Der Generator liest sie von dort
+  und NICHT von der Platte — sonst gäbe derselbe Lauf auf einem Rechner
+  ohne die Binärdateien ein anderes Ergebnis (Regel „zweiter Lauf =
+  byteidentisch“, auch zwischen Rechnern).
+
+  Sie kommen als gewöhnliche Manifest- und Prefab-Einträge herein
+  (privat, nicht weitergebbar → Lizenzstatus `intern`) und gehen damit
+  durch dieselbe Einsortierung und Rundung wie alles andere. Nur der
+  Modellpfad ist fest `store-lab/…` (`modellPfad`), und die Existenzprobe
+  unten fragt für sie nicht den Speicher.
+*/
+const LAB_KATALOG_PFAD = join(WURZEL, 'tools/store-lab-katalog.json');
+const labEintraege = existsSync(LAB_KATALOG_PFAD) ? lies(LAB_KATALOG_PFAD).eintraege : [];
+const LAB_PFADE = new Set(labEintraege.map((e) => e.pfad));
+const manifestMitLab = {
+  ...manifest,
+  assets: [
+    ...manifest.assets,
+    ...labEintraege.map((e) => ({
+      id: e.id,
+      path: e.pfad,
+      kind: 'prefab',
+      bytes: e.bytes,
+      hash: e.hash,
+      bounds: e.bounds,
+      visibility: 'private',
+      redistributable: false,
+    })),
+  ],
+};
+prefabQuelle.prefabs.push(
+  ...labEintraege.map((e) => ({
+    id: e.prefab,
+    asset: e.pfad,
+    visibility: 'private',
+    category: 'vegetation',
+    bounds: e.bounds,
+    collision: { kind: 'none' },
+  }))
+);
+
+/*
   NUR was wirklich auf der Platte liegt.
 
   Das Manifest führt 1255 Einträge, von denen 585 auf `placeholders/…`
@@ -225,7 +270,7 @@ const manifest = mitTonUndSymbolenErgaenzen(manifestRoh, assetManifest);
   Prefab, dessen GLB fehlt, wäre im Client ein 404 und im Spawn-Editor
   eine tote Zeile; beides fällt erst auf, wenn jemand es anklickt.
 */
-const vorhanden = manifest.assets.filter((a) => existsSync(join(STORE, a.path)));
+const vorhanden = manifestMitLab.assets.filter((a) => LAB_PFADE.has(a.path) || existsSync(join(STORE, a.path)));
 const manifestNachPfad = new Map(vorhanden.map((a) => [a.path, a]));
 
 /**
@@ -239,6 +284,7 @@ const manifestNachPfad = new Map(vorhanden.map((a) => [a.path, a]));
  */
 function modellPfad(assetPfad) {
   const stamm = ohneEndung(assetPfad);
+  if (LAB_PFADE.has(assetPfad)) return `store-lab/${stamm}`;
   if (assetPfad.startsWith('vegetation/')) {
     const abgeleitet = join(STORE_LAB, `${stamm}.glb`);
     if (existsSync(abgeleitet)) return `store-lab/${stamm}`;
@@ -528,6 +574,7 @@ const kopf = `/**
  *   npx tsx tools/store-prefabs.mjs
  *
  * Quelle: assets/store/manifest.json + assets/store/prefabs.json
+ * + tools/store-lab-katalog.json (Modelle, die nur im Store-Labor liegen)
  * (der Asset-Speicher liegt ausserhalb des Repos, s. Generatorkopf).
  *
  * Der Lauf ist deterministisch: gleiche Quelle → byteidentische Datei.

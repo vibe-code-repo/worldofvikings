@@ -1,8 +1,6 @@
 /**
- * Crafting-Rezepte (Phase 5, Basis) — Werte nah am Original (Recipe-Dumps),
- * aber nur für Items, die in itemDefs existieren. Stationen (Werkbank)
- * folgen später; alle Basisrezepte sind Freihand-Rezepte wie im Original
- * vor der ersten Werkbank.
+ * Crafting recipes: the type. Recipes belong to the items and are part of the data file
+ * (shared/data/gegenstaende.json); there is no station yet, all of them are hand recipes.
  */
 
 export interface Rezept {
@@ -12,39 +10,10 @@ export interface Rezept {
   zutaten: ReadonlyArray<{ item: string; menge: number }>;
 }
 
-export const REZEPTE: readonly Rezept[] = [
-  {
-    ergebnis: 'Hammer',
-    menge: 1,
-    zutaten: [
-      { item: 'Wood', menge: 3 },
-      { item: 'Stone', menge: 2 },
-    ],
-  },
-  { ergebnis: 'Club', menge: 1, zutaten: [{ item: 'Wood', menge: 6 }] },
-  {
-    ergebnis: 'AxeFlint',
-    menge: 1,
-    zutaten: [
-      { item: 'Wood', menge: 4 },
-      { item: 'Flint', menge: 6 },
-    ],
-  },
-  { ergebnis: 'Hoe', menge: 1, zutaten: [{ item: 'Wood', menge: 5 }, { item: 'Stone', menge: 2 }] },
-  {
-    ergebnis: 'PickaxeAntler',
-    menge: 1,
-    zutaten: [
-      { item: 'Wood', menge: 10 },
-      { item: 'Stone', menge: 6 },
-    ],
-  },
-  {
-    ergebnis: 'Cultivator',
-    menge: 1,
-    zutaten: [
-      { item: 'Wood', menge: 5 },
-      { item: 'Flint', menge: 2 },
-    ],
-  },
-];
+/**
+ * Empty on purpose: the six base recipes live in shared/data/gegenstaende.json (field `rezept`) and are read
+ * through `datenRezepte()`. The name stays so that `handleCraft` (WovServer.ts) keeps compiling; it finds
+ * nothing here and falls back to `datenRezepte()`.
+ * Absichtlich leer: die sechs Grundrezepte stehen in der Datendatei.
+ */
+export const REZEPTE: readonly Rezept[] = [];

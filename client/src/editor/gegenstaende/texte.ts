@@ -29,6 +29,7 @@ export const GRUND_SCHLUESSEL = {
   'id-code-kollision': 'editor.gegenstand.grund.id_code_kollision',
   'id-schreibung-code': 'editor.gegenstand.grund.id_schreibung_code',
   'id-schreibung-doppelt': 'editor.gegenstand.grund.id_schreibung_doppelt',
+  'grundwert-gesperrt': 'editor.gegenstand.grund.grundwert_gesperrt',
   'schluessel-ungueltig': 'editor.gegenstand.grund.schluessel_ungueltig',
   'typ-unbekannt': 'editor.gegenstand.grund.typ_unbekannt',
   'slot-unbekannt': 'editor.gegenstand.grund.slot_unbekannt',

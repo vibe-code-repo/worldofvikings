@@ -20,6 +20,7 @@ import { Writer } from '../io/Writer.js';
 import { Reader } from '../io/Reader.js';
 import { neuerSchlagZustand, type SchlagZustand } from '../spiel/Treffer.js';
 import { Spielwerte } from '../spiel/Spielwerte.js';
+import { blockZuruecksetzen } from '../spiel/Block.js';
 import { PacketType } from '@wov/shared';
 import type { WebSocket } from 'ws';
 import { randomBytes } from 'node:crypto';
@@ -356,10 +357,7 @@ export class Peer {
    * Nummern, die drüben etwas anderes bedeuten.
    */
   weltWechselVorbereiten(): void {
-    this.blockSeit = 0;
-    this.blockTaktZeit = 0;
-    this.blockSperreBis = 0;
-    this.blockOhneParade = false;
+    blockZuruecksetzen(this); // a held block ends with the world; the client is told
     this.knownZDOs.clear();
     this.fenster.zuruecksetzen();
     this.quittiereZerstoerungen();

@@ -200,6 +200,13 @@ console.log('\n[1] Spiel/Block.ts on a stand-in peer (fixed clock)');
   blockPaket(z, true, 1000); beendeBlock(z, 1100);
   blockZuruecksetzen(z);
   check('reset (death, world change): block, lock and flag are cleared', z.blockSeit === 0 && z.blockSperreBis === 0 && !z.blockOhneParade);
+  const z2 = attrappe();
+  blockPaket(z2, true, 1000);
+  blockZuruecksetzen(z2);
+  check('N4: a reset of a HELD block tells the client (Block false)', z2.gesendet.filter((x) => x.typ === PacketType.Block && x.inhalt === 'false').length === 1, JSON.stringify(z2.gesendet));
+  const z3 = attrappe();
+  blockZuruecksetzen(z3);
+  check('N4: a reset without a held block sends nothing', z3.gesendet.length === 0);
 
   // Blow of the module: the messages and the state.
   const b = attrappe();
@@ -499,8 +506,10 @@ async function main(): Promise<void> {
     await warte(200);
     check('begin before the death', anna.blockSeit > 0);
     anna.health = 5;
+    ws.bloecke.length = 0;
     zugriff.applyCreatureAttack(von(0, 2), wolf, 2.4, anna.worldId, anna.position); // from behind: no block
     await warte(200);
+    check('N4: DEATH with a held block tells the client (Block false)', ws.bloecke.includes(false), JSON.stringify(ws.bloecke));
     check('DEATH ends the block and clears the lock', anna.totBis > 0 && anna.blockSeit === 0 && anna.blockSperreBis === 0, `totBis ${anna.totBis}, blockSeit ${anna.blockSeit}`);
     ws.bloecke.length = 0;
     sendBlock(ws, true);
@@ -517,8 +526,10 @@ async function main(): Promise<void> {
     await warte(200);
     check('begin before the immediate revival', anna.blockSeit > 0);
     anna.health = 5;
+    ws.bloecke.length = 0;
     zugriff.applyCreatureAttack(von(0, 2), wolf, 2.4, anna.worldId, anna.position); // from behind: full, lethal
     await warte(200);
+    check('N4: IMMEDIATE REVIVAL with a held block tells the client (Block false)', ws.bloecke.includes(false), JSON.stringify(ws.bloecke));
     check('IMMEDIATE REVIVAL (no lying time): no block and no lock afterwards', anna.totBis === 0 && anna.health === 100 && anna.blockSeit === 0 && anna.blockSperreBis === 0, `blockSeit ${anna.blockSeit}`);
     server.liegezeitMs = 5000;
 
@@ -532,10 +543,17 @@ async function main(): Promise<void> {
       dungeonId = ws.admin.map((m) => m.match(/Dungeon erzeugt: (\S+)/)?.[1]).find((x) => x);
     }
     if (!dungeonId) throw new Error(`dungeon not created: ${ws.admin.join(' | ')}`);
+    anna.waffe = 'SwordNorth'; anna.stamina = 100;
+    await warte(BLOCK_SPERRE_MS + 100);
+    sendBlock(ws, true);
+    await warte(200);
+    ws.bloecke.length = 0;
     sendAdmin(ws, `dungeon enter ${dungeonId}`);
     const t2 = Date.now();
     while (anna.worldId === 'haupt' && Date.now() - t2 < 8000) await warte(100);
     check('Anna is inside the instance', anna.worldId !== 'haupt', anna.worldId);
+    await warte(300);
+    check('N4: ENTERING THE DUNGEON with a held block ends it and tells the client (Block false)', anna.blockSeit === 0 && ws.bloecke.includes(false), JSON.stringify(ws.bloecke));
     await warte(300);
     anna.waffe = 'SwordNorth';
     const imDungeon = async (an: boolean, rennt: boolean): Promise<{ weg: number; sek: number }> => {
@@ -558,6 +576,16 @@ async function main(): Promise<void> {
     console.log(`      dungeon: walk ${dGehen.weg.toFixed(2)} m, block+run ${dBlock.weg.toFixed(2)} m`);
     check('dungeon: blocking with the run key held is half the walking speed (ratio 0.5 +- 0.07)', dGehen.weg > 4.5 * dGehen.sek * 0.8 && nah(dBlock.weg / dGehen.weg, 0.5, 0.07), `${(dBlock.weg / dGehen.weg).toFixed(3)}`);
 
+    // The way back out of the instance ends a held block as well, and the client is told.
+    sendBlock(ws, true);
+    await warte(200);
+    check('begin inside the instance', anna.blockSeit > 0);
+    ws.bloecke.length = 0;
+    sendAdmin(ws, 'dungeon leave');
+    const t3 = Date.now();
+    while (anna.worldId !== 'haupt' && Date.now() - t3 < 8000) await warte(100);
+    await warte(300);
+    check('N4: LEAVING THE INSTANCE with a held block ends it and tells the client (Block false)', anna.worldId === 'haupt' && anna.blockSeit === 0 && ws.bloecke.includes(false), `${anna.worldId} ${JSON.stringify(ws.bloecke)}`);
     // World change clears the block (the hook is Peer.weltWechselVorbereiten).
     anna.blockSeit = 123; anna.blockSperreBis = 456; anna.blockOhneParade = true;
     anna.weltWechselVorbereiten();

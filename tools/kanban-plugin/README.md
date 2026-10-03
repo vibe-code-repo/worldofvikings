@@ -22,6 +22,14 @@ Or test locally from a checkout: `claude --plugin-dir tools/kanban-plugin`.
 | `/kanban:move <id> <column>`                      | moves a task; `doing`, `review`, `merge`, `deployed` or the German label |
 | `/kanban:show <id>`                               | one task with its description                                            |
 
+| `/kanban-pane` | opens the board as a live pane inside Claude Code (redraws after every tool call) |
+| `/kanban:window` | explains both windows and builds the HTML page |
+
+**Graphical window.** Two ways, both read `kanban/tasks/`:
+
+- Live pane (`hooks/register.tsx`, a Claude Code plugin hook module): `/kanban-pane`. Where Claude Code shows panes (desktop, wide terminal) it sits beside the chat.
+- Browser page: `node tools/kanban-plugin/bin/kanban.mjs html` writes a self-contained `out/kanban.html` (git-ignored), open it in any browser; rerun to refresh.
+
 The script also runs standalone: `node tools/kanban-plugin/bin/kanban.mjs board`.
 
 ## Task file

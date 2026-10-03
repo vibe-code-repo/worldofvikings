@@ -6,9 +6,11 @@
 //   kanban.mjs add <title> [--desc <text>] [--column <key>]
 //   kanban.mjs move <id> <column>
 //   kanban.mjs show <id>
+//   kanban.mjs html [--out <file>]   (self-contained page, default out/kanban.html)
+//   kanban.mjs html [--out <file>]   (self-contained page, default out/kanban.html)
 //   kanban.mjs columns
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export const COLUMNS = [
   { key: "todo", label: "To Do", aliases: ["to do", "todo", "backlog"] },
@@ -112,6 +114,41 @@ export function renderBoard(tasks) {
   return out.join("\n").trimEnd();
 }
 
+const esc = (s) =>
+  String(s).replace(
+    /[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+  );
+
+// Self-contained page: five columns, light/dark, no scripts, no network.
+export function renderHtml(tasks) {
+  const cols = COLUMNS.map((col) => {
+    const items = tasks.filter((t) => t.status === col.key);
+    const cards = items
+      .map(
+        (t) =>
+          `<article><b>${esc(t.id)}</b><h3>${esc(t.title)}</h3>${t.body ? `<p>${esc(t.body)}</p>` : ""}<small>${esc(t.updated)}</small></article>`,
+      )
+      .join("");
+    return `<section class="${col.key}"><h2>${esc(col.label)} <span>${items.length}</span></h2>${cards || '<p class="empty">–</p>'}</section>`;
+  }).join("");
+  return `<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kanban</title>
+<style>
+:root{--bg:#f4f5f7;--col:#e6e8ec;--card:#fff;--fg:#1d2330;--dim:#6b7280;--todo:#6b7280;--doing:#d97706;--review:#0891b2;--merge:#9333ea;--deployed:#16a34a}
+@media(prefers-color-scheme:dark){:root{--bg:#14171d;--col:#1d222b;--card:#262c37;--fg:#e6e9ef;--dim:#9aa3b2}}
+body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,sans-serif}
+main{display:grid;grid-template-columns:repeat(5,minmax(200px,1fr));gap:12px;align-items:start;overflow-x:auto}
+section{background:var(--col);border-radius:10px;padding:10px;border-top:4px solid var(--c)}
+${COLUMNS.map((c) => `.${c.key}{--c:var(--${c.key})}`).join("")}
+h2{margin:0 0 8px;font-size:15px;display:flex;justify-content:space-between}h2 span{color:var(--dim)}
+article{background:var(--card);border-radius:8px;padding:8px 10px;margin-bottom:8px}
+article b{color:var(--dim);font-size:12px}h3{margin:2px 0;font-size:15px}article p{margin:4px 0;color:var(--dim);font-size:13px}small{color:var(--dim)}.empty{color:var(--dim);margin:0}
+</style></head><body><main>${cols}</main></body></html>
+`;
+}
+
 function main(argv) {
   const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const [cmd, ...rest] = argv;
@@ -120,6 +157,14 @@ function main(argv) {
     case undefined: {
       const tasks = loadTasks(root);
       console.log(rest.includes("--json") ? JSON.stringify(tasks, null, 2) : renderBoard(tasks));
+      break;
+    }
+    case "html": {
+      const i = rest.indexOf("--out");
+      const out = resolve(root, i >= 0 ? rest[i + 1] : join("out", "kanban.html"));
+      mkdirSync(dirname(out), { recursive: true });
+      writeFileSync(out, renderHtml(loadTasks(root)));
+      console.log(out);
       break;
     }
     case "columns":
@@ -155,7 +200,7 @@ function main(argv) {
       break;
     }
     default:
-      throw new Error("Usage: kanban.mjs board|add|move|show|columns");
+      throw new Error("Usage: kanban.mjs board|add|move|show|html|columns");
   }
 }
 

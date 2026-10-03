@@ -35,6 +35,7 @@ import {
   gegenstaendeAbgleichen,
   gegenstandsBasisLesen,
   gegenstandsHistorieDatei,
+  nurAbweichungen,
   gegenstandsBasisStand,
   gegenstandsRepoDatei,
 } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
@@ -465,6 +466,110 @@ console.log('\n[3d] A deliberately empty ernte survives (N3)');
   check('a copy with the field MISSING inherits the base harvest', leseGegenstandsDatei(dokument([ohne])).eintraege[0]?.ernte.baum === 1);
   check('a copy with `ernte: null` inherits too (no value)', leseGegenstandsDatei(dokument([{ ...ohne, ernte: null }])).eintraege[0]?.ernte.baum === 1);
   check('a copy with `ernte: {}` and a locked change keeps `{}`', leseGegenstandsDatei(dokument([{ ...ohne, ernte: {} }])).eintraege[0]?.ernte.baum === undefined);
+}
+
+console.log('\n[3e] An old-format copy keeps working as GD1 let it: a base entry WITHOUT ernte runs with ernte {} (N4)');
+{
+  const holzEintrag = leseGegenstandsDatei(dokument([holzaxt])).eintraege[0]!;
+  const repoMitAxe = (ueber: Roh): string => {
+    const doc = JSON.parse(REPO_ECHT.toString()) as { version: number; gegenstaende: Roh[] };
+    const e = doc.gegenstaende.find((x) => x.id === 'AxeFlint')!;
+    Object.assign(e, ueber);
+    return `${JSON.stringify(doc, null, 2)}\n`;
+  };
+  const neuerBau = (text: string): (() => void) => {
+    setzeGrundbestand([]);
+    setzeGrundbestand(leseGegenstandsDatei(text).eintraege);
+    return () => { setzeGrundbestand(GRUNDBESTAND); wendeGegenstandsDatenAn([]); };
+  };
+  /** What `main` (GD1) saved after "AxeFlint harvests nothing": the 29 copies, AxeFlint WITHOUT the `ernte` field (its writer leaves an empty one out), + an own item. */
+  const mainDatei = (): string => {
+    const liste = [...leseGegenstandsDatei(REPO_ECHT.toString(), { ohneGrundsperre: true }).eintraege, holzEintrag];
+    const doc = JSON.parse(schreibeGegenstandsDatei(liste)) as { version: number; gegenstaende: Roh[] };
+    delete doc.gegenstaende.find((e) => e.id === 'AxeFlint')!.ernte;
+    return `${JSON.stringify(doc, null, 2)}\n`;
+  };
+  const mitErnteFeld = (pfad: string): boolean => JSON.stringify((JSON.parse(readFileSync(pfad, 'utf-8')) as { gegenstaende: Roh[] }).gegenstaende.find((e) => e.id === 'AxeFlint')?.ernte) === '{}';
+
+  // the probe H4a of the attack: the repo later changes a locked field of the axe
+  const r1 = repoMitAxe({ gewicht: 3 });
+  const f = neuerFall(r1);
+  const hz = resolve(dirname(f.repo), 'gegenstaende-historie');
+  mkdirSync(hz, { recursive: true });
+  writeFileSync(resolve(hz, `${sha(REPO_ECHT)}.json`), REPO_ECHT);
+  writeFileSync(f.arbeit, mainDatei());
+  writeFileSync(f.basis, `${sha(REPO_ECHT)}\n`);
+  const vorher = readFileSync(f.arbeit, 'utf-8');
+  const zurueck = neuerBau(r1);
+  try {
+    const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    check('old-format copy (hash basis) with AxeFlint WITHOUT ernte: ernte {} is written explicitly for AxeFlint, reported', a.ernteFestgeschrieben?.join() === 'AxeFlint' && a.meldung.includes('ausdruecklich geschrieben'), a.meldung.slice(-200));
+    check('... the file now has `ernte: {}` on AxeFlint and the other 28 copies are cleaned out (the history knows R0), the Holzaxt stays', mitErnteFeld(f.arbeit) && ids(f.arbeit) === 'AxeFlint,Holzaxt', ids(f.arbeit));
+    check('... with a back-up of the old file (byte-equal)', baks(f).length === 1 && readFileSync(resolve(dirname(f.arbeit), baks(f)[0]!), 'utf-8') === vorher);
+    check('... the gewicht change of the axe in the repo is reported as a conflict naming AxeFlint', a.fall === 'konflikt' && a.abweichend?.join() === 'AxeFlint', `${a.fall} ${a.abweichend?.join()}`);
+    const l = laden(f);
+    check('the axe harvests NOTHING in the new build (as it did under main), although the repo changed a locked field of it; AxeFlint is named in grundErsetzt', l.grundErsetzt === 1 && findItem('AxeFlint')?.ernte?.baum === undefined && findItem('AxeFlint')?.weight === 3, JSON.stringify(findItem('AxeFlint')?.ernte));
+    // the next mask save: it sends what GET shows (the replaced copy with ernte {}) and writes only deviations
+    const gelesen = leseGegenstandsDatei(readFileSync(f.arbeit, 'utf-8')).eintraege;
+    const repoE = leseGegenstandsDatei(r1, { ohneGrundsperre: true }).eintraege;
+    const gespeichert = schreibeGegenstandsDatei(nurAbweichungen(gelesen, repoE));
+    check('the next mask save keeps the edit: the written file still has `ernte: {}` on AxeFlint', JSON.parse(gespeichert).gegenstaende.some((e: Roh) => e.id === 'AxeFlint' && JSON.stringify(e.ernte) === '{}'), gespeichert.slice(0, 60));
+    const zwei = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    check('a second run changes nothing (the basis is the full copy now, the rule is the new one)', zwei.fall === 'unveraendert' && baks(f).length === 1);
+  } finally {
+    zurueck();
+  }
+  // the new rule after the transition: a missing field inherits
+  check('after the transition a copy whose `ernte` field is missing inherits (new rule)', leseGegenstandsDatei(dokument([{ ...repoRoh().find((e) => e.id === 'AxeFlint')!, gewicht: 99, ernte: undefined }])).eintraege[0]?.ernte.baum === 1);
+
+  // the latent variant H4b: the repo changes only another item, the file still gets the explicit `{}` at the transition
+  const g = neuerFall(REPO_ECHT);
+  writeFileSync(g.arbeit, mainDatei());
+  writeFileSync(g.basis, `${sha(REPO_ECHT)}\n`);
+  const b = gegenstaendeAbgleichen({ repoDatei: g.repo, arbeitsDatei: g.arbeit });
+  check('H4b: only `ernte: {}` is written (no other change), the 28 unmodified copies go', b.ernteFestgeschrieben?.join() === 'AxeFlint' && mitErnteFeld(g.arbeit));
+
+  // only where it is the transition: a FULL basis (new format) leaves a missing field alone (it means "inherit" there)
+  const h = neuerFall(REPO_ECHT);
+  const doc = JSON.parse(schreibeGegenstandsDatei([leseGegenstandsDatei(dokument([{ ...repoRoh().find((e) => e.id === 'AxeFlint')!, gewicht: 99 }]), { ohneGrundsperre: true }).eintraege[0]!])) as { version: number; gegenstaende: Roh[] };
+  delete doc.gegenstaende[0]!.ernte;
+  const text = `${JSON.stringify(doc, null, 2)}\n`;
+  writeFileSync(h.arbeit, text);
+  writeFileSync(h.basis, REPO_ECHT);
+  const c = gegenstaendeAbgleichen({ repoDatei: h.repo, arbeitsDatei: h.arbeit });
+  check('new format (full basis): an entry without `ernte` is NOT rewritten', (c.ernteFestgeschrieben ?? []).length === 0 && readFileSync(h.arbeit, 'utf-8') === text, `${c.fall}`);
+
+  // only where the repo entry has a harvest: Wood has none, so a Wood copy without ernte stays as it is
+  const k = neuerFall(REPO_ECHT);
+  const woodText = `${JSON.stringify({ version: 1, gegenstaende: [{ ...repoRoh().find((e) => e.id === 'Wood')!, gewicht: 77 }] }, null, 2)}\n`;
+  writeFileSync(k.arbeit, woodText);
+  writeFileSync(k.basis, `${sha(REPO_ECHT)}\n`);
+  const d = gegenstaendeAbgleichen({ repoDatei: k.repo, arbeitsDatei: k.arbeit });
+  check('old format, a base entry WITHOUT ernte whose repo entry has no harvest (Wood): nothing is written for it', (d.ernteFestgeschrieben ?? []).length === 0 && readFileSync(k.arbeit, 'utf-8') === woodText, JSON.stringify(d.ernteFestgeschrieben));
+
+  // the file has NOTHING to clean out, only the missing field (the write must not depend on a clean-out); `ernte: null` counts as missing
+  for (const [wie, ernteWert] of [['missing', undefined], ['null', null]] as const) {
+    const n = neuerFall(REPO_ECHT);
+    const nur = { ...repoRoh().find((e) => e.id === 'AxeFlint')!, gewicht: 99, ernte: ernteWert } as Roh;
+    if (ernteWert === undefined) delete nur.ernte;
+    writeFileSync(n.arbeit, `${JSON.stringify({ version: 1, gegenstaende: [nur, holzaxt] }, null, 2)}\n`);
+    writeFileSync(n.basis, `${sha(REPO_ECHT)}\n`);
+    const e = gegenstaendeAbgleichen({ repoDatei: n.repo, arbeitsDatei: n.arbeit });
+    check(`old format, only AxeFlint (ernte ${wie}) + Holzaxt, nothing to clean out: fall bereinigt, ernte {} written, back-up there`, e.fall === 'bereinigt' && e.bereinigt?.length === 0 && e.ernteFestgeschrieben?.join() === 'AxeFlint' && mitErnteFeld(n.arbeit) && baks(n).length === 1, `${e.fall} ${e.bereinigt?.length}`);
+  }
+  // no basis file at all counts as the old format
+  const o = neuerFall(REPO_ECHT);
+  writeFileSync(o.arbeit, mainDatei());
+  const q = gegenstaendeAbgleichen({ repoDatei: o.repo, arbeitsDatei: o.arbeit });
+  check('no basis file at all: the old format as well, ernte {} written', q.ernteFestgeschrieben?.join() === 'AxeFlint' && mitErnteFeld(o.arbeit));
+
+  // pruefen writes nothing
+  const m = neuerFall(REPO_ECHT);
+  writeFileSync(m.arbeit, mainDatei());
+  writeFileSync(m.basis, `${sha(REPO_ECHT)}\n`);
+  const vor = readFileSync(m.arbeit, 'utf-8');
+  const p = gegenstaendeAbgleichen({ repoDatei: m.repo, arbeitsDatei: m.arbeit, modus: 'pruefen' });
+  check('pruefen names it (bereinigt, ernte {}) and writes nothing', p.fall === 'bereinigt' && p.ernteFestgeschrieben?.join() === 'AxeFlint' && readFileSync(m.arbeit, 'utf-8') === vor && baks(m).length === 0);
 }
 
 console.log('\n[3c] Replaced copies: ernte inherited, deep copy (N2)');

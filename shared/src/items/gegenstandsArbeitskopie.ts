@@ -90,6 +90,11 @@ export function gegenstandsLetzterGuterDatei(arbeitsDatei: string): string {
  * canonically, must hash to the basis hash; (4) else only "equals the repo entry" counts, and the message says the basis
  * is unknown. States are read AS WRITTEN (`ohneGrundsperre`), never against the base stock baked into this build.
  *
+ * Transition from the old format (basis only a hash, or none): a base entry of the file WITHOUT an `ernte` field ran with
+ * `ernte {}` under GD1 (its writer left an empty `ernte` out); the new rule would inherit the base harvest for a missing field. So
+ * the reconciliation takes such a file over as it worked: it writes `ernte: {}` explicitly into those entries (only where the
+ * repo entry has a harvest; canonical, back-up, loud). Afterwards the new rule holds: a missing field inherits.
+ *
  * Afterwards the basis is a copy of the repo file. Order of writing: working copy first (atomic), basis second, so an abort
  * between the two leaves a file that is cleaned and a basis that is still old; the next start only repeats the (harmless)
  * report. A conflict is reported once: the next start has basis = repo.
@@ -114,6 +119,8 @@ export interface GegenstandsAbgleich {
   entfallen?: string[];
   /** The base ids that are still deviations in the file. */
   abweichend?: string[];
+  /** Transition from the old format: ids of base entries without an `ernte` field that got an explicit `ernte: {}` (see the head). */
+  ernteFestgeschrieben?: string[];
   /** An old hash-only basis that matches no known repo state and cannot be rebuilt: only "equals the repo entry" counted. */
   basisUnbekannt?: boolean;
 }
@@ -306,6 +313,12 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   const bereinigt: string[] = [];
   const entfallen: string[] = [];
   const abweichend: string[] = [];
+  const ernteFestgeschrieben: string[] = [];
+  // A working copy in the OLD format (basis only a hash, or none) was written by GD1, whose writer left an empty `ernte` out: a base
+  // entry of such a file WITHOUT the field ran with `ernte {}` ("harvests nothing"). Under the new rule a missing field inherits,
+  // so the transition takes the file over as the server let it work and writes `ernte: {}` explicitly (canonical, with back-up).
+  const altesFormat = basis === null || basis.text === null;
+  const repoHatErnte = (id: string): boolean => Object.keys(repoLesung.eintraege.find((e) => e.id === id)?.ernte ?? {}).length > 0;
   for (const roh of dokument.gegenstaende) {
     const id = idVon(roh);
     const imRepo = id !== null && repoKanon.has(id);
@@ -316,7 +329,11 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
       bereinigt.push(id);
       if (!imRepo) entfallen.push(id);
     } else {
-      behalten.push(roh);
+      const ernteFehlt = typeof roh === 'object' && roh !== null && ((roh as { ernte?: unknown }).ernte === undefined || (roh as { ernte?: unknown }).ernte === null);
+      if (altesFormat && ernteFehlt && repoHatErnte(id!)) { // (`repoHatErnte` is false for an id the repo does not have)
+        behalten.push({ ...(roh as object), ernte: {} });
+        ernteFestgeschrieben.push(id!);
+      } else behalten.push(roh);
       if (imRepo) abweichend.push(id!);
     }
   }
@@ -328,7 +345,7 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   const basisNachtragen = basis === null || basis.text === null || basis.hash !== repoHash;
   const abweichungen = abweichend.length > 0 ? ` Abweichende Grundgegenstaende: ${abweichend.join(', ')}.` : '';
   let sicherung: string | null | undefined;
-  if (bereinigt.length > 0 && modus === 'voll') {
+  if ((bereinigt.length > 0 || ernteFestgeschrieben.length > 0) && modus === 'voll') {
     // Back up first, then rewrite: if the back-up fails nothing changes. Working copy first, basis second (abort-proof).
     sicherung = layoutSichern(arbeitsPfad);
     atomarSchreiben(arbeitsPfad, `${JSON.stringify({ ...dokument, gegenstaende: behalten }, null, 2)}\n`);
@@ -336,22 +353,23 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   zwischenschritt?.();
   if (basisNachtragen && modus === 'voll') atomarSchreiben(basisPfad, repoBytes);
 
-  const mehr = { bereinigt, entfallen, abweichend, ...(basisUnbekannt ? { basisUnbekannt } : {}), ...(sicherung === undefined ? {} : { sicherung }) };
+  const mehr = { bereinigt, entfallen, abweichend, ...(ernteFestgeschrieben.length > 0 ? { ernteFestgeschrieben } : {}), ...(basisUnbekannt ? { basisUnbekannt } : {}), ...(sicherung === undefined ? {} : { sicherung }) };
   const unbekanntText = basisUnbekannt ? ` Die alte Basis (Hash ${kurz(basisHash)}) ist keine bekannte Repo-Fassung und laesst sich nicht aus der Datei aufbauen: nur Gleichheit mit dem Repo-Stand zaehlt.` : '';
+  const ernteText = ernteFestgeschrieben.length > 0 ? ` Alte Datei uebernommen, wie der Server sie wirken liess: \`ernte: {}\` ausdruecklich geschrieben fuer ${ernteFestgeschrieben.join(', ')} (Sicherung: ${sicherung ?? '(keine)'}).` : '';
   const entfallenText = entfallen.length > 0 ? ` Nicht mehr im Repo (Eintrag unberuehrt, entfernt): ${entfallen.join(', ')}.` : '';
   if (konfliktIds.length > 0) {
     return ergebnis(
       'konflikt',
       `[Gegenstaende] WARNUNG Konflikt: das Repo hat sich geaendert (Basis ${kurz(basisHash)} → Repo ${kurz(repoHash)}), die Arbeitskopie hat abweichende Grundgegenstaende (${konfliktIds.join(', ')}). ` +
         `Es wird NICHTS ueberschrieben; die Arbeitskopie gilt (${arbeitsPfad}). Bis GD3 ist nur \`ernte\` aenderbar: alle anderen Felder folgen dem Repo, eine geaenderte \`ernte\` des Repos kommt fuer diese Gegenstaende erst an, wenn der Eintrag im Editor auf den Grundstand zurueckgesetzt wird.` +
-        (bereinigt.length > 0 ? ` Ohne Abweichung herausgenommen: ${bereinigt.join(', ')} (Sicherung: ${sicherung ?? '(keine)'}).${entfallenText}` : '') + unbekanntText,
+        (bereinigt.length > 0 ? ` Ohne Abweichung herausgenommen: ${bereinigt.join(', ')} (Sicherung: ${sicherung ?? '(keine)'}).${entfallenText}` : '') + unbekanntText + ernteText,
       { ...mehr, abweichend }
     );
   }
-  if (bereinigt.length > 0) {
+  if (bereinigt.length > 0 || ernteFestgeschrieben.length > 0) {
     return ergebnis(
       'bereinigt',
-      `[Gegenstaende] Arbeitskopie bereinigt: ${bereinigt.length} Eintrag/Eintraege ohne Abweichung ${modus === 'voll' ? 'herausgenommen' : 'wuerden herausgenommen'} (${bereinigt.join(', ')}); alter Stand gesichert: ${sicherung ?? '(keiner)'}.${entfallenText}${abweichungen}${unbekanntText}`,
+      `[Gegenstaende] Arbeitskopie bereinigt: ${bereinigt.length} Eintrag/Eintraege ohne Abweichung ${modus === 'voll' ? 'herausgenommen' : 'wuerden herausgenommen'} (${bereinigt.join(', ')}); alter Stand gesichert: ${sicherung ?? '(keiner)'}.${entfallenText}${abweichungen}${unbekanntText}${ernteText}`,
       mehr
     );
   }

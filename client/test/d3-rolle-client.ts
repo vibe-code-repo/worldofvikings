@@ -250,13 +250,13 @@ const lauf = (pc: PlayerController, sek: number, dt: number): void => { for (let
   pc.startRolle(0);
   pc.frozen = true;
   pc.update(1 / 60);
-  check('frozen (dungeon loading): the roll ends', !pc.rollt);
+  check('frozen (dungeon loading): the roll ends, the lock mirrors the server (it holds the roll): about 1.3 s', !pc.rollt && pc.rolleAbklingRest > 1.2, `${pc.rolleAbklingRest}`);
   const b = neu().pc;
   b.update(1 / 60);
   b.startRolle(0);
   b.setBauModus(true);
   b.update(1 / 60);
-  check('build mode: the roll ends', !b.rollt);
+  check('build mode: the roll ends, the lock stays too', !b.rollt && b.rolleAbklingRest > 1.2, `${b.rolleAbklingRest}`);
   const r = neu().pc;
   r.update(1 / 60);
   r.startRolle(0);
@@ -668,6 +668,64 @@ const sekunde = (v: BlockVerdrahtung, spiel: Spiel, n = 1): void => { for (let i
   spiel.rechts = true;
   sekunde(v, spiel, 3);
   check('a refusal of a roll without any block held brings no block', !v.blockt);
+}
+/** A hidden block whose roll ended without an answer: the state of N2-2 (the server may still hold the block). */
+const stilleRolle = (): { v: BlockVerdrahtung; spiel: Spiel; h: ReturnType<typeof verdrahtet> } => {
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
+  taste(v, spiel);
+  spiel.rollt = true;
+  sekunde(v, spiel, 3);
+  spiel.rollt = false;
+  sekunde(v, spiel, 3);
+  return { v, spiel, h };
+};
+{
+  // N2-2: the button goes up in the same frame as the late refusal arrives: nothing is shown, the release's Block(false) went out.
+  const { v, spiel, h } = stilleRolle();
+  const posen = spiel.blockPose.length;
+  h[PacketType.Rolle]!({ readBool: () => false });
+  spiel.rechts = false;
+  sekunde(v, spiel, 3);
+  check('late `Rolle=false`, the button released in the same frame: the block is never shown (not even for a frame), one Block(false)', !v.blockt && !spiel.blockPose.slice(posen).includes(true) && spiel.gesendet.filter((g) => g === 'block:false').length === 1, spiel.gesendet.join());
+}
+{
+  // N2-2: a window is open when the late refusal arrives: the block does not come back (the table forbids it), also not after the window closes
+  const { v, spiel, h } = stilleRolle();
+  spiel.fenster = true;
+  const posen = spiel.blockPose.length;
+  h[PacketType.Rolle]!({ readBool: () => false });
+  sekunde(v, spiel, 3);
+  spiel.fenster = false;
+  sekunde(v, spiel, 3);
+  check('late `Rolle=false` while a window is open: the block is never shown (and not after it closes: a fresh press is needed), nothing sent but the first Block(true)', !v.blockt && !spiel.blockPose.slice(posen).includes(true) && spiel.gesendet.filter((g) => g.startsWith('block')).join() === 'block:true', spiel.gesendet.join());
+}
+{
+  // a second roll starts before any answer: a refusal then does not bring the first roll's block back
+  const { v, spiel, h } = stilleRolle();
+  taste(v, spiel); // roll 2 (no block shown)
+  spiel.rollt = true;
+  h[PacketType.Rolle]!({ readBool: () => false });
+  spiel.rollt = false;
+  sekunde(v, spiel, 3);
+  check('a new roll resets the memory of the old one: its refusal brings no block back', !v.blockt && spiel.abzuege === 1, spiel.gesendet.join());
+}
+{
+  // Block=false arrives late (the server ended the block after all), then a Rolle=false: no block back
+  const { v, spiel, h } = stilleRolle();
+  h[PacketType.Block]!({ readBool: () => false });
+  h[PacketType.Rolle]!({ readBool: () => false });
+  sekunde(v, spiel, 3);
+  check('Block=false then Rolle=false late: the block is gone and stays gone', !v.blockt && spiel.abzuege === 1);
+}
+{
+  // a teleport (reset) between: a late Rolle=false afterwards brings no block back
+  const { v, spiel, h } = stilleRolle();
+  h[PacketType.Teleport]!({ readBool: () => false });
+  h[PacketType.Rolle]!({ readBool: () => false });
+  sekunde(v, spiel, 3);
+  check('teleport, then a late Rolle=false: no block back', !v.blockt && spiel.abzuege === 1);
 }
 {
   // The same with the roll that ended for another reason before the answer (the dungeon wait: the controller aborts it).

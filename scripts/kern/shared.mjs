@@ -41,6 +41,8 @@ export default [
   ['shared', 'test/bewegung-schritt.ts'],
   // New biome bit 128 (greyglen): bit, names, region, sanitizer, ground tile, weather as a copy of grassland. <1 s.
   ['shared', 'test/biom-greyglen.ts'],
+  // D3-K1: die reine Blockregel (Paradefenster, Kegel, Halten, Blockbruch) und das Blocktempo im gemeinsamen Schritt. Sekunden.
+  ['shared', 'test/block.ts'],
   /*
     Karte B4 (2026-09-29): Schrittgeraeusche je Untergrund.
     `shared/test/boden-mischung.ts` rechnet die Bodenmischung

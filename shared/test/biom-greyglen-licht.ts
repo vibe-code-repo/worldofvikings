@@ -71,22 +71,47 @@ check('look profile fog mode is exp2 (the density of the state is read)', LOOK_V
 const dichte = mittag.fogDensity;
 check('fog density at noon is the own value, not the grassland one', dichte !== evaluateEnv(klar, 0.5).fogDensity && dichte > 0);
 const s90 = sichtweite('exp2', dichte, 0.1);
-const s90Vorbild = sichtweite('exp2', 0.015, 0.1);
-check('exp2 curve: 90 % fog distance of the number of the decision is 101 m', nah(s90Vorbild, 101.16, 0.01), s90Vorbild.toFixed(2));
+const s90Beschluss = sichtweite('exp2', 0.015, 0.1);
+check('exp2 curve: 90 % fog distance of the number of the decision is 101 m', nah(s90Beschluss, 101.16, 0.01), s90Beschluss.toFixed(2));
 check('the density is lower than the number of the decision (it would be a wall)', dichte < 0.015, String(dichte));
 check('but thicker than grassland, so the haze is the biome\'s own (90 % fog: 150–250 m)', s90 >= 150 && s90 <= 250, `${s90.toFixed(1)} m`);
 check('measured value 0.009 (extracted from the sweep in the report)', nah(dichte, 0.009, 1e-9), String(dichte));
 
-// ── Night and the other keyframes: unchanged against grassland ─────────
-const FELDER = ['fogColor', 'fogColorSun', 'sunColor', 'ambColor'] as const;
+// ── Night: bit-identical to grassland, whole state (colours, density, strength, directions, sky) ──
+const gleichState = (t: number): boolean => JSON.stringify(evaluateEnv(glen, t)) === JSON.stringify(evaluateEnv(klar, t));
+let nachtN = 0;
 let nachtGleich = true;
-for (const t of [0, 0.02, 0.05, 0.93, 0.97, 0.999]) {
-  const a = evaluateEnv(glen, t);
-  const b = evaluateEnv(klar, t);
-  if (a.isNight !== b.isNight || a.fogDensity !== b.fogDensity || a.lightIntensity !== b.lightIntensity) nachtGleich = false;
-  for (const f of FELDER) if (!gleichFarbe(a[f], b[f])) nachtGleich = false;
+for (let i = 0; i < 2880; i++) {
+  const t = i / 2880;
+  if (evaluateEnv(klar, t).elevation > 0) continue;
+  nachtN++;
+  if (!gleichState(t)) nachtGleich = false;
 }
-check('night (colours, density, strength): bit-identical to grassland at 6 times', nachtGleich);
+check('the whole night (sun below the horizon, 2880 steps of the day) is bit-identical to grassland, every field', nachtGleich && nachtN > 500, `${nachtN} steps`);
+check('the twilight times 0.125, 0.130 and 0.854 (night flag, ground light and strength used to differ) are identical',
+  [0.125, 0.130, 0.854].every((t) => evaluateEnv(klar, t).elevation <= 0 && gleichState(t)));
+check('moon and sky direction at midnight: identical to grassland', JSON.stringify(evaluateEnv(glen, 0).sunDir) === JSON.stringify(evaluateEnv(klar, 0).sunDir)
+  && JSON.stringify(evaluateEnv(glen, 0).lightDir) === JSON.stringify(evaluateEnv(klar, 0).lightDir));
+check('by day the own state applies (noon differs from grassland)', !gleichState(0.5));
+// continuity at sunrise and sunset: no step bigger than the change one step of the clock can bring
+const winkel = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number =>
+  Math.acos(Math.max(-1, Math.min(1, a.x * b.x + a.y * b.y + a.z * b.z))) * 180 / Math.PI;
+const groesterSchritt = (env: typeof glen): number => {
+  let m = 0;
+  let vor = evaluateEnv(env, 0);
+  for (let i = 1; i <= 20000; i++) {
+    const e = evaluateEnv(env, i / 20000);
+    m = Math.max(m, Math.abs(e.fogDensity - vor.fogDensity) * 10, Math.abs(e.lightIntensity - vor.lightIntensity),
+      Math.abs(e.ambColor.g - vor.ambColor.g), Math.abs(e.sunColor.g - vor.sunColor.g), winkel(e.sunDir, vor.sunDir) / 10);
+    vor = e;
+  }
+  return m;
+};
+const sprungGlen = groesterSchritt(glen);
+const sprungKlar = groesterSchritt(klar);
+check('over a whole day no step of 1/20000 is bigger than grassland\'s own biggest step (x1.5)', sprungGlen <= sprungKlar * 1.5 + 1e-9, `${sprungGlen.toFixed(5)} vs ${sprungKlar.toFixed(5)}`);
+const mittag2 = evaluateEnv(glen, 0.5);
+check('noon is the own state untouched by the blend', mittag2.fogDensity === 0.009);
 const nachtSchluessel = ['fogColorNight', 'fogColorSunNight', 'fogDensityNight', 'sunColorNight', 'ambColorNight', 'lightIntensityNight', 'fogColorMorning', 'fogColorEvening', 'fogDensityMorning', 'fogDensityEvening', 'sunColorMorning', 'sunColorEvening'] as const;
 check('night, morning and evening keyframes are the Clear ones', nachtSchluessel.every((k) => JSON.stringify(glen[k]) === JSON.stringify(klar[k])));
 check('only the day keys differ from Clear', (Object.keys(glen) as (keyof typeof glen)[]).filter((k) => JSON.stringify(glen[k]) !== JSON.stringify(klar[k])).sort().join(',')

@@ -107,8 +107,8 @@ const von = evaluateEnv(findEnvironment('Clear')!, 0.5);
 const nach = evaluateEnv(findEnvironment(ENV_GLEN_CLEAR)!, 0.5);
 const gl = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number =>
   Math.acos(Math.max(-1, Math.min(1, (a.x * b.x + a.y * b.y + a.z * b.z) / (Math.hypot(a.x, a.y, a.z) * Math.hypot(b.x, b.y, b.z))))) * 180 / Math.PI;
-const start = lerpEnvState(von, nach, 0);
-const ende = lerpEnvState(von, nach, 1);
+const start = lerpEnvState(von, nach, 0, true);
+const ende = lerpEnvState(von, nach, 1, true);
 check('fade start = old state (density, sun colour, strength)', start.fogDensity === von.fogDensity && start.sunColor.g === von.sunColor.g && start.lightIntensity === von.lightIntensity);
 check('fade end = new state', ende.fogDensity === nach.fogDensity && ende.sunColor.g === nach.sunColor.g && ende.lightIntensity === nach.lightIntensity);
 check('light direction at fade start = the old one (no jump), within 0.01°', gl(start.lightDir, von.lightDir) < 0.01 && gl(start.sunDir, von.sunDir) < 0.01,
@@ -117,14 +117,46 @@ check('the two states really differ in direction (45° vs 50° maximum height), 
 let schritt = 0;
 let vorher = start;
 for (let i = 1; i <= 40; i++) {
-  const s = lerpEnvState(von, nach, i / 40);
+  const s = lerpEnvState(von, nach, i / 40, true);
   schritt = Math.max(schritt, Math.abs(s.fogDensity - vorher.fogDensity) / Math.abs(nach.fogDensity - von.fogDensity), gl(s.sunDir, vorher.sunDir) / gl(von.sunDir, nach.sunDir));
   vorher = s;
 }
 check('over 40 steps no step is bigger than 1/20 of the whole change (density and direction)', schritt <= 0.05, schritt.toFixed(4));
-const mitte = lerpEnvState(von, nach, 0.5);
+const mitte = lerpEnvState(von, nach, 0.5, true);
 check('mid-fade sun direction is a unit vector (blend is renormalised)', nah(Math.hypot(mitte.sunDir.x, mitte.sunDir.y, mitte.sunDir.z), 1, 1e-9),
   String(Math.hypot(mitte.sunDir.x, mitte.sunDir.y, mitte.sunDir.z)));
+// ── Other fades: exactly as before (the target's direction at once), vor und nach der Aenderung identisch ──
+const alt = (a: ReturnType<typeof evaluateEnv>, b: ReturnType<typeof evaluateEnv>, t: number) => {
+  const l = (x: number, y: number): number => x + (y - x) * t;
+  const c = (p: { r: number; g: number; b: number }, q: { r: number; g: number; b: number }) => ({ r: l(p.r, q.r), g: l(p.g, q.g), b: l(p.b, q.b) });
+  return {
+    fogColor: c(a.fogColor, b.fogColor), fogColorSun: c(a.fogColorSun, b.fogColorSun), fogDensity: l(a.fogDensity, b.fogDensity),
+    sunColor: c(a.sunColor, b.sunColor), ambColor: c(a.ambColor, b.ambColor), lightIntensity: l(a.lightIntensity, b.lightIntensity),
+    cloudAlpha: l(a.cloudAlpha, b.cloudAlpha), lightDir: b.lightDir, sunDir: b.sunDir, isNight: b.isNight, elevation: b.elevation,
+  };
+};
+const PAARE: [string, string][] = [['SwampRain', 'DeepNorth_dark'], ['DeepNorth_dark', 'SwampRain'], ['Ashrain', 'Mistlands_dark'], ['Mistlands_dark', 'Ashrain'],
+  ['Clear', 'SwampRain'], ['Snow', 'Clear'], ['Clear', 'Heath clear'], ['Misty', 'Rain']];
+let alleGleich = true;
+let geprueft = 0;
+for (const [x, y] of PAARE) {
+  const ex = findEnvironment(x)!;
+  const ey = findEnvironment(y)!;
+  for (const f of [0.05, 0.2, 0.5, 0.7, 0.9]) {
+    for (const t of [0, 0.25, 0.5, 1]) {
+      geprueft++;
+      const a = evaluateEnv(ex, f);
+      const b = evaluateEnv(ey, f);
+      if (JSON.stringify(lerpEnvState(a, b, t)) !== JSON.stringify(alt(a, b, t))) alleGleich = false;
+    }
+  }
+}
+check('fades between pairs without Glen clear are identical to the behaviour before (8 pairs, 5 times, 4 steps)', alleGleich && geprueft === 160, String(geprueft));
+const sw = lerpEnvState(evaluateEnv(findEnvironment('SwampRain')!, 0.5), evaluateEnv(findEnvironment('DeepNorth_dark')!, 0.5), 0.5);
+check('SwampRain to DeepNorth_dark at half: direction is the target\'s, not blended', gl(sw.sunDir, evaluateEnv(findEnvironment('DeepNorth_dark')!, 0.5).sunDir) === 0);
+const lichtQuelle = readFileSync(new URL('../../client/src/engine/Lighting.ts', import.meta.url), 'utf-8');
+check('Lighting.apply blends the direction only when Glen clear is one end of the fade',
+  /this\.prevEnv\.name === ENV_GLEN_CLEAR \|\| this\.env\.name === ENV_GLEN_CLEAR/.test(lichtQuelle));
 const lighting = readFileSync(new URL('../../client/src/engine/Lighting.ts', import.meta.url), 'utf-8');
 check('Lighting: the biome change cross-fades over a positive time', /const ENV_BLEND_SECONDS = [1-9]/.test(lighting) && /this\.blend = Math\.min\(1, this\.blend \+ dtSeconds \/ ENV_BLEND_SECONDS\)/.test(lighting));
 

@@ -831,8 +831,8 @@ export const ENV_VILLAGE = 'Village';
   nachts nichts.
 
     Sonne      #FFE1BF = (1 / 0,883333 / 0,75), Stärke 2,0 → 0,8435 (wie bei
-               `Village`: die Stärke 2,3 des Vorbilds ist eine URP-Grösse,
-               hier gilt der Quotient 2,0 / 2,3 gegen die kalibrierte 0,97)
+               `Village`: Stärke 2,0 im Verhältnis 2,0 / 2,3 gegen die
+               kalibrierte 0,97)
     Winkel     50° (Maximalhöhe des Tages)
     Nebel      Tagesfarbe #5F8FBF = (0,3745098 / 0,56013644 / 0,7490196)
     Grundlicht Leuchtdichte so, dass Sonne : Grundlicht = 3,5 : 1 gilt,
@@ -840,16 +840,20 @@ export const ENV_VILLAGE = 'Village';
                Leuchtdichte(Grundlicht); die Farbe ist der Ton von `Clear`
                (0,463 / 0,574 / 0,706), linear skaliert
 
-  Die Nebeldichte ist NICHT die 0,015 des Vorbilds, sondern 0,009: Bei
-  exp2 liegt die 90-%-Sichtweite bei 0,015 in 101 m, bei 0,009 in 169 m.
-  Unsere Kamera sieht 4000 m weit, alles hinter 100 m wäre bei 0,015 ein
-  einheitlich blaues Feld. Gemessen (gleiche Pose, Mittag, Regionen
-  Himmel/Ferne/Mitte/Nah): Nah- und Mittelgrund ändern sich in keinem Wert
-  um mehr als 3 %, der Fernbereich bekommt bei 0,009 rund ein Drittel
-  Dunst (Blau−Rot −24 → +2, bei vollem Nebel +66) statt fast der Hälfte.
-  Die Reihe steht im Bericht (`Berichte/Nachweise/Grauklamm-K5/`).
-  Density is measured against the visible effect, not copied: 0,015 with
-  exp2 is a wall at our 4000 m camera.
+  Die Nebeldichte ist 0,009 und nicht die 0,015 aus dem Beschluss: Bei
+  exp2 liegt die 90-%-Sichtweite bei 0,015 in 101 m, bei 0,009 in 169 m
+  (Nebelanteil 50 m: 18 %, 100 m: 55 %, 200 m: 97,5 %). Unsere Kamera
+  sieht 4000 m weit, hinter 100 m wäre bei 0,015 alles einfarbig blau.
+  Gemessen (gleiche Pose, Mittag, Regionen Himmel/Ferne/Mitte/Nah): Nah-
+  und Mittelgrund ändern sich in keinem Wert um mehr als 3 %, der Boden
+  knapp unter dem Horizont bekommt bei 0,009 rund 29 % der Verfärbung des
+  vollen Nebels (bei 0,015 46 %). Die Messung deckt nur diese Zone ab
+  (rechnerisch etwa 65 m), nicht 100–200 m. Die Reihe steht im Bericht
+  (`Berichte/Nachweise/Grauklamm-K5/`).
+
+  Nacht: `sunAngle` 50 gilt nur am Tag. Unter dem Horizont (und bis zum
+  Sonnenaufgang) liefert `evaluateEnv` den Zustand von `Clear` bitgleich,
+  darüber wird auf den eigenen Zustand übergeblendet (`NACHT_BASIS`).
 */
 const clearBase = builtEnvironments.find((env) => env.name === ENV_CLEAR)!;
 const GLEN_NEBEL_FARBE = c(0.3745098, 0.56013644, 0.7490196);
@@ -1328,7 +1332,53 @@ function mischeStaerke(env: EnvSetup, w: PhaseWeights, tagAnteil: number): numbe
  * Interpolate an EnvSetup at a given day fraction (0 = midnight,
  * 0.5 = midday). This is the Babylon-side equivalent of the original's environment blend.
  */
+/**
+ * Zustände, die unter dem Horizont genau ein anderer Zustand sind (Name → Name).
+ * Der eigene Zustand beginnt erst mit der Sonne über dem Horizont und wird über
+ * `ELEV_UEBERBLENDUNG` Elevationseinheiten eingeblendet — stetig, ohne Sprung.
+ * States that are exactly another state below the horizon.
+ */
+const NACHT_BASIS: ReadonlyMap<string, string> = new Map([[ENV_GLEN_CLEAR, ENV_CLEAR]]);
+const ELEV_UEBERBLENDUNG = 0.25;
+
+function mischeRichtung(
+  a: { x: number; y: number; z: number },
+  b: { x: number; y: number; z: number },
+  t: number
+): { x: number; y: number; z: number } {
+  const x = lerp(a.x, b.x, t);
+  const y = lerp(a.y, b.y, t);
+  const z = lerp(a.z, b.z, t);
+  const len = Math.hypot(x, y, z);
+  return len > 1e-6 ? { x: x / len, y: y / len, z: z / len } : b;
+}
+
 export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
+  const basisName = NACHT_BASIS.get(env.name);
+  const basis = basisName === undefined ? undefined : ENV_BY_NAME.get(basisName);
+  if (basis === undefined || env.alwaysDark) return evaluateEnvEigen(env, dayFraction);
+  const unten = evaluateEnvEigen(basis, dayFraction);
+  if (unten.elevation <= 0) return unten;
+  const eigen = evaluateEnvEigen(env, dayFraction);
+  const t = unten.elevation / ELEV_UEBERBLENDUNG;
+  if (t >= 1) return eigen;
+  const w = t * t * (3 - 2 * t);
+  return {
+    fogColor: lerpColor(unten.fogColor, eigen.fogColor, w),
+    fogColorSun: lerpColor(unten.fogColorSun, eigen.fogColorSun, w),
+    fogDensity: lerp(unten.fogDensity, eigen.fogDensity, w),
+    sunColor: lerpColor(unten.sunColor, eigen.sunColor, w),
+    ambColor: lerpColor(unten.ambColor, eigen.ambColor, w),
+    lightIntensity: lerp(unten.lightIntensity, eigen.lightIntensity, w),
+    cloudAlpha: lerp(unten.cloudAlpha, eigen.cloudAlpha, w),
+    lightDir: mischeRichtung(unten.lightDir, eigen.lightDir, w),
+    sunDir: mischeRichtung(unten.sunDir, eigen.sunDir, w),
+    isNight: unten.isNight,
+    elevation: unten.elevation,
+  };
+}
+
+function evaluateEnvEigen(env: EnvSetup, dayFraction: number): EnvState {
   // alwaysDark (caves/crypts): the whole cycle is pinned to the night
   // keyframe — not just the light level, the fog too, otherwise a crypt
   // would visibly brighten and shift colour at "midday".

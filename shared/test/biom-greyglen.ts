@@ -117,6 +117,12 @@ check('selectWeather(greyglen) draws the same table with Glen clear instead of C
   return true;
 })());
 
+// ── One truth: biome.json (server), envData.json (data set) and weather.ts (local dice) agree ──
+const jsonTab = (STANDARD_WETTER_DEFINITIONEN.biome.find((b) => b.biom === 'Greyglen')?.zustaende ?? []).map((z) => [z.zustand, z.gewicht]);
+const datenTab = ((env.find((b) => b.biome === 128)?.environments ?? []) as { environment: string; weight: number }[])
+  .map((e) => [e.environment === 'Clear' ? 'Glen clear' : e.environment, e.weight]);
+check('Greyglen: biome.json table = envData row 128 with Clear → Glen clear (names and weights)', JSON.stringify(jsonTab) === JSON.stringify(datenTab));
+
 // ── Display names only through keys ──────────────────────────────────
 check('display name de/en via key', inhaltText('inhalt.biom.greyglen', 'de') === 'Grauklamm' && inhaltText('inhalt.biom.greyglen', 'en') === 'Greyglen');
 

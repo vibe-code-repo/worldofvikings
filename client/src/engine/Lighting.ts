@@ -59,6 +59,7 @@ import {
   Biome,
   WORLD_TIME_LENGTH,
   ENV_CLEAR,
+  ENV_GLEN_CLEAR,
   environmentForBiome,
   evaluateEnv,
   findEnvironment,
@@ -212,7 +213,7 @@ function lerpRichtung(
 }
 
 /** Blend two evaluated states — used for the biome cross-fade. */
-export function lerpEnvState(a: EnvState, b: EnvState, t: number): EnvState {
+export function lerpEnvState(a: EnvState, b: EnvState, t: number, mitRichtung = false): EnvState {
   const l = (x: number, y: number) => x + (y - x) * t;
   return {
     fogColor: lerpEnvColor(a.fogColor, b.fogColor, t),
@@ -222,13 +223,13 @@ export function lerpEnvState(a: EnvState, b: EnvState, t: number): EnvState {
     ambColor: lerpEnvColor(a.ambColor, b.ambColor, t),
     lightIntensity: l(a.lightIntensity, b.lightIntensity),
     cloudAlpha: l(a.cloudAlpha, b.cloudAlpha),
-    // The directions come from the day fraction AND the weather's maximum sun
-    // height (`sunAngle`), which differs between weathers (45° in Clear, 50° in
-    // Glen clear). Taking the target's direction at once made the light jump by
-    // the difference at a biome border; blend and renormalise instead.
-    // Die Richtung hängt auch am Sonnenwinkel des Wetters: mischen und neu normieren.
-    lightDir: lerpRichtung(a.lightDir, b.lightDir, t),
-    sunDir: lerpRichtung(a.sunDir, b.sunDir, t),
+    // Direction/elevation come from the day fraction, not the weather, so both
+    // states agree — take the target to avoid drift during the fade. The one
+    // exception is a fade involving 'Glen clear' (`mitRichtung`): its sun height
+    // differs from the others', so the direction is blended and renormalised
+    // instead of jumping. Every other fade keeps the target's direction.
+    lightDir: mitRichtung ? lerpRichtung(a.lightDir, b.lightDir, t) : b.lightDir,
+    sunDir: mitRichtung ? lerpRichtung(a.sunDir, b.sunDir, t) : b.sunDir,
     isNight: b.isNight,
     elevation: b.elevation,
   };
@@ -569,7 +570,12 @@ export class Lighting {
     let state = evaluateEnv(this.env, this.timeOfDay);
     if (this.prevEnv) {
       this.blend = Math.min(1, this.blend + dtSeconds / ENV_BLEND_SECONDS);
-      state = lerpEnvState(evaluateEnv(this.prevEnv, this.timeOfDay), state, this.blend);
+      state = lerpEnvState(
+        evaluateEnv(this.prevEnv, this.timeOfDay),
+        state,
+        this.blend,
+        this.prevEnv.name === ENV_GLEN_CLEAR || this.env.name === ENV_GLEN_CLEAR,
+      );
       if (this.blend >= 1) this.prevEnv = null;
     }
     // Feste Nebeldichte aus server.yml — HIER, vor `this.state`, damit das

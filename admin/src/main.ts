@@ -1523,7 +1523,7 @@ async function behandeln(
     if (clientVersion < mindestVersion) {
       const meldung = veraltetMeldung(clientVersion, mindestVersion);
       console.warn(`[Admin] GET /api/worldlayout -> 426: Client v${clientVersion}, das Dokument verlangt v${mindestVersion}`);
-      return { code: 426, daten: { ok: false, fehler: 'client-veraltet', message: meldung, mindest: mindestVersion } };
+      return { code: 426, daten: { ok: false, fehler: 'client-veraltet', message: meldung } };
     }
     // Verschwindet die Datei zwischen `existsSync` und hier, fehlt die
     // Kennung nur (statt eines 500): Der MCP-Server verweigert das Schreiben

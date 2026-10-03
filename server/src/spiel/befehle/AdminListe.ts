@@ -172,8 +172,8 @@ function gleicheAdminrechteAb(k: AdminListeKontext): void {
       });
     }
     peer.sendPacketWith(PacketType.AdminEvent, (w) => {
-      w.writeString('admin');
-      w.writeBool(false);
+      w.writeString('adminrechte'); // not 'admin': the answer to the command `admin` has that name and active=false
+      w.writeBool(soll); // the client mirrors it live (`FLAG_ADMIN` only covers the login)
       w.writeString(soll ? 'Du hast jetzt Adminrechte.' : 'Deine Adminrechte wurden entzogen.');
     });
     console.log(`[Admin] "${peer.name}" — Rechte an der Liste nachgezogen: isAdmin=${soll}`);

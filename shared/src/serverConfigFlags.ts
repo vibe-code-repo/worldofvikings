@@ -51,6 +51,18 @@ export const FLAG_LAYOUT_MODE = 1 << 5;
  * trotzdem nicht vorbei.
  */
 export const FLAG_MODULE_BUILD = 1 << 6;
+/**
+ * Dieser Peer hat Adminrechte (D5 N3). Nur ein HINWEIS für die Oberfläche (zum Beispiel: die E-Taste schickt `dungeon enter`
+ * nur Admins). Der Server prüft jeden Adminbefehl bei seinem Eingang selbst (`AdminCommandRegistry.execute`); ein gefälschtes
+ * Bit am Client öffnet nichts. Ändern sich die Rechte mitten in der Verbindung, kommt der neue Wert als `AdminEvent` mit dem
+ * Befehl `adminrechte` und `active = Adminrechte ja/nein` (nicht `admin`: so heisst die Antwort auf `admin list`, `admin add`, `admin remove`, mit active=false) (`gleicheAdminrechteAb`); das Bit gilt nur bis dahin.
+ */
+export const FLAG_ADMIN = 1 << 7;
+/**
+ * The flag byte is FULL: bits 0 to 7 are all taken and the packet reads a `UInt8` (`readUInt8` in client/src/main.ts). `1 << 8`
+ * would silently drop in the byte. The next flag needs a wider field (UInt16 in `ServerConfig`, on both sides) before it can
+ * be added. `client/test/e-ohne-ziel.ts` checks that every flag here fits into a byte and no two share a bit.
+ */
 
 /**
  * Woraus das Flagbyte gebildet wird.
@@ -68,6 +80,7 @@ export interface ServerConfigFlagSources {
   readonly disableDistantRivers: boolean;
   readonly layoutMode: boolean;
   readonly moduleBuild: boolean;
+  readonly admin: boolean;
 }
 
 /** Das Flagbyte des ServerConfig-Pakets — die einzige Stelle, die es baut. */
@@ -80,10 +93,16 @@ export function serverConfigFlags(q: ServerConfigFlagSources): number {
   if (q.disableDistantRivers) flags |= FLAG_DISABLE_DISTANT_RIVERS;
   if (q.layoutMode) flags |= FLAG_LAYOUT_MODE;
   if (q.moduleBuild) flags |= FLAG_MODULE_BUILD;
+  if (q.admin) flags |= FLAG_ADMIN;
   return flags;
 }
 
 /** Darf dieser Peer einen Saal bauen? Die Leseseite von {@link FLAG_MODULE_BUILD}. */
 export function moduleBuildAllowed(flags: number): boolean {
   return (flags & FLAG_MODULE_BUILD) !== 0;
+}
+
+/** Hat der Peer Adminrechte? Die Leseseite von {@link FLAG_ADMIN} (ein Hinweis, kein Recht). */
+export function adminAusFlags(flags: number): boolean {
+  return (flags & FLAG_ADMIN) !== 0;
 }

@@ -146,6 +146,7 @@ const AUS = {
   disableDistantRivers: false,
   layoutMode: false,
   moduleBuild: false,
+  admin: false,
 };
 pruefe(serverConfigFlags(AUS) === 0, 'alles aus ergibt 0');
 pruefe(
@@ -157,6 +158,8 @@ pruefe(
   serverConfigFlags({ ...AUS, layoutMode: true, moduleBuild: true }) === 96,
   'Layout und Modulbau stören sich nicht'
 );
+pruefe(serverConfigFlags({ ...AUS, admin: true }) === 128, 'nur Admin ergibt genau Bit 7 (D5 N3)');
+pruefe(serverConfigFlags({ ...AUS, admin: true, moduleBuild: true }) === 192 && !moduleBuildAllowed(128) && moduleBuildAllowed(192), 'Admin und Modulbau stören sich nicht');
 pruefe(moduleBuildAllowed(64), 'Bit 6 gesetzt heisst: bauen erlaubt');
 pruefe(!moduleBuildAllowed(63), 'alle anderen sechs Bits heissen es NICHT');
 pruefe(!moduleBuildAllowed(0), 'ein leeres Flagbyte heisst nein');

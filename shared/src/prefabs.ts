@@ -731,6 +731,8 @@ export const HINT_DEFS: PrefabDef[] = [
   def('AxeStone', F.ITEM_DROP, 'axe_stone', 0.6, 0.6),
   def('PickaxeAntler', F.ITEM_DROP, 'pickaxe_antler', 0.6, 0.6),
   def('Club', F.ITEM_DROP, 'club', 0.6, 0.6),
+  // D5: neutral loot piece for items without a prefab of their own (shared/src/beuteModell.ts); no model of its own, the client draws the fallback chest.
+  def('BeuteStueck', F.ITEM_DROP, null, 0.5, 0.5),
   def('Torch', F.ITEM_DROP, 'torch', 0.5, 0.7),
 
   // ── Building pieces ──────────────────────────────────────────────

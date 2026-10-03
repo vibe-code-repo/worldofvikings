@@ -198,8 +198,8 @@ for (const [x, y] of [...PAARE, ['Clear', ENV_GLEN_CLEAR], [ENV_GLEN_CLEAR, 'Rai
 }
 check('frameZustand: without a fade the weather alone, with a fade uebergangsZustand(prev, env) (10 pairs)', frameOk);
 const lichtQuelle = readFileSync(new URL('../../client/src/engine/Lighting.ts', import.meta.url), 'utf-8');
-check('Lighting.apply takes its state from frameZustand only, and lerpEnvState is called in exactly one place besides its definition',
-  /const state = frameZustand\(this\.env, this\.prevEnv, this\.timeOfDay, this\.blend\);/.test(lichtQuelle)
+check('Lighting.apply takes its state from frameSchritt only, and lerpEnvState is called in exactly one place besides its definition',
+  (lichtQuelle.match(/frameSchritt\(/g) ?? []).length === 2
   && (lichtQuelle.match(/lerpEnvState\(/g) ?? []).length === 2 && (lichtQuelle.match(/uebergangsZustand\(/g) ?? []).length === 2
   && (lichtQuelle.match(/frameZustand\(/g) ?? []).length === 2
   && (lichtQuelle.match(/evaluateEnv\(/g) ?? []).length === 4
@@ -222,7 +222,7 @@ check('frameSchritt: every field of the state comes from the faded state (sun co
   JSON.stringify(sx.state) === JSON.stringify(uebergangsZustand(nm('SwampRain'), nm('Misty'), 0.5, 0.25))
   && JSON.stringify(sx.state.sunColor) !== JSON.stringify(evaluateEnv(nm('Misty'), 0.5).sunColor));
 const lighting = readFileSync(new URL('../../client/src/engine/Lighting.ts', import.meta.url), 'utf-8');
-check('Lighting: the biome change cross-fades over a positive time', /const ENV_BLEND_SECONDS = [1-9]/.test(lighting) && /this\.blend = Math\.min\(1, this\.blend \+ dtSeconds \/ ENV_BLEND_SECONDS\)/.test(lighting));
+check('Lighting: the biome change cross-fades over a positive time', /const ENV_BLEND_SECONDS = [1-9]/.test(lighting) && /Math\.min\(1, blend \+ dtSeconds \/ ENV_BLEND_SECONDS\)/.test(lighting));
 
 if (fehler > 0) {
   console.error(`\n${fehler} FAIL`);

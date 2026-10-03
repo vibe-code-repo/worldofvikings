@@ -74,7 +74,7 @@ import { Color3, Vector2, Vector3, Vector4 } from '@babylonjs/core/Maths/math';
 import type { Scene } from '@babylonjs/core/scene';
 
 import {
-  TILE, TILE_ANZAHL, STAPEL_ZEILEN, TILE_ZEILE, STAPEL_VERSION, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, BODEN_REGELN, kachelFuerStapel,
+  TILE, TILE_ANZAHL, STAPEL_ZEILEN, TILE_ZEILE, STAPEL_VERSION, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, BODEN_REGELN, KACHEL_RUECKFALL, kachelFuerStapel,
 } from '@wov/shared/src/worldgen/bodenKacheln.js';
 export { TILE, TILE_ANZAHL, STAPEL_ZEILEN, TILE_ZEILE, STAPEL_VERSION, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, kachelFuerStapel };
 
@@ -284,11 +284,6 @@ export { FELS_RAUSCHEN };
 const FELS_BEGINN = nyBeiGrad(RAMPEN.fels.beginn);
 const FELS_VOLL = nyBeiGrad(RAMPEN.fels.voll);
 
-/**
- * Zeilen des Texturstapels (`TILE_ANZAHL`) und seine Hoehe in Kacheln. Der
- * Altbestand-Stapel (`STORE_BODEN_AKTIV` aus) hat weiter 16 Zeilen.
- */
-const ATLAS_ZEILEN = STAPEL_ZEILEN;
 /** Letzter gueltiger Kachel-Index in den GLSL-Tabellen (die Tabellen haben `TILE_ANZAHL` Zeilen). */
 const KACHEL_MAX = (TILE_ANZAHL - 1).toFixed(1);
 
@@ -310,17 +305,125 @@ export function glslTabelle(name: string, werte: readonly number[], ziffern: num
 }
 
 /**
- * Passt der geladene Stapel zum Code? Die Hoehe muss `STAPEL_ZEILEN` mal die Breite sein.
- * Rein, damit ein Test sie prueft.
+ * Wie ein geladener Stapel gelesen wird (N2): aus Breite und Hoehe.
+ *
+ *  - Modus 0: `STAPEL_ZEILEN` (16) Zeilen, die Kachel zeigt auf Zeile `TILE_ZEILE[kachel]` (das Layout dieses Codes).
+ *  - Modus 1: `TILE_ANZAHL` (20) Zeilen, Zeile = Kachel (das Layout des ersten K3-Entwurfs; solche Stapel
+ *    liegen noch in alten Arbeitsbaeumen). Jede Kachel hat dort ihre eigene Zeile, auch Greyglen.
+ *  - Modus 2: jede andere Zeilenzahl: der Stapel gehoert nicht zu diesem Code. Die Greyglen-Kacheln lesen
+ *    ihre Grasland-Entsprechung (`KACHEL_RUECKFALL`), jede Zeile wird auf die letzte vorhandene geklemmt.
+ *    Der Boden ist dann nicht richtig, aber definiert, und es gibt eine laute Meldung.
+ *
+ * Die Werte gehen als Uniforms in den Shader: sie gelten fuer jeden Chunk sofort, auch fuer die vor dem
+ * Ladeergebnis gebauten (kein Neubau noetig).
  */
+export interface StapelLayout {
+  readonly modus: 0 | 1 | 2;
+  readonly zeilen: number;
+}
+
+export function stapelLayout(breite: number, hoehe: number): StapelLayout {
+  if (!(breite > 0) || !(hoehe > 0)) return { modus: 2, zeilen: STAPEL_ZEILEN };
+  const zeilen = Math.max(1, Math.round(hoehe / breite));
+  if (hoehe === breite * STAPEL_ZEILEN) return { modus: 0, zeilen: STAPEL_ZEILEN };
+  if (hoehe === breite * TILE_ANZAHL) return { modus: 1, zeilen: TILE_ANZAHL };
+  return { modus: 2, zeilen };
+}
+
+/** Der Befund zu einem geladenen Stapel: Layout, ob die Greyglen-Kacheln gelten, und eine Meldung (oder null). */
+export interface StapelBefundErgebnis {
+  readonly layout: StapelLayout;
+  readonly ok: boolean;
+  readonly meldung: string | null;
+}
+
+export function stapelBefundAusGroesse(breite: number, hoehe: number, maxTextur: number, was: string): StapelBefundErgebnis {
+  const layout = stapelLayout(breite, hoehe);
+  if (layout.modus === 0) {
+    const gross = maxTextur > 0 && hoehe > maxTextur;
+    return { layout, ok: true, meldung: gross ? `[terrain] ${was}: ${hoehe} px hoch, die Grafikkarte laedt hoechstens ${maxTextur} px.` : null };
+  }
+  if (layout.modus === 1) {
+    return { layout, ok: true, meldung: `[terrain] ${was}: ${breite}x${hoehe} ist ein Stapel mit ${TILE_ANZAHL} Zeilen (altes Layout, Zeile = Kachel); er wird so gelesen. \`npm run store:boden\` baut ihn neu.` };
+  }
+  return {
+    layout,
+    ok: false,
+    meldung:
+      `[terrain] ${was}: ${breite}x${hoehe} (${layout.zeilen} Zeilen) gehoert nicht zu diesem Code (Layout ${STAPEL_VERSION}, ${STAPEL_ZEILEN} Zeilen); ` +
+      'Greyglen-Kacheln lesen Grasland, der Boden kann falsch sein. `npm run store:boden` baut den Stapel neu.',
+  };
+}
+
+/** Das Mass fuer die alte Pruefung (Tests): Hoehe = Breite mal `STAPEL_ZEILEN`. */
 export function stapelPasst(breite: number, hoehe: number): boolean {
-  return breite > 0 && hoehe === breite * STAPEL_ZEILEN;
+  return stapelLayout(breite, hoehe).modus === 0;
 }
 
 let stapelBrauchbarFlag = true;
 /** Falsch, sobald ein Stapel geladen wurde, der nicht zum Code passt (oder gar nicht lud). */
 export function stapelBrauchbar(): boolean {
   return stapelBrauchbarFlag;
+}
+/** Setzt das Ergebnis der Stapelpruefung (fuer die Lade-Rueckrufe; Tests setzen es zurueck). */
+export function stapelMelden(ok: boolean): void {
+  stapelBrauchbarFlag = ok;
+}
+/** Ladefehler eines Stapels: laute Meldung und Rueckfall auf die Grasland-Kacheln. */
+export function stapelFehlgeschlagen(was: string, grund?: string): void {
+  stapelBrauchbarFlag = false;
+  console.error(`[terrain] ${was} konnte nicht geladen werden (${grund ?? '?'}); Greyglen-Kacheln fallen auf Grasland zurueck.`);
+}
+
+/**
+ * Die URL eines Stapels, mit dem INHALTS-Hash aus `store-schichten.json` als Abfrageparameter. Ohne Hash
+ * (alte JSON, JSON nicht lesbar) die nackte URL. Der Hash aendert sich genau dann, wenn sich die Bytes der
+ * Datei aendern (zum Beispiel, wenn die echte Normale kopiert wird) und bleibt gleich bei einem Stapel, der
+ * Byte fuer Byte derselbe ist (kein unnoetiges Neuladen).
+ */
+export function stapelUrl(basis: string, hash: string | undefined): string {
+  return hash ? `${basis}?h=${hash}` : basis;
+}
+
+const HASH_FORM = /^[0-9a-f]{8,64}$/;
+
+/** Liest die Stapel-Hashes aus der JSON-Antwort. Liefert leere Felder bei jedem Fehler (kein Ausnahmefall nach aussen). */
+export async function stapelHashesHolen(
+  holen: (url: string) => Promise<{ ok: boolean; json: () => Promise<unknown> }>,
+  url: string,
+): Promise<{ farbe?: string; normale?: string }> {
+  try {
+    const antwort = await holen(url);
+    if (!antwort.ok) return {};
+    const roh = (await antwort.json()) as { stapelHash?: { farbe?: unknown; normale?: unknown } } | null;
+    const h = roh?.stapelHash;
+    const nimm = (v: unknown): string | undefined => (typeof v === 'string' && HASH_FORM.test(v) ? v : undefined);
+    return { farbe: nimm(h?.farbe), normale: nimm(h?.normale) };
+  } catch {
+    return {};
+  }
+}
+
+/** Die Stapelzeile einer Kachel nach Modus, wie der Shader sie rechnet (Vergleichsrechnung des Tests). */
+export function stapelZeile(kachel: number, layout: StapelLayout): number {
+  const t = Math.min(TILE_ANZAHL - 1, Math.max(0, Math.round(kachel)));
+  if (layout.modus === 0) return TILE_ZEILE[t]!;
+  if (layout.modus === 1) return t;
+  return Math.min(TILE_ZEILE[KACHEL_RUECKFALL[t]!]!, layout.zeilen - 1);
+}
+
+/** Der GLSL-Block, der aus Kachel, Modus und Zeilenzahl die Stapelzeile macht (je Abtaststelle ein eigener Name). */
+export function zeileBlockCode(name: string): string[] {
+  return [
+    ...glslTabelle(`VB_ZEILE_${name}`, TILE_ZEILE),
+    ...glslTabelle(`VB_RUECK_${name}`, KACHEL_RUECKFALL),
+    `void vbZeileBlk_${name}(float tile, float modus, float zeilen, out float row) {`,
+    `  int t = int(clamp(tile, 0.0, ${KACHEL_MAX}) + 0.5);`,
+    `  if (modus < 0.5) { row = VB_ZEILE_${name}[t]; }`,
+    `  else if (modus < 1.5) { row = float(t); }`,
+    `  else { row = min(VB_ZEILE_${name}[int(VB_RUECK_${name}[t] + 0.5)], zeilen - 1.0); }`,
+    '}',
+  ];
 }
 
 /**
@@ -897,31 +1000,31 @@ export class TerrainSplatMaterial {
     const splatDatei = STORE_BODEN_AKTIV
       ? STORE_TEX_BASE + 'store_d_array.png'
       : TEX_BASE + 'terrain_d_array.png';
-    // Stapel-URL mit Layout-Version: ein Browser mit einem gemerkten Stapel
-    // eines anderen Layouts holt ihn neu. Der Stapel hat unveraendert
-    // `STAPEL_ZEILEN` Zeilen (siehe dort), die Version haelt nur den Fall fest,
-    // dass sich die Zeilenzuordnung (`TILE_ZEILE`) je aendert.
-    const stapelPruefen = (tex: Texture, was: string): void => {
+    // Der Stapel wird ueber seinen INHALTS-Hash geladen (`store-schichten.json`, Feld `stapelHash`): ein Browser
+    // mit gemerktem Stapel holt ihn neu, wenn sich die Bytes aendern (z. B. die echte Normale kommt dazu), und
+    // nicht, wenn nichts anders ist. Dazu wird die kleine JSON zuerst gelesen; die Texturen entstehen ohne URL
+    // und bekommen sie danach (`updateURL`). Fehlt die JSON oder ein Hash, laedt die nackte URL.
+    //
+    // Die Uniforms `stapelModus`/`stapelZeilen` sagen dem Shader, wie der geladene Stapel zu lesen ist
+    // (`stapelLayout`); sie wirken sofort auf alle Chunks, auch auf die vor dem Ladeergebnis gebauten.
+    const stapelModusBlock = new InputBlock('stapelModus');
+    stapelModusBlock.value = STORE_BODEN_AKTIV ? 0 : 1;
+    const stapelZeilenBlock = new InputBlock('stapelZeilen');
+    stapelZeilenBlock.value = STAPEL_ZEILEN;
+    const stapelGeladen = (tex: Texture, was: string): void => {
       const gr = tex.getSize();
-      const maxTex = scene.getEngine().getCaps().maxTextureSize;
-      if (!stapelPasst(gr.width, gr.height)) {
-        stapelBrauchbarFlag = false;
-        console.error(
-          `[terrain] ${was}: ${gr.width}x${gr.height} passt nicht zu ${STAPEL_ZEILEN} Zeilen (Layout ${STAPEL_VERSION}); ` +
-            'Greyglen-Kacheln fallen auf ihre Grasland-Entsprechungen zurueck. `npm run store:boden` baut den Stapel neu.'
-        );
-      } else if (maxTex && gr.height > maxTex) {
-        console.error(`[terrain] ${was}: ${gr.height} px hoch, die Grafikkarte laedt hoechstens ${maxTex} px.`);
-      }
+      const befund = stapelBefundAusGroesse(gr.width, gr.height, scene.getEngine().getCaps().maxTextureSize, was);
+      stapelModusBlock.value = befund.layout.modus;
+      stapelZeilenBlock.value = befund.layout.zeilen;
+      if (!befund.ok) stapelMelden(false);
+      if (befund.meldung) (befund.ok ? console.warn : console.error)(befund.meldung);
     };
-    const stapelFehler = (was: string) => (msg?: string): void => {
-      stapelBrauchbarFlag = false;
-      console.error(`[terrain] ${was} konnte nicht geladen werden (${msg ?? '?'}); Greyglen-Kacheln fallen auf Grasland zurueck.`);
-    };
-    const splatTex = new Texture(
-      `${splatDatei}?v=${STAPEL_VERSION}`, scene, false, false, Texture.TRILINEAR_SAMPLINGMODE,
-      () => stapelPruefen(splatTex, 'Farbstapel'), stapelFehler('Farbstapel')
-    );
+    const splatTex = new Texture(null, scene, false, false, Texture.TRILINEAR_SAMPLINGMODE, null, (msg) => stapelFehlgeschlagen('Farbstapel', msg));
+    let nTexRef: Texture | null = null;
+    void stapelHashesHolen((u) => fetch(u, { cache: 'no-cache' }), `${STORE_TEX_BASE}store-schichten.json`).then((h) => {
+      splatTex.updateURL(stapelUrl(splatDatei, STORE_BODEN_AKTIV ? h.farbe : undefined), null, () => stapelGeladen(splatTex, 'Farbstapel'));
+      if (nTexRef) nTexRef.updateURL(stapelUrl(`${STORE_TEX_BASE}store_n_array.png`, h.normale), null, () => stapelGeladen(nTexRef!, 'Normalenstapel'));
+    });
     splatTex.anisotropicFilteringLevel = maxAniso;
     splatTex.wrapU = Texture.WRAP_ADDRESSMODE;
     splatTex.wrapV = Texture.CLAMP_ADDRESSMODE;
@@ -1085,10 +1188,8 @@ export class TerrainSplatMaterial {
      */
     let normalQuelle: ImageSourceBlock | null = null;
     if (STORE_BODEN_AKTIV) {
-      const nTex = new Texture(
-        `${STORE_TEX_BASE}store_n_array.png?v=${STAPEL_VERSION}`, scene, false, false, Texture.TRILINEAR_SAMPLINGMODE,
-        () => stapelPruefen(nTex, 'Normalenstapel'), stapelFehler('Normalenstapel')
-      );
+      const nTex = new Texture(null, scene, false, false, Texture.TRILINEAR_SAMPLINGMODE, null, (msg) => stapelFehlgeschlagen('Normalenstapel', msg));
+      nTexRef = nTex;
       nTex.anisotropicFilteringLevel = maxAniso;
       nTex.wrapU = Texture.WRAP_ADDRESSMODE;
       nTex.wrapV = Texture.CLAMP_ADDRESSMODE;
@@ -1111,6 +1212,30 @@ export class TerrainSplatMaterial {
      * der Shader unübersetzbar — dieselbe Vorsichtsmassnahme, die
      * `vbTileSample_${name}` schon trifft.
      */
+    /**
+     * Kachel → Stapelzeile als eigener Float-Block (kein Sampler-Argument, damit auch im WebGPU-Pfad
+     * uebersetzbar). Eingaenge: die Kachel, `stapelModus`, `stapelZeilen`; Ausgang: die Zeile.
+     */
+    const zeileKnoten = (name: string, kachel: NodeMaterialConnectionPoint): NodeMaterialConnectionPoint => {
+      const zb = new CustomBlock(`tile_${name}_zeile`);
+      zb.options = {
+        name: `tile_${name}_zeile`,
+        target: 'Fragment',
+        functionName: `vbZeileBlk_${name}`,
+        inParameters: [
+          { name: 'tile', type: 'Float' },
+          { name: 'modus', type: 'Float' },
+          { name: 'zeilen', type: 'Float' },
+        ],
+        outParameters: [{ name: 'row', type: 'Float' }],
+        code: zeileBlockCode(name),
+      };
+      const z = zb as unknown as Record<string, NodeMaterialConnectionPoint>;
+      kachel.connectTo(z.tile!);
+      stapelModusBlock.output.connectTo(z.modus!);
+      stapelZeilenBlock.output.connectTo(z.zeilen!);
+      return z.row!;
+    };
     const kachelGlsl = (suffix: string): string[] =>
       STORE_BODEN_AKTIV
         ? [
@@ -1118,16 +1243,8 @@ export class TerrainSplatMaterial {
             `float vbKachelFaktor_${suffix}(float tile) {`,
             `  return VB_KACHEL_${suffix}[int(clamp(tile, 0.0, ${KACHEL_MAX}) + 0.5)];`,
             '}',
-            // Welche Stapelzeile eine Kachel zeigt (`TILE_ZEILE`): mehr Kacheln als Zeilen.
-            ...glslTabelle(`VB_ZEILE_${suffix}`, TILE_ZEILE),
-            `float vbZeile_${suffix}(float tile) {`,
-            `  return VB_ZEILE_${suffix}[int(clamp(tile, 0.0, ${KACHEL_MAX}) + 0.5)];`,
-            '}',
           ]
-        : [
-            `float vbKachelFaktor_${suffix}(float tile) { return 1.0; }`,
-            `float vbZeile_${suffix}(float tile) { return tile; }`,
-          ];
+        : [`float vbKachelFaktor_${suffix}(float tile) { return 1.0; }`];
 
     /**
      * Die Gewichte der drei Projektionen, als GLSL — Zeile für Zeile
@@ -1273,27 +1390,16 @@ export class TerrainSplatMaterial {
         const fy = new MultiplyBlock(`tile_${name}_fy`);
         f.y.connectTo(fy.left);
         cnst(`tile_${name}_yinset`, 0.96).output.connectTo(fy.right);
-        // Kachel → Stapelzeile (`TILE_ZEILE`), auch im WebGPU-Pfad. Ein reiner
-        // Float-Block, ohne Sampler-Argument, und damit auch dort uebersetzbar.
-        const zeileBlock = new CustomBlock(`tile_${name}_zeile`);
-        zeileBlock.options = {
-          name: `tile_${name}_zeile`,
-          target: 'Fragment',
-          functionName: `vbZeileWgpu_${name}`,
-          inParameters: [{ name: 'tile', type: 'Float' }],
-          outParameters: [{ name: 'row', type: 'Float' }],
-          code: [...kachelGlsl(name), `void vbZeileWgpu_${name}(float tile, out float row) { row = vbZeile_${name}(tile); }`],
-        };
-        layerInput.connectTo((zeileBlock as unknown as Record<string, NodeMaterialConnectionPoint>).tile!);
+        // Kachel → Stapelzeile (`TILE_ZEILE`, je nach Stapel-Layout), auch im WebGPU-Pfad.
         const layerInset = new AddBlock(`tile_${name}_layerInset`);
-        (zeileBlock as unknown as Record<string, NodeMaterialConnectionPoint>).row!.connectTo(layerInset.left);
+        zeileKnoten(name, layerInput).connectTo(layerInset.left);
         cnst(`tile_${name}_padding`, 0.02).output.connectTo(layerInset.right);
         const ySumme = new AddBlock(`tile_${name}_ySumme`);
         layerInset.output.connectTo(ySumme.left);
         fy.output.connectTo(ySumme.right);
-        const yAtlas = new MultiplyBlock(`tile_${name}_yAtlas`);
+        const yAtlas = new DivideBlock(`tile_${name}_yAtlas`);
         ySumme.output.connectTo(yAtlas.left);
-        cnst(`tile_${name}_atlasHoehe`, 1 / ATLAS_ZEILEN).output.connectTo(yAtlas.right);
+        stapelZeilenBlock.output.connectTo(yAtlas.right);
 
         const atlasUv = new VectorMergerBlock(`tile_${name}_atlasUv`);
         f.x.connectTo(atlasUv.x);
@@ -1334,6 +1440,8 @@ export class TerrainSplatMaterial {
             { name: 'atlas', type: 'sampler2D' },
             { name: 'uvKont', type: 'Vector2' },
             { name: 'layer', type: 'Float' },
+            { name: 'zeile', type: 'Float' },
+            { name: 'zeilen', type: 'Float' },
             { name: 'wpos', type: 'Vector3' },
             { name: 'cpos', type: 'Vector3' },
             { name: 'nrm', type: 'Vector3' },
@@ -1348,16 +1456,16 @@ export class TerrainSplatMaterial {
             // Eine Ebene abtasten. Identisch zur bisherigen Zeile im
             // Einzelsample-Zweig — Inset 0,02, Stauchung 0,96, y-Gradient
             // in den Atlasraum skaliert.
-            `vec3 vbEbene_${name}(sampler2D atlas, vec2 uvKont, vec2 ddx, vec2 ddy, float layer) {`,
+            'vec3 vbEbene_' + name + '(sampler2D atlas, vec2 uvKont, vec2 ddx, vec2 ddy, float zeile, float zeilen) {',
             '  vec2 f = fract(uvKont);',
-            `  float y = (vbZeile_${name}(layer) + 0.02 + f.y * 0.96) / ${ATLAS_ZEILEN}.0;`,
-            `  const float YS = 0.96 / ${ATLAS_ZEILEN}.0;`,
+            '  float y = (zeile + 0.02 + f.y * 0.96) / zeilen;',
+            '  float YS = 0.96 / zeilen;',
             '  vec3 c = textureGrad(atlas, vec2(f.x, y),',
             '                       vec2(ddx.x, ddx.y * YS),',
             '                       vec2(ddy.x, ddy.y * YS)).rgb;',
             linearisieren ? '  return pow(c, vec3(2.2));' : '  return c;',
             '}',
-            `void ${fn}(sampler2D atlas, vec2 uvKontRoh, float layer, vec3 wpos, vec3 cpos,`,
+            `void ${fn}(sampler2D atlas, vec2 uvKontRoh, float layer, float zeile, float zeilen, vec3 wpos, vec3 cpos,`,
             '                       vec3 nrm, out vec3 result) {',
             `  float k = ${freq.toFixed(4)} * vbKachelFaktor_${name}(layer);`,
             `  vec2 vs = vec2(${versatz[0].toFixed(3)}, ${versatz[1].toFixed(3)});`,
@@ -1394,15 +1502,15 @@ export class TerrainSplatMaterial {
                   // hinein — die Beleuchtung kippt dann genau dort, wo
                   // die Streifen vorher waren.
                   '  if (w.x > 0.0) {',
-                  `    vec3 m = vbEbene_${name}(atlas, uvO, dOx, dOy, layer) * 2.0 - 1.0; m.xy *= st;`,
+                  `    vec3 m = vbEbene_${name}(atlas, uvO, dOx, dOy, zeile, zeilen) * 2.0 - 1.0; m.xy *= st;`,
                   '    acc += vec3(m.xy + N.xz, abs(m.z) * N.y).xzy * w.x;',
                   '  }',
                   '  if (w.y > 0.0) {',
-                  `    vec3 m = vbEbene_${name}(atlas, uvX, dXx, dXy, layer) * 2.0 - 1.0; m.xy *= st;`,
+                  `    vec3 m = vbEbene_${name}(atlas, uvX, dXx, dXy, zeile, zeilen) * 2.0 - 1.0; m.xy *= st;`,
                   '    acc += vec3(m.xy + N.zy, abs(m.z) * N.x).zyx * w.y;',
                   '  }',
                   '  if (w.z > 0.0) {',
-                  `    vec3 m = vbEbene_${name}(atlas, uvZ, dZx, dZy, layer) * 2.0 - 1.0; m.xy *= st;`,
+                  `    vec3 m = vbEbene_${name}(atlas, uvZ, dZx, dZy, zeile, zeilen) * 2.0 - 1.0; m.xy *= st;`,
                   '    acc += vec3(m.xy + N.xy, abs(m.z) * N.z).xyz * w.z;',
                   '  }',
                   '  result = normalize(acc);',
@@ -1411,9 +1519,9 @@ export class TerrainSplatMaterial {
                   // `0.0 + c · 1.0` ist `c` bitgenau — daran hängt der
                   // Nachweis „flacher Boden unverändert".
                   '  vec3 acc = vec3(0.0);',
-                  `  if (w.x > 0.0) acc += vbEbene_${name}(atlas, uvO, dOx, dOy, layer) * w.x;`,
-                  `  if (w.y > 0.0) acc += vbEbene_${name}(atlas, uvX, dXx, dXy, layer) * w.y;`,
-                  `  if (w.z > 0.0) acc += vbEbene_${name}(atlas, uvZ, dZx, dZy, layer) * w.z;`,
+                  `  if (w.x > 0.0) acc += vbEbene_${name}(atlas, uvO, dOx, dOy, zeile, zeilen) * w.x;`,
+                  `  if (w.y > 0.0) acc += vbEbene_${name}(atlas, uvX, dXx, dXy, zeile, zeilen) * w.y;`,
+                  `  if (w.z > 0.0) acc += vbEbene_${name}(atlas, uvZ, dZx, dZy, zeile, zeilen) * w.z;`,
                   '  result = acc;',
                 ]),
             '}',
@@ -1423,6 +1531,8 @@ export class TerrainSplatMaterial {
         stapel.source.connectTo(ot.atlas);
         tileUV.output.connectTo(ot.uvKont);
         layerInput.connectTo(ot.layer);
+        zeileKnoten(name, layerInput).connectTo(ot.zeile);
+        stapelZeilenBlock.output.connectTo(ot.zeilen);
         wps.xyzOut.connectTo(ot.wpos);
         cameraPos.output.connectTo(ot.cpos);
         nrmEingang.connectTo(ot.nrm);
@@ -1436,13 +1546,15 @@ export class TerrainSplatMaterial {
           { name: 'atlas', type: 'sampler2D' },
           { name: 'uvKont', type: 'Vector2' },
           { name: 'layer', type: 'Float' },
+          { name: 'zeile', type: 'Float' },
+          { name: 'zeilen', type: 'Float' },
           { name: 'wpos', type: 'Vector3' },
           { name: 'cpos', type: 'Vector3' },
         ],
         outParameters: [{ name: 'result', type: 'Vector3' }],
         code: [
           ...kachelGlsl(name),
-          `void ${fn}(sampler2D atlas, vec2 uvKontRoh, float layer, vec3 wpos, vec3 cpos, out vec3 result) {`,
+          `void ${fn}(sampler2D atlas, vec2 uvKontRoh, float layer, float zeile, float zeilen, vec3 wpos, vec3 cpos, out vec3 result) {`,
           // Kachelmass je Schicht (Store-Pfad; im Altbestand konstant 1).
           // VOR dem Versatz, damit der Versatz in Kachelbreiten bleibt.
           `  vec2 uvKont = uvKontRoh * (${freq.toFixed(4)} * vbKachelFaktor_${name}(layer)) + vec2(${versatz[0].toFixed(3)}, ${versatz[1].toFixed(3)});`,
@@ -1468,8 +1580,8 @@ export class TerrainSplatMaterial {
           '  vec2 f = fract(uvKont);',
           // 0.02-Inset + 0.96-Stauchung halten das Sample innerhalb der
           // Tile-Zeile, damit die Nachbarzeile nicht hereinblutet.
-          `  float y = (vbZeile_${name}(layer) + 0.02 + f.y * 0.96) / ${ATLAS_ZEILEN}.0;`,
-          `  const float YS = 0.96 / ${ATLAS_ZEILEN}.0;`,
+          '  float y = (zeile + 0.02 + f.y * 0.96) / zeilen;',
+          '  float YS = 0.96 / zeilen;',
           '  vec3 c = textureGrad(atlas, vec2(f.x, y),',
           '                       vec2(ddx.x, ddx.y * YS),',
           '                       vec2(ddy.x, ddy.y * YS)).rgb;',
@@ -1488,6 +1600,8 @@ export class TerrainSplatMaterial {
       stapel.source.connectTo(o.atlas);
       tileUV.output.connectTo(o.uvKont);
       layerInput.connectTo(o.layer);
+      zeileKnoten(name, layerInput).connectTo(o.zeile);
+      stapelZeilenBlock.output.connectTo(o.zeilen);
       wps.xyzOut.connectTo(o.wpos);
       cameraPos.output.connectTo(o.cpos);
       return (cb as unknown as { result: NodeMaterialConnectionPoint }).result;

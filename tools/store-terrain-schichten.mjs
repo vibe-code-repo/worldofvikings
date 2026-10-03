@@ -104,6 +104,7 @@
  * `JSON.stringify(..., 2)` in fester Schlüsselreihenfolge geschrieben.
  * `scripts/run-tests.mjs` fährt genau das nach.
  */
+import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -192,6 +193,31 @@ const ZEILEN = 16;
  * oder abweicht.
  */
 export const STAPEL_VERSION = 2;
+
+/** Zeilenzahl des Stapels, wie das Werkzeug ihn baut (fuer `scripts/dev.mjs`). */
+export const STAPEL_ZEILEN_WERKZEUG = ZEILEN;
+
+/**
+ * Der Inhalts-Hash eines Stapels (SHA-256 der Dateibytes, 16 Hexstellen). Steht als `stapelHash` in
+ * `store-schichten.json`; der Client haengt ihn an die Stapel-URL. Er aendert sich genau dann, wenn sich
+ * die Bytes aendern, und bleibt bei einem Byte fuer Byte gleichen Stapel gleich (das Werkzeug ist deterministisch).
+ */
+export function inhaltsHash(bytes) {
+  return createHash('sha256').update(bytes).digest('hex').slice(0, 16);
+}
+
+/**
+ * Ist ein gebauter Stapel veraltet? `tabelle` ist der Inhalt von `store-schichten.json` (oder null, wenn die
+ * Datei fehlt oder nicht lesbar ist). Veraltet: keine Tabelle, andere Zeilenzahl, oder eine Layout-Version, die
+ * von `STAPEL_VERSION` abweicht. Eine Tabelle OHNE Version mit derselben Zeilenzahl (jeder Stapel von vor K3,
+ * etwa die rsync-Kopie von DEV) gilt als aktuell: seine Zeilen sind dieselben.
+ */
+export function stapelVeraltet(tabelle) {
+  if (!tabelle || typeof tabelle !== 'object') return true;
+  if (tabelle.zeilen !== ZEILEN) return true;
+  if (tabelle.version !== undefined && tabelle.version !== STAPEL_VERSION) return true;
+  return false;
+}
 
 /**
  * Die Schichten, wie sie im Store liegen, mit den Werten des VORBILDS
@@ -531,7 +557,11 @@ async function baue(kante) {
   };
   await schreiben(farbe, 'store_d_array.png');
   await schreiben(normale, 'store_n_array.png');
-  writeFileSync(resolve(AUS, 'store-schichten.json'), JSON.stringify(tabelle(kante), null, 2) + '\n');
+  const stapelHash = {
+    farbe: inhaltsHash(readFileSync(resolve(AUS, 'store_d_array.png'))),
+    normale: inhaltsHash(readFileSync(resolve(AUS, 'store_n_array.png'))),
+  };
+  writeFileSync(resolve(AUS, 'store-schichten.json'), JSON.stringify({ ...tabelle(kante), stapelHash }, null, 2) + '\n');
 
   const mb = (n) => (n / 1024 / 1024).toFixed(2);
   console.log(`[terrain-schichten] ${kante}² × ${ZEILEN} Zeilen`);

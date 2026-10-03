@@ -25,8 +25,8 @@ import { TILE } from '../shared/src/worldgen/bodenKacheln.js';
 import { SAAT, ZIEL, anteileAus, proben, raster, type Anteile } from './boden-greyglen-gelaende.js';
 
 const R = RAMPEN_JE_KACHEL[TILE.GreyGrass]!;
-const fein = proben(raster('fein'), 150);
-const grob = proben(raster('grob'), 300);
+const fein = proben(raster('fein'), 300);
+const grob = proben(raster('grob'), 600);
 
 function verlust(p: number[]): number {
   const r = { hang: { beginn: p[0]!, voll: p[1]! }, fels: { beginn: p[2]!, voll: p[3]!, anteil: p[4]! }, rau: { beginn: p[5]!, voll: p[6]!, anteil: p[7]! } };

@@ -77,6 +77,7 @@ import {
   ZUORDNUNG,
   tabelle,
   fehlendeDateien,
+  inhaltsHash,
 } from '../store-terrain-schichten.mjs';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
@@ -840,6 +841,21 @@ function irradianzStumpf(ny: number): { wH: number; wZ: number } {
     m.stdout === 'true' && n19.zeile === TILE_ZEILE[19],
     `${n19.normale} (${n19.normaleOrt ?? '—'}) ${m.stderr.slice(0, 120)}`
   );
+}
+
+/*
+  Der Inhalts-Hash der Stapel (N2): `store-schichten.json` fuehrt `stapelHash.farbe` und `.normale`, und beide sind
+  der Hash der Dateibytes, wie sie auf der Platte liegen. Der Client haengt sie an die Stapel-URL; ein Hash, der
+  nicht zum Inhalt gehoert, wuerde den Cache-Brecher abkoppeln.
+*/
+{
+  const tab = JSON.parse(readFileSync(join(AUS, 'store-schichten.json'), 'utf-8')) as { stapelHash?: { farbe?: string; normale?: string }; version?: number; zeilen?: number };
+  const farbe = inhaltsHash(readFileSync(join(AUS, 'store_d_array.png')));
+  const normale = inhaltsHash(readFileSync(join(AUS, 'store_n_array.png')));
+  check('store-schichten.json: stapelHash.farbe ist der Hash der Farbstapel-Datei', tab.stapelHash?.farbe === farbe, `${String(tab.stapelHash?.farbe)} gegen ${farbe}`);
+  check('store-schichten.json: stapelHash.normale ist der Hash der Normalenstapel-Datei', tab.stapelHash?.normale === normale, `${String(tab.stapelHash?.normale)} gegen ${normale}`);
+  check('die beiden Hashes sind verschieden (Farbe und Normale getrennt)', farbe !== normale);
+  check('store-schichten.json: Version und Zeilenzahl stehen drin', tab.version === 2 && tab.zeilen === STAPEL_ZEILEN);
 }
 
 /*

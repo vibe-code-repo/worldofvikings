@@ -1458,8 +1458,16 @@ export class TerrainManager {
         const biome = hm.getBiome(wx, wz);
         const tx = sstep(rx / ZONE_UNITS);
         const cb = hm.cornerBiomes;
-        // Passt der Texturstapel nicht zum Code, bekommen die Greyglen-Kacheln ihre Grasland-Entsprechung (K3).
-        const stapelOk = stapelBrauchbar();
+        // Die Greyglen-Kacheln (16-19) gelten nur in NAH-Chunks (eine Zone) und nur, wenn der
+        // Texturstapel zum Code passt. Sonst bekommen die Vertices ihre Grasland-Entsprechung
+        // (0, 11, 4, 5, `kachelFuerStapel`):
+        //  - passt der Stapel nicht, aus dem Grund der Rueckfall (K3);
+        //  - in FERN-Chunks (`zonesPerSide > 1`, 4-m-Raster) liegt der Vertex am Zonenrand schon in
+        //    der Nachbarzone, und das Dreieck dazwischen interpoliert die Kachel-NUMMER: zwischen 0
+        //    und 16 entstuenden dort die Kacheln 1-15 (Erde, Fels, Heide, Pflaster) als Streifen an
+        //    jeder Grenze Greyglen/Grasland. Mit denselben Nummern wie das Grasland (wie vor K3)
+        //    gibt es keine Zwischenwerte; dafuer gelten im Fernbild die Rampen des Graslands.
+        const stapelOk = stapelBrauchbar() && zonesPerSide === 1;
 
         // D5 fallback vertex colors (biome + sand/rock/snow/depth rules)
         const bc = BIOME_COLORS[biome] ?? COLOR_FALLBACK;
@@ -1511,7 +1519,11 @@ export class TerrainManager {
         // Art Tabelle wie `HANG_TILE`/`RAU_TILE` und wie diese über die
         // GRUNDKACHEL des Bioms indiziert, damit alle drei Stufen aus
         // einer Reihe kommen.
-        aRockTile[vi] = kachelFuerStapel(FELS_TILE[kachelFuerStapel(BIOME_TILE[biome] ?? TILE.Rock, stapelOk)] ?? TILE.Rock, stapelOk);
+        // Die Felskachel des Punktes ist immer die Grasland-Entsprechung (GreyRock 18 → Rock 4): dieselbe Stapelzeile,
+        // dieselben Oberflaechenwerte, also kein Unterschied im Bild. Greyglen liegt oft MITTEN in einer Zone neben
+        // einem anderen Biom; mit der Nummer 18 neben 4 entstuenden zwischen den Vertices die Kacheln 5-17 (Cliff,
+        // Asche, Pflaster …), in Nah- wie in Fern-Chunks.
+        aRockTile[vi] = kachelFuerStapel(FELS_TILE[BIOME_TILE[biome] ?? TILE.Rock] ?? TILE.Rock, false);
 
         if (farMaskUV) {
           aMaskUV[vi * 2] = farMaskUV[0];

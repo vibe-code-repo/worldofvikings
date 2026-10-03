@@ -34,11 +34,12 @@ import * as BM from '../../shared/src/worldgen/bodenMischung.js';
 import type { BodenQuelle, BodenZone } from '../../shared/src/worldgen/bodenMischung.js';
 import * as BK from '../../shared/src/worldgen/bodenKacheln.js';
 import * as TR from '../../shared/src/worldgen/terrainRampen.js';
-import { WATER_LEVEL } from '../../shared/src/worldgen/Heightmap.js';
+import { E_WIDTH, WATER_LEVEL } from '../../shared/src/worldgen/Heightmap.js';
 import { Biome } from '../../shared/src/types.js';
 import { felsMaskeShaderBei } from '../../shared/src/worldgen/felsRauschen.js';
 import * as WZ from '../store-terrain-schichten.mjs';
 import * as SPLAT from '../../client/src/engine/TerrainSplat.js';
+import { TerrainManager } from '../../client/src/engine/Terrain.js';
 import * as GEL from '../boden-greyglen-gelaende.js';
 import type { Anteile } from '../boden-greyglen-gelaende.js';
 
@@ -48,6 +49,8 @@ const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const GOLDEN = resolve(WURZEL, 'shared/test/golden/boden-mischung-alte-biome.json');
 
 let fehler = 0;
+/** Nebenlaeufige Pruefungen (Hash-Abruf): ihr Ergebnis steht vor dem Schlussstrich. */
+const asyncTests: Array<Promise<void>> = [];
 function pruefe(name: string, an: boolean, detail = ''): void {
   if (an) console.log(`  PASS ${name}${detail ? ` (${detail})` : ''}`);
   else {
@@ -268,38 +271,116 @@ console.log('\n[2] Stapel alt/neu und Rueckfall:');
   pruefe('ohne Rueckfall bleibt jede Kachel', Array.from({ length: 20 }, (_, k) => k).every((k) => BK.kachelFuerStapel(k, true) === k));
   pruefe('der Rueckfall hat dieselbe Oberflaeche wie die Greyglen-Kachel (Gras, Moos, Fels)',
     [16, 17, 18].every((k) => JSON.stringify(SCHICHT_OBERFLAECHE[BK.KACHEL_RUECKFALL[k]!]) === JSON.stringify(SCHICHT_OBERFLAECHE[k])));
+
+  // ── N2/F2: das Layout kommt aus der Textur, nicht aus einer festen 16 ──────────────────
+  const lay = SPLAT.stapelLayout;
+  pruefe('Layout 512 × 8192: Modus 0, 16 Zeilen', lay(512, 8192).modus === 0 && lay(512, 8192).zeilen === 16);
+  pruefe('Layout 512 × 10240 (Stapel des ersten Entwurfs): Modus 1, 20 Zeilen', lay(512, 10240).modus === 1 && lay(512, 10240).zeilen === 20);
+  pruefe('Layout 256 × 4096 und 1024 × 16384: Modus 0 (die Kante ist egal, das Verhaeltnis zaehlt)', lay(256, 4096).modus === 0 && lay(1024, 16384).modus === 0);
+  pruefe('Layout 512 × 4096 (8 Zeilen): Modus 2, Zeilenzahl aus der Hoehe', lay(512, 4096).modus === 2 && lay(512, 4096).zeilen === 8);
+  pruefe('Layout 512 × 6000 (nicht ganzzahlig) und 0 × 0: Modus 2', lay(512, 6000).modus === 2 && lay(0, 0).modus === 2 && lay(-1, 5).modus === 2);
+  {
+    const b0 = SPLAT.stapelBefundAusGroesse(512, 8192, 16384, 'Farbstapel');
+    pruefe('Befund Modus 0: gut, keine Meldung', b0.ok && b0.meldung === null);
+    pruefe('Befund Modus 0 auf einer Karte mit 4096 px: gut, aber laute Meldung zur Grenze', SPLAT.stapelBefundAusGroesse(512, 8192, 4096, 'Farbstapel').meldung?.includes('4096') === true);
+    const b1 = SPLAT.stapelBefundAusGroesse(512, 10240, 16384, 'Farbstapel');
+    pruefe('Befund Modus 1: gut (Greyglen hat dort eigene Zeilen), Hinweis mit Neubau', b1.ok && b1.meldung?.includes('store:boden') === true);
+    const b2 = SPLAT.stapelBefundAusGroesse(512, 4096, 16384, 'Normalenstapel');
+    pruefe('Befund Modus 2: nicht gut, laute Meldung mit Name, Groesse und Neubau', !b2.ok && b2.meldung?.includes('Normalenstapel') === true && b2.meldung.includes('512x4096') && b2.meldung.includes('store:boden'));
+  }
+  {
+    const l0 = lay(512, 8192), l1 = lay(512, 10240), l2 = lay(512, 4096);
+    pruefe('Zeile Modus 0 = TILE_ZEILE fuer alle 20 Kacheln', Array.from({ length: 20 }, (_, k) => SPLAT.stapelZeile(k, l0) === BK.TILE_ZEILE[k]).every(Boolean));
+    pruefe('Zeile Modus 1 = Kachel (jede Kachel ihre eigene Zeile)', Array.from({ length: 20 }, (_, k) => SPLAT.stapelZeile(k, l1) === k).every(Boolean));
+    pruefe('Zeile Modus 2: Greyglen liest die Zeile der Grasland-Entsprechung, jede Zeile unter der Hoehe',
+      SPLAT.stapelZeile(16, l2) === BK.TILE_ZEILE[0] && SPLAT.stapelZeile(17, l2) === Math.min(BK.TILE_ZEILE[11]!, l2.zeilen - 1) && SPLAT.stapelZeile(19, l2) === Math.min(BK.TILE_ZEILE[5]!, l2.zeilen - 1)
+        && Array.from({ length: 20 }, (_, k) => SPLAT.stapelZeile(k, l2)).every((z) => z >= 0 && z < l2.zeilen));
+    const code = SPLAT.zeileBlockCode('x').join('\n');
+    pruefe('Zeilenblock (GLSL): Modus 0 aus der Tabelle, Modus 1 die Kachel, Modus 2 Rueckfall mit Klemme, beide Tabellen mit 20 Werten',
+      code.includes('if (modus < 0.5) { row = VB_ZEILE_x[t]; }') && code.includes('else if (modus < 1.5) { row = float(t); }')
+        && code.includes('else { row = min(VB_ZEILE_x[int(VB_RUECK_x[t] + 0.5)], zeilen - 1.0); }')
+        && code.includes('const float VB_ZEILE_x[20]') && code.includes('const float VB_RUECK_x[20]')
+        && code.includes(BK.TILE_ZEILE.map((z) => z.toFixed(4)).join(', ')) && code.includes(BK.KACHEL_RUECKFALL.map((z) => z.toFixed(4)).join(', ')));
+  }
+  // Das Ergebnis der Pruefung steuert die Kacheln: Flag, Fehlerpfad (Mutanten N20/N25).
+  {
+    const meldungen: string[] = [];
+    const alt = console.error;
+    console.error = (...a: unknown[]): void => { meldungen.push(String(a[0])); };
+    SPLAT.stapelMelden(true);
+    pruefe('Flag: nach stapelMelden(true) brauchbar', SPLAT.stapelBrauchbar());
+    SPLAT.stapelFehlgeschlagen('Farbstapel', 'Zeitueberschreitung');
+    console.error = alt;
+    pruefe('Ladefehler: Flag falsch und eine laute Meldung mit Namen und Grund', !SPLAT.stapelBrauchbar() && meldungen.length === 1 && meldungen[0]!.includes('Farbstapel') && meldungen[0]!.includes('Zeitueberschreitung'));
+    SPLAT.stapelMelden(true);
+    pruefe('Flag zurueckgesetzt', SPLAT.stapelBrauchbar());
+  }
+  // ── N2/F3: der Cache-Brecher folgt dem Inhalt ───────────────────────────────────────────
+  pruefe('stapelUrl mit Hash: ?h=<Hash>, ohne Hash die nackte URL', SPLAT.stapelUrl('/a/s.png', 'abcdef0123456789') === '/a/s.png?h=abcdef0123456789' && SPLAT.stapelUrl('/a/s.png', undefined) === '/a/s.png');
+  {
+    const gut = { ok: true, json: async () => ({ stapelHash: { farbe: 'aaaaaaaaaaaaaaaa', normale: 'bbbbbbbbbbbbbbbb' } }) };
+    asyncTests.push((async () => {
+      const h = await SPLAT.stapelHashesHolen(async () => gut, 'u');
+      pruefe('Hashes aus der JSON gelesen (Farbe und Normale getrennt)', h.farbe === 'aaaaaaaaaaaaaaaa' && h.normale === 'bbbbbbbbbbbbbbbb');
+      const alt = await SPLAT.stapelHashesHolen(async () => ({ ok: true, json: async () => ({ zeilen: 16 }) }), 'u');
+      pruefe('alte JSON ohne stapelHash: keine Hashes (nackte URL)', alt.farbe === undefined && alt.normale === undefined);
+      const aus = await SPLAT.stapelHashesHolen(async () => { throw new Error('offline'); }, 'u');
+      pruefe('JSON nicht erreichbar: keine Hashes, keine Ausnahme', aus.farbe === undefined);
+      const nok = await SPLAT.stapelHashesHolen(async () => ({ ok: false, json: async () => ({}) }), 'u');
+      pruefe('JSON mit Fehlerstatus: keine Hashes', nok.farbe === undefined);
+      const kaputt = await SPLAT.stapelHashesHolen(async () => ({ ok: true, json: async () => { throw new Error('kein JSON'); } }), 'u');
+      pruefe('JSON unlesbar: keine Hashes', kaputt.farbe === undefined);
+      const boese = await SPLAT.stapelHashesHolen(async () => ({ ok: true, json: async () => ({ stapelHash: { farbe: '../x?y', normale: 12 } }) }), 'u');
+      pruefe('Hash in falscher Form (Pfadzeichen, Zahl) wird nicht uebernommen', boese.farbe === undefined && boese.normale === undefined);
+    })());
+  }
+  {
+    const a = Buffer.from('stapel-bytes'), b = Buffer.from('stapel-bytes'), c = Buffer.from('stapel-bytez');
+    pruefe('inhaltsHash: gleiche Bytes gleicher Hash (16 Hexstellen), ein anderes Byte anderer Hash',
+      WZ.inhaltsHash(a) === WZ.inhaltsHash(b) && WZ.inhaltsHash(a) !== WZ.inhaltsHash(c) && /^[0-9a-f]{16}$/.test(WZ.inhaltsHash(a)));
+  }
   const splat = readFileSync(resolve(WURZEL, 'client/src/engine/TerrainSplat.ts'), 'utf-8');
   const terrain = readFileSync(resolve(WURZEL, 'client/src/engine/Terrain.ts'), 'utf-8');
   pruefe('Terrain: alle vier Eckkacheln und die Felskachel gehen durch kachelFuerStapel',
     (terrain.match(/kachelFuerStapel\(BIOME_TILE\[cb\[[0-3]\]\] \?\? TILE\.Rock, stapelOk\)/g) ?? []).length === 4
-      && terrain.includes('kachelFuerStapel(FELS_TILE[kachelFuerStapel(BIOME_TILE[biome] ?? TILE.Rock, stapelOk)] ?? TILE.Rock, stapelOk)'));
-  pruefe('Splat: beide Stapel werden mit ?v=Layoutversion geladen und beim Laden geprueft',
-    splat.includes('`${splatDatei}?v=${STAPEL_VERSION}`') && splat.includes('?v=${STAPEL_VERSION}`, scene, false, false')
-      && splat.includes("stapelPruefen(splatTex, 'Farbstapel')") && splat.includes("stapelPruefen(nTex, 'Normalenstapel')")
-      && splat.includes("stapelFehler('Farbstapel')") && splat.includes("stapelFehler('Normalenstapel')"));
-  pruefe('Splat: Hoehe gegen STAPEL_ZEILEN, laute Meldung, Rueckfall-Flag, Grenze der Grafikkarte',
-    /if \(!stapelPasst\(gr\.width, gr\.height\)\) \{\s*stapelBrauchbarFlag = false;\s*console\.error/.test(splat) && splat.includes('gr.height > maxTex'));
+      && terrain.includes('aRockTile[vi] = kachelFuerStapel(FELS_TILE[BIOME_TILE[biome] ?? TILE.Rock] ?? TILE.Rock, false);'));
+  pruefe('Terrain: die Greyglen-Kacheln gelten nur im Nah-Chunk und bei brauchbarem Stapel', terrain.includes('const stapelOk = stapelBrauchbar() && zonesPerSide === 1;'));
+  pruefe('Splat: beide Texturen entstehen ohne URL und bekommen sie nach dem Lesen der JSON (mit Hash)',
+    (splat.match(/new Texture\(null, scene, false, false, Texture\.TRILINEAR_SAMPLINGMODE, null, /g) ?? []).length === 2
+      && splat.includes("splatTex.updateURL(stapelUrl(splatDatei, STORE_BODEN_AKTIV ? h.farbe : undefined), null, () => stapelGeladen(splatTex, 'Farbstapel'))")
+      && splat.includes("nTexRef.updateURL(stapelUrl(`${STORE_TEX_BASE}store_n_array.png`, h.normale), null, () => stapelGeladen(nTexRef!, 'Normalenstapel'))")
+      && splat.includes('stapelHashesHolen((u) => fetch(u, { cache: \'no-cache\' }), `${STORE_TEX_BASE}store-schichten.json`)'));
+  pruefe('Splat: Ladefehler beider Stapel gehen in stapelFehlgeschlagen (Rueckfall-Flag)',
+    splat.includes("(msg) => stapelFehlgeschlagen('Farbstapel', msg)") && splat.includes("(msg) => stapelFehlgeschlagen('Normalenstapel', msg)"));
+  pruefe('Splat: nach dem Laden Befund aus der Groesse, Uniforms und Flag gesetzt',
+    splat.includes('stapelModusBlock.value = befund.layout.modus;') && splat.includes('stapelZeilenBlock.value = befund.layout.zeilen;') && splat.includes('if (!befund.ok) stapelMelden(false);'));
+  pruefe('Splat: die Uniforms stapelModus und stapelZeilen sind Eingaenge der Zeilenknoten (Kachel, Modus, Zeilen)',
+    splat.includes('kachel.connectTo(z.tile!);') && splat.includes('stapelModusBlock.output.connectTo(z.modus!);') && splat.includes('stapelZeilenBlock.output.connectTo(z.zeilen!);'));
+  pruefe('Splat: alle drei Abtaststellen (Dreifach, Einzel, WebGPU) nehmen die Zeile aus dem Zeilenknoten',
+    splat.includes('zeileKnoten(name, layerInput).connectTo(ot.zeile);') && splat.includes('zeileKnoten(name, layerInput).connectTo(o.zeile);')
+      && splat.includes('zeileKnoten(name, layerInput).connectTo(layerInset.left);'));
+  pruefe('Splat: Zeilenzahl als Uniform an beiden GLSL-Bloecken und im WebGPU-Pfad geteilt',
+    splat.includes('stapelZeilenBlock.output.connectTo(ot.zeilen);') && splat.includes('stapelZeilenBlock.output.connectTo(o.zeilen);')
+      && splat.includes('stapelZeilenBlock.output.connectTo(yAtlas.right);') && splat.includes('const yAtlas = new DivideBlock(`tile_${name}_yAtlas`);'));
+  pruefe('Splat: WebGPU-Zeilenblock ist ein Float-Block mit den drei Eingaengen und dem Ausgang row (Mutanten N47/N48)',
+    splat.includes("functionName: `vbZeileBlk_${name}`,") && splat.includes("{ name: 'tile', type: 'Float' },") && splat.includes("{ name: 'modus', type: 'Float' },")
+      && splat.includes("outParameters: [{ name: 'row', type: 'Float' }],") && splat.includes('code: zeileBlockCode(name),') && splat.includes('return z.row!;'));
   const dev = readFileSync(resolve(WURZEL, 'scripts/dev.mjs'), 'utf-8');
-  pruefe('dev.mjs ruft stapelVeraltet() vor dem Neubau auf', dev.includes('!existsSync(generiert) || stapelVeraltet()'));
-  // Verhalten: die Funktion aus dem Quelltext holen und mit einem erfundenen Dateisystem laufen lassen.
-  const fn = /function stapelVeraltet\(\) \{[\s\S]*?\n\}\n/.exec(dev)?.[0];
-  pruefe('dev.mjs: stapelVeraltet() lesbar', fn !== undefined);
-  if (fn) {
-    const lauf = (dateien: Record<string, string>): boolean =>
-      new Function('WURZEL', 'existsSync', 'readFileSync', 'resolve', `${fn}\nreturn stapelVeraltet();`)(
-        '/w', (p: string) => p in dateien, (p: string) => { if (!(p in dateien)) throw new Error('fehlt'); return dateien[p]; }, (...t: string[]) => t.join('/'),
-      ) as boolean;
-    const werkzeug = 'export const STAPEL_VERSION = 2;\nconst ZEILEN = 16;\n';
-    const json = (v: number, z: number): string => JSON.stringify({ version: v, zeilen: z });
-    const T = '/w/tools/store-terrain-schichten.mjs';
-    const J = '/w/assets/generiert/terrain/store-schichten.json';
-    pruefe('dev.mjs: passender Stapel (Version 2, 16 Zeilen) bleibt', lauf({ [T]: werkzeug, [J]: json(2, 16) }) === false);
-    pruefe('dev.mjs: Stapel ohne store-schichten.json wird neu gebaut', lauf({ [T]: werkzeug }) === true);
-    pruefe('dev.mjs: Stapel mit anderer Version wird neu gebaut (1 gegen 2)', lauf({ [T]: werkzeug, [J]: json(1, 16) }) === true);
-    pruefe('dev.mjs: Stapel mit anderer Zeilenzahl wird neu gebaut (20 gegen 16)', lauf({ [T]: werkzeug, [J]: json(2, 20) }) === true);
-    pruefe('dev.mjs: Stapel ohne Version im JSON (alter Stand) wird neu gebaut', lauf({ [T]: werkzeug, [J]: JSON.stringify({ zeilen: 16 }) }) === true);
-    pruefe('dev.mjs: unlesbares JSON wird neu gebaut', lauf({ [T]: werkzeug, [J]: '{' }) === true);
-  }
+  pruefe('dev.mjs: entscheidet ueber das Werkzeug (stapelVeraltet) und baut NUR store:boden, unter der Bau-Sperre',
+    dev.includes('werkzeug.stapelVeraltet(tabelle)') && dev.includes("['build', '--', npm, 'run', 'store:boden']")
+      && dev.includes("if (storeDa && existsSync(storeLab) && existsSync(generiert) && (await stapelVeraltetPruefen())) {"));
+  pruefe('dev.mjs: store:aufbereiten (schreibt getrackte Dateien) laeuft nur, wenn store-lab oder generiert FEHLT',
+    dev.includes("if (storeDa && (!existsSync(storeLab) || !existsSync(generiert))) {") && dev.indexOf("['store:aufbereiten', 'store:boden']") > dev.indexOf("if (storeDa && (!existsSync(storeLab) || !existsSync(generiert))) {")
+      && (dev.match(/store:aufbereiten/g) ?? []).length === 2 && !dev.includes('|| stapelVeraltet()'));
+  pruefe('dev.mjs wartet auf die Vorbereitung (await)', dev.includes('\nawait assetsVorbereiten();\n'));
+  // Die Entscheidung selbst (Werkzeug).
+  const alt16 = { zeilen: 16 };
+  pruefe('stapelVeraltet: keine/kaputte Tabelle → veraltet', WZ.stapelVeraltet(null) === true && WZ.stapelVeraltet('x') === true && WZ.stapelVeraltet(undefined) === true);
+  pruefe('stapelVeraltet: JSON von vor K3 (16 Zeilen, ohne Version) → aktuell, KEIN Neubau', WZ.stapelVeraltet(alt16) === false);
+  pruefe('stapelVeraltet: Version 2 und 16 Zeilen → aktuell', WZ.stapelVeraltet({ zeilen: 16, version: 2 }) === false);
+  pruefe('stapelVeraltet: andere Version → veraltet', WZ.stapelVeraltet({ zeilen: 16, version: 1 }) === true && WZ.stapelVeraltet({ zeilen: 16, version: 3 }) === true);
+  pruefe('stapelVeraltet: andere Zeilenzahl → veraltet (auch ohne Version, auch mit richtiger)', WZ.stapelVeraltet({ zeilen: 20 }) === true && WZ.stapelVeraltet({ zeilen: 20, version: 2 }) === true && WZ.stapelVeraltet({}) === true);
+  pruefe('das Werkzeug fuehrt die Zeilenzahl, die dev.mjs vergleicht', WZ.STAPEL_ZEILEN_WERKZEUG === 16);
 }
 
 // ── 3. Rampen je Grundkachel ─────────────────────────────────────────
@@ -347,7 +428,19 @@ console.log('\n[3] Rampen je Grundkachel:');
     vorher = m;
   }
   pruefe('die Rampe aendert sich stetig ueber die Gewichte (kein Schritt ueber 1,01 % der Spanne in 100 Schritten)', maxSprung <= 0.0101, maxSprung.toFixed(5));
-}
+
+  // Greyglen auf JEDER einzelnen Ecke (Mutanten N02: vierte Ecke in der Identitaetspruefung, N07: Gewichtsreihenfolge).
+  for (let e = 0; e < 4; e++) {
+    const sets = [TR.RAMPEN, TR.RAMPEN, TR.RAMPEN, TR.RAMPEN];
+    sets[e] = g;
+    const w = [0, 0, 0, 0];
+    w[e] = 1;
+    const m = TR.mischeRampen(sets, w);
+    pruefe(`Greyglen nur auf Ecke ${e}, Gewicht 1 dort: genau die Greyglen-Rampe`, (Object.keys(rg) as Array<keyof typeof rg>).every((k) => Math.abs(m[k] - rg[k]) < 1e-12));
+    const w2 = [0.25, 0.25, 0.25, 0.25];
+    const m2 = TR.mischeRampen(sets, w2);
+    pruefe(`Greyglen nur auf Ecke ${e}, alle Gewichte 0,25: ein Viertel Greyglen, drei Viertel global`, (Object.keys(rg) as Array<keyof typeof rg>).every((k) => Math.abs(m2[k] - (0.25 * rg[k] + 0.75 * rw[k])) < 1e-12));
+  }}
 
 // ── 4. Biomgrenze Greyglen / Grasland ────────────────────────────────
 console.log('\n[4] Naht an der Biomgrenze (Bodenart-Mischung, 0,25-m-Schritte quer ueber eine Zone):');
@@ -460,6 +553,22 @@ console.log('\n[6] Aeltere Biome bitgleich (Golden vor K3):');
     pruefe('GEMISCHTE Ecken (400 Zonen, 2000 Punkte, Lavamaske, Schnee, Punktbiom ≠ Ecken) bitgleich', g.gemischt === alteBiomeGemischtHash());
     pruefe('die Tabellen der 16 alten Kacheln (BIOME_TILE ohne 128, Hang/Fels/Rau, RAMPEN, Bodenart, Regeln) unveraendert', JSON.stringify(g.tabellen) === JSON.stringify(alteTabellen()));
   }
+  // Greyglen auf jeder einzelnen Ecke: an der Ecke selbst gilt dort die Greyglen-Rampe (Mutant N07, Gewichte der Rampenmischung umgekehrt).
+  {
+    const c = (g: number): number => Math.cos((g * Math.PI) / 180);
+    const kGrey = (c(19) - c(24)) / (c(19) - c(26));
+    const orte: Array<[number, number]> = [[-32, -32], [32, -32], [-32, 32], [32, 32]];
+    for (let e = 0; e < 4; e++) {
+      const ecken = [1, 1, 1, 1];
+      ecken[e] = 128;
+      const q: BodenQuelle = {
+        getGroundHeight: (x) => WATER_LEVEL + 20 + Math.tan((24 * Math.PI) / 180) * x,
+        getZoneAt: () => ({ zoneX: 0, zoneY: 0, cornerBiomes: ecken as unknown as BodenZone['cornerBiomes'], getBiome: () => Biome.Meadows, getVegetationMask: () => 0 }),
+      };
+      const r = BM.kachelMischungBei(orte[e]![0], orte[e]![1], q);
+      pruefe(`Greyglen nur auf Ecke ${e}, Punkt auf dieser Ecke: die Hangdeckung der Greyglen-Rampe (${kGrey.toFixed(4)})`, Math.abs(r[`kachel${BK.TILE.GreyMoss}`] - kGrey) < 1e-9, r[`kachel${BK.TILE.GreyMoss}`].toFixed(6));
+    }
+  }
   // Gleichstand der dominanten Ecke: bei vier gleichen Gewichten gilt die LETZTE (wie `step(w, next)` im Shader).
   const mitte = (ecken: number[]): Record<string, number> =>
     BM.kachelMischungBei(0, 0, {
@@ -550,23 +659,19 @@ console.log('\n[7] Shader:');
     "'    hb = VB_HANG_B[i0]; hw = VB_HANG_W[i0]; fb = VB_FELS_B[i0]; fw = VB_FELS_W[i0]; fa = VB_FELS_A[i0];'",
     "'    rb = VB_RAU_B[i0]; rw = VB_RAU_W[i0]; ra = VB_RAU_A[i0];'",
     'const KACHEL_MAX = (TILE_ANZAHL - 1).toFixed(1);',
-    'const ATLAS_ZEILEN = STAPEL_ZEILEN;',
     '`  int i = int(clamp(t, 0.0, ${KACHEL_MAX}) + 0.5);`',
     // Alle Tabellenzugriffe auf Kachel-Indizes klemmen auf KACHEL_MAX (Mutanten 11-13 des Angriffs).
     '`int vbIdx(float tile) { return int(clamp(tile, 0.0, ${KACHEL_MAX}) + 0.5); }`',
     '`  float st = VB_NST_${name}[int(clamp(layer, 0.0, ${KACHEL_MAX}) + 0.5)];`',
     '`  return VB_KACHEL_${suffix}[int(clamp(tile, 0.0, ${KACHEL_MAX}) + 0.5)];`',
-    '`  return VB_ZEILE_${suffix}[int(clamp(tile, 0.0, ${KACHEL_MAX}) + 0.5)];`',
-    '...glslTabelle(`VB_ZEILE_${suffix}`, TILE_ZEILE)',
-    '`  float y = (vbZeile_${name}(layer) + 0.02 + f.y * 0.96) / ${ATLAS_ZEILEN}.0;`',
-    'cnst(`tile_${name}_atlasHoehe`, 1 / ATLAS_ZEILEN)',
     '(felsKAus ?? rockKRoh.output).connectTo(rockK.left)',
     "glslTabelle('VB_NSTAERKE', SCHICHT_OBERFLAECHE.map((o) => o.normalStaerke))",
     "glslTabelle('VB_METALLIC', SCHICHT_OBERFLAECHE.map((o) => o.metallic))",
     "glslTabelle('VB_GLAETTE', SCHICHT_OBERFLAECHE.map((o) => o.smoothness))",
   ]) pruefe(`Shader-Zeile: ${zeile.slice(0, 80)}`, splat.includes(zeile));
-  pruefe('genau zwei Stellen berechnen die Stapel-y mit vbZeile (Dreifach- und Einzelsample)', (splat.match(/\(vbZeile_\$\{name\}\(layer\) \+ 0\.02/g) ?? []).length === 2);
-  pruefe('keine feste 16 / 15.0 mehr in den Tabellenzugriffen', !/0\.0, 15\.0\)/.test(splat) && !/\) \/ 16\.0;/.test(splat));
+  pruefe('genau zwei GLSL-Stellen rechnen die Stapel-y aus Zeile und Zeilenzahl (Dreifach- und Einzelsample)', (splat.match(/'  float y = \(zeile \+ 0\.02 \+ f\.y \* 0\.96\) \/ zeilen;'/g) ?? []).length === 2
+    && (splat.match(/'  float YS = 0\.96 \/ zeilen;'/g) ?? []).length === 2);
+  pruefe('keine feste 16 / 15.0 mehr in den Tabellenzugriffen und keine feste Zeilenzahl im y', !/0\.0, 15\.0\)/.test(splat) && !/\) \/ 16\.0;/.test(splat) && !/ATLAS_ZEILEN/.test(splat));
   // glslTabelle selbst: Laenge, Ziffern, exakt.
   const t4 = SPLAT.glslTabelle('X', [0.123456789, 1]).join('\n');
   pruefe('glslTabelle: Laenge aus der Liste, vier Stellen', t4.includes('const float X[2] = float[2](') && t4.includes('0.1235, 1.0000'));
@@ -579,8 +684,92 @@ console.log('\n[7] Shader:');
     SPLAT.glslTabelle('X', [felsAlt], 'exakt').join('').includes(String(felsAlt)) && !SPLAT.glslTabelle('X', [felsAlt], 'exakt').join('').includes('0.8660)'));
 }
 
-if (fehler > 0) {
-  console.error(`\n${fehler} FEHLER`);
-  process.exit(1);
+// ── 8. Fern-Chunks (N2/Z2) ───────────────────────────────────────────
+console.log('\n[8] Fern- und Nah-Chunks an einer Grenze Greyglen/Grasland (echter Gitterbau, erfundene Zonen):');
+{
+  // Greyglen ab der Zonenecke-Spalte 1 (Weltx >= 32); links Grasland.
+  const biomAnSpalte = (cx: number): number => (cx >= 1 ? 128 : 1);
+  const zonen = new Map<string, unknown>();
+  const zone = (zx: number, zy: number): unknown => {
+    const k = `${zx},${zy}`;
+    if (!zonen.has(k)) {
+      zonen.set(k, {
+        zoneX: zx, zoneY: zy, heights: new Float32Array(E_WIDTH * E_WIDTH).fill(50),
+        cornerBiomes: [biomAnSpalte(zx), biomAnSpalte(zx + 1), biomAnSpalte(zx), biomAnSpalte(zx + 1)],
+        getBiome: (x: number) => (x >= 32 ? 128 : 1), getVegetationMask: () => 0,
+      });
+    }
+    return zonen.get(k);
+  };
+  type Gitter = { aTiles: Float32Array; aRockTile: Float32Array };
+  const baue = (zx0: number, zonenJeSeite: number, schritt: number): { d: Gitter; n: number } => {
+    const tm = Object.create(TerrainManager.prototype) as { world: unknown; buildGridGeometry: (...a: unknown[]) => Gitter };
+    tm.world = { heightmaps: { getZone: zone } };
+    return { d: tm.buildGridGeometry(zx0, 0, zonenJeSeite, schritt, 0), n: (zonenJeSeite * 64) / schritt + 1 };
+  };
+  const erlaubt = new Set([BK.BIOME_TILE[1]!, BK.BIOME_TILE[128]!]);
+  const erlaubtFels = new Set([BK.FELS_TILE[BK.BIOME_TILE[1]!]!, BK.FELS_TILE[BK.BIOME_TILE[128]!]!]);
+  /** Alle Ganzzahlen, die beim Interpolieren entlang einer Dreieckskante (zwischen den Werten zweier Vertices) vorkommen. */
+  const fremde = (g: Gitter, n: number): { ecken: Set<number>; fels: Set<number> } => {
+    const ecken = new Set<number>();
+    const fels = new Set<number>();
+    const kante = (va: number, vb: number): void => {
+      for (let c = 0; c < 4; c++) {
+        const a = g.aTiles[va * 4 + c]!, b = g.aTiles[vb * 4 + c]!;
+        for (let k = Math.ceil(Math.min(a, b)); k <= Math.floor(Math.max(a, b)); k++) if (!erlaubt.has(k)) ecken.add(k);
+      }
+      const a = g.aRockTile[va]!, b = g.aRockTile[vb]!;
+      for (let k = Math.ceil(Math.min(a, b)); k <= Math.floor(Math.max(a, b)); k++) if (!erlaubtFels.has(k)) fels.add(k);
+    };
+    for (let iy = 0; iy < n; iy++) {
+      for (let ix = 0; ix < n; ix++) {
+        const v = iy * n + ix;
+        if (ix + 1 < n) kante(v, v + 1);
+        if (iy + 1 < n) kante(v, v + n);
+        if (ix + 1 < n && iy + 1 < n) { kante(v, v + n + 1); kante(v + 1, v + n); }
+      }
+    }
+    return { ecken, fels };
+  };
+  SPLAT.stapelMelden(true);
+  const fern = baue(0, 2, 4);
+  const f = fremde(fern.d, fern.n);
+  pruefe('FERN-Chunk ueber die Grenze (Zonen 0 und 1, Schritt 4): zwischen zwei Vertices nur Eckkacheln der beiden Biome, keine Zwischenwerte (Erde, Fels, Heide, Pflaster …)',
+    f.ecken.size === 0, `fremde Kacheln: ${[...f.ecken].join(',')}`);
+  pruefe('FERN-Chunk: dasselbe fuer die Felskachel (aRockTile)', f.fels.size === 0, `fremde Felskacheln: ${[...f.fels].join(',')}`);
+  pruefe('FERN-Chunk: im Fernbild stehen die Grasland-Entsprechungen, keine Greyglen-Kachel 16–19', Array.from(fern.d.aTiles).every((t) => t < 16) && Array.from(fern.d.aRockTile).every((t) => t < 16));
+  const nah = baue(1, 1, 1);
+  pruefe('NAH-Chunk (eine Zone, Greyglen): behaelt die Greyglen-Kachel 16; die Felskachel ist die Entsprechung 4 (dieselbe Zeile und Werte wie GreyRock 18)', Array.from(nah.d.aTiles).every((t) => t === BK.TILE.GreyGrass) && Array.from(nah.d.aRockTile).every((t) => t === BK.TILE.Rock) && JSON.stringify(SCHICHT_OBERFLAECHE[BK.TILE.Rock]) === JSON.stringify(SCHICHT_OBERFLAECHE[BK.TILE.GreyRock]) && BK.TILE_ZEILE[BK.TILE.Rock] === BK.TILE_ZEILE[BK.TILE.GreyRock]);
+  const nahGrenze = baue(0, 1, 1);
+  const fg = fremde(nahGrenze.d, nahGrenze.n);
+  pruefe('NAH-Chunk an der Grenze (Zone 0): ebenfalls nur Kacheln der beiden Biome zwischen den Vertices', fg.ecken.size === 0 && fg.fels.size === 0, `${[...fg.ecken].join(',')} / ${[...fg.fels].join(',')}`);
+  // Passt der Stapel nicht (Ladefehler), bekommt auch ein NAH-Chunk die Grasland-Entsprechungen (Mutant N20).
+  SPLAT.stapelMelden(false);
+  const nahOhne = baue(1, 1, 1);
+  pruefe('Stapel unbrauchbar: ein Nah-Chunk in Greyglen bekommt Grasland (0 und Felskachel 4), keine 16–19', Array.from(nahOhne.d.aTiles).every((t) => t === 0) && Array.from(nahOhne.d.aRockTile).every((t) => t === BK.FELS_TILE[0]));
+  SPLAT.stapelMelden(true);
+  const nahWieder = baue(1, 1, 1);
+  pruefe('… und nach stapelMelden(true) wieder die Greyglen-Kacheln', Array.from(nahWieder.d.aTiles).every((t) => t === BK.TILE.GreyGrass));
+  // Vergleichsfall: zwei alte Biome (Grasland/Asche) im Fernbild bleiben wie vor K3 (die Klasse gibt es, K3 aendert sie nicht).
+  const biomAlt = (cx: number): number => (cx >= 1 ? 32 : 1);
+  const zonenAlt = new Map<string, unknown>();
+  const zoneAlt = (zx: number, zy: number): unknown => {
+    const k = `${zx},${zy}`;
+    if (!zonenAlt.has(k)) zonenAlt.set(k, { zoneX: zx, zoneY: zy, heights: new Float32Array(E_WIDTH * E_WIDTH).fill(50), cornerBiomes: [biomAlt(zx), biomAlt(zx + 1), biomAlt(zx), biomAlt(zx + 1)], getBiome: (x: number) => (x >= 32 ? 32 : 1), getVegetationMask: () => 0 });
+    return zonenAlt.get(k);
+  };
+  const tmAlt = Object.create(TerrainManager.prototype) as { world: unknown; buildGridGeometry: (...a: unknown[]) => Gitter };
+  tmAlt.world = { heightmaps: { getZone: zoneAlt } };
+  const dAlt = tmAlt.buildGridGeometry(0, 0, 2, 4, 0);
+  pruefe('Grasland/Asche im Fernbild: die Kacheln sind die Nummern 0 und 7 wie vor K3 (unveraendert, die Zwischenwerte dieser alten Grenze bleiben)',
+    new Set(Array.from(dAlt.aTiles)).size === 2 && new Set(Array.from(dAlt.aTiles)).has(0) && new Set(Array.from(dAlt.aTiles)).has(7));
 }
-console.log('\nALLE GRUEN');
+
+function ende(): void {
+  if (fehler > 0) {
+    console.error(`\n${fehler} FEHLER`);
+    process.exit(1);
+  }
+  console.log('\nALLE GRUEN');
+}
+void Promise.all(asyncTests).then(ende);

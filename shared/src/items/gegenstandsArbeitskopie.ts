@@ -388,6 +388,9 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   const ernteAlsBasis = (id: string): boolean => Object.keys(basisEintraege?.get(id)?.ernte ?? {}).length > 0;
   const repoHatErnte = (id: string): boolean => Object.keys(repoLesung.eintraege.find((e) => e.id === id)?.ernte ?? {}).length > 0;
   const ernteUnklar: string[] = [];
+  const ohneErnteKonflikt = new Set<string>();
+  // the state the file worked under is unknown: no basis file, an unreadable one, or a hash that is no known state
+  const standUnbekannt = basis === null || (basis.text === null && basisEintraege === null);
   for (const roh of dokument.gegenstaende) {
     const id = idVon(roh);
     const imRepo = id !== null && repoKanon.has(id);
@@ -402,20 +405,24 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
     const kanonBasis = id === null ? null : kanonVonRoh(gegenBasis);
     const gleichRepo = imRepo && kanonRepo !== null && kanonRepo === repoKanon.get(id!);
     const gleichBasis = id !== null && (dateiIstBasis || (basisKanon !== null && kanonBasis !== null && basisKanon.get(id) === kanonBasis));
+    const ernteFehlt = typeof roh === 'object' && roh !== null && ernteFehltRoh((roh as { ernte?: unknown }).ernte);
     if (id !== null && (gleichRepo || gleichBasis)) {
       bereinigt.push(id);
       if (!imRepo) entfallen.push(id);
+      // An entry without `ernte` that goes although the state it worked under is unknown: under GD1 that may once have meant "harvests
+      // nothing". The game value does not change (it inherits), but the editor should see it.
+      if (standUnbekannt && ernteFehlt && repoHatErnte(id)) ernteUnklar.push(id);
     } else {
-      const ernteFehlt = typeof roh === 'object' && roh !== null && ernteFehltRoh((roh as { ernte?: unknown }).ernte);
       if (ernteFehlt && ernteAlsBasis(id!)) { // (`ernteAlsBasis` is false while the basis state is unknown)
         behalten.push({ ...(roh as object), ernte: {} });
         ernteFestgeschrieben.push(id!);
       } else {
         behalten.push(roh);
         // the state of an old file is unknown (no basis, or a basis that is no known state) or the basis is unusable: nothing is written
-        if ((basis === null || (basis.text === null && basisEintraege === null)) && ernteFehlt && repoHatErnte(id!)) ernteUnklar.push(id!);
+        if (standUnbekannt && ernteFehlt && repoHatErnte(id!)) ernteUnklar.push(id!);
       }
       if (imRepo) abweichend.push(id!);
+      if (imRepo && ernteFehlt) ohneErnteKonflikt.add(id!);
     }
   }
   // An abweichende id counts as a conflict when its repo entry changed since the basis (known exactly with a full basis;
@@ -455,12 +462,18 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
     (entfallen.length > 0 ? ` Nicht mehr im Repo (Eintrag unberuehrt, entfernt): ${entfallen.join(', ')}.` : '') +
     (basisUnbekannt ? ` Die alte Basis (Hash ${kurz(basisHash)}) ist keine bekannte Repo-Fassung und laesst sich nicht aus der Datei aufbauen: nur Gleichheit mit dem Repo-Stand zaehlt.` : '') +
     (basisKaputt ? ' Die Basisdatei war unlesbar und wird neu geschrieben.' : '') +
-    (ernteUnklar.length > 0 ? ` Eintraege ohne ernte-Feld (${ernteUnklar.join(', ')}): der Stand, unter dem die Datei wirkte, ist unbekannt (Basis fehlt, ist unlesbar oder keine bekannte Repo-Fassung), es wird nichts festgeschrieben; das fehlende Feld erbt die Ernte des Grundeintrags (im Spiel gilt sie, auch nachdem das Repo ein gesperrtes Feld aendert).` : '');
+    (ernteUnklar.length > 0 ? ` Eintraege ohne ernte-Feld (${ernteUnklar.join(', ')}): der Stand, unter dem die Datei wirkte, ist unbekannt (Basis fehlt, ist unlesbar oder keine bekannte Repo-Fassung), es wird nichts festgeschrieben; hier war moeglicherweise einmal "erntet nichts" gemeint. Das fehlende Feld erbt die Ernte des Grundeintrags (im Spiel gilt sie, auch nachdem das Repo ein gesperrtes Feld aendert); der Wert im Spiel aendert sich dadurch nicht.` : '');
   if (konfliktIds.length > 0) {
+    // An entry WITHOUT an `ernte` field inherits the harvest of the base entry (the game reads it so): a changed repo harvest reaches it
+    // at once. Only entries WITH an own `ernte` keep it until they are reset.
+    const mitErnte = konfliktIds.filter((id) => !ohneErnteKonflikt.has(id));
+    const ohneErnte = konfliktIds.filter((id) => ohneErnteKonflikt.has(id));
     return ergebnis(
       'konflikt',
       `[Gegenstaende] WARNUNG Konflikt: das Repo hat sich geaendert (Basis ${kurz(basisHash)} → Repo ${kurz(repoHash)}), die Arbeitskopie hat abweichende Grundgegenstaende (${konfliktIds.join(', ')}). ` +
-        `Es wird NICHTS ueberschrieben; die Arbeitskopie gilt (${arbeitsPfad}). Bis GD3 ist nur \`ernte\` aenderbar: alle anderen Felder folgen dem Repo, eine geaenderte \`ernte\` des Repos kommt fuer diese Gegenstaende erst an, wenn der Eintrag im Editor auf den Grundstand zurueckgesetzt wird.` +
+        `Es wird NICHTS ueberschrieben; die Arbeitskopie gilt (${arbeitsPfad}). Bis GD3 ist nur \`ernte\` aenderbar: alle anderen Felder folgen dem Repo.` +
+        (mitErnte.length > 0 ? ` Eine geaenderte \`ernte\` des Repos kommt fuer ${mitErnte.join(', ')} (eigene \`ernte\`) erst an, wenn der Eintrag im Editor auf den Grundstand zurueckgesetzt wird.` : '') +
+        (ohneErnte.length > 0 ? ` ${ohneErnte.join(', ')} hat kein \`ernte\`-Feld und folgt der Ernte des Repos sofort.` : '') +
         aenderung + zusatz,
       { ...mehr, abweichend }
     );

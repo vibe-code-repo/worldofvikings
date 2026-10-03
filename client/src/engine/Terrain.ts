@@ -43,7 +43,7 @@ import {
 } from '@wov/shared';
 import { BODEN_REGELN } from '@wov/shared/src/worldgen/bodenKacheln.js';
 import type { ClientWorld } from '../world/World';
-import { TerrainSplatMaterial, TILE, BIOME_TILE, FELS_TILE, maskUV, maskUVEmpty } from './TerrainSplat';
+import { TerrainSplatMaterial, TILE, BIOME_TILE, FELS_TILE, kachelFuerStapel, greyGewicht, markerLava, maskUV, maskUVEmpty } from './TerrainSplat';
 import type { HimmelsFarben } from './TerrainSplat';
 import { WaterPlugin } from './WaterPlugin';
 import { WaterRefraction } from './WaterRefraction';
@@ -1458,6 +1458,11 @@ export class TerrainManager {
         const biome = hm.getBiome(wx, wz);
         const tx = sstep(rx / ZONE_UNITS);
         const cb = hm.cornerBiomes;
+        // Die Vertices tragen IMMER die Grasland-Entsprechung der Greyglen-Kacheln (16→0, 17→11, 18→4, 19→5,
+        // `kachelFuerStapel(…, false)`), nie die Nummer 16-19: Die Kachel ist ein Float, der ueber das Dreieck
+        // interpoliert wird, im Fern-Chunk (4-m-Raster) ueber Zonengrenzen; zwischen 0 und 16 entstuenden dort
+        // die Kacheln 1-15 (Erde, Fels, Heide, Pflaster) als Streifen. Die Greyglen-Zugehoerigkeit steht stattdessen
+        // als stetiges Gewicht im Lava-Kanal (`markerLava`, negativ); der Shader mischt damit die Rampen.
 
         // D5 fallback vertex colors (biome + sand/rock/snow/depth rules)
         const bc = BIOME_COLORS[biome] ?? COLOR_FALLBACK;
@@ -1481,19 +1486,22 @@ export class TerrainManager {
           const k = Math.min(1, (ROCK_SLOPE - ny) / 0.25);
           blend(colors, vi, ROCK, k * 0.85);
         }
-        aTiles[vi * 4] = BIOME_TILE[cb[0]] ?? TILE.Rock;
-        aTiles[vi * 4 + 1] = BIOME_TILE[cb[1]] ?? TILE.Rock;
-        aTiles[vi * 4 + 2] = BIOME_TILE[cb[2]] ?? TILE.Rock;
-        aTiles[vi * 4 + 3] = BIOME_TILE[cb[3]] ?? TILE.Rock;
+        aTiles[vi * 4] = kachelFuerStapel(BIOME_TILE[cb[0]] ?? TILE.Rock, false);
+        aTiles[vi * 4 + 1] = kachelFuerStapel(BIOME_TILE[cb[1]] ?? TILE.Rock, false);
+        aTiles[vi * 4 + 2] = kachelFuerStapel(BIOME_TILE[cb[2]] ?? TILE.Rock, false);
+        aTiles[vi * 4 + 3] = kachelFuerStapel(BIOME_TILE[cb[3]] ?? TILE.Rock, false);
         aWeights[vi * 4] = (1 - tx) * (1 - ty);
         aWeights[vi * 4 + 1] = tx * (1 - ty);
         aWeights[vi * 4 + 2] = (1 - tx) * ty;
         aWeights[vi * 4 + 3] = tx * ty;
 
-        aLava[vi] =
-          biome === Biome.AshLands
-            ? Math.min(1, Math.max(0, hm.getVegetationMask(wx, wz)))
-            : 0;
+        aLava[vi] = markerLava(
+          biome === Biome.AshLands ? Math.min(1, Math.max(0, hm.getVegetationMask(wx, wz))) : 0,
+          greyGewicht(
+            [BIOME_TILE[cb[0]] ?? 0, BIOME_TILE[cb[1]] ?? 0, BIOME_TILE[cb[2]] ?? 0, BIOME_TILE[cb[3]] ?? 0],
+            [aWeights[vi * 4]!, aWeights[vi * 4 + 1]!, aWeights[vi * 4 + 2]!, aWeights[vi * 4 + 3]!]
+          )
+        );
         aSnow[vi] =
           biome === Biome.Mountain && h > SNOW_LINE
             ? Math.min(1, (h - SNOW_LINE) / BODEN_REGELN.schneeAnstieg)
@@ -1509,7 +1517,11 @@ export class TerrainManager {
         // Art Tabelle wie `HANG_TILE`/`RAU_TILE` und wie diese über die
         // GRUNDKACHEL des Bioms indiziert, damit alle drei Stufen aus
         // einer Reihe kommen.
-        aRockTile[vi] = FELS_TILE[BIOME_TILE[biome] ?? TILE.Rock] ?? TILE.Rock;
+        // Die Felskachel des Punktes ist immer die Grasland-Entsprechung (GreyRock 18 → Rock 4): dieselbe Stapelzeile,
+        // dieselben Oberflaechenwerte, also kein Unterschied im Bild. Greyglen liegt oft MITTEN in einer Zone neben
+        // einem anderen Biom; mit der Nummer 18 neben 4 entstuenden zwischen den Vertices die Kacheln 5-17 (Cliff,
+        // Asche, Pflaster …), in Nah- wie in Fern-Chunks.
+        aRockTile[vi] = kachelFuerStapel(FELS_TILE[BIOME_TILE[biome] ?? TILE.Rock] ?? TILE.Rock, false);
 
         if (farMaskUV) {
           aMaskUV[vi * 2] = farMaskUV[0];

@@ -39,7 +39,7 @@ import { TextureBlock } from '@babylonjs/core/Materials/Node/Blocks/Dual/texture
 import { ImageSourceBlock } from '@babylonjs/core/Materials/Node/Blocks/Dual/imageSourceBlock';
 import { SonnenSchattenBlock } from './SonnenSchattenBlock';
 import { FELS_RAUSCHEN, felsRauschenGlsl } from './felsRauschen';
-import { RAMPEN, nyBeiGrad } from './terrainRampen';
+import { RAMPEN, nyBeiGrad, rampenTabelle } from './terrainRampen';
 // Derselbe Exponent wie in den Shader-Pfaden für Standard und PBR — der
 // gerichtete Nebel muss über alle drei Materialfamilien identisch
 // abgestimmt sein, sonst zeigt der Boden einen anderen Sonnenton als der
@@ -73,8 +73,18 @@ import { Constants } from '@babylonjs/core/Engines/constants';
 import { Color3, Vector2, Vector3, Vector4 } from '@babylonjs/core/Maths/math';
 import type { Scene } from '@babylonjs/core/scene';
 
-import { TILE, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, BODEN_REGELN } from '@wov/shared/src/worldgen/bodenKacheln.js';
-export { TILE, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE };
+import {
+  TILE, TILE_ANZAHL, STAPEL_ZEILEN, TILE_ZEILE, STAPEL_VERSION, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, BODEN_REGELN, KACHEL_RUECKFALL, kachelFuerStapel, greyGewicht, markerLava, greyAusMarker,
+} from '@wov/shared/src/worldgen/bodenKacheln.js';
+import {
+  stapelBrauchbar, stapelMelden, stapelBeobachten, stapelFehlgeschlagen, stapelBefundAusGroesse, stapelBefundAusTextur,
+  stapelLayout, stapelPasst, stapelUrl, stapelHashesHolen, stapelZeile, type StapelLayout, type StapelBefundErgebnis,
+} from './StapelLayout';
+export {
+  stapelBrauchbar, stapelMelden, stapelBeobachten, stapelFehlgeschlagen, stapelBefundAusGroesse, stapelBefundAusTextur,
+  stapelLayout, stapelPasst, stapelUrl, stapelHashesHolen, stapelZeile, type StapelLayout, type StapelBefundErgebnis,
+};
+export { TILE, TILE_ANZAHL, STAPEL_ZEILEN, TILE_ZEILE, STAPEL_VERSION, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, kachelFuerStapel, greyGewicht, markerLava, greyAusMarker };
 
 const TEX_BASE = '/assets/textures/';
 
@@ -214,6 +224,14 @@ export const SCHICHT_OBERFLAECHE: readonly SchichtOberflaeche[] = [
   /* 13 SwampDark */ { kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
   /* 14 Basalt    */ { kachelMeter: 7, normalStaerke: 2, metallic: 0, smoothness: 0 },
   /* 15 LavaCrust */ { kachelMeter: 2, normalStaerke: 0.7, metallic: 0, smoothness: 0.1 },
+  // Greyglen (K3): Gras, Moos, Fels und rauer Fels (eigene Normale), je Zeile
+  // die Werte der Quellschicht (Gras wie Kachel 0, Moos wie 11, Fels wie 4,
+  // rauer Fels wie 5 mit eigener Normale). Der Stapel hat dafuer keine eigenen
+  // Zeilen, siehe `TILE_ZEILE`.
+  /* 16 GreyGrass    */ { kachelMeter: 2, normalStaerke: 2, metallic: 0.7, smoothness: 0 },
+  /* 17 GreyMoss     */ { kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
+  /* 18 GreyRock     */ { kachelMeter: 5, normalStaerke: 1.5, metallic: 0.2, smoothness: 0.2 },
+  /* 19 GreyRockMoss */ { kachelMeter: 7, normalStaerke: 2, metallic: 0, smoothness: 0 },
 ];
 
 
@@ -271,12 +289,66 @@ export { RAMPEN, nyBeiGrad };
 export { FELS_RAUSCHEN };
 
 
-const HANG_BEGINN = nyBeiGrad(RAMPEN.hang.beginn);
-const HANG_VOLL = nyBeiGrad(RAMPEN.hang.voll);
 const FELS_BEGINN = nyBeiGrad(RAMPEN.fels.beginn);
 const FELS_VOLL = nyBeiGrad(RAMPEN.fels.voll);
-const RAU_BEGINN = nyBeiGrad(RAMPEN.rau.beginn);
-const RAU_VOLL = nyBeiGrad(RAMPEN.rau.voll);
+
+/** Letzter gueltiger Kachel-Index in den GLSL-Tabellen (die Tabellen haben `TILE_ANZAHL` Zeilen). */
+const KACHEL_MAX = (TILE_ANZAHL - 1).toFixed(1);
+
+/**
+ * GLSL-Nachschlagetabelle aus einer Liste: `const float NAME[n] = float[n](…)`.
+ *
+ * Ziffern: Vorgabe 4 (`toFixed(4)`, wie alle Oberflaechentabellen seit jeher).
+ * `'exakt'` schreibt die volle Zahl (`String(w)`), so wie Babylon eine Konstante
+ * schreibt; die Felsrampe nutzt das, damit der Shader fuer die aelteren Biome
+ * dieselben Zahlen hat wie vor K3.
+ */
+export function glslTabelle(name: string, werte: readonly number[], ziffern: number | 'exakt' = 4): string[] {
+  const zahl = (w: number): string => (ziffern === 'exakt' ? (Number.isInteger(w) ? w.toFixed(1) : String(w)) : w.toFixed(ziffern));
+  return [
+    `const float ${name}[${werte.length}] = float[${werte.length}](`,
+    '  ' + werte.map(zahl).join(', '),
+    ');',
+  ];
+}
+
+/**
+ * Der Unterschied der Greyglen-Rampe zur globalen Rampe, je Wert, als GLSL-Konstanten `VB_GREY_D_<WERT>`
+ * (Greyglen minus Grasland). Der Shader addiert ihn mal dem Greyglen-Gewicht zur Rampe der Ecken. Hang und Rau
+ * rechnen mit den auf vier Stellen gerundeten Tabellenwerten (wie die Tabellen selbst), der Fels in voller Genauigkeit.
+ */
+export function greyDeltaGlslVon(saetze: ReturnType<typeof rampenTabelle>): string[] {
+  const werte = (r: (typeof saetze)[number]): Record<string, number> => ({
+    HANG_B: Number(nyBeiGrad(r.hang.beginn).toFixed(4)),
+    HANG_W: Number((nyBeiGrad(r.hang.beginn) - nyBeiGrad(r.hang.voll)).toFixed(4)),
+    FELS_B: nyBeiGrad(r.fels.beginn),
+    FELS_W: nyBeiGrad(r.fels.beginn) - nyBeiGrad(r.fels.voll),
+    FELS_A: r.fels.anteil,
+    RAU_B: Number(nyBeiGrad(r.rau.beginn).toFixed(4)),
+    RAU_W: Number((nyBeiGrad(r.rau.beginn) - nyBeiGrad(r.rau.voll)).toFixed(4)),
+    RAU_A: Number(r.rau.anteil.toFixed(4)),
+  });
+  const grey = werte(saetze[TILE.GreyGrass]!);
+  const global = werte(saetze[TILE.Grass]!);
+  return Object.keys(grey).map((k) => {
+    const d = grey[k]! - global[k]!;
+    return `const float VB_GREY_D_${k} = ${Number.isInteger(d) ? d.toFixed(1) : String(d)};`;
+  });
+}
+
+/** Der GLSL-Block, der aus Kachel, Modus und Zeilenzahl die Stapelzeile macht (je Abtaststelle ein eigener Name). */
+export function zeileBlockCode(name: string): string[] {
+  return [
+    ...glslTabelle(`VB_ZEILE_${name}`, TILE_ZEILE),
+    ...glslTabelle(`VB_RUECK_${name}`, KACHEL_RUECKFALL),
+    `void vbZeileBlk_${name}(float tile, float modus, float zeilen, out float row) {`,
+    `  int t = int(clamp(tile, 0.0, ${KACHEL_MAX}) + 0.5);`,
+    `  if (modus < 0.5) { row = VB_ZEILE_${name}[t]; }`,
+    `  else if (modus < 1.5) { row = float(t); }`,
+    `  else { row = min(VB_ZEILE_${name}[int(VB_RUECK_${name}[t] + 0.5)], zeilen - 1.0); }`,
+    '}',
+  ];
+}
 
 /**
  * Weltmeter → Kachel-UV. `0.5` heisst: eine Wiederholung je 2 m.
@@ -852,7 +924,42 @@ export class TerrainSplatMaterial {
     const splatDatei = STORE_BODEN_AKTIV
       ? STORE_TEX_BASE + 'store_d_array.png'
       : TEX_BASE + 'terrain_d_array.png';
-    const splatTex = new Texture(splatDatei, scene, false, false, Texture.TRILINEAR_SAMPLINGMODE);
+    // Der Stapel wird ueber seinen INHALTS-Hash geladen (`store-schichten.json`, Feld `stapelHash`): ein Browser
+    // mit gemerktem Stapel holt ihn neu, wenn sich die Bytes aendern (z. B. die echte Normale kommt dazu), und
+    // nicht, wenn nichts anders ist. Dazu wird die kleine JSON zuerst gelesen; die Texturen entstehen ohne URL
+    // und bekommen sie danach (`updateURL`). Fehlt die JSON oder ein Hash, laedt die nackte URL.
+    //
+    // Die Uniforms `stapelModus`/`stapelZeilen` sagen dem Shader, wie der geladene Stapel zu lesen ist
+    // (`stapelLayout`); sie wirken sofort auf alle Chunks, auch auf die vor dem Ladeergebnis gebauten.
+    const stapelModusBlock = new InputBlock('stapelModus');
+    stapelModusBlock.value = STORE_BODEN_AKTIV ? 0 : 1;
+    const stapelZeilenBlock = new InputBlock('stapelZeilen');
+    stapelZeilenBlock.value = STAPEL_ZEILEN;
+    // Das Greyglen-Gewicht aus den Vertices (Lava-Kanal) gilt nur, solange der Stapel zum Code passt; sonst
+    // rechnet der Boden mit den globalen Rampen (Grasland).
+    const greyOkBlock = new InputBlock('greyOk');
+    greyOkBlock.value = stapelBrauchbar() ? 1 : 0;
+    stapelBeobachten((ok) => { greyOkBlock.value = ok ? 1 : 0; });
+    const stapelGeladen = (tex: Texture, was: string): void => {
+      const befund = stapelBefundAusTextur(tex, scene.getEngine().getCaps().maxTextureSize, was);
+      stapelModusBlock.value = befund.layout.modus;
+      stapelZeilenBlock.value = befund.layout.zeilen;
+      if (!befund.ok) stapelMelden(false);
+      if (befund.meldung) (befund.ok ? console.warn : console.error)(befund.meldung);
+    };
+    const splatTex = new Texture(null, scene, false, false, Texture.TRILINEAR_SAMPLINGMODE, null, (msg) => stapelFehlgeschlagen('Farbstapel', msg));
+    let nTexRef: Texture | null = null;
+    // Die JSON ist klein und wird zuerst gelesen (ein Roundtrip mehr, dafuer kennt der Client den Hash vor dem
+    // Laden der zwei grossen Dateien); nach 4 s Wartezeit laden die Stapel ohne Hash.
+    const mitZeitlimit = (u: string): Promise<Response> =>
+      fetch(u, { cache: 'no-cache', signal: typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(4000) : undefined });
+    void stapelHashesHolen(mitZeitlimit, `${STORE_TEX_BASE}store-schichten.json`).then((h) => {
+      if (STORE_BODEN_AKTIV && (!h.farbe || !h.normale)) {
+        console.warn('[terrain] store-schichten.json nennt keinen Stapel-Hash (alte Tabelle oder nicht lesbar); die Stapel laden ohne Cache-Brecher. `npm run store:boden` schreibt ihn.');
+      }
+      splatTex.updateURL(stapelUrl(splatDatei, STORE_BODEN_AKTIV ? h.farbe : undefined), null, () => stapelGeladen(splatTex, 'Farbstapel'));
+      if (nTexRef) nTexRef.updateURL(stapelUrl(`${STORE_TEX_BASE}store_n_array.png`, h.normale), null, () => stapelGeladen(nTexRef!, 'Normalenstapel'));
+    });
     splatTex.anisotropicFilteringLevel = maxAniso;
     splatTex.wrapU = Texture.WRAP_ADDRESSMODE;
     splatTex.wrapV = Texture.CLAMP_ADDRESSMODE;
@@ -1016,9 +1123,8 @@ export class TerrainSplatMaterial {
      */
     let normalQuelle: ImageSourceBlock | null = null;
     if (STORE_BODEN_AKTIV) {
-      const nTex = new Texture(
-        STORE_TEX_BASE + 'store_n_array.png', scene, false, false, Texture.TRILINEAR_SAMPLINGMODE
-      );
+      const nTex = new Texture(null, scene, false, false, Texture.TRILINEAR_SAMPLINGMODE, null, (msg) => stapelFehlgeschlagen('Normalenstapel', msg));
+      nTexRef = nTex;
       nTex.anisotropicFilteringLevel = maxAniso;
       nTex.wrapU = Texture.WRAP_ADDRESSMODE;
       nTex.wrapV = Texture.CLAMP_ADDRESSMODE;
@@ -1026,21 +1132,6 @@ export class TerrainSplatMaterial {
       normalQuelle.texture = nTex;
     }
 
-    /**
-     * GLSL-Nachschlagetabellen aus einer TypeScript-Liste.
-     *
-     * Ein `const float[16]` mit dynamischem Index ist in GLSL ES 3.00
-     * (unser WebGL2-Pfad) erlaubt und kostet keine Textur, keinen
-     * Sampler und kein Uniform. Erzeugt statt getippt, damit die Zahl im
-     * Shader dieselbe ist wie die in `SCHICHT_OBERFLAECHE` — eine von
-     * Hand nachgeführte Kopie wäre genau die Sorte Fehler, die niemand
-     * sieht, weil beide Fassungen für sich plausibel aussehen.
-     */
-    const glslTabelle = (name: string, werte: readonly number[]): string[] => [
-      `const float ${name}[16] = float[16](`,
-      '  ' + werte.map((w) => w.toFixed(4)).join(', '),
-      ');',
-    ];
     /**
      * Der UV-Faktor je Schicht: 2 m (die Kachelung des Splats, `uvScale`
      * 0.5) geteilt durch das Kachelmass der Schicht. Rauer Fels ist im
@@ -1056,12 +1147,36 @@ export class TerrainSplatMaterial {
      * der Shader unübersetzbar — dieselbe Vorsichtsmassnahme, die
      * `vbTileSample_${name}` schon trifft.
      */
+    /**
+     * Kachel → Stapelzeile als eigener Float-Block (kein Sampler-Argument, damit auch im WebGPU-Pfad
+     * uebersetzbar). Eingaenge: die Kachel, `stapelModus`, `stapelZeilen`; Ausgang: die Zeile.
+     */
+    const zeileKnoten = (name: string, kachel: NodeMaterialConnectionPoint): NodeMaterialConnectionPoint => {
+      const zb = new CustomBlock(`tile_${name}_zeile`);
+      zb.options = {
+        name: `tile_${name}_zeile`,
+        target: 'Fragment',
+        functionName: `vbZeileBlk_${name}`,
+        inParameters: [
+          { name: 'tile', type: 'Float' },
+          { name: 'modus', type: 'Float' },
+          { name: 'zeilen', type: 'Float' },
+        ],
+        outParameters: [{ name: 'row', type: 'Float' }],
+        code: zeileBlockCode(name),
+      };
+      const z = zb as unknown as Record<string, NodeMaterialConnectionPoint>;
+      kachel.connectTo(z.tile!);
+      stapelModusBlock.output.connectTo(z.modus!);
+      stapelZeilenBlock.output.connectTo(z.zeilen!);
+      return z.row!;
+    };
     const kachelGlsl = (suffix: string): string[] =>
       STORE_BODEN_AKTIV
         ? [
             ...glslTabelle(`VB_KACHEL_${suffix}`, kachelFaktoren),
             `float vbKachelFaktor_${suffix}(float tile) {`,
-            `  return VB_KACHEL_${suffix}[int(clamp(tile, 0.0, 15.0) + 0.5)];`,
+            `  return VB_KACHEL_${suffix}[int(clamp(tile, 0.0, ${KACHEL_MAX}) + 0.5)];`,
             '}',
           ]
         : [`float vbKachelFaktor_${suffix}(float tile) { return 1.0; }`];
@@ -1210,15 +1325,16 @@ export class TerrainSplatMaterial {
         const fy = new MultiplyBlock(`tile_${name}_fy`);
         f.y.connectTo(fy.left);
         cnst(`tile_${name}_yinset`, 0.96).output.connectTo(fy.right);
+        // Kachel → Stapelzeile (`TILE_ZEILE`, je nach Stapel-Layout), auch im WebGPU-Pfad.
         const layerInset = new AddBlock(`tile_${name}_layerInset`);
-        layerInput.connectTo(layerInset.left);
+        zeileKnoten(name, layerInput).connectTo(layerInset.left);
         cnst(`tile_${name}_padding`, 0.02).output.connectTo(layerInset.right);
         const ySumme = new AddBlock(`tile_${name}_ySumme`);
         layerInset.output.connectTo(ySumme.left);
         fy.output.connectTo(ySumme.right);
-        const yAtlas = new MultiplyBlock(`tile_${name}_yAtlas`);
+        const yAtlas = new DivideBlock(`tile_${name}_yAtlas`);
         ySumme.output.connectTo(yAtlas.left);
-        cnst(`tile_${name}_atlasHoehe`, 1 / 16).output.connectTo(yAtlas.right);
+        stapelZeilenBlock.output.connectTo(yAtlas.right);
 
         const atlasUv = new VectorMergerBlock(`tile_${name}_atlasUv`);
         f.x.connectTo(atlasUv.x);
@@ -1259,6 +1375,8 @@ export class TerrainSplatMaterial {
             { name: 'atlas', type: 'sampler2D' },
             { name: 'uvKont', type: 'Vector2' },
             { name: 'layer', type: 'Float' },
+            { name: 'zeile', type: 'Float' },
+            { name: 'zeilen', type: 'Float' },
             { name: 'wpos', type: 'Vector3' },
             { name: 'cpos', type: 'Vector3' },
             { name: 'nrm', type: 'Vector3' },
@@ -1273,16 +1391,16 @@ export class TerrainSplatMaterial {
             // Eine Ebene abtasten. Identisch zur bisherigen Zeile im
             // Einzelsample-Zweig — Inset 0,02, Stauchung 0,96, y-Gradient
             // in den Atlasraum skaliert.
-            `vec3 vbEbene_${name}(sampler2D atlas, vec2 uvKont, vec2 ddx, vec2 ddy, float layer) {`,
+            'vec3 vbEbene_' + name + '(sampler2D atlas, vec2 uvKont, vec2 ddx, vec2 ddy, float zeile, float zeilen) {',
             '  vec2 f = fract(uvKont);',
-            '  float y = (layer + 0.02 + f.y * 0.96) / 16.0;',
-            '  const float YS = 0.96 / 16.0;',
+            '  float y = (zeile + 0.02 + f.y * 0.96) / zeilen;',
+            '  float YS = 0.96 / zeilen;',
             '  vec3 c = textureGrad(atlas, vec2(f.x, y),',
             '                       vec2(ddx.x, ddx.y * YS),',
             '                       vec2(ddy.x, ddy.y * YS)).rgb;',
             linearisieren ? '  return pow(c, vec3(2.2));' : '  return c;',
             '}',
-            `void ${fn}(sampler2D atlas, vec2 uvKontRoh, float layer, vec3 wpos, vec3 cpos,`,
+            `void ${fn}(sampler2D atlas, vec2 uvKontRoh, float layer, float zeile, float zeilen, vec3 wpos, vec3 cpos,`,
             '                       vec3 nrm, out vec3 result) {',
             `  float k = ${freq.toFixed(4)} * vbKachelFaktor_${name}(layer);`,
             `  vec2 vs = vec2(${versatz[0].toFixed(3)}, ${versatz[1].toFixed(3)});`,
@@ -1309,7 +1427,7 @@ export class TerrainSplatMaterial {
                   // Drei Abtastungen für einen Faktor null wären der
                   // teuerste Weg, nichts zu tun.
                   '  if (w.x >= 1.0) { result = N; return; }',
-                  `  float st = VB_NST_${name}[int(clamp(layer, 0.0, 15.0) + 0.5)];`,
+                  `  float st = VB_NST_${name}[int(clamp(layer, 0.0, ${KACHEL_MAX}) + 0.5)];`,
                   '  vec3 acc = vec3(0.0);',
                   // Whiteout-Mischung (die übliche Konstruktion für
                   // triplanare Normalen): Jede Karte wird in der
@@ -1319,15 +1437,15 @@ export class TerrainSplatMaterial {
                   // hinein — die Beleuchtung kippt dann genau dort, wo
                   // die Streifen vorher waren.
                   '  if (w.x > 0.0) {',
-                  `    vec3 m = vbEbene_${name}(atlas, uvO, dOx, dOy, layer) * 2.0 - 1.0; m.xy *= st;`,
+                  `    vec3 m = vbEbene_${name}(atlas, uvO, dOx, dOy, zeile, zeilen) * 2.0 - 1.0; m.xy *= st;`,
                   '    acc += vec3(m.xy + N.xz, abs(m.z) * N.y).xzy * w.x;',
                   '  }',
                   '  if (w.y > 0.0) {',
-                  `    vec3 m = vbEbene_${name}(atlas, uvX, dXx, dXy, layer) * 2.0 - 1.0; m.xy *= st;`,
+                  `    vec3 m = vbEbene_${name}(atlas, uvX, dXx, dXy, zeile, zeilen) * 2.0 - 1.0; m.xy *= st;`,
                   '    acc += vec3(m.xy + N.zy, abs(m.z) * N.x).zyx * w.y;',
                   '  }',
                   '  if (w.z > 0.0) {',
-                  `    vec3 m = vbEbene_${name}(atlas, uvZ, dZx, dZy, layer) * 2.0 - 1.0; m.xy *= st;`,
+                  `    vec3 m = vbEbene_${name}(atlas, uvZ, dZx, dZy, zeile, zeilen) * 2.0 - 1.0; m.xy *= st;`,
                   '    acc += vec3(m.xy + N.xy, abs(m.z) * N.z).xyz * w.z;',
                   '  }',
                   '  result = normalize(acc);',
@@ -1336,9 +1454,9 @@ export class TerrainSplatMaterial {
                   // `0.0 + c · 1.0` ist `c` bitgenau — daran hängt der
                   // Nachweis „flacher Boden unverändert".
                   '  vec3 acc = vec3(0.0);',
-                  `  if (w.x > 0.0) acc += vbEbene_${name}(atlas, uvO, dOx, dOy, layer) * w.x;`,
-                  `  if (w.y > 0.0) acc += vbEbene_${name}(atlas, uvX, dXx, dXy, layer) * w.y;`,
-                  `  if (w.z > 0.0) acc += vbEbene_${name}(atlas, uvZ, dZx, dZy, layer) * w.z;`,
+                  `  if (w.x > 0.0) acc += vbEbene_${name}(atlas, uvO, dOx, dOy, zeile, zeilen) * w.x;`,
+                  `  if (w.y > 0.0) acc += vbEbene_${name}(atlas, uvX, dXx, dXy, zeile, zeilen) * w.y;`,
+                  `  if (w.z > 0.0) acc += vbEbene_${name}(atlas, uvZ, dZx, dZy, zeile, zeilen) * w.z;`,
                   '  result = acc;',
                 ]),
             '}',
@@ -1348,6 +1466,8 @@ export class TerrainSplatMaterial {
         stapel.source.connectTo(ot.atlas);
         tileUV.output.connectTo(ot.uvKont);
         layerInput.connectTo(ot.layer);
+        zeileKnoten(name, layerInput).connectTo(ot.zeile);
+        stapelZeilenBlock.output.connectTo(ot.zeilen);
         wps.xyzOut.connectTo(ot.wpos);
         cameraPos.output.connectTo(ot.cpos);
         nrmEingang.connectTo(ot.nrm);
@@ -1361,13 +1481,15 @@ export class TerrainSplatMaterial {
           { name: 'atlas', type: 'sampler2D' },
           { name: 'uvKont', type: 'Vector2' },
           { name: 'layer', type: 'Float' },
+          { name: 'zeile', type: 'Float' },
+          { name: 'zeilen', type: 'Float' },
           { name: 'wpos', type: 'Vector3' },
           { name: 'cpos', type: 'Vector3' },
         ],
         outParameters: [{ name: 'result', type: 'Vector3' }],
         code: [
           ...kachelGlsl(name),
-          `void ${fn}(sampler2D atlas, vec2 uvKontRoh, float layer, vec3 wpos, vec3 cpos, out vec3 result) {`,
+          `void ${fn}(sampler2D atlas, vec2 uvKontRoh, float layer, float zeile, float zeilen, vec3 wpos, vec3 cpos, out vec3 result) {`,
           // Kachelmass je Schicht (Store-Pfad; im Altbestand konstant 1).
           // VOR dem Versatz, damit der Versatz in Kachelbreiten bleibt.
           `  vec2 uvKont = uvKontRoh * (${freq.toFixed(4)} * vbKachelFaktor_${name}(layer)) + vec2(${versatz[0].toFixed(3)}, ${versatz[1].toFixed(3)});`,
@@ -1393,8 +1515,8 @@ export class TerrainSplatMaterial {
           '  vec2 f = fract(uvKont);',
           // 0.02-Inset + 0.96-Stauchung halten das Sample innerhalb der
           // Tile-Zeile, damit die Nachbarzeile nicht hereinblutet.
-          '  float y = (layer + 0.02 + f.y * 0.96) / 16.0;',
-          '  const float YS = 0.96 / 16.0;',
+          '  float y = (zeile + 0.02 + f.y * 0.96) / zeilen;',
+          '  float YS = 0.96 / zeilen;',
           '  vec3 c = textureGrad(atlas, vec2(f.x, y),',
           '                       vec2(ddx.x, ddx.y * YS),',
           '                       vec2(ddy.x, ddy.y * YS)).rgb;',
@@ -1413,6 +1535,8 @@ export class TerrainSplatMaterial {
       stapel.source.connectTo(o.atlas);
       tileUV.output.connectTo(o.uvKont);
       layerInput.connectTo(o.layer);
+      zeileKnoten(name, layerInput).connectTo(o.zeile);
+      stapelZeilenBlock.output.connectTo(o.zeilen);
       wps.xyzOut.connectTo(o.wpos);
       cameraPos.output.connectTo(o.cpos);
       return (cb as unknown as { result: NodeMaterialConnectionPoint }).result;
@@ -1621,8 +1745,6 @@ export class TerrainSplatMaterial {
     };
     wps.xyzOut.connectTo((felsRauschen as unknown as Record<string, never>).wpos);
     const felsMaske = (felsRauschen as unknown as { result: NodeMaterialConnectionPoint }).result;
-    const rockK = new MultiplyBlock('rockK');
-    rockKRoh.output.connectTo(rockK.left); felsMaske.connectTo(rockK.right);
 
     // ── Die zwei fehlenden Stufen der Steigungsrampe ────────────────
     // Bisher kannte der Splat genau eine Schwelle: Fels ab 30°. Das
@@ -1639,10 +1761,13 @@ export class TerrainSplatMaterial {
     let hangTeil: NodeMaterialConnectionPoint | null = null;
     let rauTeil: NodeMaterialConnectionPoint | null = null;
     let hangKAus: NodeMaterialConnectionPoint | null = null;
+    let felsKAus: NodeMaterialConnectionPoint | null = null;
+    const rampenSaetze = rampenTabelle();
     let rauKAus: NodeMaterialConnectionPoint | null = null;
     let hangTileAus: NodeMaterialConnectionPoint | null = null;
     let rauTileAus: NodeMaterialConnectionPoint | null = null;
     if (STORE_BODEN_AKTIV) {
+      const greyDeltaGlsl = greyDeltaGlslVon(rampenSaetze);
       const hangWahl = new CustomBlock('terrainHangWahl');
       hangWahl.options = {
         name: 'terrainHangWahl',
@@ -1652,19 +1777,38 @@ export class TerrainSplatMaterial {
           { name: 'tiles', type: 'Vector4' },
           { name: 'weights', type: 'Vector4' },
           { name: 'ny', type: 'Float' },
+          { name: 'marker', type: 'Float' },
+          { name: 'greyOk', type: 'Float' },
         ],
         outParameters: [
           { name: 'hangTile', type: 'Float' },
           { name: 'rauTile', type: 'Float' },
           { name: 'hangK', type: 'Float' },
           { name: 'rauK', type: 'Float' },
+          { name: 'felsK', type: 'Float' },
         ],
         code: [
           ...glslTabelle('VB_HANG', HANG_TILE),
           ...glslTabelle('VB_RAU', RAU_TILE),
-          'void vbHangWahl(vec4 tiles, vec4 weights, float ny,',
+          // Die Rampen JE GRUNDKACHEL (`RAMPEN_JE_KACHEL`): Beginn (als `ny`),
+          // Breite (Beginn − Voll in `ny`) und Deckel je Stufe. Kacheln ohne
+          // eigene Zeile tragen die Zahlen von `RAMPEN`.
+          ...glslTabelle('VB_HANG_B', rampenSaetze.map((r) => nyBeiGrad(r.hang.beginn))),
+          ...glslTabelle('VB_HANG_W', rampenSaetze.map((r) => nyBeiGrad(r.hang.beginn) - nyBeiGrad(r.hang.voll))),
+          // Die Felsrampe in voller Genauigkeit, wie sie vor K3 als Konstante stand.
+          ...glslTabelle('VB_FELS_B', rampenSaetze.map((r) => nyBeiGrad(r.fels.beginn)), 'exakt'),
+          ...glslTabelle('VB_FELS_W', rampenSaetze.map((r) => nyBeiGrad(r.fels.beginn) - nyBeiGrad(r.fels.voll)), 'exakt'),
+          ...glslTabelle('VB_FELS_A', rampenSaetze.map((r) => r.fels.anteil), 'exakt'),
+          ...glslTabelle('VB_RAU_B', rampenSaetze.map((r) => nyBeiGrad(r.rau.beginn))),
+          ...glslTabelle('VB_RAU_W', rampenSaetze.map((r) => nyBeiGrad(r.rau.beginn) - nyBeiGrad(r.rau.voll))),
+          ...glslTabelle('VB_RAU_A', rampenSaetze.map((r) => r.rau.anteil)),
+          // Welche Zeilen denselben Satz tragen (Kennung = erste Kachel mit diesem Satz).
+          ...glslTabelle('VB_RAMPE_ID', rampenSaetze.map((r) => rampenSaetze.indexOf(r))),
+          // Der Unterschied der Greyglen-Rampe zur globalen (Greyglen-Satz minus Grasland-Satz), je Wert.
+          ...greyDeltaGlsl,
+          'void vbHangWahl(vec4 tiles, vec4 weights, float ny, float marker, float greyOk,',
           '                out float hangTile, out float rauTile,',
-          '                out float hangK, out float rauK) {',
+          '                out float hangK, out float rauK, out float felsK) {',
           // Dominante Ecke, branchfrei über step(): das Tile mit dem
           // grössten Gewicht ist das Biom, in dem der Pixel liegt.
           // Gemischt wird die FARBE weiterhin über alle vier Ecken —
@@ -1674,14 +1818,46 @@ export class TerrainSplatMaterial {
           '  float s = step(w, weights.y); t = mix(t, tiles.y, s); w = mix(w, weights.y, s);',
           '  s = step(w, weights.z);       t = mix(t, tiles.z, s); w = mix(w, weights.z, s);',
           '  s = step(w, weights.w);       t = mix(t, tiles.w, s);',
-          '  int i = int(clamp(t, 0.0, 15.0) + 0.5);',
+          `  int i = int(clamp(t, 0.0, ${KACHEL_MAX}) + 0.5);`,
           '  hangTile = VB_HANG[i];',
           '  rauTile = VB_RAU[i];',
-          `  hangK = clamp((${HANG_BEGINN.toFixed(4)} - ny) / ${(HANG_BEGINN - HANG_VOLL).toFixed(4)}, 0.0, 1.0);`,
+          // Die RAMPEN dagegen folgen den Eckgewichten wie die Farbe (K3, N1):
+          // tragen alle vier Ecken denselben Satz, gilt er unveraendert (die
+          // aelteren Biome), sonst das gewichtete Mittel. So springt die
+          // Rampe an einer Biomgrenze nicht.
+          `  int i0 = int(clamp(tiles.x, 0.0, ${KACHEL_MAX}) + 0.5);`,
+          `  int i1 = int(clamp(tiles.y, 0.0, ${KACHEL_MAX}) + 0.5);`,
+          `  int i2 = int(clamp(tiles.z, 0.0, ${KACHEL_MAX}) + 0.5);`,
+          `  int i3 = int(clamp(tiles.w, 0.0, ${KACHEL_MAX}) + 0.5);`,
+          '  float hb; float hw; float fb; float fw; float fa; float rb; float rw; float ra;',
+          '  if (VB_RAMPE_ID[i0] == VB_RAMPE_ID[i1] && VB_RAMPE_ID[i0] == VB_RAMPE_ID[i2] && VB_RAMPE_ID[i0] == VB_RAMPE_ID[i3]) {',
+          '    hb = VB_HANG_B[i0]; hw = VB_HANG_W[i0]; fb = VB_FELS_B[i0]; fw = VB_FELS_W[i0]; fa = VB_FELS_A[i0];',
+          '    rb = VB_RAU_B[i0]; rw = VB_RAU_W[i0]; ra = VB_RAU_A[i0];',
+          '  } else {',
+          ...['HANG_B', 'HANG_W', 'FELS_B', 'FELS_W', 'FELS_A', 'RAU_B', 'RAU_W', 'RAU_A'].map((n) => {
+            const v = { HANG_B: 'hb', HANG_W: 'hw', FELS_B: 'fb', FELS_W: 'fw', FELS_A: 'fa', RAU_B: 'rb', RAU_W: 'rw', RAU_A: 'ra' }[n]!;
+            return `    ${v} = VB_${n}[i0] * weights.x + VB_${n}[i1] * weights.y + VB_${n}[i2] * weights.z + VB_${n}[i3] * weights.w;`;
+          }),
+          '  }',
+          // Das Greyglen-Gewicht aus dem Lava-Kanal (negativer Wert, `markerLava`): stetig ueber das Dreieck, auch im
+          // Fern-Chunk. Die Rampe = die der Ecken (alle Greyglen-Ecken tragen als Kachel Grasland) plus g mal dem Unterschied
+          // der Greyglen- zur globalen Rampe: dasselbe wie das Mittel ueber die Ecken (`mischeRampen`), nur mit einem Wert.
+          '  float g = clamp(-marker, 0.0, 1.0) * greyOk;',
+          '  if (g > 0.0) {',
+          ...['HANG_B', 'HANG_W', 'FELS_B', 'FELS_W', 'FELS_A', 'RAU_B', 'RAU_W', 'RAU_A'].map((n) => {
+            const v = { HANG_B: 'hb', HANG_W: 'hw', FELS_B: 'fb', FELS_W: 'fw', FELS_A: 'fa', RAU_B: 'rb', RAU_W: 'rw', RAU_A: 'ra' }[n]!;
+            return `    ${v} += g * VB_GREY_D_${n};`;
+          }),
+          // Die Hang- und Rau-Kachel der Greyglen-Ecke (GreyMoss, GreyRockMoss): im Bild dieselben Zeilen wie die des Graslands,
+          // nur die raue mit eigener Normale.
+          `    if (g > 0.5) { hangTile = ${TILE.GreyMoss}.0; rauTile = ${TILE.GreyRockMoss}.0; }`,
+          '  }',
+          '  hangK = clamp((hb - ny) / hw, 0.0, 1.0);',
+          '  felsK = clamp((fb - ny) / fw, 0.0, 1.0) * fa;',
           // Der Deckel: `rau` deckte bis zum 10.09.2026 VOLL, und damit
           // stand jede Wand über 50° auf reinem Fels. Das Vorbild hat
           // dort 0,425 — die Begründung steht bei `RAMPEN`.
-          `  rauK = clamp((${RAU_BEGINN.toFixed(4)} - ny) / ${(RAU_BEGINN - RAU_VOLL).toFixed(4)}, 0.0, 1.0) * ${RAMPEN.rau.anteil.toFixed(4)};`,
+          '  rauK = clamp((rb - ny) / rw, 0.0, 1.0) * ra;',
           '}',
         ],
       };
@@ -1689,9 +1865,12 @@ export class TerrainSplatMaterial {
       aTiles.output.connectTo(hw.tiles);
       aWeights.output.connectTo(hw.weights);
       nrmSplit.y.connectTo(hw.ny);
+      terrainMarkerSplit.z.connectTo(hw.marker);
+      greyOkBlock.output.connectTo(hw.greyOk);
       hangTileAus = hw.hangTile;
       rauTileAus = hw.rauTile;
       hangKAus = hw.hangK;
+      felsKAus = hw.felsK;
       // Dieselbe Maske wie auf `rockK` — die Begründung steht dort.
       const rauMask = new MultiplyBlock('rauKMaske');
       hw.rauK.connectTo(rauMask.left); felsMaske.connectTo(rauMask.right);
@@ -1699,6 +1878,12 @@ export class TerrainSplatMaterial {
       hangTeil = tileSampler(hangTileAus, 'hang', 1, [0, 0], null, true, nrmSplit.xyzOut);
       rauTeil = tileSampler(rauTileAus, 'rau', 1, [0, 0], null, true, nrmSplit.xyzOut);
     }
+
+    // Der Felsanteil mit der Rauschmaske. Im Store-Boden kommt er aus der
+    // Rampe der dominanten Grundkachel (`vbHangWahl`), im Altbestand aus der
+    // globalen Rampe oben.
+    const rockK = new MultiplyBlock('rockK');
+    (felsKAus ?? rockKRoh.output).connectTo(rockK.left); felsMaske.connectTo(rockK.right);
 
     // ── Paint-Mask (Dirt / Cultivated / Paved) ──────────────────────
     // Sitzt bewusst NACH dem Sandband und VOR dem Fels:
@@ -1978,7 +2163,7 @@ export class TerrainSplatMaterial {
           ...glslTabelle('VB_NSTAERKE', SCHICHT_OBERFLAECHE.map((o) => o.normalStaerke)),
           ...glslTabelle('VB_METALLIC', SCHICHT_OBERFLAECHE.map((o) => o.metallic)),
           ...glslTabelle('VB_GLAETTE', SCHICHT_OBERFLAECHE.map((o) => o.smoothness)),
-          'int vbIdx(float tile) { return int(clamp(tile, 0.0, 15.0) + 0.5); }',
+          `int vbIdx(float tile) { return int(clamp(tile, 0.0, ${KACHEL_MAX}) + 0.5); }`,
           // Eine Karte in eine Neigung umrechnen, mit der Stärke DIESER
           // Schicht. Die Stärke gehört an diese Stelle und nicht hinter
           // die Mischung: Das Original führt sie je Schicht (1,2 bis 5),

@@ -8,7 +8,7 @@
  * Biom-Kacheln, Hangneigung, Felsrauschen, Sandband am Wasser, Schnee und
  * Lavakruste; die CPU sieht davon nichts. Damit Ohr und Auge nicht
  * auseinanderlaufen, rechnet diese Datei dieselbe Kette nach — mit
- * DENSELBEN Zahlen: Rampen (`RAMPEN`), Rauschmaske (`felsMaskeShaderBei`),
+ * DENSELBEN Zahlen: Rampen (`RAMPEN`, `RAMPEN_JE_KACHEL`), Rauschmaske (`felsMaskeShaderBei`),
  * Kacheltabellen und Regelwerte (`BODEN_REGELN`) kommen aus `./terrainRampen`,
  * `./felsRauschen` und `./bodenKacheln`, aus denen auch der Shader gebaut wird.
  *
@@ -33,9 +33,9 @@
  */
 import { Biome } from '../types.js';
 import { WATER_LEVEL, ZONE_UNITS } from './Heightmap.js';
-import { RAMPEN, nyBeiGrad } from './terrainRampen.js';
+import { rampenFuerKachel, mischeRampen } from './terrainRampen.js';
 import { felsMaskeShaderBei } from './felsRauschen.js';
-import { TILE, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, BODEN_REGELN } from './bodenKacheln.js';
+import { TILE, TILE_ANZAHL, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, BODEN_REGELN } from './bodenKacheln.js';
 
 /** Was ein Untergrund klanglich ist. */
 export const BODENARTEN = ['gras', 'erde', 'sand', 'fels', 'schnee', 'pflaster'] as const;
@@ -66,6 +66,10 @@ export const TILE_BODENART: readonly Bodenart[] = [
   /* 13 SwampDark */ 'erde',
   /* 14 Basalt    */ 'fels',
   /* 15 LavaCrust */ 'fels',
+  /* 16 GreyGrass    */ 'gras',
+  /* 17 GreyMoss     */ 'gras',
+  /* 18 GreyRock     */ 'fels',
+  /* 19 GreyRockMoss */ 'fels',
 ];
 
 /**
@@ -126,7 +130,24 @@ export function nyBei(x: number, z: number, quelle: BodenQuelle): number {
   return 1 / Math.sqrt(nx * nx + 1 + nz * nz);
 }
 
-export function bodenMischungBei(x: number, z: number, quelle: BodenQuelle): BodenAnteile {
+/**
+ * Wie die Kette ihre Anteile fuehrt: unter welchem Schluessel eine Kachel
+ * verbucht wird und wo Sand, Schnee und Lava landen. Die Kette selbst ist
+ * fuer Bodenarten und fuer einzelne Kacheln dieselbe Rechnung.
+ */
+interface Verbuchung<K extends string> {
+  readonly schluessel: readonly K[];
+  readonly kachel: (kachel: number) => K;
+  readonly sand: K;
+  readonly schnee: K;
+}
+
+function mischungKern<K extends string>(
+  x: number,
+  z: number,
+  quelle: BodenQuelle,
+  v: Verbuchung<K>,
+): Record<K, number> {
   const hm = quelle.getZoneAt(x, z);
   const h = quelle.getGroundHeight(x, z);
   const ny = nyBei(x, z, quelle);
@@ -138,18 +159,19 @@ export function bodenMischungBei(x: number, z: number, quelle: BodenQuelle): Bod
   const ty = glatt01(rz / ZONE_UNITS);
   const gewichte = [(1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty];
   const kacheln = hm.cornerBiomes.map((b) => BIOME_TILE[b] ?? TILE.Rock);
-  const a = leer();
-  for (let i = 0; i < 4; i++) a[TILE_BODENART[kacheln[i]]] += gewichte[i];
+  const a = {} as Record<K, number>;
+  for (const k of v.schluessel) a[k] = 0;
+  for (let i = 0; i < 4; i++) a[v.kachel(kacheln[i])] += gewichte[i];
 
-  const lege = (art: Bodenart, k: number): void => {
+  const lege = (art: K, k: number): void => {
     if (k <= 0) return;
-    for (const b of BODENARTEN) a[b] *= 1 - k;
+    for (const b of v.schluessel) a[b] *= 1 - k;
     a[art] += k;
   };
 
   // 2. Sand am Ufer.
   lege(
-    'sand',
+    v.sand,
     klemme((WATER_LEVEL + BODEN_REGELN.sandUeberWasser - h) / BODEN_REGELN.sandSpanne) * BODEN_REGELN.sandAnteil,
   );
 
@@ -158,26 +180,17 @@ export function bodenMischungBei(x: number, z: number, quelle: BodenQuelle): Bod
   for (let i = 1; i < 4; i++) if (gewichte[i] >= gewichte[dom]) dom = i;
   const domKachel = kacheln[dom];
 
-  // 3. Hangkachel, 4. mittlerer Fels, 5. rauer Fels.
-  const hangBeginn = nyBeiGrad(RAMPEN.hang.beginn);
-  const hangVoll = nyBeiGrad(RAMPEN.hang.voll);
-  const felsBeginn = nyBeiGrad(RAMPEN.fels.beginn);
-  const felsVoll = nyBeiGrad(RAMPEN.fels.voll);
-  const rauBeginn = nyBeiGrad(RAMPEN.rau.beginn);
-  const rauVoll = nyBeiGrad(RAMPEN.rau.voll);
+  // 3. Hangkachel, 4. mittlerer Fels, 5. rauer Fels. Die Rampe ist ueber die
+  // vier Eckgewichte gemischt (`mischeRampen`), wie im Shader; haben alle Ecken
+  // denselben Satz, gilt er unveraendert.
+  const r = mischeRampen(kacheln.map(rampenFuerKachel), gewichte);
   const maske = felsMaskeShaderBei(x, z);
   const biom = hm.getBiome(x, z);
 
-  lege(TILE_BODENART[HANG_TILE[domKachel]], klemme((hangBeginn - ny) / (hangBeginn - hangVoll)));
+  lege(v.kachel(HANG_TILE[domKachel]), klemme((r.hangB - ny) / r.hangW));
   const felsKachel = FELS_TILE[BIOME_TILE[biom] ?? TILE.Rock] ?? TILE.Rock;
-  lege(
-    TILE_BODENART[felsKachel],
-    klemme((felsBeginn - ny) / (felsBeginn - felsVoll)) * RAMPEN.fels.anteil * maske,
-  );
-  lege(
-    TILE_BODENART[RAU_TILE[domKachel]],
-    klemme((rauBeginn - ny) / (rauBeginn - rauVoll)) * RAMPEN.rau.anteil * maske,
-  );
+  lege(v.kachel(felsKachel), klemme((r.felsB - ny) / r.felsW) * r.felsA * maske);
+  lege(v.kachel(RAU_TILE[domKachel]), klemme((r.rauB - ny) / r.rauW) * r.rauA * maske);
 
   // 6. Schnee.
   const schnee =
@@ -186,13 +199,49 @@ export function bodenMischungBei(x: number, z: number, quelle: BodenQuelle): Bod
       : biom === Biome.DeepNorth
         ? BODEN_REGELN.schneeTiefNord
         : 0;
-  lege('schnee', schnee * smoothstep(BODEN_REGELN.schneeNyKante0, BODEN_REGELN.schneeNyKante1, ny));
+  lege(v.schnee, schnee * smoothstep(BODEN_REGELN.schneeNyKante0, BODEN_REGELN.schneeNyKante1, ny));
 
   // 7. Lavakruste (zählt als Stein).
   const lava = biom === Biome.AshLands ? klemme(hm.getVegetationMask(x, z)) : 0;
-  lege(TILE_BODENART[TILE.LavaCrust], lava * BODEN_REGELN.lavaAnteil);
+  lege(v.kachel(TILE.LavaCrust), lava * BODEN_REGELN.lavaAnteil);
 
   return a;
+}
+
+const VERBUCHT_ALS_ART: Verbuchung<Bodenart> = {
+  schluessel: BODENARTEN,
+  kachel: (t) => TILE_BODENART[t],
+  sand: 'sand',
+  schnee: 'schnee',
+};
+
+export function bodenMischungBei(x: number, z: number, quelle: BodenQuelle): BodenAnteile {
+  return mischungKern(x, z, quelle, VERBUCHT_ALS_ART);
+}
+
+/** Schluessel eines Kachel-Anteils: `kachel0` … `kachel19` und `schnee`. */
+export type KachelSchluessel = `kachel${number}` | 'schnee';
+
+const KACHEL_SCHLUESSEL: readonly KachelSchluessel[] = [
+  ...Array.from({ length: TILE_ANZAHL }, (_, i): KachelSchluessel => `kachel${i}`),
+  'schnee',
+];
+
+const VERBUCHT_ALS_KACHEL: Verbuchung<KachelSchluessel> = {
+  schluessel: KACHEL_SCHLUESSEL,
+  kachel: (t) => `kachel${t}`,
+  sand: `kachel${TILE.Sand}`,
+  schnee: 'schnee',
+};
+
+/**
+ * Dieselbe Kette, aber je KACHEL verbucht statt je Bodenart: wie viel des
+ * Bodens an diesem Punkt Gras, Moos, Fels … (Kachel 0 … 19) ist. Der Schnee
+ * steht unter `schnee`. Das ist die Zahl, gegen die die Flaechenanteile des
+ * Bioms gemessen werden (`tools/test/boden-greyglen.ts`).
+ */
+export function kachelMischungBei(x: number, z: number, quelle: BodenQuelle): Record<KachelSchluessel, number> {
+  return mischungKern(x, z, quelle, VERBUCHT_ALS_KACHEL);
 }
 
 /** Die Bodenart mit dem größten Anteil; bei Gleichstand die frühere der Liste. */

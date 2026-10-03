@@ -1,3 +1,5 @@
+import { TILE, TILE_ANZAHL } from './bodenKacheln.js';
+
 /**
  * Die Steigungsrampe des Bodens: ab welcher Hangneigung welche Schicht
  * kommt — und die eine Umrechnung Grad → `ny`.
@@ -129,6 +131,94 @@ export const RAMPEN = {
   /** Steilster Hang, raue Felsschicht (`RAU_TILE`). */
   rau: { beginn: 40, voll: 50, anteil: 0.1 },
 } as const;
+
+/** Ein Satz Rampen: die drei Stufen in Grad, die zwei Felsstufen mit Deckel. */
+export interface RampenSatz {
+  readonly hang: { readonly beginn: number; readonly voll: number };
+  readonly fels: { readonly beginn: number; readonly voll: number; readonly anteil: number };
+  readonly rau: { readonly beginn: number; readonly voll: number; readonly anteil: number };
+}
+
+/**
+ * Rampen JE GRUNDKACHEL (K3 Grauklamm, 03.10.2026).
+ *
+ * `RAMPEN` oben gilt fuer jede Grundkachel, die hier keine eigene Zeile hat;
+ * das sind alle Kacheln der aelteren Biome, ihr Boden bleibt dadurch Zahl
+ * fuer Zahl, wie er war. Welche Zeile gilt, sagt die dominante Eckkachel des
+ * Pixels (dieselbe, die schon `HANG_TILE`/`RAU_TILE` waehlt), im Shader wie in
+ * `bodenMischung`.
+ *
+ * Greyglen (Grundkachel `GreyGrass`) hat ein steileres Gelaende als die Inseln,
+ * auf die `RAMPEN` kalibriert ist (Hang-Histogramm eines Hochland-Tals, siehe
+ * `tools/test/boden-greyglen.ts`: 24,1 % unter 8 Grad, 12,8 % ueber 50 Grad).
+ * Die Zahlen unten sind auf dieses Histogramm kalibriert, so dass die
+ * Flaechenanteile (Gras 57, Fels 17, Moos 15, rauer Fels 7 %) getroffen werden.
+ * Die Herleitung und die Messung stehen im Test.
+ *
+ * Ramp sets per base tile; tiles without a row use `RAMPEN`.
+ */
+export const RAMPEN_JE_KACHEL: Readonly<Record<number, RampenSatz>> = {
+  [TILE.GreyGrass]: {
+    hang: { beginn: 19, voll: 26 },
+    fels: { beginn: 26, voll: 34, anteil: 0.94 },
+    rau: { beginn: 36, voll: 50, anteil: 0.42 },
+  },
+};
+
+/** Der Rampensatz einer Grundkachel: eigene Zeile oder die globale `RAMPEN`. */
+export function rampenFuerKachel(kachel: number): RampenSatz {
+  return RAMPEN_JE_KACHEL[kachel] ?? RAMPEN;
+}
+
+/** Alle `TILE_ANZAHL` Saetze in Kachelreihenfolge (fuer die Shader-Tabellen). */
+export function rampenTabelle(): readonly RampenSatz[] {
+  return Array.from({ length: TILE_ANZAHL }, (_, k) => rampenFuerKachel(k));
+}
+
+/**
+ * Ein Rampensatz in `ny` (Kosinus der Neigung), so wie Shader und CPU ihn
+ * rechnen: je Stufe der Beginn, die Breite (Beginn − Voll) und der Deckel.
+ */
+export interface RampeNy {
+  readonly hangB: number;
+  readonly hangW: number;
+  readonly felsB: number;
+  readonly felsW: number;
+  readonly felsA: number;
+  readonly rauB: number;
+  readonly rauW: number;
+  readonly rauA: number;
+}
+
+/** Ein einzelner Satz in `ny`. Rechnet genau wie die Bodenmischung vor K3 (gleiche Ausdruecke, gleiche Zahlen). */
+export function rampeNy(r: RampenSatz): RampeNy {
+  const hangB = nyBeiGrad(r.hang.beginn);
+  const hangV = nyBeiGrad(r.hang.voll);
+  const felsB = nyBeiGrad(r.fels.beginn);
+  const felsV = nyBeiGrad(r.fels.voll);
+  const rauB = nyBeiGrad(r.rau.beginn);
+  const rauV = nyBeiGrad(r.rau.voll);
+  return { hangB, hangW: hangB - hangV, felsB, felsW: felsB - felsV, felsA: r.fels.anteil, rauB, rauW: rauB - rauV, rauA: r.rau.anteil };
+}
+
+/**
+ * Die Rampe an einem Punkt: bilinear ueber die vier Eckgewichte gemischt,
+ * wie die Farbe (K3, N1). Tragen alle vier Ecken denselben Satz, gilt er
+ * unveraendert (keine Rechnung, damit die aelteren Biome Bit fuer Bit
+ * bleiben, was sie waren). Gemischt wird in `ny` und je Wert, nicht in Grad:
+ * ein Mittel aus `ny`-Werten ist stetig in den Gewichten und braucht im Shader
+ * keinen Kosinus je Bildpunkt.
+ *
+ * Without this, the ramp would jump where the dominant corner changes (a hard
+ * seam along the biome border); now it follows the corner weights.
+ */
+export function mischeRampen(saetze: readonly RampenSatz[], gewichte: readonly number[]): RampeNy {
+  const [s0, s1, s2, s3] = saetze;
+  if (s0 === s1 && s0 === s2 && s0 === s3) return rampeNy(s0!);
+  const n = saetze.map(rampeNy);
+  const m = (k: keyof RampeNy): number => n[0]![k] * gewichte[0]! + n[1]![k] * gewichte[1]! + n[2]![k] * gewichte[2]! + n[3]![k] * gewichte[3]!;
+  return { hangB: m('hangB'), hangW: m('hangW'), felsB: m('felsB'), felsW: m('felsW'), felsA: m('felsA'), rauB: m('rauB'), rauW: m('rauW'), rauA: m('rauA') };
+}
 
 /**
  * Hangneigung in Grad → `ny` der Normalen. Der Shader rechnet in `ny`,

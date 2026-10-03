@@ -42,9 +42,10 @@
  * not a hard stop — the client still starts, just without models.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { bodenVorbereiten } from './dev-boden.mjs';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(HIER, '..');
@@ -52,7 +53,7 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 // ── 1. Asset-Paket, falls es fehlt ───────────────────────────────────────
 
-function assetsVorbereiten() {
+async function assetsVorbereiten() {
   const modelle = resolve(WURZEL, 'assets/models');
   if (!existsSync(modelle)) {
     console.log('[dev] assets/models fehlt — hole das Asset-Paket (tools/assets-paket.mjs holen) …');
@@ -68,18 +69,18 @@ function assetsVorbereiten() {
     }
   }
 
-  const storeLab = resolve(WURZEL, 'assets/store-lab');
-  const generiert = resolve(WURZEL, 'assets/generiert');
-  if (existsSync(resolve(WURZEL, 'assets/store')) && (!existsSync(storeLab) || !existsSync(generiert))) {
-    console.log('[dev] assets/store-lab oder assets/generiert fehlt — bereite die Store-Vegetation auf …');
-    for (const script of ['store:aufbereiten', 'store:boden']) {
-      const ergebnis = spawnSync(npm, ['run', script], { stdio: 'inherit', cwd: WURZEL });
-      if (ergebnis.status !== 0) {
-        console.warn(`[dev] "npm run ${script}" ist fehlgeschlagen — Spiel startet trotzdem, siehe Meldung oben.`);
-        break;
-      }
-    }
-  }
+  // Store-Vegetation und Bodenstapel (Entscheidung und Sperre: `dev-boden.mjs`).
+  await bodenVorbereiten({
+    wurzel: WURZEL,
+    npm,
+    existsSync,
+    readFileSync,
+    werkzeugLaden: () => import(pathToFileURL(resolve(WURZEL, 'tools/store-terrain-schichten.mjs')).href),
+    spawnSync,
+    resolve,
+    log: (t) => console.log(t),
+    warn: (t) => console.warn(t),
+  });
 
   // assets/appearance.json — die Charaktererstellung der Webseite
   // (wov-web /erstellen, /konto) liest diese Datei unter /assets/appearance.json.
@@ -100,7 +101,7 @@ function assetsVorbereiten() {
   }
 }
 
-assetsVorbereiten();
+await assetsVorbereiten();
 
 // ── 2. Server, Client und Admin parallel starten ─────────────────────────
 

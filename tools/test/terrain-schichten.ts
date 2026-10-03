@@ -61,6 +61,9 @@ import {
   RAMPEN,
   nyBeiGrad,
   TILE,
+  TILE_ANZAHL,
+  STAPEL_ZEILEN,
+  TILE_ZEILE,
   BIOME_TILE,
   HIMMEL_IRRADIANZ,
   himmelIrradianzGewichte,
@@ -74,6 +77,7 @@ import {
   ZUORDNUNG,
   tabelle,
   fehlendeDateien,
+  inhaltsHash,
 } from '../store-terrain-schichten.mjs';
 
 const HIER = dirname(fileURLToPath(import.meta.url));
@@ -234,8 +238,8 @@ const tab = tabelle(512) as { tiles: { tile: number; name: string; quelle: strin
   }
 }
 check(
-  'das Werkzeug beschreibt genau 16 Tiles — so viele hat der Stapel',
-  tab.tiles.length === 16 && SCHICHT_OBERFLAECHE.length === 16,
+  'das Werkzeug beschreibt genau 20 Kacheln (TILE_ANZAHL) auf einem Stapel von STAPEL_ZEILEN Zeilen',
+  tab.tiles.length === TILE_ANZAHL && SCHICHT_OBERFLAECHE.length === TILE_ANZAHL && tab.zeilen === STAPEL_ZEILEN,
   `${String(tab.tiles.length)} / ${String(SCHICHT_OBERFLAECHE.length)}`
 );
 const abweichungen: string[] = [];
@@ -305,7 +309,7 @@ check(
 check(
   'jede Rampenkachel hat selbst eine Oberfläche',
   [...HANG_TILE, ...FELS_TILE, ...RAU_TILE].every((t) => SCHICHT_OBERFLAECHE[t] !== undefined),
-  'ein Eintrag zeigt auf ein Tile ausserhalb von 0..15'
+  'ein Eintrag zeigt auf ein Tile ausserhalb des Stapels'
 );
 
 /*
@@ -317,9 +321,9 @@ check(
   Chunk verschwände lautlos.
 */
 check(
-  'alle sechzehn Zeilen haben Hang-, Fels- und Rau-Kachel',
-  HANG_TILE.length === 16 && FELS_TILE.length === 16 && RAU_TILE.length === 16 &&
-    [...HANG_TILE, ...FELS_TILE, ...RAU_TILE].every((t) => Number.isInteger(t) && t >= 0 && t < 16),
+  'alle Zeilen des Stapels haben Hang-, Fels- und Rau-Kachel',
+  HANG_TILE.length === TILE_ANZAHL && FELS_TILE.length === TILE_ANZAHL && RAU_TILE.length === TILE_ANZAHL &&
+    [...HANG_TILE, ...FELS_TILE, ...RAU_TILE].every((t) => Number.isInteger(t) && t >= 0 && t < TILE_ANZAHL),
   `${HANG_TILE.length}/${FELS_TILE.length}/${RAU_TILE.length}`
 );
 
@@ -806,6 +810,52 @@ function irradianzStumpf(ny: number): { wH: number; wZ: number } {
     'die sechs Zahlen sind drei Paare',
     HIMMEL_IRRADIANZ.horizont.length === 3 && HIMMEL_IRRADIANZ.zenit.length === 3
   );
+}
+
+/*
+  Die Normale des rauen Felses von Greyglen (Kachel 19, Stapelzeile 6): Im gebauten
+  Normalen-Stapel steht in dieser Zeile genau die Datei, die `store-schichten.json`
+  als benutzt nennt (die eigene Normale, solange sie fehlt der benannte Ersatz). Ein
+  Stapel, der eine andere Normale traegt, als die Tabelle behauptet, sieht richtig
+  aus und ist es nicht.
+*/
+{
+  const n19 = (tabelle(256) as { tiles: Array<{ zeile: number; normale: string; normaleOrt?: string | null }> }).tiles[19]!;
+  const ordner = n19.normaleOrt === 'labor' ? 'assets/store-lab/textures' : 'assets/store/textures';
+  const programm = `
+    const sharp = require('sharp');
+    (async () => {
+      const K = 256, Z = Number(process.argv[3]);
+      const stapel = await sharp(process.argv[1]).raw().toBuffer();
+      const quelle = await sharp(process.argv[2]).removeAlpha().resize(K, K, { kernel: 'lanczos3', fit: 'fill' }).raw().toBuffer();
+      const zeile = stapel.subarray(Z * K * K * 3, (Z + 1) * K * K * 3);
+      process.stdout.write(String(Buffer.compare(zeile, quelle) === 0));
+    })();
+  `;
+  const m = spawnSync(process.execPath, ['-e', programm, join(AUS, 'store_n_array.png'), join(WURZEL, ordner, `${n19.normale}.png`), String(TILE_ZEILE[19])], {
+    cwd: WURZEL,
+    encoding: 'utf-8',
+  });
+  check(
+    `Zeile ${String(TILE_ZEILE[19])} des Normalen-Stapels ist die Normale der Kachel 19, die die Tabelle nennt`,
+    m.stdout === 'true' && n19.zeile === TILE_ZEILE[19],
+    `${n19.normale} (${n19.normaleOrt ?? '—'}) ${m.stderr.slice(0, 120)}`
+  );
+}
+
+/*
+  Der Inhalts-Hash der Stapel (N2): `store-schichten.json` fuehrt `stapelHash.farbe` und `.normale`, und beide sind
+  der Hash der Dateibytes, wie sie auf der Platte liegen. Der Client haengt sie an die Stapel-URL; ein Hash, der
+  nicht zum Inhalt gehoert, wuerde den Cache-Brecher abkoppeln.
+*/
+{
+  const tab = JSON.parse(readFileSync(join(AUS, 'store-schichten.json'), 'utf-8')) as { stapelHash?: { farbe?: string; normale?: string }; version?: number; zeilen?: number };
+  const farbe = inhaltsHash(readFileSync(join(AUS, 'store_d_array.png')));
+  const normale = inhaltsHash(readFileSync(join(AUS, 'store_n_array.png')));
+  check('store-schichten.json: stapelHash.farbe ist der Hash der Farbstapel-Datei', tab.stapelHash?.farbe === farbe, `${String(tab.stapelHash?.farbe)} gegen ${farbe}`);
+  check('store-schichten.json: stapelHash.normale ist der Hash der Normalenstapel-Datei', tab.stapelHash?.normale === normale, `${String(tab.stapelHash?.normale)} gegen ${normale}`);
+  check('die beiden Hashes sind verschieden (Farbe und Normale getrennt)', farbe !== normale);
+  check('store-schichten.json: Version und Zeilenzahl stehen drin', tab.version === 2 && tab.zeilen === STAPEL_ZEILEN);
 }
 
 /*

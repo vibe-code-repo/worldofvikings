@@ -14,7 +14,94 @@ export const TILE = {
   Grass: 0, Forest: 1, Dirt: 2, Cleared: 3, Rock: 4, Cliff: 5, LavaEmber: 6,
   Ash: 7, Heath: 8, Sand: 9, SwampMud: 10, Moss: 11, Paved: 12,
   SwampDark: 13, Basalt: 14, LavaCrust: 15,
+  // Greyglen (Bit 128): eigene Kacheln, damit Grund, Hang und Fels des
+  // Bioms ihre eigene Rampe tragen koennen (`RAMPEN_JE_KACHEL`).
+  GreyGrass: 16, GreyMoss: 17, GreyRock: 18, GreyRockMoss: 19,
 } as const;
+
+/** Anzahl der Kacheln (Tile-Indizes 0 … 19). */
+export const TILE_ANZAHL = 20;
+
+/**
+ * Zeilen des Texturstapels (`store_d_array.png`, `store_n_array.png`).
+ *
+ * Bleibt bei 16, obwohl es 20 Kacheln gibt: Der Stapel ist 512 px breit und
+ * 8192 px hoch, und 20 Zeilen waeren 10240 px, mehr als jede GPU mit
+ * `MAX_TEXTURE_SIZE` 8192 laedt. Die vier Greyglen-Kacheln zeigen deshalb auf
+ * Zeilen, die es schon gibt (`TILE_ZEILE`). Damit bleibt die Datei Zeile fuer
+ * Zeile die alte: ein alter Client liest einen neuen Stapel richtig und ein
+ * neuer Client einen alten.
+ */
+export const STAPEL_ZEILEN = 16;
+
+/**
+ * Welche Stapelzeile eine Kachel zeigt.
+ *
+ *  - Kachel 6 (`LavaEmber`) teilt sich Zeile 5 mit `Cliff`: beide tragen
+ *    dieselbe Farbkarte, dieselbe Normale und dieselben Oberflaechenwerte.
+ *  - Greyglen: Gras → Zeile 0, Moos → Zeile 11, Fels → Zeile 4. Dieselben
+ *    Quellkarten, sie brauchen keine eigene Zeile. Der raue Fels (19) nimmt die
+ *    dadurch frei gewordene Zeile 6: dieselbe Farbkarte wie Zeile 5, aber mit
+ *    der eigenen Normalkarte.
+ *
+ * Aenderst du diese Tabelle oder die Zeilenquellen im Werkzeug, erhoehe
+ * `STAPEL_VERSION`.
+ */
+export const TILE_ZEILE: readonly number[] = [
+  0, 1, 2, 3, 4, 5, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, // 0-15
+  0, 11, 4, 6, // 16-19 Greyglen
+];
+
+/**
+ * Version des Stapel-Layouts. Haengt als Abfrageparameter an der Stapel-URL
+ * (bricht den Browser-Cache) und steht in `store-schichten.json`; die Test-
+ * Datei haelt Werkzeug und Code auf derselben Zahl.
+ */
+export const STAPEL_VERSION = 2;
+
+/**
+ * Rueckfall, wenn der Stapel nicht zum Code passt: jede Greyglen-Kachel auf
+ * ihre Entsprechung im Grasland, alle anderen unveraendert.
+ */
+export const KACHEL_RUECKFALL: readonly number[] = [
+  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+  TILE.Grass, TILE.Moss, TILE.Rock, TILE.Cliff,
+];
+
+/**
+ * Das Greyglen-Gewicht eines Vertex: die Summe der Eckgewichte, deren Eck-Kachel eine Greyglen-Kachel (≥ 16)
+ * ist. Es ist die Groesse, mit der die Rampen gemischt werden (`mischeRampen`), nur als EIN Wert je Vertex.
+ *
+ * Warum so und nicht die Kachelnummer: Die Vertex-Kachel ist ein Float, der ueber ein Dreieck interpoliert wird
+ * (im Fern-Chunk ueber Zonengrenzen). Zwischen 0 und 16 liegen die Kacheln 1-15 (Erde, Fels, Heide, Pflaster);
+ * ein Wert, der stetig von 0 nach 1 geht, hat keine fremden Zwischenwerte. Deshalb tragen die Vertices immer die
+ * Grasland-Entsprechung (`KACHEL_RUECKFALL`), und die Greyglen-Zugehoerigkeit steht in diesem Gewicht.
+ */
+export function greyGewicht(eckKacheln: readonly number[], gewichte: readonly number[]): number {
+  let g = 0;
+  for (let i = 0; i < 4; i++) if ((eckKacheln[i] ?? 0) >= TILE.GreyGrass) g += gewichte[i] ?? 0;
+  return g;
+}
+
+/**
+ * Der Wert des Lava-Kanals eines Vertex. Lava ist nur in der Asche groesser als 0; ein NEGATIVER Wert ist das
+ * Greyglen-Gewicht (`greyGewicht`, als Minus). Der Shader klemmt die Lava auf 0..1 (ein negativer Wert ist dort
+ * keine Lava) und liest das Gewicht mit `greyAusMarker`. Beides zugleich (Greyglen-Ecke an einem Vertex mit Lava)
+ * kommt praktisch nicht vor; dann gilt die Lava.
+ */
+export function markerLava(lava: number, grey: number): number {
+  return lava > 0 ? lava : grey > 0 ? -Math.min(1, grey) : 0;
+}
+
+/** Das Greyglen-Gewicht aus dem Lava-Kanal (Spiegelbild von `markerLava`). */
+export function greyAusMarker(marker: number): number {
+  return Math.min(1, Math.max(0, -marker));
+}
+
+/** Die Kachel, die ein Chunk wirklich bekommt: unveraendert, oder bei unbrauchbarem Stapel der Rueckfall. */
+export function kachelFuerStapel(kachel: number, stapelBrauchbar: boolean): number {
+  return stapelBrauchbar ? kachel : (KACHEL_RUECKFALL[kachel] ?? kachel);
+}
 
 /** Biome-Enum-Wert → Tile (Biome aus shared/types.ts). */
 export const BIOME_TILE: Record<number, number> = {
@@ -25,7 +112,7 @@ export const BIOME_TILE: Record<number, number> = {
   16: TILE.Heath, // Plains
   32: TILE.Ash, // AshLands
   64: TILE.Rock, // DeepNorth (+ Schnee)
-  128: TILE.Grass, // Greyglen (Kopie von Meadows)
+  128: TILE.GreyGrass, // Greyglen: eigene Grundkachel
   256: TILE.Sand, // Ocean
   512: TILE.Moss, // Mistlands
 };
@@ -66,6 +153,10 @@ export const HANG_TILE: readonly number[] = [
   /* 13 SwampDark */ TILE.SwampDark,
   /* 14 Basalt    */ TILE.Basalt,
   /* 15 LavaCrust */ TILE.Basalt,
+  /* 16 GreyGrass    */ TILE.GreyMoss,
+  /* 17 GreyMoss     */ TILE.GreyMoss,
+  /* 18 GreyRock     */ TILE.GreyRock,
+  /* 19 GreyRockMoss */ TILE.GreyRockMoss,
 ];
 
 /**
@@ -114,6 +205,10 @@ export const FELS_TILE: readonly number[] = [
   /* 13 SwampDark */ TILE.Rock,
   /* 14 Basalt    */ TILE.Basalt,
   /* 15 LavaCrust */ TILE.Basalt,
+  /* 16 GreyGrass    */ TILE.GreyRock,
+  /* 17 GreyMoss     */ TILE.GreyRock,
+  /* 18 GreyRock     */ TILE.GreyRock,
+  /* 19 GreyRockMoss */ TILE.GreyRockMoss,
 ];
 
 /**
@@ -172,6 +267,10 @@ export const RAU_TILE: readonly number[] = [
   /* 13 SwampDark */ TILE.Rock,
   /* 14 Basalt    */ TILE.Basalt,
   /* 15 LavaCrust */ TILE.Basalt,
+  /* 16 GreyGrass    */ TILE.GreyRockMoss,
+  /* 17 GreyMoss     */ TILE.GreyRockMoss,
+  /* 18 GreyRock     */ TILE.GreyRockMoss,
+  /* 19 GreyRockMoss */ TILE.GreyRockMoss,
 ];
 
 /**

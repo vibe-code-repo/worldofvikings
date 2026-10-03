@@ -181,6 +181,9 @@ console.log('\n[1] spiel/Rolle.ts on a stand-in peer (fixed clock)');
   d.gesendet.length = 0;
   rolleBeenden(d, 1874);
   check('rolleBeenden 1 ms before the end of the clip: the client is told', rolleAus(d) === 1);
+  const q = attrappe();
+  q.rolleBis = 5000; q.rolleStart = 1000; q.rolleZeit = 1000; // a roll without its path state (a stand-in): the tick does not move anything
+  check('a running roll without a path state gives no movement (the tick needs the state)', !rolleTakt(q, 2000).rollt);
   const e = attrappe();
   rolleBeenden(e, 5000);
   check('rolleBeenden without any roll ever: nothing sent', rolleAus(e) === 0);

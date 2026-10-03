@@ -102,7 +102,6 @@ export class AdminCommandRegistry {
       }
       const boden = this.umgebung?.bodenHoehe(x, z) ?? 0;
       const y = Math.max(boden, WATER_LEVEL);
-      rolleZuruecksetzen(peer); // the client cuts its roll at a teleport: the server must not keep rolling from the target
       peer.position = { x, y, z };
       return {
         ok: true,

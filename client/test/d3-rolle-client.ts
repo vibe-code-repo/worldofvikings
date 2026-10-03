@@ -365,6 +365,14 @@ console.log('\n[4] The jump report');
   };
   sucheAngriff(sf);
   check('main.ts: the swing condition (left click) contains `!player.rollt` (no swing during a roll)', /!player\.rollt/.test(angriffsBedingung), angriffsBedingung.slice(0, 80));
+  // Z3: the frame time of the controller is clamped to 0.1 s; the roll must get the REAL time as the second argument.
+  const updates: string[] = [];
+  const sucheUpdate = (n: ts.Node): void => {
+    if (ts.isCallExpression(n) && n.expression.getText(sf) === 'player!.update') updates.push(n.arguments.map((a) => a.getText(sf)).join(' | '));
+    ts.forEachChild(n, sucheUpdate);
+  };
+  sucheUpdate(sf);
+  check('main.ts: `player!.update(dt, engine.getDeltaTime() / 1000)` once: the roll clock gets the real frame time (Z3)', updates.length === 1 && /^dt \| engine\.getDeltaTime\(\) \/ 1000$/.test(updates[0]!), updates.join(' || '));
   check('main.ts: one sendPlayerInput call, its 7th argument (jumping) is `player.nimmSprung()`, no literal `false`', aufrufe.length === 1 && letztes === 'player.nimmSprung()', `${aufrufe.length} calls, 7th: ${letztes}`);
 }
 
@@ -429,6 +437,31 @@ const sekunde = (v: BlockVerdrahtung, spiel: Spiel, n = 1): void => { for (let i
   sekunde(v, spiel, 3);
   check('ACCEPTED: the roll is over, the button is still held: no block back (a fresh press is needed), nothing sent, no stamina', !v.blockt && spiel.gesendet.length === 2 && spiel.abzuege === 1, spiel.gesendet.join());
   check('... and the next release sends the one idempotent Block(false) of the uncertain state (as after any server `Block=false`), no other packet', (() => { spiel.rechts = false; v.frame(); return spiel.gesendet.join() === `block:true,rolle:${(Math.PI / 2).toFixed(3)},block:false`; })(), spiel.gesendet.join());
+}
+{
+  // Z2: an accepted roll of which no Block=false ever arrives (the server held no block): the block must NOT come back after the roll.
+  const { v, spiel } = neuesSpiel();
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
+  taste(v, spiel);
+  spiel.rollt = true;
+  sekunde(v, spiel, 3);
+  spiel.rollt = false; // the roll is over, nothing was refused, nothing was said about the block
+  sekunde(v, spiel, 3);
+  check('an accepted roll (no Rolle=false): when it is over the hidden block does not come back by itself, nothing sent', !v.blockt && spiel.gesendet.length === 2 && spiel.abzuege === 1, spiel.gesendet.join());
+}
+{
+  // Z2: Block=false in the middle of the predicted roll, then a release: exactly ONE more Block(false) (the uncertain state's), not two.
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
+  taste(v, spiel);
+  spiel.rollt = true;
+  h[PacketType.Block]!({ readBool: () => false });
+  spiel.rechts = false;
+  sekunde(v, spiel, 4);
+  spiel.rollt = false;
+  sekunde(v, spiel, 4);
+  check('Block=false during the roll, release during the roll: exactly one Block(false) afterwards (no second one from a forgotten hidden state)', spiel.gesendet.filter((g) => g === 'block:false').length === 1, spiel.gesendet.join());
 }
 {
   // Z2: a refused roll leaves the block where it was (wall, rock, water edge, jitter: only the server knows).

@@ -127,6 +127,7 @@ console.log('\n[3b] The curve of the clip (share of the path over the time)');
   }
   check('rolleWegAnteil is monotone on a 1 ms grid and has no jump above 0.02 per ms', monoton && maxSprung < 0.02, `${maxSprung.toFixed(4)}`);
   check('before the first key (and at it): 0; at the last key and after it: 1; a negative time: 0', rolleWegAnteil(-1) === 0 && rolleWegAnteil(0) === 0 && rolleWegAnteil(1 / 24) === 0 && rolleWegAnteil(0.875) === 1 && rolleWegAnteil(5) === 1);
+  check('a time that is not a number: no path (0), not NaN', rolleWegAnteil(Number.NaN) === 0);
   check('at the keys the table values: 2/24 s = 0.18446, 9/24 s = 0.847868', nah(rolleWegAnteil(2 / 24), 0.18446, 1e-9) && nah(rolleWegAnteil(9 / 24), 0.847868, 1e-9));
   check('linear between the keys: halfway between the first two is 0.09223', nah(rolleWegAnteil(1.5 / 24), 0.09223, 1e-9));
   check('85 % of the path lie in the first 0.375 s (the clip is front-loaded: the constant speed would be at 45 %)', nah(rolleWegAnteil(0.375), 0.847868, 1e-9) && rolleWegAnteil(0.375) > 0.84 && 0.375 / (ROLLE_BEWEGUNG_S + 1 / 24) < 0.5);

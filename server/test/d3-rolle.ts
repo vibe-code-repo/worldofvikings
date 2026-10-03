@@ -32,7 +32,7 @@ import { Writer } from '../src/io/Writer.js';
 import type { Peer } from '../src/net/Peer.js';
 import { Kollisionswelt } from '../src/world/Kollisionswelt.js';
 import { rolleScheibe } from '@wov/shared/src/kampf/rolle.js';
-import { Spielerbewegung, neuerRolleWeg } from '../src/world/Spielerbewegung.js';
+import { ROLLE_SCHRITTE, Spielerbewegung, neuerRolleWeg } from '../src/world/Spielerbewegung.js';
 import type { KollisionsForm, Vek3 } from '@wov/shared/src/kollision/form.js';
 import { blockPaket } from '../src/spiel/Block.js';
 import { rolleLaeuft, rollePaket, rolleTakt, rolleUnverwundbar, rolleZuruecksetzen, sprungKosten, type RollePeer } from '../src/spiel/Rolle.js';
@@ -294,6 +294,41 @@ const horizontal = (a: Vek3, b: Vek3): number => Math.hypot(a.x - b.x, a.z - b.z
     const ende = Math.hypot(w.position.x, w.position.z);
     check(`curve, packets every ${takt} ms: the server path stays within 0.1 m behind the analytic curve (max ${maxAbw.toFixed(3)} m) and ends at 4.853 m (${ende.toFixed(3)})`, maxAbw < 0.1 && maxAbw > -1e-6 && nah(ende, ROLLE_WEG_M, 0.01));
   }
+  {
+    // the path state: the slices end exactly where the preview ends, never ahead of the curve, all steps taken
+    const fahreLauf = (sb: Spielerbewegung, dx: number, dz: number, takt: number, lauf = neuerRolleWeg()): { pos: Vek3; lauf: ReturnType<typeof neuerRolleWeg>; vorn: number; hinten: number } => {
+      const s0 = 10_000;
+      let zeit = s0;
+      const w = { position: { x: 0, y: 0, z: 0 } };
+      let vorn = 0;
+      let hinten = 0;
+      const zeiten: number[] = [];
+      for (let t = s0; t < s0 + 1200; t += takt) zeiten.push(t);
+      zeiten.push(s0 + 1200);
+      for (const t of zeiten) {
+        const sc = rolleScheibe(s0, zeit, t);
+        zeit = sc.bis;
+        w.position = sb.rollSchritt(w, dx, dz, sc.dt, lauf);
+        const soll = rolleWegAnteil(Math.min(t - s0, ROLLE_DAUER_MS) / 1000) * ROLLE_WEG_M;
+        const ist = Math.hypot(w.position.x, w.position.z);
+        vorn = Math.max(vorn, ist - soll);
+        hinten = Math.max(hinten, soll - ist);
+      }
+      return { pos: w.position, lauf, vorn, hinten };
+    };
+    for (const takt of [7, 16, 33, 50, 100, 333, 1200]) {
+      const r = fahreLauf(offen, 0, -1, takt);
+      const ende = Math.hypot(r.pos.x, r.pos.z);
+      check(`path state, packets every ${takt} ms: ends exactly at the preview (${ende.toFixed(4)} vs ${dist.toFixed(4)}), all ${ROLLE_SCHRITTE} steps taken, never ahead of the curve (${r.vorn.toExponential(1)}), at most 0.1 m behind (${r.hinten.toFixed(3)})`,
+        Math.abs(ende - dist) < 1e-9 && r.lauf.getan === ROLLE_SCHRITTE && Math.abs(r.lauf.rest) < 1e-9 && r.vorn < 1e-9 && r.hinten < 0.1);
+    }
+    for (const takt of [16, 100, 400]) {
+      const dick2 = fahreLauf(weltMit([{ form: kiste({ x: -50, y: -1, z: -0.1 }, { x: 50, y: 4, z: 0.1 }), position: { x: 0, y: 0, z: -2 } }]), 0, -1, takt);
+      check(`path state, a 20 cm thin wall in 1.9 m, packets every ${takt} ms: the slice does not jump over it (z > -1.6)`, dick2.pos.z > -1.6, `z ${dick2.pos.z.toFixed(3)}`);
+      const w1 = fahreLauf(wand(1), 0, -1, takt);
+      check(`path state, a wall 1 m in front, packets every ${takt} ms: the roll stops before it (z > -0.7)`, w1.pos.z > -0.7 && w1.pos.z <= 0, `z ${w1.pos.z.toFixed(3)}`);
+    }
+  }
   for (const takt of [16, 50, 100]) {
     const e = gehe(offen, 0, -1, takt);
     check(`free: ${takt} ms packets cover the same 4.853 m as the preview (+- 0.02)`, nah(horizontal(e, start), dist, 0.02), `${horizontal(e, start).toFixed(4)} m`);
@@ -331,12 +366,16 @@ const horizontal = (a: Vek3, b: Vek3): number => Math.hypot(a.x - b.x, a.z - b.z
     const hang = new Spielerbewegung(kw);
     const vor = hang.rolleVorschau({ x: 0, y: 0, z: 0 }, 0, -1);
     const takte = [7, 16, 33, 50, 100, 833];
-    const wege = takte.map((t) => fahreHang(hang, 0, -1, t, h));
+    const laeufe = takte.map(() => neuerRolleWeg());
+    const wege = takte.map((t, i) => fahreHang(hang, 0, -1, t, h, laeufe[i]));
     const alleGleich = wege.every((w) => frei80(w) === frei80(vor));
     const abweichung = Math.max(...wege.map((w) => Math.abs(w - vor)));
     console.log(`      ${grad} deg: preview ${vor.toFixed(2)} m, driven ${wege.map((w) => w.toFixed(2)).join(' ')} (max deviation ${abweichung.toFixed(3)} m)`);
     check(`${grad} deg slope: the decision of the preview (free/refused) holds for every slice length of the driven path`, alleGleich);
-    check(`${grad} deg slope: the driven path equals the preview within one sub-step (0.1 m)`, abweichung <= 0.1, `${abweichung.toFixed(3)} m`);
+    check(`${grad} deg slope: the driven path equals the preview EXACTLY (same steps, same slope memory): max deviation < 1e-6 m`, abweichung < 1e-6, `${abweichung.toExponential(2)} m`);
+    check(`${grad} deg slope: every driven roll took all ${ROLLE_SCHRITTE} steps and used the slope memory of its path state`, laeufe.every((l) => l.getan === ROLLE_SCHRITTE && Math.abs(l.rest) < 1e-9 && (grad >= 60 ? l.hang.gueltig : true)), laeufe.map((l) => `${l.getan}/${l.hang.gueltig}`).join(' '));
+    // the numbers measured on the state with one memory: 58 deg free (4.853), 60 deg free (4.077), 62 deg refused (0)
+    check(`${grad} deg slope: the preview is ${grad === 58 ? '4.853' : grad === 60 ? '4.077' : '0'} m (a fresh memory per step would give 3.979 at 60 deg)`, Math.abs(vor - (grad === 58 ? 4.853 : grad === 60 ? 4.077 : 0)) < 0.005, `${vor.toFixed(3)}`);
     // the old way (a fresh memory per call) is what the attack found: not part of the check, it is the mutant A28
   }
 }
@@ -463,6 +502,7 @@ async function main(): Promise<void> {
     check('THE FREE ROLL: 4.85 +- 0.1 m along -z, the running WASD of the packets ignored', nah(weg, ROLLE_WEG_M, 0.1) && nah(anna.position.x, von.x, 0.05) && anna.position.z < von.z - 4.7, `${weg.toFixed(3)} m, x ${(anna.position.x - von.x).toFixed(3)}, z ${(anna.position.z - von.z).toFixed(3)}`);
     check('stamina -10 (not more: running does not cost during the roll)', nah(anna.stamina, 90, 1), `${anna.stamina}`);
     check('the roll is over (the clip + the packets): rolleBis passed, no client message', !rolleLaeuft(anna, Date.now()) && ws.rollen.length === 0, JSON.stringify(ws.rollen));
+    check(`the packets drove the path state of the roll through all ${ROLLE_SCHRITTE} steps (the wiring hands it to the movement)`, anna.rolleWeg !== null && anna.rolleWeg.getan === ROLLE_SCHRITTE, `${anna.rolleWeg?.getan}`);
     check('(timing) the roll ran its clip length', anna.rolleBis - t0 === ROLLE_DAUER_MS);
 
     // ── the lock over the wire ──

@@ -322,6 +322,26 @@ const horizontal = (a: Vek3, b: Vek3): number => Math.hypot(a.x - b.x, a.z - b.z
       check(`path state, packets every ${takt} ms: ends exactly at the preview (${ende.toFixed(4)} vs ${dist.toFixed(4)}), all ${ROLLE_SCHRITTE} steps taken, never ahead of the curve (${r.vorn.toExponential(1)}), at most 0.1 m behind (${r.hinten.toFixed(3)})`,
         Math.abs(ende - dist) < 1e-9 && r.lauf.getan === ROLLE_SCHRITTE && Math.abs(r.lauf.rest) < 1e-9 && r.vorn < 1e-9 && r.hinten < 0.1);
     }
+    {
+      // a call with more time than the roll has left cannot move the figure beyond the path (the cap of the steps), and the
+      // near field asked for the collision reaches as far as the steps of the call will go
+      const z2 = createWovServer({ port: 0, worldSeed: 'KxSYuZquuw', worldFeatures: false });
+      z2.init();
+      const kw = new Kollisionswelt(z2.zdos, z2.prefabs, () => 0);
+      const leer = kw.nahfeldAus([]);
+      const gefragt: number[] = [];
+      (kw as unknown as { nahfeld: (p: unknown, weg: number) => unknown }).nahfeld = (_p, weg) => { gefragt.push(weg); return leer; };
+      const sb2 = new Spielerbewegung(kw);
+      const w2 = { position: { x: 0, y: 0, z: 0 } };
+      const l2 = neuerRolleWeg();
+      const nach = sb2.rollSchritt(w2, 0, -1, 0.4, l2);
+      const teilWeg = ROLLE_TEMPO * (ROLLE_BEWEGUNG_S / ROLLE_SCHRITTE);
+      check('a slice of 0.4 s at the roll speed asks the collision for at least the steps it will go (reach >= 2.3 m)', gefragt.length === 1 && gefragt[0]! >= ROLLE_TEMPO * 0.4 - teilWeg, gefragt.join());
+      check('... and moves the figure 2.3 m (the steps due)', Math.abs(Math.hypot(nach.x, nach.z) - Math.floor(0.4 / (ROLLE_BEWEGUNG_S / ROLLE_SCHRITTE)) * teilWeg) < 1e-9, `${Math.hypot(nach.x, nach.z).toFixed(3)}`);
+      w2.position = nach;
+      const viel = sb2.rollSchritt(w2, 0, -1, 10, l2);
+      check('a call with 10 s of roll time: the cap of the steps holds the figure at the 4.853 m of the path', Math.abs(Math.hypot(viel.x, viel.z) - ROLLE_WEG_M) < 1e-9 && l2.getan === ROLLE_SCHRITTE, `${Math.hypot(viel.x, viel.z).toFixed(3)} m, ${l2.getan} steps`);
+    }
     for (const takt of [16, 100, 400]) {
       const dick2 = fahreLauf(weltMit([{ form: kiste({ x: -50, y: -1, z: -0.1 }, { x: 50, y: 4, z: 0.1 }), position: { x: 0, y: 0, z: -2 } }]), 0, -1, takt);
       check(`path state, a 20 cm thin wall in 1.9 m, packets every ${takt} ms: the slice does not jump over it (z > -1.6)`, dick2.pos.z > -1.6, `z ${dick2.pos.z.toFixed(3)}`);

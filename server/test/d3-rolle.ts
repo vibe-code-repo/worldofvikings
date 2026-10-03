@@ -452,9 +452,11 @@ async function main(): Promise<void> {
     anna.stamina = 100;
     anna.totBis = Date.now() + 5000;
     const sd = anna.rolleStart;
+    ws.rollen.length = 0;
     sendRolle(ws, 0);
     await warte(100);
     check('a dead player\'s Rolle packet is dropped', anna.rolleStart === sd && anna.stamina === 100);
+    check('a dead player\'s Rolle packet is dropped at the gate: not even a Rolle false reply', ws.rollen.length === 0, JSON.stringify(ws.rollen));
     anna.totBis = 0;
 
     // ── death and change of world end the roll ──

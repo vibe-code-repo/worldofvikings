@@ -557,11 +557,11 @@ console.log('\n[3e] An old-format copy keeps working as GD1 let it: a base entry
     const e = gegenstaendeAbgleichen({ repoDatei: n.repo, arbeitsDatei: n.arbeit });
     check(`old format, only AxeFlint (ernte ${wie}) + Holzaxt, nothing to clean out: fall bereinigt, ernte {} written, back-up there`, e.fall === 'bereinigt' && e.bereinigt?.length === 0 && e.ernteFestgeschrieben?.join() === 'AxeFlint' && mitErnteFeld(n.arbeit) && baks(n).length === 1, `${e.fall} ${e.bereinigt?.length}`);
   }
-  // no basis file at all counts as the old format
+  // no basis file at all: the state the file worked under is UNKNOWN, so nothing is written and the message says so (N5)
   const o = neuerFall(REPO_ECHT);
   writeFileSync(o.arbeit, mainDatei());
   const q = gegenstaendeAbgleichen({ repoDatei: o.repo, arbeitsDatei: o.arbeit });
-  check('no basis file at all: the old format as well, ernte {} written', q.ernteFestgeschrieben?.join() === 'AxeFlint' && mitErnteFeld(o.arbeit));
+  check('no basis file: nothing is written for AxeFlint (state unknown), ernteUnklar names it, the message says so; the field inherits', (q.ernteFestgeschrieben ?? []).length === 0 && q.ernteUnklar?.join() === 'AxeFlint' && !mitErnteFeld(o.arbeit) && q.meldung.includes('unbekannt') && q.meldung.includes('nichts festgeschrieben'), q.meldung.slice(-220));
 
   // pruefen writes nothing
   const m = neuerFall(REPO_ECHT);
@@ -570,6 +570,104 @@ console.log('\n[3e] An old-format copy keeps working as GD1 let it: a base entry
   const vor = readFileSync(m.arbeit, 'utf-8');
   const p = gegenstaendeAbgleichen({ repoDatei: m.repo, arbeitsDatei: m.arbeit, modus: 'pruefen' });
   check('pruefen names it (bereinigt, ernte {}) and writes nothing', p.fall === 'bereinigt' && p.ernteFestgeschrieben?.join() === 'AxeFlint' && readFileSync(m.arbeit, 'utf-8') === vor && baks(m).length === 0);
+}
+
+console.log('\n[3f] The transition decides by the BASIS state, not by today\'s repo (N5)');
+{
+  const holzEintrag = leseGegenstandsDatei(dokument([holzaxt])).eintraege[0]!;
+  const neuerBau = (text: string): (() => void) => {
+    setzeGrundbestand([]);
+    setzeGrundbestand(leseGegenstandsDatei(text).eintraege);
+    return () => { setzeGrundbestand(GRUNDBESTAND); wendeGegenstandsDatenAn([]); };
+  };
+  const repoMit = (aendere: (doc: { gegenstaende: Roh[] }) => void): string => {
+    const doc = JSON.parse(REPO_ECHT.toString()) as { version: number; gegenstaende: Roh[] };
+    aendere(doc);
+    return `${JSON.stringify(doc, null, 2)}\n`;
+  };
+  const historie = (f: Fall, text: string | Buffer): void => {
+    const ziel = gegenstandsHistorieDatei(f.repo, sha(Buffer.from(text)));
+    mkdirSync(dirname(ziel), { recursive: true });
+    writeFileSync(ziel, text);
+  };
+  const ohneErnte = (id: string, ueber: Roh): Roh => {
+    const e = { ...repoRoh().find((x) => x.id === id)!, ...ueber };
+    delete e.ernte;
+    return e;
+  };
+  const datei = (liste: unknown[]): string => `${JSON.stringify({ version: 1, gegenstaende: liste }, null, 2)}\n`;
+  const imFeld = (pfad: string, id: string): unknown => (JSON.parse(readFileSync(pfad, 'utf-8')) as { gegenstaende: Roh[] }).gegenstaende.find((e) => e.id === id)?.ernte;
+
+  {
+    // P6a of the check: Hammer had NO harvest in the state the file worked under; the repo gives it one NOW: it must arrive
+    const r1 = repoMit((d) => { d.gegenstaende.find((e) => e.id === 'Hammer')!.ernte = { baum: 3 }; });
+    const f = neuerFall(r1);
+    historie(f, REPO_ECHT);
+    writeFileSync(f.arbeit, datei([ohneErnte('Hammer', { gewicht: 99 }), holzaxt]));
+    writeFileSync(f.basis, `${sha(REPO_ECHT)}\n`);
+    const zurueck = neuerBau(r1);
+    try {
+      const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+      check('Hammer without ernte, the basis state (history) had no harvest for it, the repo gives it one now: NOTHING is written (no `ernte: {}`)', (a.ernteFestgeschrieben ?? []).length === 0 && imFeld(f.arbeit, 'Hammer') === undefined, JSON.stringify(a.ernteFestgeschrieben));
+      laden(f);
+      check('... the new harvest arrives in the game (Hammer baum 3, inherited)', findItem('Hammer')?.ernte?.baum === 3, JSON.stringify(findItem('Hammer')?.ernte));
+    } finally {
+      zurueck();
+    }
+  }
+  {
+    // P5: a G1 file (the basis hash is the empty state) with a hand-made AxeFlint without ernte: the base state had no AxeFlint entry, so no `{}`
+    const f = neuerFall(REPO_ECHT);
+    const g1 = schreibeGegenstandsDatei([]);
+    historie(f, g1);
+    writeFileSync(f.arbeit, datei([ohneErnte('AxeFlint', { gewicht: 99 })]));
+    writeFileSync(f.basis, `${sha(Buffer.from(g1))}\n`);
+    const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    check('G1 basis (the empty state), a hand-made AxeFlint without ernte: nothing is written (the state had no AxeFlint harvest), the field inherits', (a.ernteFestgeschrieben ?? []).length === 0 && imFeld(f.arbeit, 'AxeFlint') === undefined && (a.ernteUnklar ?? []).length === 0, JSON.stringify(a.ernteFestgeschrieben));
+    const l = laden(f);
+    check('... in the game the axe still harvests (baum 1)', l.grundErsetzt === 1 && findItem('AxeFlint')?.ernte?.baum === 1);
+  }
+  {
+    // the state is NOT known: a hash that is in no history and cannot be rebuilt, or no basis at all
+    const f = neuerFall(REPO_ECHT);
+    const editiert = leseGegenstandsDatei(datei([ohneErnte('AxeFlint', { gewicht: 99 }), mitErnte('Wood', { baum: 3 })]), { ohneGrundsperre: true }).eintraege;
+    writeFileSync(f.arbeit, datei([ohneErnte('AxeFlint', { gewicht: 99 }), mitErnte('Wood', { baum: 3 })]));
+    writeFileSync(f.basis, `${sha(Buffer.from('ein unbekannter Stand'))}\n`);
+    void editiert;
+    const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    check('unknown hash (no history, cannot be rebuilt): nothing is written, ernteUnklar names AxeFlint, the message says the state is unknown', (a.ernteFestgeschrieben ?? []).length === 0 && a.ernteUnklar?.join() === 'AxeFlint' && imFeld(f.arbeit, 'AxeFlint') === undefined && a.meldung.includes('unbekannt') && a.basisUnbekannt === true, a.meldung.slice(-250));
+  }
+  {
+    // P7: an UNREADABLE full basis is no old format: no `ernte {}`, a message, the basis is rewritten
+    const f = neuerFall(REPO_ECHT);
+    const text = datei([ohneErnte('AxeFlint', { gewicht: 99 }), holzaxt]);
+    writeFileSync(f.arbeit, text);
+    writeFileSync(f.basis, REPO_ECHT.toString().slice(0, 200));
+    const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    check('broken FULL basis (cut off): basisKaputt, no `ernte: {}` written, the message says the basis was unreadable and is rewritten', a.basisKaputt === true && (a.ernteFestgeschrieben ?? []).length === 0 && imFeld(f.arbeit, 'AxeFlint') === undefined && a.meldung.includes('unlesbar'), a.meldung.slice(-250));
+    check('... the basis is the full repo copy afterwards, the file is untouched', gegenstandsBasisStand(f.arbeit)?.text === REPO_ECHT.toString() && readFileSync(f.arbeit, 'utf-8') === text);
+    const l = laden(f);
+    check('... in the game the axe keeps the inherited harvest (baum 1)', l.grundErsetzt === 1 && findItem('AxeFlint')?.ernte?.baum === 1);
+    check('a missing basis file is NOT "broken"', gegenstaendeAbgleichen({ repoDatei: neuerFall(REPO_ECHT).repo, arbeitsDatei: neuerFall(REPO_ECHT).arbeit }).basisKaputt === undefined);
+  }
+  {
+    // messages say only what happened
+    const f = neuerFall(REPO_ECHT);
+    const main = leseGegenstandsDatei(REPO_ECHT.toString(), { ohneGrundsperre: true }).eintraege;
+    void main;
+    const nur = datei([ohneErnte('AxeFlint', { gewicht: 99 }), holzaxt]);
+    writeFileSync(f.arbeit, nur);
+    writeFileSync(f.basis, `${sha(REPO_ECHT)}\n`);
+    const p = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit, modus: 'pruefen' });
+    check('pruefen: the message says "wuerde" and never claims to have written or taken out anything', p.meldung.includes('wuerde') && !/(?<!wuerde )ausdruecklich geschrieben/.test(p.meldung) && !p.meldung.includes('gesichert') && !p.meldung.includes('Eintrag/Eintraege'), p.meldung);
+    const v = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    check('voll, only `ernte {}` added: no "0 Eintrag", no empty list "()", the back-up is named exactly once', !v.meldung.includes('0 Eintrag') && !v.meldung.includes('()') && v.meldung.split('gesichert').length === 2 && v.meldung.includes('ausdruecklich geschrieben'), v.meldung);
+    const g = neuerFall(REPO_ECHT);
+    writeFileSync(g.arbeit, dokument([...repoRoh(), holzaxt]));
+    writeFileSync(g.basis, REPO_ECHT);
+    const w = gegenstaendeAbgleichen({ repoDatei: g.repo, arbeitsDatei: g.arbeit });
+    check('voll, only a clean-out: no word about `ernte`, the back-up once', w.meldung.includes('herausgenommen') && !w.meldung.includes('ernte') && w.meldung.split('gesichert').length === 2, w.meldung.slice(0, 200));
+  }
 }
 
 console.log('\n[3c] Replaced copies: ernte inherited, deep copy (N2)');

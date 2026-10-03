@@ -121,6 +121,10 @@ export interface GegenstandsAbgleich {
   abweichend?: string[];
   /** Transition from the old format: ids of base entries without an `ernte` field that got an explicit `ernte: {}` (see the head). */
   ernteFestgeschrieben?: string[];
+  /** Base entries without an `ernte` field in an old-format file whose state is unknown (no basis, unreadable, unknown hash): nothing was written, the field inherits. */
+  ernteUnklar?: string[];
+  /** The basis file exists but is unusable: it is no old format, it is replaced. */
+  basisKaputt?: boolean;
   /** An old hash-only basis that matches no known repo state and cannot be rebuilt: only "equals the repo entry" counted. */
   basisUnbekannt?: boolean;
 }
@@ -288,19 +292,29 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   // The basis state per entry: the full text of a new basis; for an old (hash only) basis: the whole file when it equals the
   // basis, else the base-id entries of the file if they hash to the basis hash.
   let basisKanon: Map<string, string> | null = null;
+  // The entries of the repo state the old (hash only) basis stands for, when it is known: what decides the transition (below).
+  let basisEintraege: Map<string, GegenstandsEintrag> | null = null;
   let dateiIstBasis = false;
   let basisUnbekannt = false;
   if (basis !== null && basis.text !== null) basisKanon = kanonKarte(basis.text);
   else if (basis !== null) {
     const historie = historieText(repoPfad, basis.hash);
-    if (basis.hash === repoHash) basisKanon = repoKanon;
-    else if (historie !== null) basisKanon = kanonKarte(historie);
+    if (basis.hash === repoHash) {
+      basisKanon = repoKanon;
+      basisEintraege = new Map(repoLesung.eintraege.map((e) => [e.id, e] as const));
+    } else if (historie !== null) {
+      basisKanon = kanonKarte(historie);
+      basisEintraege = new Map(leseGegenstandsDatei(historie, { ohneGrundsperre: true }).eintraege.map((e) => [e.id, e] as const));
+    }
     else if (arbeitHash === basis.hash) dateiIstBasis = true;
     else {
       const kandidat = leseGegenstandsDatei(JSON.stringify({ version: 1, gegenstaende: dokument.gegenstaende.filter((r) => { const id = idVon(r); return id !== null && repoKanon.has(id); }) }), { ohneGrundsperre: true });
       if (kandidat.dateiFehler === null && kandidat.verworfen.length === 0 && kandidat.eintraege.length > 0) {
         try {
-          if (layoutHash(schreibeGegenstandsDatei(kandidat.eintraege)) === basis.hash) basisKanon = new Map(kandidat.eintraege.map((e) => [e.id, schreibeGegenstandsDatei([e])] as const));
+          if (layoutHash(schreibeGegenstandsDatei(kandidat.eintraege)) === basis.hash) {
+            basisKanon = new Map(kandidat.eintraege.map((e) => [e.id, schreibeGegenstandsDatei([e])] as const));
+            basisEintraege = new Map(kandidat.eintraege.map((e) => [e.id, e] as const));
+          }
         } catch {
           /* cannot be written: no reconstruction */
         }
@@ -314,11 +328,16 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   const entfallen: string[] = [];
   const abweichend: string[] = [];
   const ernteFestgeschrieben: string[] = [];
-  // A working copy in the OLD format (basis only a hash, or none) was written by GD1, whose writer left an empty `ernte` out: a base
-  // entry of such a file WITHOUT the field ran with `ernte {}` ("harvests nothing"). Under the new rule a missing field inherits,
-  // so the transition takes the file over as the server let it work and writes `ernte: {}` explicitly (canonical, with back-up).
-  const altesFormat = basis === null || basis.text === null;
+  // A working copy in the OLD format (basis only a hash, or no basis file) was written by GD1, whose writer left an empty `ernte`
+  // out: a base entry of such a file WITHOUT the field ran with `ernte {}` ("harvests nothing") IF the base entry of the state
+  // the server let it work under had a harvest; where it had none the field is simply missing and inherits. The transition
+  // therefore decides by the BASIS state (history, rebuilt, or the repo when the hash equals it; `basisEintraege` is set only for an old hash basis, so a full basis or a missing/unreadable one never writes), never by today's repo: a
+  // harvest the repo gets only now must arrive. Without a known state (no basis, unknown hash) nothing is written and the
+  // message says so. An unreadable FULL basis is no old format (it is replaced, nothing is written).
+  const basisKaputt = basis === null && dateiBytes(basisPfad) !== null;
+  const ernteAlsBasis = (id: string): boolean => Object.keys(basisEintraege?.get(id)?.ernte ?? {}).length > 0;
   const repoHatErnte = (id: string): boolean => Object.keys(repoLesung.eintraege.find((e) => e.id === id)?.ernte ?? {}).length > 0;
+  const ernteUnklar: string[] = [];
   for (const roh of dokument.gegenstaende) {
     const id = idVon(roh);
     const imRepo = id !== null && repoKanon.has(id);
@@ -330,10 +349,14 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
       if (!imRepo) entfallen.push(id);
     } else {
       const ernteFehlt = typeof roh === 'object' && roh !== null && ((roh as { ernte?: unknown }).ernte === undefined || (roh as { ernte?: unknown }).ernte === null);
-      if (altesFormat && ernteFehlt && repoHatErnte(id!)) { // (`repoHatErnte` is false for an id the repo does not have)
+      if (ernteFehlt && ernteAlsBasis(id!)) { // (`ernteAlsBasis` is false while the basis state is unknown)
         behalten.push({ ...(roh as object), ernte: {} });
         ernteFestgeschrieben.push(id!);
-      } else behalten.push(roh);
+      } else {
+        behalten.push(roh);
+        // the state of an old file is unknown (no basis, or a basis that is no known state) or the basis is unusable: nothing is written
+        if ((basis === null || (basis.text === null && basisEintraege === null)) && ernteFehlt && repoHatErnte(id!)) ernteUnklar.push(id!);
+      }
       if (imRepo) abweichend.push(id!);
     }
   }
@@ -353,27 +376,40 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   zwischenschritt?.();
   if (basisNachtragen && modus === 'voll') atomarSchreiben(basisPfad, repoBytes);
 
-  const mehr = { bereinigt, entfallen, abweichend, ...(ernteFestgeschrieben.length > 0 ? { ernteFestgeschrieben } : {}), ...(basisUnbekannt ? { basisUnbekannt } : {}), ...(sicherung === undefined ? {} : { sicherung }) };
-  const unbekanntText = basisUnbekannt ? ` Die alte Basis (Hash ${kurz(basisHash)}) ist keine bekannte Repo-Fassung und laesst sich nicht aus der Datei aufbauen: nur Gleichheit mit dem Repo-Stand zaehlt.` : '';
-  const ernteText = ernteFestgeschrieben.length > 0 ? ` Alte Datei uebernommen, wie der Server sie wirken liess: \`ernte: {}\` ausdruecklich geschrieben fuer ${ernteFestgeschrieben.join(', ')} (Sicherung: ${sicherung ?? '(keine)'}).` : '';
-  const entfallenText = entfallen.length > 0 ? ` Nicht mehr im Repo (Eintrag unberuehrt, entfernt): ${entfallen.join(', ')}.` : '';
+  const mehr = {
+    bereinigt, entfallen, abweichend,
+    ...(ernteFestgeschrieben.length > 0 ? { ernteFestgeschrieben } : {}),
+    ...(ernteUnklar.length > 0 ? { ernteUnklar } : {}),
+    ...(basisUnbekannt ? { basisUnbekannt } : {}),
+    ...(basisKaputt ? { basisKaputt } : {}),
+    ...(sicherung === undefined ? {} : { sicherung }),
+  };
+  // The messages say only what really happened (or, in `pruefen`, would happen): nothing about taking entries out when none go, no
+  // "written" in `pruefen`, the back-up named once.
+  const voll = modus === 'voll';
+  const teile: string[] = [];
+  if (bereinigt.length > 0) teile.push(`${bereinigt.length} Eintrag/Eintraege ohne Abweichung ${voll ? 'herausgenommen' : 'wuerden herausgenommen'} (${bereinigt.join(', ')})`);
+  if (ernteFestgeschrieben.length > 0) teile.push(`alte Datei uebernommen, wie der Server sie wirken liess: \`ernte: {}\` ${voll ? 'ausdruecklich geschrieben' : 'wuerde ausdruecklich geschrieben'} fuer ${ernteFestgeschrieben.join(', ')}`);
+  const wort = bereinigt.length > 0 ? 'bereinigt' : 'umgeschrieben';
+  const aenderung = teile.length > 0 ? ` Arbeitskopie ${voll ? wort : `wuerde ${wort}`}: ${teile.join('; ')}${voll ? `; alter Stand gesichert: ${sicherung ?? '(keiner)'}` : ''}.` : '';
+  const zusatz =
+    (entfallen.length > 0 ? ` Nicht mehr im Repo (Eintrag unberuehrt, entfernt): ${entfallen.join(', ')}.` : '') +
+    (basisUnbekannt ? ` Die alte Basis (Hash ${kurz(basisHash)}) ist keine bekannte Repo-Fassung und laesst sich nicht aus der Datei aufbauen: nur Gleichheit mit dem Repo-Stand zaehlt.` : '') +
+    (basisKaputt ? ' Die Basisdatei ist unlesbar: sie gilt nicht als altes Format und wird neu geschrieben.' : '') +
+    (ernteUnklar.length > 0 ? ` Eintraege ohne ernte-Feld (${ernteUnklar.join(', ')}): der Stand, unter dem die alte Datei wirkte, ist unbekannt, es wird nichts festgeschrieben; das fehlende Feld erbt die Ernte des Grundeintrags.` : '');
   if (konfliktIds.length > 0) {
     return ergebnis(
       'konflikt',
       `[Gegenstaende] WARNUNG Konflikt: das Repo hat sich geaendert (Basis ${kurz(basisHash)} → Repo ${kurz(repoHash)}), die Arbeitskopie hat abweichende Grundgegenstaende (${konfliktIds.join(', ')}). ` +
         `Es wird NICHTS ueberschrieben; die Arbeitskopie gilt (${arbeitsPfad}). Bis GD3 ist nur \`ernte\` aenderbar: alle anderen Felder folgen dem Repo, eine geaenderte \`ernte\` des Repos kommt fuer diese Gegenstaende erst an, wenn der Eintrag im Editor auf den Grundstand zurueckgesetzt wird.` +
-        (bereinigt.length > 0 ? ` Ohne Abweichung herausgenommen: ${bereinigt.join(', ')} (Sicherung: ${sicherung ?? '(keine)'}).${entfallenText}` : '') + unbekanntText + ernteText,
+        aenderung + zusatz,
       { ...mehr, abweichend }
     );
   }
   if (bereinigt.length > 0 || ernteFestgeschrieben.length > 0) {
-    return ergebnis(
-      'bereinigt',
-      `[Gegenstaende] Arbeitskopie bereinigt: ${bereinigt.length} Eintrag/Eintraege ohne Abweichung ${modus === 'voll' ? 'herausgenommen' : 'wuerden herausgenommen'} (${bereinigt.join(', ')}); alter Stand gesichert: ${sicherung ?? '(keiner)'}.${entfallenText}${abweichungen}${unbekanntText}${ernteText}`,
-      mehr
-    );
+    return ergebnis('bereinigt', `[Gegenstaende]${aenderung}${abweichungen}${zusatz}`, mehr);
   }
-  return ergebnis('unveraendert', `[Gegenstaende] Arbeitskopie gelesen: ${arbeitsPfad} (Hash ${kurz(arbeitHash)}, Repo ${kurz(repoHash)}).${abweichungen}${unbekanntText}`, mehr);
+  return ergebnis('unveraendert', `[Gegenstaende] Arbeitskopie gelesen: ${arbeitsPfad} (Hash ${kurz(arbeitHash)}, Repo ${kurz(repoHash)}).${abweichungen}${zusatz}`, mehr);
 }
 
 /**

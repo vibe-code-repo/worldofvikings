@@ -39,6 +39,8 @@ export default [
     regression and the per-packet cost measurement.
   */
   ['shared', 'test/bewegung-schritt.ts'],
+  // New biome bit 128 (greyglen): bit, names, region, sanitizer, ground tile, weather as a copy of grassland. <1 s.
+  ['shared', 'test/biom-greyglen.ts'],
   /*
     Karte B4 (2026-09-29): Schrittgeraeusche je Untergrund.
     `shared/test/boden-mischung.ts` rechnet die Bodenmischung
@@ -383,6 +385,8 @@ export default [
   ['shared', 'test/platzierungen-fehler.ts'],
   // Stable placement ids: the sanitizer derives / keeps / sorts ids, folds exact duplicates.
   ['shared', 'test/platzierungs-ids.ts'],
+  // Handshake version: a world with a biome older clients do not know demands a newer client (pure function). <1 s.
+  ['shared', 'test/protokoll-version.ts'],
   ['shared', 'test/region-geo.ts'],
   // Armor names via translation keys: every set and piece has a textKey that follows the schema and
   // exists in de.json and en.json; no orphan inhalt.item.* / inhalt.set.* key, no German text in en. <1 s.

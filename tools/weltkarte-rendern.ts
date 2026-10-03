@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
-import { getStableHash, Biome } from '@wov/shared';
+import { getStableHash, Biome, inhaltText } from '@wov/shared';
 import { createGeo } from '@wov/shared/src/worldgen/factory.js';
 import {
   sanitizeWorldLayout,
@@ -89,6 +89,7 @@ const BIOME_FARBE: Record<number, RGB> = {
   [Biome.DeepNorth]: [196, 214, 228],
   [Biome.Ocean]: [44, 84, 130],
   [Biome.Mistlands]: [112, 128, 122],
+  [Biome.Greyglen]: [78, 116, 110],
   [Biome.None]: [255, 0, 255],
 };
 
@@ -103,6 +104,7 @@ const BIOME_NAME: Record<number, string> = {
   [Biome.AshLands]: 'Aschelande',
   [Biome.DeepNorth]: 'Hochnord',
   [Biome.Ocean]: 'Meer',
+  [Biome.Greyglen]: inhaltText('inhalt.biom.greyglen', 'de'),
 };
 
 const hex = (c: RGB): string =>

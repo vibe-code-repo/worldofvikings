@@ -696,6 +696,8 @@ export default [
   ['server', 'test/modulbau-loeschen.ts'],
   // Steinmaterial je PLATZIERTEM Raum als Member am Raum-ZDO.
   ['server', 'test/p5-raum-steinkit.ts'],
+  // Real server: a greyglen world refuses the old handshake version with the reload message, a world without it keeps accepting it. ~3 s.
+  ['server', 'test/protokoll-biom-version.ts'],
   /*
     E6 — die Registry-Pruefsumme reist mit dem Dokument.
 

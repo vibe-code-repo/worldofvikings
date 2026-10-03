@@ -184,6 +184,41 @@
       ]
     },
     {
+      "biom": "Greyglen",
+      "zustaende": [
+        {
+          "zustand": "Clear",
+          "gewicht": 5,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "Rain",
+          "gewicht": 0.20000000298023224,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "Misty",
+          "gewicht": 0.20000000298023224,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "ThunderStorm",
+          "gewicht": 0.20000000298023224,
+          "fensterMin": 1,
+          "fensterMax": 1
+        },
+        {
+          "zustand": "LightRain",
+          "gewicht": 0.20000000298023224,
+          "fensterMin": 1,
+          "fensterMax": 1
+        }
+      ]
+    },
+    {
       "biom": "Plains",
       "zustaende": [
         {

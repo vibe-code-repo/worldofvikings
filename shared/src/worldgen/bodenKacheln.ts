@@ -25,6 +25,7 @@ export const BIOME_TILE: Record<number, number> = {
   16: TILE.Heath, // Plains
   32: TILE.Ash, // AshLands
   64: TILE.Rock, // DeepNorth (+ Schnee)
+  128: TILE.Grass, // Greyglen (Kopie von Meadows)
   256: TILE.Sand, // Ocean
   512: TILE.Moss, // Mistlands
 };

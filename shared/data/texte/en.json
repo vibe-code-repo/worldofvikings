@@ -1,4 +1,5 @@
 {
+  "inhalt.biom.greyglen": "Greyglen",
   "inhalt.item.ashenveil_boots": "Ashenveil Armored Boots",
   "inhalt.item.ashenveil_bracers": "Ashenveil Rune Bracers",
   "inhalt.item.ashenveil_gloves": "Ashenveil Shadow Gloves",
@@ -54,6 +55,7 @@
   "inhalt.item.wildwarden_mantle": "Wildwarden Leaf Mantle",
   "inhalt.item.wildwarden_robe": "Wildwarden Forest Robe",
   "inhalt.item.wildwarden_vest": "Wildwarden Bark Jerkin",
+  "inhalt.netz.veraltet": "Client version outdated (client v{client}, server v{server}) — please reload the page",
   "inhalt.prefab.vegetation_fern_1a1": "Fern",
   "inhalt.prefab.vegetation_flower_1a12": "Meadow flower B",
   "inhalt.prefab.vegetation_flower_1a4": "Meadow flower A",

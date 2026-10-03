@@ -4,6 +4,7 @@
  *   npx tsx tools/store-prefabs.mjs
  *
  * Quelle: assets/store/manifest.json + assets/store/prefabs.json
+ * + tools/store-lab-katalog.json (Modelle, die nur im Store-Labor liegen)
  * (der Asset-Speicher liegt ausserhalb des Repos, s. Generatorkopf).
  *
  * Der Lauf ist deterministisch: gleiche Quelle → byteidentische Datei.
@@ -15,7 +16,7 @@
  * gepflegt in `storeKatalog.ts`; hier sind nur die Daten.
  *
  * ── Was hier NICHT steht: der Katalog ────────────────────────────────
- * `STORE_KATALOG` (1306 Einträge mit Lizenz, Kennzeichen,
+ * `STORE_KATALOG` (1309 Einträge mit Lizenz, Kennzeichen,
  * Hüllbox und Kollisionsart) liegt in `storeKatalogDaten.ts`. Diese
  * Datei hier hängt am Barrel und damit im SPIEL-Bundle; der Katalog
  * interessiert nur den Editor. Zusammen in einer Datei lud ihn jeder
@@ -31,8 +32,8 @@ import type { Vector3 } from './types.js';
 
 /**
  * Geteilte Instanz wie in `prefabs.ts`: Der Wert ist nirgends
- * veränderlich gemeint, und 569 eigene Objekte dafür wären
- * 569 Objekte zu viel.
+ * veränderlich gemeint, und 572 eigene Objekte dafür wären
+ * 572 Objekte zu viel.
  */
 const EINS: Vector3 = { x: 1, y: 1, z: 1 };
 
@@ -55,7 +56,7 @@ function d(name: string, w: number, h: number, model: string): PrefabDef {
 }
 
 /**
- * Die 569 setzbaren Store-Prefabs.
+ * Die 572 setzbaren Store-Prefabs.
  *
  * `name` ist die `id` aus `prefabs.json` — sie enthält Bindestriche und
  * kann deshalb mit keinem Namen des Altbestands kollidieren (der ist
@@ -550,6 +551,9 @@ export const STORE_PREFAB_DEFS: readonly PrefabDef[] = [
   d('vegetation-bush-1a2-small-1-dark', 3.1024, 2.727, 'store-lab/vegetation/bush-1a2-small-1-dark'),
   d('vegetation-bush-1a2-small-1-snow', 3.1024, 2.727, 'store-lab/vegetation/bush-1a2-small-1-snow'),
   d('vegetation-bush-1a3', 3.4349, 2.8064, 'store-lab/vegetation/bush-1a3'),
+  d('vegetation-fern-1a1', 1.3418, 0.5904, 'store-lab/vegetation/fern-1a1'),
+  d('vegetation-flower-1a12', 0.238, 0.5445, 'store-lab/vegetation/flower-1a12'),
+  d('vegetation-flower-1a4', 0.3705, 0.4583, 'store-lab/vegetation/flower-1a4'),
   d('vegetation-grass-short-clump-1', 1, 0.25, 'store-lab/vegetation/grass-short-clump-1'),
   d('vegetation-grass-short-clump-redblue', 1, 0.25, 'store-lab/vegetation/grass-short-clump-redblue'),
   d('vegetation-grass-short-clump-snow', 1, 0.25, 'store-lab/vegetation/grass-short-clump-snow'),

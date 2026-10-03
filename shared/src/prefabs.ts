@@ -1346,13 +1346,13 @@ const EIGENE_MODELLE_ALT: readonly string[] = [
 
 /**
  * Die Positivliste, wie der Rest des Projekts sie kennt — Altbestand
- * PLUS die 569 Prefabs des Asset-Speichers.
+ * PLUS die 572 Prefabs des Asset-Speichers.
  *
  * ── Warum angehängt und nicht eingemischt ────────────────────────────
  * Die REIHENFOLGE dieser Liste trägt die Gruppierung im Spawn-Editor
  * (s. `EIGENE_MODELLE_SET` unten). Der Altbestand steht dort in einer
  * von Hand gewählten Ordnung — Messer, Steinkreis, Bäume, Dungeon-Kits
- * —, und wer 569 Namen dazwischenmischte, machte aus einer Liste, die
+ * —, und wer 572 Namen dazwischenmischte, machte aus einer Liste, die
  * man liest, eine, die man durchsucht. Hinten angehängt bleibt die alte
  * Ordnung unangetastet, und der Store ist ein zusammenhängender Block.
  *
@@ -1362,7 +1362,7 @@ const EIGENE_MODELLE_ALT: readonly string[] = [
  * stehen?". Eine zweite Liste daneben liefe beim ersten neuen Modell
  * auseinander — genau die Erfahrung, die zu dieser Liste geführt hat.
  *
- * The whitelist: hand-built models plus the 569 store prefabs.
+ * The whitelist: hand-built models plus the 572 store prefabs.
  */
 import { IRONWARD_PARTS } from './ironward.js';
 import { WILDWARDEN_PARTS } from './wildwarden.js';
@@ -1507,7 +1507,7 @@ function buildRegistry(): PrefabDef[] {
   }
 
   /*
-    Der Asset-Speicher — 569 Prefabs aus `assets/store/`.
+    Der Asset-Speicher — 572 Prefabs aus `assets/store/`.
 
     Steht VOR den Eingangshüllen und nach den Dungeon-Räumen, aber die
     Stelle ist gleichgültig: Die Namen sind Kleinschreibung mit
@@ -1518,7 +1518,7 @@ function buildRegistry(): PrefabDef[] {
     sie fest, und diese Zeile hält die Registry auch dann heil, wenn die
     Behauptung eines Tages nicht mehr stimmt.
 
-    The 569 asset-store prefabs.
+    The 572 asset-store prefabs.
   */
   for (const def of STORE_PREFAB_DEFS) {
     if (seen.has(def.name)) continue;

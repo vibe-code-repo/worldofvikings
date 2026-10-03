@@ -16,7 +16,7 @@ import { randomBytes } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { weltArbeitsOrdner } from '../instanz.js';
 import { layoutHash, layoutSichern, layoutUnterSperre } from '../worldlayout/layoutDatei.js';
-import { ernteFehlt as ernteFehltRoh, leseGegenstandsDatei, mitGeerbterErnte, schreibeGegenstandsDatei, type GegenstandsEintrag } from './gegenstandsDaten.js';
+import { ernteFehlt as ernteFehltRoh, ernteWirdGeerbt, leseGegenstandsDatei, mitGeerbterErnte, schreibeGegenstandsDatei, type GegenstandsEintrag } from './gegenstandsDaten.js';
 
 /** Fixed file names. The data are the same for every instance, so no instance name in them. */
 export const GEGENSTAENDE_DATEI = 'gegenstaende.json';
@@ -255,15 +255,35 @@ function historieText(repoPfad: string, hash: string): string | null {
   return leseGegenstandsDatei(text, { ohneGrundsperre: true }).dateiFehler === null ? text : null;
 }
 
-/** The notes of this run for the editor (`gegenstaende.hinweise.json`): written when there is something to show, removed when there is not. */
-function hinweiseSchreiben(arbeitsPfad: string, ernteUnklar: readonly string[], basisKaputt: boolean): void {
+/**
+ * The notes for the editor (`gegenstaende.hinweise.json`). Notes are MERGED across runs, not overwritten: an id stays noted until the
+ * author dealt with exactly that id (`gegenstandsHinweiseIdsEntfernen`: a reset or a saved deviation), because the mask (GD4) cannot
+ * show them yet. Only ids that exist in the repo are kept, so the file cannot grow without bound. `basisKaputt` is a fact of THIS run.
+ */
+function hinweiseSchreiben(arbeitsPfad: string, ernteUnklar: readonly string[], basisKaputt: boolean, repoIds: ReadonlySet<string>): void {
   const ziel = gegenstandsHinweiseDatei(arbeitsPfad);
-  if (ernteUnklar.length === 0 && !basisKaputt) {
+  const alt = gegenstandsHinweiseLesen(arbeitsPfad);
+  const ids = [...new Set([...alt.ernteUnklar, ...ernteUnklar])].filter((id) => repoIds.has(id));
+  if (ids.length === 0 && !basisKaputt) {
     rmSync(ziel, { force: true });
     return;
   }
-  const hinweise: GegenstandsHinweise = { ernteUnklar: [...ernteUnklar], basisKaputt, zeit: new Date().toISOString() };
+  if (alt.zeit !== null && alt.basisKaputt === basisKaputt && alt.ernteUnklar.length === ids.length && alt.ernteUnklar.every((id, i) => id === ids[i])) return;
+  const hinweise: GegenstandsHinweise = { ernteUnklar: ids, basisKaputt, zeit: new Date().toISOString() };
   atomarSchreiben(ziel, `${JSON.stringify(hinweise, null, 2)}\n`);
+}
+
+/**
+ * The author dealt with these ids (a reset that took the entry out, a saved deviation): their notes go. Other ids and `basisKaputt` stay;
+ * the file goes when nothing is left. Call inside the lock section of the working copy.
+ */
+export function gegenstandsHinweiseIdsEntfernen(arbeitsDatei: string, ids: readonly string[]): void {
+  const alt = gegenstandsHinweiseLesen(arbeitsDatei);
+  const rest = alt.ernteUnklar.filter((id) => !ids.includes(id));
+  if (rest.length === alt.ernteUnklar.length) return;
+  const ziel = gegenstandsHinweiseDatei(arbeitsDatei);
+  if (rest.length === 0 && !alt.basisKaputt) rmSync(ziel, { force: true });
+  else atomarSchreiben(ziel, `${JSON.stringify({ ...alt, ernteUnklar: rest }, null, 2)}\n`);
 }
 
 const kurz = (h: string | null): string => (h === null ? '-' : h.slice(0, 8));
@@ -413,7 +433,8 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
       // nothing". The game value does not change (it inherits), but the editor should see it.
       if (standUnbekannt && ernteFehlt && repoHatErnte(id)) ernteUnklar.push(id);
     } else {
-      if (ernteFehlt && ernteAlsBasis(id!)) { // (`ernteAlsBasis` is false while the basis state is unknown)
+      const festgeschrieben = ernteFehlt && ernteAlsBasis(id!); // (`ernteAlsBasis` is false while the basis state is unknown)
+      if (festgeschrieben) {
         behalten.push({ ...(roh as object), ernte: {} });
         ernteFestgeschrieben.push(id!);
       } else {
@@ -422,7 +443,8 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
         if (standUnbekannt && ernteFehlt && repoHatErnte(id!)) ernteUnklar.push(id!);
       }
       if (imRepo) abweichend.push(id!);
-      if (imRepo && ernteFehlt) ohneErnteKonflikt.add(id!);
+      // "without ernte" = what the reader really inherits (field missing, null or invalid), and never an entry that was just written as `ernte: {}`
+      if (imRepo && !festgeschrieben && ernteWirdGeerbt((roh as { ernte?: unknown }).ernte)) ohneErnteKonflikt.add(id!);
     }
   }
   // An abweichende id counts as a conflict when its repo entry changed since the basis (known exactly with a full basis;
@@ -440,7 +462,7 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   }
   zwischenschritt?.();
   if (basisNachtragen && modus === 'voll') atomarSchreiben(basisPfad, repoBytes);
-  if (modus === 'voll') hinweiseSchreiben(arbeitsPfad, ernteUnklar, basisKaputt);
+  if (modus === 'voll') hinweiseSchreiben(arbeitsPfad, ernteUnklar, basisKaputt, new Set(repoLesung.eintraege.map((e) => e.id)));
 
   const mehr = {
     bereinigt, entfallen, abweichend,
@@ -473,7 +495,7 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
       `[Gegenstaende] WARNUNG Konflikt: das Repo hat sich geaendert (Basis ${kurz(basisHash)} → Repo ${kurz(repoHash)}), die Arbeitskopie hat abweichende Grundgegenstaende (${konfliktIds.join(', ')}). ` +
         `Es wird NICHTS ueberschrieben; die Arbeitskopie gilt (${arbeitsPfad}). Bis GD3 ist nur \`ernte\` aenderbar: alle anderen Felder folgen dem Repo.` +
         (mitErnte.length > 0 ? ` Eine geaenderte \`ernte\` des Repos kommt fuer ${mitErnte.join(', ')} (eigene \`ernte\`) erst an, wenn der Eintrag im Editor auf den Grundstand zurueckgesetzt wird.` : '') +
-        (ohneErnte.length > 0 ? ` ${ohneErnte.join(', ')} hat kein \`ernte\`-Feld und folgt der Ernte des Repos sofort.` : '') +
+        (ohneErnte.length > 0 ? ` ${ohneErnte.join(', ')} ${ohneErnte.length === 1 ? 'hat' : 'haben'} kein \`ernte\`-Feld und folgt der Ernte des Repos sofort.` : '') +
         aenderung + zusatz,
       { ...mehr, abweichend }
     );

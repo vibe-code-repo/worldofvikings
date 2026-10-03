@@ -78,7 +78,7 @@ import {
   schreibeGegenstandsDatei,
   type GegenstandsLesung,
 } from '@wov/shared/src/items/gegenstandsDaten.js';
-import { gegenstaendeAbgleichenOhneSperre, gegenstandsArbeitsDatei, gegenstandsHinweiseLesen, gegenstandsBasisStand, nurAbweichungen, gegenstandsBasisNebenDatei as basisNeben, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
+import { gegenstaendeAbgleichenOhneSperre, gegenstandsArbeitsDatei, gegenstandsHinweiseLesen, gegenstandsHinweiseIdsEntfernen, gegenstandsBasisStand, nurAbweichungen, gegenstandsBasisNebenDatei as basisNeben, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 
 /**
  * The receipt written by the server watch (Game card G2), next to the working copy. The path rule lives here
@@ -500,6 +500,7 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
       if (!bestaetigt) return { art: 'altKaputt', hash: stand.hash, dateiFehler: alt.dateiFehler };
       kaputtSichern(arbeit);
       atomarSchreiben(arbeit, kanonisch);
+      gegenstandsHinweiseIdsEntfernen(arbeit, abweichungen.map((e) => e.id));
       return { art: 'geschrieben', hash: layoutHash(kanonisch), entfernt: [], entferntOhneId: [], anzahl: abweichungen.length };
     }
     const neueIds = new Set(neu.eintraege.map((e) => e.id));
@@ -520,6 +521,7 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     const entferntOhneId = verworfen.ohneId;
     if ((entfernt.length > 0 || entferntOhneId.length > 0) && !bestaetigt) return { art: 'bestaetigung', hash: stand.hash, entfernt, entferntOhneId };
     atomarSchreiben(arbeit, kanonisch);
+    gegenstandsHinweiseIdsEntfernen(arbeit, abweichungen.map((e) => e.id)); // a saved deviation is dealt with: its note goes
     return { art: 'geschrieben', hash: layoutHash(kanonisch), entfernt, entferntOhneId, anzahl: abweichungen.length };
   });
 
@@ -651,6 +653,7 @@ async function zuruecksetzen(req: IncomingMessage, res: ServerResponse, wurzel: 
     // The other entries keep their content; the file is written with 2-space indentation (formatting is normalised).
     const neuText = `${JSON.stringify({ ...dokument, gegenstaende: rest }, null, 2)}\n`;
     atomarSchreiben(arbeit, neuText);
+    gegenstandsHinweiseIdsEntfernen(arbeit, [gewaehlt]); // dealt with: its note goes (a reset that changed nothing leaves it)
     return { art: 'fertig', hash: layoutHash(neuText), zurueckgesetzt: true, text: neuText };
   });
   switch (ausgang.art) {

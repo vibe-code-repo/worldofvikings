@@ -23,6 +23,7 @@ import ts from 'typescript';
 import { fileURLToPath } from 'node:url';
 import { Inventory, findItem, setzeUnbekannteVerwahren, unpackContainer } from '@wov/shared';
 import {
+  ernteWirdGeerbt,
   GRUNDBESTAND,
   GRUNDBESTAND_IDS,
   grundbestandEintraege,
@@ -33,6 +34,7 @@ import {
 } from '@wov/shared/src/items/gegenstandsDaten.js';
 import {
   gegenstandsHinweiseLesen,
+  gegenstandsHinweiseIdsEntfernen,
   gegenstaendeAbgleichen,
   gegenstandsBasisLesen,
   gegenstandsHistorieDatei,
@@ -743,7 +745,11 @@ console.log('\n[3g] Without a known basis a missing ernte INHERITS: message and 
   check('the run writes the notes: ernteUnklar [AxeFlint], basisKaputt false, a time', hw.ernteUnklar.join() === 'AxeFlint' && hw.basisKaputt === false && typeof hw.zeit === 'string');
   gegenstaendeAbgleichen({ repoDatei: w.repo, arbeitsDatei: w.arbeit });
   const hw2 = gegenstandsHinweiseLesen(w.arbeit);
-  check('a later clean run (basis is the full copy now) removes the notes', hw2.ernteUnklar.length === 0 && hw2.zeit === null && !existsSync(resolve(dirname(w.arbeit), 'gegenstaende.hinweise.json')));
+  check('a later clean run (basis is the full copy now) KEEPS the notes unchanged (N8-D: merged, the mask cannot show them yet)', hw2.ernteUnklar.join() === 'AxeFlint' && hw2.zeit === hw.zeit, JSON.stringify(hw2));
+  gegenstandsHinweiseIdsEntfernen(w.arbeit, ['Holzaxt']);
+  check('dealing with another id leaves the note', gegenstandsHinweiseLesen(w.arbeit).ernteUnklar.join() === 'AxeFlint');
+  gegenstandsHinweiseIdsEntfernen(w.arbeit, ['AxeFlint']);
+  check('dealing with exactly that id removes it, and the file goes when nothing is left', gegenstandsHinweiseLesen(w.arbeit).zeit === null && !existsSync(resolve(dirname(w.arbeit), 'gegenstaende.hinweise.json')));
   const k = neuerFall(REPO_ECHT);
   writeFileSync(k.arbeit, datei([ohne({ gewicht: 99 }), holzaxt]));
   writeFileSync(k.basis, REPO_ECHT.toString().slice(0, 200));
@@ -934,6 +940,131 @@ console.log('\n[3i] The conflict text tells the truth about a missing ernte; the
   writeFileSync(fv.basis, REPO_ECHT);
   const av = gegenstaendeAbgleichen({ repoDatei: fv.repo, arbeitsDatei: fv.arbeit });
   check('full basis (known state): the same entry goes without a note', av.bereinigt?.includes('AxeFlint') === true && (av.ernteUnklar ?? []).length === 0 && gegenstandsHinweiseLesen(fv.arbeit).ernteUnklar.length === 0);
+}
+
+console.log('\n[3j] Conflict text by what the reader inherits; the notes live until the id is dealt with (N9)');
+{
+  const neuerBau = (text: string): (() => void) => {
+    setzeGrundbestand([]);
+    setzeGrundbestand(leseGegenstandsDatei(text).eintraege);
+    return () => { setzeGrundbestand(GRUNDBESTAND); wendeGegenstandsDatenAn([]); };
+  };
+  const datei = (liste: unknown[]): string => `${JSON.stringify({ version: 1, gegenstaende: liste }, null, 2)}\n`;
+  const repoMit = (ueber: Record<string, Roh>): string => {
+    const doc = JSON.parse(REPO_ECHT.toString()) as { version: number; gegenstaende: Roh[] };
+    for (const [id, o] of Object.entries(ueber)) Object.assign(doc.gegenstaende.find((e) => e.id === id)!, o);
+    return `${JSON.stringify(doc, null, 2)}\n`;
+  };
+  const axeRoh = repoRoh().find((e) => e.id === 'AxeFlint')!;
+  const pickRoh = repoRoh().find((e) => e.id === 'PickaxeAntler')!;
+  const holz = leseGegenstandsDatei(dokument([holzaxt])).eintraege[0]!;
+  const ohne = (roh: Roh, ueber: Roh = {}): Roh => { const e = { ...roh, ...ueber }; delete e.ernte; return e; };
+
+  // N9-A: the GD1 transition (hash basis, history knows R0): AxeFlint without ernte is written as `ernte: {}`; the text must say "after the reset", the game agrees
+  const mainDatei = (): string => {
+    const doc = JSON.parse(schreibeGegenstandsDatei([...leseGegenstandsDatei(REPO_ECHT.toString(), { ohneGrundsperre: true }).eintraege, holz])) as { version: number; gegenstaende: Roh[] };
+    delete doc.gegenstaende.find((e) => e.id === 'AxeFlint')!.ernte;
+    return `${JSON.stringify(doc, null, 2)}\n`;
+  };
+  for (const [wie, ueber] of [['H4a (the repo changes the weight)', { gewicht: 3 }], ['H4c (the repo changes weight AND harvest)', { gewicht: 3, ernte: { baum: 2 } }]] as const) {
+    const r = repoMit({ AxeFlint: ueber });
+    const f = neuerFall(r);
+    const hz = resolve(dirname(f.repo), 'gegenstaende-historie');
+    mkdirSync(hz, { recursive: true });
+    writeFileSync(resolve(hz, `${sha(REPO_ECHT)}.json`), REPO_ECHT);
+    writeFileSync(f.arbeit, mainDatei());
+    writeFileSync(f.basis, `${sha(REPO_ECHT)}\n`);
+    const zb = neuerBau(r);
+    try {
+      const pr = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit, modus: 'pruefen' });
+      check(`N9-A ${wie}, pruefen: the entry is written as \`ernte: {}\`, so the text says "after the reset", not "follows at once"`, pr.fall === 'konflikt' && pr.ernteFestgeschrieben?.join() === 'AxeFlint' && pr.meldung.includes('AxeFlint (eigene `ernte`)') && !pr.meldung.includes('hat kein `ernte`-Feld') && !pr.meldung.includes('sofort'), pr.meldung.slice(0, 500));
+      const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+      check(`N9-A ${wie}, voll: same text`, a.fall === 'konflikt' && a.meldung.includes('AxeFlint (eigene `ernte`)') && !a.meldung.includes('hat kein `ernte`-Feld') && !a.meldung.includes('sofort'), a.meldung.slice(0, 500));
+      laden(f);
+      check(`N9-A ${wie}: the game agrees: the axe harvests nothing (the text is true)`, findItem('AxeFlint')?.ernte?.baum === undefined, JSON.stringify(findItem('AxeFlint')?.ernte));
+    } finally {
+      zb();
+    }
+  }
+
+  // N9-B: an INVALID ernte is discarded by the reader (the base entry stands): the text says "follows at once", the game agrees
+  const rB = repoMit({ AxeFlint: { ernte: { baum: 2 } } });
+  for (const [wie, ernte] of [['[]', []], ['{baum:"1"}', { baum: '1' }]] as const) {
+    const f = neuerFall(rB);
+    writeFileSync(f.arbeit, datei([{ ...axeRoh, gewicht: 99, ernte }, holzaxt]));
+    writeFileSync(f.basis, REPO_ECHT);
+    const zb = neuerBau(rB);
+    try {
+      const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+      check(`N9-B invalid ernte ${wie}: conflict, the text says AxeFlint has no usable ernte and follows the repo at once (not "eigene ernte")`, a.fall === 'konflikt' && a.meldung.includes('hat kein `ernte`-Feld') && !a.meldung.includes('(eigene `ernte`)'), a.meldung.slice(0, 460));
+      laden(f);
+      check(`N9-B invalid ernte ${wie}: the game agrees: baum 2 at once`, findItem('AxeFlint')?.ernte?.baum === 2, JSON.stringify(findItem('AxeFlint')?.ernte));
+    } finally {
+      zb();
+    }
+  }
+  check('N9-B one rule: ernteWirdGeerbt is true for missing, null, [], "x", {baum:"1"}, false for {}, {baum:4}, {fels:0}', [undefined, null, [], 'x', 5, { baum: '1' }, { baum: Infinity }].every((v) => ernteWirdGeerbt(v)) && [{}, { baum: 4 }, { fels: 0 }].every((v) => !ernteWirdGeerbt(v)));
+
+  // N9-C: grammar
+  const rC = repoMit({ AxeFlint: { ernte: { baum: 2 } }, PickaxeAntler: { ernte: { fels: 9 } } });
+  const fc = neuerFall(rC);
+  writeFileSync(fc.arbeit, datei([ohne(axeRoh, { gewicht: 99 }), ohne(pickRoh, { gewicht: 99 }), holzaxt]));
+  writeFileSync(fc.basis, REPO_ECHT);
+  const ac = gegenstaendeAbgleichen({ repoDatei: fc.repo, arbeitsDatei: fc.arbeit });
+  check('N9-C two entries without ernte: "AxeFlint, PickaxeAntler haben kein `ernte`-Feld" (plural), not "hat"', ac.meldung.includes('AxeFlint, PickaxeAntler haben kein `ernte`-Feld') && !ac.meldung.includes('PickaxeAntler hat kein'), ac.meldung.slice(0, 460));
+
+  // N9-C2: the sentence names only entries that are in CONFLICT (the repo moved for them), not every deviation without ernte
+  const rC2 = repoMit({ AxeFlint: { ernte: { baum: 2 } } });
+  const fc2 = neuerFall(rC2);
+  writeFileSync(fc2.arbeit, datei([ohne(axeRoh, { gewicht: 99 }), ohne(pickRoh, { gewicht: 99 }), holzaxt]));
+  writeFileSync(fc2.basis, REPO_ECHT);
+  const ac2 = gegenstaendeAbgleichen({ repoDatei: fc2.repo, arbeitsDatei: fc2.arbeit });
+  check('N9-C the "no ernte" sentence names only the conflict (AxeFlint), not PickaxeAntler whose repo entry did not move', ac2.fall === 'konflikt' && ac2.abweichend?.join() === 'AxeFlint,PickaxeAntler' && ac2.meldung.includes(' AxeFlint hat kein `ernte`-Feld') && !ac2.meldung.includes('PickaxeAntler hat kein') && !ac2.meldung.includes('AxeFlint, PickaxeAntler'), ac2.meldung.slice(0, 420));
+
+  // N9-D: the notes are merged, not overwritten; only repo ids; no growth
+  const unbekannt = (dateiListe: unknown[]): Fall => {
+    const f = neuerFall(REPO_ECHT);
+    writeFileSync(f.arbeit, datei(dateiListe));
+    return f;
+  };
+  const hinweisDatei = (f: Fall): string => resolve(dirname(f.arbeit), 'gegenstaende.hinweise.json');
+  const d1 = unbekannt([ohne(axeRoh, { gewicht: 99 }), holzaxt]);
+  gegenstaendeAbgleichen({ repoDatei: d1.repo, arbeitsDatei: d1.arbeit });
+  const h1 = gegenstandsHinweiseLesen(d1.arbeit);
+  check('N9-D run 1 (no basis): ernteUnklar [AxeFlint]', h1.ernteUnklar.join() === 'AxeFlint');
+  // run 2 under an unknown state again, another id: the first one stays, the new one joins
+  rmSync(d1.basis, { force: true });
+  writeFileSync(d1.arbeit, datei([ohne(pickRoh, { gewicht: 99 }), holzaxt]));
+  gegenstaendeAbgleichen({ repoDatei: d1.repo, arbeitsDatei: d1.arbeit });
+  check('N9-D run 2 notes PickaxeAntler: the note of AxeFlint (no longer in the file) stays, the new one joins (merged, not overwritten)', gegenstandsHinweiseLesen(d1.arbeit).ernteUnklar.join() === 'AxeFlint,PickaxeAntler', JSON.stringify(gegenstandsHinweiseLesen(d1.arbeit)));
+  // a note file that says basisKaputt true is rewritten when the run says false (same ids): the early return compares it too
+  writeFileSync(hinweisDatei(d1), JSON.stringify({ ernteUnklar: ['AxeFlint', 'PickaxeAntler'], basisKaputt: true, zeit: '2026-01-01T00:00:00.000Z' }));
+  rmSync(d1.basis, { force: true });
+  gegenstaendeAbgleichen({ repoDatei: d1.repo, arbeitsDatei: d1.arbeit });
+  check('N9-D same ids but basisKaputt differs: the notes are rewritten with this run\'s fact (false)', gegenstandsHinweiseLesen(d1.arbeit).basisKaputt === false && gegenstandsHinweiseLesen(d1.arbeit).ernteUnklar.join() === 'AxeFlint,PickaxeAntler', JSON.stringify(gegenstandsHinweiseLesen(d1.arbeit)));
+  // a clean run with nothing new changes nothing (also not the time)
+  const vor = readFileSync(hinweisDatei(d1), 'utf-8');
+  gegenstaendeAbgleichen({ repoDatei: d1.repo, arbeitsDatei: d1.arbeit });
+  check('N9-D a later run without news leaves the notes file byte-equal', readFileSync(hinweisDatei(d1), 'utf-8') === vor);
+  // pruefen does not touch it
+  gegenstaendeAbgleichen({ repoDatei: d1.repo, arbeitsDatei: d1.arbeit, modus: 'pruefen' });
+  check('N9-D pruefen leaves the notes byte-equal', readFileSync(hinweisDatei(d1), 'utf-8') === vor);
+  // only ids the repo has: an id that is gone from the repo is dropped at the next run, nothing grows
+  writeFileSync(hinweisDatei(d1), JSON.stringify({ ernteUnklar: ['AxeFlint', 'GibtEsNichtMehr'], basisKaputt: false, zeit: '2026-01-01T00:00:00.000Z' }));
+  gegenstaendeAbgleichen({ repoDatei: d1.repo, arbeitsDatei: d1.arbeit });
+  check('N9-D an id the repo does not have is dropped (the file cannot grow without bound), AxeFlint stays', gegenstandsHinweiseLesen(d1.arbeit).ernteUnklar.join() === 'AxeFlint', JSON.stringify(gegenstandsHinweiseLesen(d1.arbeit)));
+  // basisKaputt is a fact of THIS run
+  check('N9-D basisKaputt false after a healthy run', gegenstandsHinweiseLesen(d1.arbeit).basisKaputt === false);
+  // ids dealt with leave, nothing else leaves
+  gegenstandsHinweiseIdsEntfernen(d1.arbeit, ['PickaxeAntler']);
+  check('N9-D an id that is not noted changes nothing', gegenstandsHinweiseLesen(d1.arbeit).ernteUnklar.join() === 'AxeFlint');
+  gegenstandsHinweiseIdsEntfernen(d1.arbeit, ['AxeFlint']);
+  check('N9-D the last id leaves: the file is gone', !existsSync(hinweisDatei(d1)));
+  // the notes file keeps basisKaputt when ids are dealt with
+  writeFileSync(hinweisDatei(d1), JSON.stringify({ ernteUnklar: ['AxeFlint'], basisKaputt: true, zeit: '2026-01-01T00:00:00.000Z' }));
+  gegenstandsHinweiseIdsEntfernen(d1.arbeit, ['AxeFlint']);
+  const hb = gegenstandsHinweiseLesen(d1.arbeit);
+  check('N9-D the last id leaves but basisKaputt is still true: the file stays with ernteUnklar []', hb.ernteUnklar.length === 0 && hb.basisKaputt === true && hb.zeit !== null, JSON.stringify(hb));
 }
 
 console.log('\n[3c] Replaced copies: ernte inherited, deep copy (N2)');

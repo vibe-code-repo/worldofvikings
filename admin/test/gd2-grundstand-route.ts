@@ -397,7 +397,42 @@ try {
     check('3b a plain read after it still shows them (reads only check, they do not write)', (k1.daten.hinweise as { basisKaputt: boolean }).basisKaputt === true);
     const r = await zurueck('AxeFlint', String(k1.daten.hash));
     const k2 = await get();
-    check('3b after the next run under the lock (a reset) the notes are gone', r.status === 200 && JSON.stringify(k2.daten.hinweise) === JSON.stringify(keine), `${r.status} ${JSON.stringify(k2.daten.hinweise)}`);
+    check('3b a reset of AxeFlint (the id the note is about, entry taken out): its note is gone, basisKaputt is a fact of the last run', r.status === 200 && r.daten.zurueckgesetzt === true && (k2.daten.hinweise as { ernteUnklar: string[] }).ernteUnklar.length === 0, `${r.status} ${JSON.stringify(k2.daten.hinweise)}`);
+
+    // N9-D: the notes hold until exactly that id was dealt with (reset route or saved PUT)
+    const doc2 = (liste: unknown[]): string => dokument(liste);
+    const axeOhne = { ...mitWerten('AxeFlint', { gewicht: 99 }), ernte: undefined };
+    const pickOhne = { ...mitWerten('PickaxeAntler', { gewicht: 99 }), ernte: undefined };
+    const ernteUnklar = (a: Antwort): string => ((a.daten.hinweise as { ernteUnklar: string[] }).ernteUnklar).join();
+    // the id the note is about is no longer in the file (cleaned out): a reset of it changes nothing and the note stays (zurueckgesetzt false)
+    zustand(doc2([{ ...mitWerten('AxeFlint', {}), ernte: undefined }, holzaxt]), null);
+    const m1 = await get();
+    const rm = await zurueck('AxeFlint', String(m1.daten.hash));
+    const m2 = await get();
+    check('3b N9 AxeFlint cleaned out with a note, then reset (zurueckgesetzt false): the note stays', ernteUnklar(m1) === 'AxeFlint' && rm.status === 200 && rm.daten.zurueckgesetzt === false && ernteUnklar(m2) === 'AxeFlint', `${ernteUnklar(m1)} ${JSON.stringify(rm.daten)} ${ernteUnklar(m2)}`);
+    zustand(doc2([axeOhne, pickOhne, holzaxt]), null);
+    const n1 = await get();
+    check('3b N9 two ids noted: AxeFlint,PickaxeAntler', ernteUnklar(n1) === 'AxeFlint,PickaxeAntler', JSON.stringify(n1.daten.hinweise));
+    const n2 = await get(); // a second run under the lock (the basis is known now): nothing is lost
+    check('3b N9 a later run does not drop the notes (merged)', ernteUnklar(n2) === 'AxeFlint,PickaxeAntler', JSON.stringify(n2.daten.hinweise));
+    const rw = await zurueck('Wood', String(n2.daten.hash));
+    const n3 = await get();
+    check('3b N9 a reset of a FOREIGN id (Wood, not in the file: zurueckgesetzt false) leaves both notes', rw.status === 200 && rw.daten.zurueckgesetzt === false && ernteUnklar(n3) === 'AxeFlint,PickaxeAntler', `${JSON.stringify(rw.daten)} ${ernteUnklar(n3)}`);
+    const rp = await zurueck('PickaxeAntler', String(n3.daten.hash));
+    const n4 = await get();
+    check('3b N9 a reset of PickaxeAntler (taken out) removes exactly its note', rp.status === 200 && rp.daten.zurueckgesetzt === true && ernteUnklar(n4) === 'AxeFlint', `${rp.status} ${ernteUnklar(n4)}`);
+    // a save that writes no deviation of AxeFlint (the form keeps it equal to the repo) leaves the note
+    const sp = await put(doc2([mitWerten('AxeFlint', {}), holzaxt]), String(n4.daten.hash));
+    const n5 = await get();
+    check('3b N9 a saved PUT without a deviation of AxeFlint leaves its note', sp.status === 200 && ernteUnklar(n5) === 'AxeFlint', `${sp.status} ${ernteUnklar(n5)}`);
+    // a refused PUT writes nothing and leaves it as well
+    const sr = await put(doc2([holzaxt, mitWerten('Wood', { stapel: 77 })]), String(n5.daten.hash));
+    const n5b = await get();
+    check('3b N9 a refused PUT leaves the note', sr.status !== 200 && ernteUnklar(n5b) === 'AxeFlint', `${sr.status} ${ernteUnklar(n5b)}`);
+    // a saved PUT that writes a deviation of AxeFlint deals with it
+    const s6 = await put(doc2([mitWerten('AxeFlint', { ernte: { baum: 3 } }), holzaxt]), String(n5b.daten.hash));
+    const n6 = await get();
+    check('3b N9 a saved PUT with a deviation of AxeFlint removes its note', s6.status === 200 && ernteUnklar(n6) === '', `${s6.status} ${JSON.stringify(n6.daten.hinweise)}`);
   }
 
 console.log('\n[4] The receipt answer');

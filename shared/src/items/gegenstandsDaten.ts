@@ -373,16 +373,8 @@ function saubereEintrag(roh: unknown, z: Zaehler): GegenstandsEintrag {
   }
 
   // Harvest levels
-  const ernte: GegenstandsEintrag['ernte'] = {};
   const ernteRoh = nimm(roh, 'ernte');
-  if (ernteRoh !== undefined && ernteRoh !== null) {
-    if (!istObjekt(ernteRoh)) throw new Verwerfen('feld-ungueltig');
-    zaehleUnbekannte(ernteRoh, ['baum', 'fels'], z);
-    const baum = ganz(nimm(ernteRoh, 'baum'), 0, MAX_ERNTE);
-    const fels = ganz(nimm(ernteRoh, 'fels'), 0, MAX_ERNTE);
-    if (baum !== undefined) ernte.baum = baum;
-    if (fels !== undefined) ernte.fels = fels;
-  }
+  const ernte = leseErnte(ernteRoh, z);
 
   // Durability levers
   const haltbarkeit: GegenstandsEintrag['haltbarkeit'] = {};
@@ -506,10 +498,38 @@ export function ernteFehlt(ernteRoh: unknown): boolean {
   return ernteRoh === undefined || ernteRoh === null;
 }
 
+/**
+ * What the reader REALLY inherits: a missing or null `ernte`, and an invalid one (not an object, a non-numeric level), which the reader
+ * discards for a base entry so that the base entry stands. Same checks as the reader (`leseErnte`).
+ */
+export function ernteWirdGeerbt(ernteRoh: unknown): boolean {
+  if (ernteFehlt(ernteRoh)) return true;
+  try {
+    leseErnte(ernteRoh, { n: 0 });
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 /** A raw entry as the game reads it: with the inherited harvest filled in when its `ernte` field is missing; anything else unchanged. */
 export function mitGeerbterErnte(roh: unknown, grundErnte: GegenstandsEintrag['ernte']): unknown {
   if (typeof roh !== 'object' || roh === null || Array.isArray(roh) || !ernteFehlt((roh as { ernte?: unknown }).ernte)) return roh;
   return { ...(roh as object), ernte: { ...grundErnte } };
+}
+
+/** The harvest levels of a raw `ernte` field (missing or null: none). Throws `Verwerfen` for an invalid one. */
+function leseErnte(ernteRoh: unknown, z: { n: number }): GegenstandsEintrag['ernte'] {
+  const ernte: GegenstandsEintrag['ernte'] = {};
+  if (ernteRoh !== undefined && ernteRoh !== null) {
+    if (!istObjekt(ernteRoh)) throw new Verwerfen('feld-ungueltig');
+    zaehleUnbekannte(ernteRoh, ['baum', 'fels'], z);
+    const baum = ganz(nimm(ernteRoh, 'baum'), 0, MAX_ERNTE);
+    const fels = ganz(nimm(ernteRoh, 'fels'), 0, MAX_ERNTE);
+    if (baum !== undefined) ernte.baum = baum;
+    if (fels !== undefined) ernte.fels = fels;
+  }
+  return ernte;
 }
 
 /** The shared core of reading: sanitises every entry, then the cross-entry checks. `z` counts unknown fields. */

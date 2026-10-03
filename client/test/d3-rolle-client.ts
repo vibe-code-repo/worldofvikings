@@ -229,7 +229,7 @@ const lauf = (pc: PlayerController, sek: number, dt: number): void => { for (let
   pc.update(1 / 60);
   check('rolling: the figure is told the roll speed (5.82 m/s) and the run cycle (the fallback without the clip), not "in the air"', nah(letzte.at(-1)!.speed, ROLLE_TEMPO, 1e-9) && letzte.at(-1)!.rennt && !letzte.at(-1)!.luft, JSON.stringify(letzte.at(-1)));
   // a roll stops a block, and no block starts during it (the table row and the wiring)
-  check('the block table has the row "rolle" (a roll forbids a block)', blockSperre({ rechtsGedrueckt: true, rechtsFlanke: true, zeigerGefangen: true, fensterOffen: false, dekorPlatzieren: false, baumodus: false, bauteilGewaehlt: false, bauwerkzeug: false, gegenstandInHand: true, tot: false, imWasser: false, rollt: true }) === 'rolle');
+  check('the block table has the row "rolle" (a roll forbids a block)', blockSperre({ rechtsGedrueckt: true, rechtsFlanke: true, zeigerGefangen: true, fensterOffen: false, dekorPlatzieren: false, baumodus: false, bauteilGewaehlt: false, bauwerkzeug: false, gegenstandInHand: true, tot: false, imWasser: false, ausdauer: 100, rollt: true }) === 'rolle');
 }
 
 // ── [4] the jump report ───────────────────────────────────────────────────
@@ -317,7 +317,7 @@ console.log('\n[4] The jump report');
     ts.forEachChild(n, sucheQuellen);
   };
   sucheQuellen(sf);
-  check('main.ts: BlockVerdrahtung gets the roll sources (sendRolle, meldung, serverText)', ['sendRolle', 'meldung', 'serverText'].every((k) => eigenschaften.has(k)), [...eigenschaften].join());
+  check('main.ts: BlockVerdrahtung gets the roll source `sendRolle` (and the message source of K3)', ['sendRolle', 'meldung'].every((k) => eigenschaften.has(k)), [...eigenschaften].join());
   let angriffsBedingung = '';
   const sucheAngriff = (n: ts.Node): void => {
     if (ts.isIfStatement(n) && n.expression.getText(sf).includes('wasMousePressed(0)')) angriffsBedingung = n.expression.getText(sf);
@@ -341,10 +341,9 @@ function neuesSpiel(): { v: BlockVerdrahtung; spiel: Spiel } {
     sendBlock: (an) => { spiel.gesendet.push(`block:${an}`); },
     sendRolle: (yaw) => { if (!spiel.online) return false; spiel.gesendet.push(`rolle:${yaw.toFixed(3)}`); return true; },
     meldung: (t) => spiel.meldungen.push(t),
-    serverText: (k) => `T(${k})`,
     input: { isMouseDown: (b) => b === 2 && spiel.rechts, wasMousePressed: (b) => b === 2 && spiel.flanke, wasPressed: (c) => c === 'KeyQ' && spiel.q },
     player: () => ({
-      setzeBlock: () => undefined, bauModus: false,
+      setzeBlock: () => undefined, zieheAusdauerAb: () => undefined, bauModus: false,
       get position() { return { y: spiel.y }; }, get avatar() { return { liegt: spiel.liegt }; },
       get rollt() { return spiel.rollt; }, get rolleAbklingRest() { return spiel.abkling; }, get rolleBereit() { return spiel.bereit; },
       get inLuft() { return spiel.inLuft; }, get ausdauerStand() { return spiel.ausdauer; }, figurYaw: 0.25,
@@ -404,7 +403,7 @@ const taste = (v: BlockVerdrahtung, spiel: Spiel): void => { spiel.q = true; v.f
   const { v, spiel } = neuesSpiel();
   spiel.ausdauer = 9;
   taste(v, spiel);
-  check('stamina 9: nothing sent, the HUD says "too exhausted" through the catalogue key', spiel.gesendet.length === 0 && spiel.meldungen.join() === 'T(@kampf.zu_erschoepft)', spiel.meldungen.join());
+  check('stamina 9: nothing sent, the HUD message is the catalogue key `@kampf.zu_erschoepft` (translated by the game)', spiel.gesendet.length === 0 && spiel.meldungen.join() === '@kampf.zu_erschoepft', spiel.meldungen.join());
 }
 {
   const { v, spiel } = neuesSpiel();

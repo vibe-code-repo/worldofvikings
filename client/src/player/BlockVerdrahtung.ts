@@ -5,8 +5,9 @@
  * BlockSteuerung an das Spiel gehaengt; main.ts ruft nur `frame()`, `schlag()` und `verdrahte(socket)`.
  */
 import { PacketType, WATER_LEVEL } from '@wov/shared';
-import { SERVER_MELDUNG_ROLLE_ZU_ERSCHOEPFT } from '@wov/shared/src/kampf/rolle.js';
 import type { BinaryReader } from '../net/GameSocket';
+import { BLOCK_BEGINN_AUSDAUER, SERVER_MELDUNG_ZU_ERSCHOEPFT } from '@wov/shared/src/kampf/block.js';
+import { SERVER_MELDUNG_ROLLE_ZU_ERSCHOEPFT } from '@wov/shared/src/kampf/rolle.js';
 import { BlockSteuerung } from './BlockSteuerung';
 import { rolleRichtungYaw, rolleSperre } from './RolleSteuerung';
 
@@ -16,7 +17,6 @@ export interface RolleSpieler {
   readonly rolleAbklingRest: number;
   readonly rolleBereit: boolean;
   readonly inLuft: boolean;
-  readonly ausdauerStand: number;
   readonly figurYaw: number;
   readonly moveIntent: { readonly x: number; readonly z: number };
   startRolle(yaw: number): void;
@@ -30,12 +30,10 @@ export interface BlockQuellen {
   input: { isMouseDown(button: number): boolean; wasMousePressed(button: number): boolean; wasPressed?(code: string): boolean };
   /** D3-K4: `socket?.sendRolle(yaw)`; false = no connection (the roll does not begin). */
   sendRolle?: (yaw: number) => boolean;
-  /** D3-K4: a HUD message (already translated). */
-  meldung?: (text: string) => void;
-  /** D3-K4: the catalogue text of a server message key (`@kampf.zu_erschoepft`). */
-  serverText?: (schluessel: string) => string;
   player: () => {
     setzeBlock(an: boolean): void;
+    readonly ausdauerStand: number;
+    zieheAusdauerAb(menge: number): void;
     readonly bauModus: boolean;
     readonly position: { readonly y: number };
     readonly avatar: { readonly liegt: boolean };
@@ -46,6 +44,8 @@ export interface BlockQuellen {
   fensterOffen: () => boolean;
   /** Placing decor (the right button cancels there). */
   dekorAktiv: () => boolean;
+  /** Shows a message to the player (a catalogue key like `@kampf.zu_erschoepft` is translated): `hud.meldung(i18n.serverMeldung(t))`. */
+  meldung: (text: string) => void;
   /** Default: the pointer lock element of the document. */
   zeigerGefangen?: () => boolean;
   /** Default: `window`. */
@@ -58,7 +58,11 @@ function istRollenspieler<T extends object>(s: T & Partial<RolleSpieler>): s is 
 
 export class BlockVerdrahtung extends BlockSteuerung {
   constructor(private readonly q: BlockQuellen) {
-    super((an) => q.sendBlock(an));
+    super((an) => q.sendBlock(an), {
+      // The same rule and message as the server (K1 N5): a begin costs 5 stamina, below 5 it is refused.
+      zuErschoepft: () => q.meldung(SERVER_MELDUNG_ZU_ERSCHOEPFT),
+      beginnt: () => q.player()?.zieheAusdauerAb(BLOCK_BEGINN_AUSDAUER),
+    });
     // Losing the focus sends no mouseup: the block would stay on.
     (q.fenster ?? (typeof window !== 'undefined' ? window : null))?.addEventListener('blur', () => this.blur());
   }
@@ -81,6 +85,7 @@ export class BlockVerdrahtung extends BlockSteuerung {
       gegenstandInHand: !!ausruestung?.rightItem,
       tot: spieler.avatar.liegt,
       imWasser: spieler.position.y < WATER_LEVEL,
+      ausdauer: spieler.ausdauerStand,
       rollt: spieler.rollt === true,
     });
     spieler.setzeBlock(this.blockt);
@@ -108,7 +113,7 @@ export class BlockVerdrahtung extends BlockSteuerung {
       abklingRest: spieler.rolleAbklingRest,
       ausdauer: spieler.ausdauerStand,
     });
-    if (sperre === 'ausdauer') q.meldung?.(q.serverText?.(SERVER_MELDUNG_ROLLE_ZU_ERSCHOEPFT) ?? '');
+    if (sperre === 'ausdauer') q.meldung(SERVER_MELDUNG_ROLLE_ZU_ERSCHOEPFT);
     if (sperre !== null) return;
     const yaw = rolleRichtungYaw(spieler.moveIntent.x, spieler.moveIntent.z, spieler.figurYaw);
     if (!q.sendRolle) return;

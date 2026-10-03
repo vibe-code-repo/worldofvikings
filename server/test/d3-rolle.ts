@@ -22,9 +22,8 @@ import { fileURLToPath } from 'url';
 import { readFileSync, rmSync } from 'fs';
 import { PacketType, WATER_LEVEL, eingehenderSchaden, npcKampf, type Vector3 } from '@wov/shared';
 import {
-  ROLLE_ABKLINGZEIT_MS, ROLLE_AUSDAUER, ROLLE_BEWEGUNG_MS, ROLLE_DAUER_MS, ROLLE_WEG_M, SPRUNG_AUSDAUER,
+  ROLLE_ABKLINGZEIT_MS, ROLLE_BEWEGUNG_MS, ROLLE_DAUER_MS, ROLLE_WEG_M, SPRUNG_AUSDAUER,
 } from '@wov/shared/src/kampf/rolle.js';
-import { SCHRITT_LAENGE } from '@wov/shared/src/bewegung/masse.js';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
 import { portVon } from '../../scripts/testport.mjs';
@@ -120,7 +119,7 @@ console.log('\n[1] spiel/Rolle.ts on a stand-in peer (fixed clock)');
   rollePaket(p, 0, 1500, frei);
   check('a roll out of a block: the block is over (blockSeit 0), the lock runs, the client got Block false',
     p.blockSeit === 0 && p.blockSperreBis === 1500 + 500 && p.gesendet.some((g) => g.typ === PacketType.Block && g.inhalt === 'false'), JSON.stringify(p.gesendet));
-  check('... and the held time was paid before the 10 (stamina 100 - 1 - 10)', nah(p.stamina, 89, 1e-9), `${p.stamina}`);
+  check('... and the begin (5) and the held time (1) were paid before the 10 (stamina 100 - 5 - 1 - 10)', nah(p.stamina, 84, 1e-9), `${p.stamina}`);
   blockPaket(p, true, 1600);
   check('no block during the roll: refused, the client is told again, no state', p.blockSeit === 0 && p.gesendet.filter((g) => g.typ === PacketType.Block).length === 2);
   blockPaket(p, true, 1500 + ROLLE_DAUER_MS + 1);
@@ -236,7 +235,6 @@ const horizontal = (a: Vek3, b: Vek3): number => Math.hypot(a.x - b.x, a.z - b.z
   check('a wall 1 m in front: the roll driven in packets stops before it (z > -0.7), no tunnelling', vorWand.z > -0.7 && vorWand.z <= 0, `z ${vorWand.z.toFixed(3)}`);
   const dick = gehe(weltMit([{ form: kiste({ x: -50, y: -1, z: -0.1 }, { x: 50, y: 4, z: 0.1 }), position: { x: 0, y: 0, z: -2 } }]), 0, -1, 400);
   check('a 20 cm thin wall in 1.9 m, packets of 400 ms (the slice is 2.3 m long): the slice does not jump over it', dick.z > -1.6, `z ${dick.z.toFixed(3)}`);
-  check('one slice never exceeds tempo * dt (the step is chopped below 1/60 s)', SCHRITT_LAENGE > 0);
 }
 
 // ── [3] over the real packet path ────────────────────────────────────────

@@ -81,6 +81,7 @@ export const PACKET_FAELLE = [
   'Interact',
   'Attack',
   'Block',
+  'Rolle', // D3-K4
   'TerrainOp',
   'PlacePiece',
   'RemovePiece',
@@ -186,6 +187,7 @@ export const FELDER = [
   'worldTime',
   'zustandWeltId', // F8 (#146): f8n3-kennung-kill liest die Weltkennung des Servers
   'gegenstandsWache', // G2: gegenstaende-g2-live liest den Zaehler interneFehler der Gegenstands-Wache
+  'spielerbewegung', // D3-K4: d3-rolle ersetzt die Spielerbewegung des Servers durch eine Testwelt mit einer Felswand
 ] as const;
 
 /**

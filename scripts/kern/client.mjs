@@ -126,15 +126,6 @@ export default [
   // D3-K3: BlockSteuerung ohne DOM: die Konfliktmatrix des Rechtsklicks als Tabelle, Start/Halten/Ende (Blur, Fangverlust, Fenster, Tod,
   // Wasser, Dekor, Baumodus, Schlag, Server), genau ein sendBlock je Wechsel, Gehrichtung, Drehung, Tempo.
   ['client', 'test/d3-block-steuerung.ts'],
-  // D3-K4: Taste Q und Sprungmeldung am Client: Konfliktmatrix, Rollenuhr, der echte PlayerController (Weg 4,853 m, Abgleich < 0,1 m), Verdrahtung, Paket 90, jumping einmal je Sprung.
-  ['client', 'test/d3-rolle-client.ts'],
-  // D3-K4: die Rolle am Avatar auf den ECHTEN Koerpern (56 Clips): `rolle` einmal im Clip-Tempo, schlaegt Hieb und Block, Laenge = Unverwundbarkeit,
-  // Rueckfall ohne den Clip. In der CI ohne Assets uebersprungen.
-  [
-    'client',
-    'test/d3-rolle-avatar.ts',
-    brauchtModelle('assets/models/wikinger/WikingerKoerper.glb', 'assets/models/wikingerin/WikingerinKoerper.glb'),
-  ],
   /*
     D3-K2: die acht Clips fuer Block und Rolle auf den ECHTEN Koerpern (56 Clips): Reihenfolge, Laengen (die Rollen-Laenge ist
     das Unverwundbarkeitsfenster), Haltepose und Nahtstellen (<= 1 Grad), Wurzelweg je Clip, beide Koerper gleich. In der CI
@@ -145,6 +136,15 @@ export default [
     'test/d3-clips.ts',
     brauchtModelle('assets/models/wikinger/WikingerKoerper.glb', 'assets/models/wikingerin/WikingerinKoerper.glb'),
   ],
+  // D3-K4: die Rolle am Avatar auf den ECHTEN Koerpern (56 Clips): `rolle` einmal im Clip-Tempo, schlaegt Hieb und Block, Laenge = Unverwundbarkeit,
+  // Rueckfall ohne den Clip. In der CI ohne Assets uebersprungen.
+  [
+    'client',
+    'test/d3-rolle-avatar.ts',
+    brauchtModelle('assets/models/wikinger/WikingerKoerper.glb', 'assets/models/wikingerin/WikingerinKoerper.glb'),
+  ],
+  // D3-K4: Taste Q und Sprungmeldung am Client: Konfliktmatrix, Rollenuhr, der echte PlayerController (Weg 4,853 m, Abgleich < 0,1 m), Verdrahtung, Paket 90, jumping einmal je Sprung.
+  ['client', 'test/d3-rolle-client.ts'],
   // D5: the model table of loot against the files on disk (needs assets).
   ['client', 'test/d5-beute-modelle.ts', brauchtModelle('assets/models/HolzTruhe.glb')],
   // D5: E finds loot on the ground even when its model never loaded.

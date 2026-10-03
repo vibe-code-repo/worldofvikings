@@ -10,7 +10,7 @@
  *  [5] `BlockVerdrahtung.frame` reads the eleven fields of the moment from the right sources (table: one source at a time),
  *      tells the figure the state every frame, survives a missing figure; `blur` ends the block.
  *  [6] `main.ts` is wired to it, checked on the syntax tree (not on text): the right click no longer parries, one
- *      `BlockVerdrahtung` with the seven sources, `frame()` once per frame, an own swing ends the block, the server hook,
+ *      `BlockVerdrahtung` with the nine sources, `frame()` once per frame, an own swing ends the block, the server hook,
  *      the measuring cell switches the block, and the line budget of main.ts holds.
  *
  * Run: npx tsx client/test/d3-block-netz.ts
@@ -66,18 +66,19 @@ console.log('\n[1] sendBlock');
 interface Spiel {
   rechts: boolean; flanke: boolean; gefangen: boolean; fenster: boolean; dekor: boolean; bauModus: boolean; teil: boolean;
   werkzeug: string | null; hand: boolean; liegt: boolean; y: number; spieler: boolean; setzeBlockAufrufe: boolean[];
-  blur: Array<() => void>; gesendet: boolean[];
+  blur: Array<() => void>; gesendet: boolean[]; ausdauer: number; abgezogen: number[]; meldungen: string[];
 }
 function neuesSpiel(): { v: BlockVerdrahtung; spiel: Spiel } {
-  const spiel: Spiel = { rechts: false, flanke: false, gefangen: true, fenster: false, dekor: false, bauModus: false, teil: false, werkzeug: null, hand: true, liegt: false, y: 50, spieler: true, setzeBlockAufrufe: [], blur: [], gesendet: [] };
+  const spiel: Spiel = { rechts: false, flanke: false, gefangen: true, fenster: false, dekor: false, bauModus: false, teil: false, werkzeug: null, hand: true, liegt: false, y: 50, spieler: true, setzeBlockAufrufe: [], blur: [], gesendet: [], ausdauer: 100, abgezogen: [], meldungen: [] };
   const q: BlockQuellen = {
     sendBlock: (an) => { spiel.gesendet.push(an); },
     input: { isMouseDown: (b) => b === 2 && spiel.rechts, wasMousePressed: (b) => b === 2 && spiel.flanke },
-    player: () => (spiel.spieler ? { setzeBlock: (an) => spiel.setzeBlockAufrufe.push(an), get bauModus() { return spiel.bauModus; }, get position() { return { y: spiel.y }; }, get avatar() { return { liegt: spiel.liegt }; } } : null),
+    player: () => (spiel.spieler ? { setzeBlock: (an) => { spiel.setzeBlockAufrufe.push(an); }, get ausdauerStand() { return spiel.ausdauer; }, zieheAusdauerAb: (n) => { spiel.abgezogen.push(n); spiel.ausdauer = Math.max(0, spiel.ausdauer - n); }, get bauModus() { return spiel.bauModus; }, get position() { return { y: spiel.y }; }, get avatar() { return { liegt: spiel.liegt }; } } : null),
     equipment: () => ({ rightItem: spiel.hand ? {} : null, pieceTable: spiel.werkzeug }),
     placement: () => ({ selectedPiece: spiel.teil ? {} : undefined }),
     fensterOffen: () => spiel.fenster,
     dekorAktiv: () => spiel.dekor,
+    meldung: (t) => { spiel.meldungen.push(t); },
     zeigerGefangen: () => spiel.gefangen,
     fenster: { addEventListener: (_art, f) => spiel.blur.push(f) },
   };
@@ -130,11 +131,11 @@ console.log('\n[3] mouse -> frame -> sendBlock -> bytes');
   const v2 = new BlockVerdrahtung({
     sendBlock: (an) => socket.sendBlock(an),
     input: { isMouseDown: () => spiel.rechts, wasMousePressed: () => spiel.flanke },
-    player: () => ({ setzeBlock: () => undefined, bauModus: false, position: { y: 50 }, avatar: { liegt: false } }),
+    player: () => ({ setzeBlock: () => undefined, bauModus: false, position: { y: 50 }, avatar: { liegt: false }, ausdauerStand: 100, zieheAusdauerAb: () => undefined }),
     equipment: () => ({ rightItem: {}, pieceTable: null }),
     placement: () => null,
     fensterOffen: () => false,
-    dekorAktiv: () => false,
+    dekorAktiv: () => false, meldung: () => undefined,
     zeigerGefangen: () => true,
     fenster: { addEventListener: () => undefined },
   });
@@ -148,11 +149,11 @@ console.log('\n[3] mouse -> frame -> sendBlock -> bytes');
   const v3 = new BlockVerdrahtung({
     sendBlock: (an) => s2.sendBlock(an),
     input: { isMouseDown: () => spiel2.rechts, wasMousePressed: () => spiel2.flanke },
-    player: () => ({ setzeBlock: () => undefined, bauModus: false, position: { y: 50 }, avatar: { liegt: false } }),
+    player: () => ({ setzeBlock: () => undefined, bauModus: false, position: { y: 50 }, avatar: { liegt: false }, ausdauerStand: 100, zieheAusdauerAb: () => undefined }),
     equipment: () => ({ rightItem: {}, pieceTable: null }),
     placement: () => null,
     fensterOffen: () => false,
-    dekorAktiv: () => false,
+    dekorAktiv: () => false, meldung: () => undefined,
     zeigerGefangen: () => true,
     fenster: { addEventListener: () => undefined },
   });
@@ -170,8 +171,8 @@ console.log('\n[3] mouse -> frame -> sendBlock -> bytes');
   const spiel = neuesSpiel().spiel;
   const v = new BlockVerdrahtung({
     sendBlock: (an) => zu.sendBlock(an), input: { isMouseDown: () => spiel.rechts, wasMousePressed: () => spiel.flanke },
-    player: () => ({ setzeBlock: () => undefined, bauModus: false, position: { y: 50 }, avatar: { liegt: false } }),
-    equipment: () => ({ rightItem: {}, pieceTable: null }), placement: () => null, fensterOffen: () => false, dekorAktiv: () => false, zeigerGefangen: () => true,
+    player: () => ({ setzeBlock: () => undefined, bauModus: false, position: { y: 50 }, avatar: { liegt: false }, ausdauerStand: 100, zieheAusdauerAb: () => undefined }),
+    equipment: () => ({ rightItem: {}, pieceTable: null }), placement: () => null, fensterOffen: () => false, dekorAktiv: () => false, meldung: () => undefined, zeigerGefangen: () => true,
     fenster: { addEventListener: () => undefined },
   });
   druecke(v, spiel);
@@ -238,8 +239,8 @@ console.log('\n[5] frame(): every source reaches the table');
     const spiel = neuesSpiel().spiel;
     const v = new BlockVerdrahtung({
       sendBlock: (an) => { spiel.gesendet.push(an); }, input: { isMouseDown: () => true, wasMousePressed: () => true },
-      player: () => ({ setzeBlock: () => undefined, bauModus: false, position: { y: 50 }, avatar: { liegt: false } }),
-      equipment: () => ({ rightItem: {}, pieceTable: null }), placement: () => null, fensterOffen: () => false, dekorAktiv: () => false, fenster: { addEventListener: () => undefined },
+      player: () => ({ setzeBlock: () => undefined, bauModus: false, position: { y: 50 }, avatar: { liegt: false }, ausdauerStand: 100, zieheAusdauerAb: () => undefined }),
+      equipment: () => ({ rightItem: {}, pieceTable: null }), placement: () => null, fensterOffen: () => false, dekorAktiv: () => false, meldung: () => undefined, fenster: { addEventListener: () => undefined },
     });
     v.frame();
     check('default source: no pointer lock element on the document -> no block', !v.blockt && spiel.gesendet.length === 0);
@@ -260,6 +261,50 @@ console.log('\n[5] frame(): every source reaches the table');
   check('blur ends the block and sends false once', !bl.blockt && sb.gesendet.join() === 'true,false');
   sb.blur[0]!();
   check('a second blur sends nothing more', sb.gesendet.join() === 'true,false');
+}
+
+// ── [5b] The begin costs 5 stamina (K1 N5), the client predicts it and shows the server's message ──
+console.log('\n[5b] Begin cost and refusal');
+{
+  const { v, spiel } = neuesSpiel();
+  spiel.ausdauer = 100;
+  druecke(v, spiel);
+  check('a begin with 100 stamina: blocks, the 5 are charged once at the predicted stamina (100 -> 95)', v.blockt && spiel.abgezogen.join() === '5' && spiel.ausdauer === 95, `${spiel.abgezogen.join()} / ${spiel.ausdauer}`);
+  for (let i = 0; i < 20; i++) v.frame();
+  check('holding costs nothing more at the client (the server bills the holding, PlayerState corrects)', spiel.abgezogen.join() === '5');
+  spiel.ausdauer = 1;
+  v.frame();
+  check('holding goes on with 1 stamina left (the rule is for the BEGIN only)', v.blockt);
+}
+for (const [ausdauer, soll] of [[5, true], [5.0001, true], [4.9999, false], [4, false], [0, false], [Number.NaN, false]] as Array<[number, boolean]>) {
+  const { v, spiel } = neuesSpiel();
+  spiel.ausdauer = ausdauer;
+  druecke(v, spiel);
+  check(`stamina ${ausdauer}: ${soll ? 'blocks, true sent, 5 charged' : 'no block, nothing sent, nothing charged, the message shown once'}`,
+    soll ? v.blockt && spiel.gesendet.join() === 'true' && spiel.abgezogen.join() === '5' && spiel.meldungen.length === 0
+      : !v.blockt && spiel.gesendet.length === 0 && spiel.abgezogen.length === 0 && spiel.meldungen.join() === '@kampf.zu_erschoepft',
+    `${v.blockt} ${spiel.gesendet.join()} ${spiel.abgezogen.join()} ${spiel.meldungen.join()}`);
+}
+{
+  const { v, spiel } = neuesSpiel();
+  spiel.ausdauer = 3;
+  druecke(v, spiel);
+  for (let i = 0; i < 10; i++) v.frame();
+  check('refused: the button stays down, stamina climbs back: no block without a fresh press, the message only once', !v.blockt && spiel.meldungen.length === 1 && spiel.gesendet.length === 0);
+  spiel.ausdauer = 50;
+  loslassen(v, spiel);
+  druecke(v, spiel);
+  check('a fresh press with enough stamina blocks (and no stale `false` is sent: the refusal sent nothing)', v.blockt && spiel.gesendet.join() === 'true' && spiel.abgezogen.join() === '5');
+  const text = JSON.parse(readFileSync(resolve(HIER, '../src/i18n/katalog/de.json'), 'utf-8')) as Record<string, string>;
+  check('the message is the catalogue key the server sends (de: "Zu erschöpft")', text[zerlegeServerMeldung('@kampf.zu_erschoepft')!.schluessel] === 'Zu erschöpft');
+}
+{
+  // blocked by another row (window open): that row decides, no message about stamina.
+  const { v, spiel } = neuesSpiel();
+  spiel.ausdauer = 0;
+  spiel.fenster = true;
+  druecke(v, spiel);
+  check('another row forbids first: no stamina message', !v.blockt && spiel.meldungen.length === 0);
 }
 
 // ── [6] the wiring in main.ts, on the syntax tree ─────────────────────────
@@ -285,9 +330,10 @@ console.log('\n[6] main.ts is wired to it');
   const arg = neu[0]?.arguments?.[0];
   const felder = arg && ts.isObjectLiteralExpression(arg) ? arg.properties.flatMap((p) => (ts.isPropertyAssignment(p) ? [{ name: text(p.name), wert: text(p.initializer) }] : ts.isShorthandPropertyAssignment(p) ? [{ name: text(p.name), wert: text(p.name) }] : [])) : [];
   const wert = (n: string): string => felder.find((f) => f.name === n)?.wert ?? '';
-  check('… with exactly the seven sources of `BlockQuellen`', felder.map((f) => f.name).sort().join() === ['dekorAktiv', 'equipment', 'fensterOffen', 'input', 'placement', 'player', 'sendBlock'].join(), felder.map((f) => f.name).join());
+  check('… with exactly the nine sources of `BlockQuellen` (the eight of K3 and `sendRolle` of K4)', felder.map((f) => f.name).sort().join() === ['dekorAktiv', 'equipment', 'fensterOffen', 'input', 'meldung', 'placement', 'player', 'sendBlock', 'sendRolle'].join(), felder.map((f) => f.name).join());
   check('sendBlock goes to the socket, and a missing socket counts as "not sent": `socket?.sendBlock(an) ?? false`', wert('sendBlock') === '(an) => socket?.sendBlock(an) ?? false', wert('sendBlock'));
   check('input is the game\'s input; player, equipment, placement are the live objects (getters, so the late `let`s work)', wert('input') === 'input' && wert('player') === '() => player' && wert('equipment') === '() => equipment' && wert('placement') === '() => placement', `${wert('input')} | ${wert('player')} | ${wert('equipment')} | ${wert('placement')}`);
+  check('meldung shows the catalogue text: `hud.meldung(i18n.serverMeldung(t))`', wert('meldung') === '(t) => hud.meldung(i18n.serverMeldung(t))', wert('meldung'));
   check('fensterOffen is `cursorNoetig()`, dekorAktiv is `dekoPlatzierung.aktiv`', wert('fensterOffen') === '() => cursorNoetig()' && wert('dekorAktiv') === '() => dekoPlatzierung.aktiv', `${wert('fensterOffen')} | ${wert('dekorAktiv')}`);
   const frame = aufruf('block.frame');
   check('`block.frame()` is called once, per frame (the one place of the old right click)', frame.length === 1);

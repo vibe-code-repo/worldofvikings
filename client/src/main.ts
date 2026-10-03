@@ -997,8 +997,8 @@ async function main() {
   // D3: rechte Maustaste halten = Block (Regeln in BlockSteuerung, Verdrahtung in BlockVerdrahtung).
   const block = new BlockVerdrahtung({
     sendBlock: (an) => socket?.sendBlock(an) ?? false, input, player: () => player, equipment: () => equipment, placement: () => placement,
-    sendRolle: (yaw) => socket?.sendRolle(yaw) ?? false, meldung: (t) => hud.meldung(t), serverText: (k) => i18n.serverMeldung(k),
-    fensterOffen: () => cursorNoetig(), dekorAktiv: () => dekoPlatzierung.aktiv,
+    sendRolle: (yaw) => socket?.sendRolle(yaw) ?? false,
+    fensterOffen: () => cursorNoetig(), dekorAktiv: () => dekoPlatzierung.aktiv, meldung: (t) => hud.meldung(i18n.serverMeldung(t)),
   });
   /**
    * Schlagtakt in Sekunden — kürzester Abstand zwischen zwei Schlägen.

@@ -991,6 +991,15 @@ export class PlayerController {
     if (Number.isFinite(wert)) this.ausdauer = wert;
   }
 
+  /**
+   * Eine Einmal-Abbuchung vorhersagen (Blockbeginn, 5): Wert runter, nie unter 0, und die Regeneration pausiert wie am Server
+   * (`staminaZuletztVerbraucht`). Der naechste PlayerState korrigiert, falls der Server anders rechnet.
+   */
+  zieheAusdauerAb(menge: number): void {
+    this.ausdauer = Math.max(0, this.ausdauer - menge);
+    this.ausdauerZuletztVerbraucht = Date.now();
+  }
+
   /** dt in seconds. */
   update(dt: number): void {
     const [dx, dy] = this.input.consumeMouseDelta();

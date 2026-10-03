@@ -338,6 +338,8 @@ async function lesen(res: ServerResponse, wurzel: string): Promise<void> {
       eintraege: lesung.eintraege,
       verworfen: lesung.verworfen,
       dateiFehler: lesung.dateiFehler,
+      // base entries that differ from the base: reading replaced them (shown by the editor from GD4 on)
+      grundErsetzt: lesung.grundErsetzt,
       hash: stand.hash,
       quelle: stand.quelle,
     },

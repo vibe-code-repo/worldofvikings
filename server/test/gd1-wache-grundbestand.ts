@@ -125,8 +125,14 @@ async function lauf(name: string, angewendet: GegenstandsEintrag[], halt: Record
     wache.tick();
     const q = JSON.parse(readFileSync(gegenstandsQuittungsDatei(pfad), 'utf-8')) as GegenstandsQuittung;
     check('receipt angewendet', q.status === 'angewendet', JSON.stringify(q));
+    check('N2-1: the receipt names the replaced base entry (ersetzt: [Wood])', JSON.stringify(q.ersetzt) === '["Wood"]', JSON.stringify(q));
     check('Holzaxt known, Wood base entry with the own harvest level', findItem('Holzaxt') !== undefined && findItem('Wood')?.maxStackSize === 50 && findItem('Wood')?.ernte?.baum === 3);
     check('warning names Wood', nur('wache'), warnungen.join(' | '));
+    writeFileSync(pfad, dateiMit(holzRoh, holzaxt));
+    await warte(30);
+    wache.tick();
+    const q1 = JSON.parse(readFileSync(gegenstandsQuittungsDatei(pfad), 'utf-8')) as GegenstandsQuittung;
+    check('a clean file (Wood only differs in ernte): receipt angewendet without ersetzt', q1.status === 'angewendet' && q1.ersetzt === undefined, JSON.stringify(q1));
     writeFileSync(pfad, '{kaputt');
     await warte(30);
     wache.tick();

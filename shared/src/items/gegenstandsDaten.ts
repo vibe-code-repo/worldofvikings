@@ -465,7 +465,8 @@ function saubereEintrag(roh: unknown, z: Zaehler): GegenstandsEintrag {
       if (z.streng || !z.ersetzt) throw new Verwerfen('grundwert-gesperrt');
       // Reading never loses anything: the base entry stands in (own `ernte` kept), the caller warns.
       z.ersetzt.push(id);
-      return { ...grundEintrag, ernte: { ...eintrag.ernte } };
+      // A deep copy: changing the replaced entry never touches the base stock.
+      return { ...structuredClone(grundEintrag), ernte: { ...eintrag.ernte } };
     }
   }
   return eintrag;

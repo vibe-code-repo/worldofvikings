@@ -62,6 +62,8 @@ export interface GegenstandsQuittung {
   verworfen?: Array<{ index: number; id: string | null; grund: string }>;
   /** `abgelehnt`: the reason as a CODE (`DateiFehler` of the sanitiser, or `zu-gross`, `gesperrt`, `anwenden-gescheitert`), translatable. */
   grund?: string;
+  /** `angewendet`: base entries of the file that were replaced by the base entry (they differed); the status stays `angewendet`. */
+  ersetzt?: string[];
 }
 
 /** The tick takes the lock with ONE attempt (no waiting): a held lock means "skip, try again next tick". */
@@ -404,6 +406,7 @@ export class GegenstandsWache {
     const bestaetigt = bestaetigterHash === hash;
     const lesung = leseGegenstandsDatei(gelesen.bytes.toString('utf-8'));
     meldeGrundErsetzt(lesung, 'Arbeitsdatei', this.log);
+    const ersetztZusatz = lesung.grundErsetzt.length > 0 ? { ersetzt: [...lesung.grundErsetzt] } : {};
     if (lesung.dateiFehler) {
       this.log.error(`[Gegenstaende] Arbeitsdatei unbrauchbar (${lesung.dateiFehler}), nichts angewendet, der alte Stand bleibt`);
       this.quittiere('abgelehnt', hash, { grund: lesung.dateiFehler });
@@ -441,12 +444,12 @@ export class GegenstandsWache {
       this.d.verwahren?.(false);
       if (JSON.stringify(lesung.eintraege) === this.angewendetJson) {
         letzterGuterSchreiben(this.d.pfad, lesung.eintraege, this.log);
-        this.quittiere('angewendet', hash);
+        this.quittiere('angewendet', hash, ersetztZusatz);
         return;
       }
     }
     if (JSON.stringify(lesung.eintraege) === this.angewendetJson) {
-      this.quittiere('angewendet', hash); // nothing to do (also a re-formatted file)
+      this.quittiere('angewendet', hash, ersetztZusatz); // nothing to do (also a re-formatted file)
       return;
     }
 
@@ -486,7 +489,7 @@ export class GegenstandsWache {
     letzterGuterSchreiben(this.d.pfad, lesung.eintraege, this.log);
     this.d.neuBinden();
     this.log.log(`[Gegenstaende] angewendet: ${lesung.eintraege.length} Datenitem(s)${entfernt.size > 0 ? `, ${entfernt.size} entfernt` : ''}`);
-    this.quittiere('angewendet', hash);
+    this.quittiere('angewendet', hash, ersetztZusatz);
   }
 
   /**
@@ -521,7 +524,7 @@ export class GegenstandsWache {
     if (warteteAufBestaetigung) this.quittiere('angewendet', layoutHash(Buffer.alloc(0)));
   }
 
-  private quittiere(status: GegenstandsStatus, hash: string, zusatz: { gehalten?: Record<string, number>; verworfen?: GegenstandsQuittung['verworfen']; grund?: string } = {}): void {
+  private quittiere(status: GegenstandsStatus, hash: string, zusatz: { gehalten?: Record<string, number>; verworfen?: GegenstandsQuittung['verworfen']; grund?: string; ersetzt?: string[] } = {}): void {
     const q: GegenstandsQuittung = { status, hash, zeit: new Date().toISOString(), ...zusatz };
     try {
       quittungSchreiben(this.d.quittungsPfad, q);

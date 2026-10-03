@@ -190,6 +190,16 @@ pruefe(lies(grundRoh('Wood', {})).eintraege.length === 1 && lies(grundRoh('Hoe',
 const alteKopie = lies(grundRoh('NeckTail', { texte: { 'inhalt.gegenstand.NeckTail.name': { de: 'Neck-Schwanz', en: 'Neck Tail' } } }), roh('Holzaxt', {}));
 pruefe(alteKopie.ok && alteKopie.verworfen.length === 0 && alteKopie.grundErsetzt.join() === 'NeckTail' && alteKopie.eintraege.map((e) => e.id).join() === 'NeckTail,Holzaxt', 'alte Repo-Kopie (en-Name vor N1): ersetzt, Holzaxt bleibt');
 pruefe(alteKopie.eintraege[0].texte['inhalt.gegenstand.NeckTail.name'].en === 'Marsh Beast Tail', 'der Grundeintrag gilt (en Marsh Beast Tail)');
+// N2-3: the replacement is a deep copy; changing it never touches the base stock
+{
+  const vorher = json(GRUNDBESTAND);
+  const r = lies(grundRoh('Hammer', { stapel: 9 })).eintraege[0];
+  r.modell.skala = 4; r.werte.damage = 99; r.rezept?.zutaten.push({ item: 'Stone', menge: 50 }); r.rezept!.zutaten[0].menge = 77;
+  r.texte['inhalt.gegenstand.Hammer.name'].de = 'Zerstoert'; r.ernte.baum = 5;
+  if (r.modell.haltePosition) r.modell.haltePosition[0] = 9;
+  pruefe(json(GRUNDBESTAND) === vorher, 'Aenderung am ersetzten Eintrag (modell, werte, rezept, texte, ernte, Griff) aendert den Grundbestand nicht');
+  pruefe(findItem('Hammer')?.holdPosition?.[0] === 0 && inhaltText('inhalt.gegenstand.Hammer.name', 'de') === 'Hammer', 'und auch nicht findItem / den Text');
+}
 // N1-4: confusable spelling next to a base item, also at the last line of defence
 {
   let geworfen = false;

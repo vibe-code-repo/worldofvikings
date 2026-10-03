@@ -392,6 +392,15 @@ let hash = sha(arbeitBytes());
 
 // ── 8. Other verbs, paths, token ──
 {
+  // N3 (N2-1): reading a working copy with a deviating base entry reports it (`grundErsetzt`); a clean one reports none.
+  const sauber = await get();
+  check('8 saubere Arbeitskopie: grundErsetzt ist leer', Array.isArray(sauber.daten.grundErsetzt) && (sauber.daten.grundErsetzt as unknown[]).length === 0, JSON.stringify(sauber.daten.grundErsetzt));
+  const vorherBytes = arbeitBytes();
+  writeFileSync(ARBEIT, datei([grundRoh('Wood', { stapel: 77 }), holzaxt]));
+  const abw = await get();
+  check('8 abweichender Grundeintrag: GET nennt grundErsetzt [Wood], Holzaxt und Wood bleiben in eintraege',
+    JSON.stringify(abw.daten.grundErsetzt) === '["Wood"]' && (abw.daten.eintraege as Array<{ id: string }>).map((e) => e.id).join() === 'Wood,Holzaxt', JSON.stringify(abw.daten.grundErsetzt));
+  writeFileSync(ARBEIT, vorherBytes);
   check('8 ohne Token: 401', (await anfrage('GET', '/api/gegenstaende', { token: false })).status === 401);
   check('8 DELETE: 405', (await anfrage('DELETE', '/api/gegenstaende')).status === 405);
   check('8 POST auf quittung: 405', (await anfrage('POST', '/api/gegenstaende/quittung', { body: '{}' })).status === 405);

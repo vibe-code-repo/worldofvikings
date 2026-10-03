@@ -9,10 +9,13 @@
  *  [3] The lock: a held lock stops the reconciliation (no write).
  *  [4] The start wrapper (`gegenstaendeAbgleichenBeimStart`): logs a conflict as a warning, never throws.
  *
+ *  [5] The wiring: `main.ts` calls the start wrapper as a statement of its own BEFORE `ladeGegenstandsDatei` (checked on the syntax tree).
+ *
  * Run: npx tsx server/test/gd2-abgleich.ts   (from the repo root)
  */
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import ts from 'typescript';
 import { fileURLToPath } from 'node:url';
 import { Inventory, findItem, setzeUnbekannteVerwahren, unpackContainer } from '@wov/shared';
 import {
@@ -253,6 +256,28 @@ console.log('\n[4] The start wrapper');
   }
   check('an I/O error never stops the start: null, one error line, no throw', !geworfen && r4 === null && z4.length === 1 && z4[0]!.startsWith('error '), JSON.stringify(z4));
   void gegenstandsArbeitsDatei;
+}
+
+console.log('\n[5] The wiring in main.ts');
+{
+  const datei = resolve(WURZEL, 'server/src/main.ts');
+  const quelle = ts.createSourceFile(datei, readFileSync(datei, 'utf-8'), ts.ScriptTarget.Latest, true);
+  const aufrufe: Array<{ name: string; pos: number; oberste: boolean; argumente: string[] }> = [];
+  const besuche = (n: ts.Node): void => {
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
+      const oberste = ts.isExpressionStatement(n.parent) && n.parent.parent === quelle;
+      aufrufe.push({ name: n.expression.text, pos: n.getStart(quelle), oberste, argumente: n.arguments.map((a) => a.getText(quelle)) });
+    }
+    ts.forEachChild(n, besuche);
+  };
+  besuche(quelle);
+  const abgleich = aufrufe.filter((a) => a.name === 'gegenstaendeAbgleichenBeimStart');
+  const laden = aufrufe.filter((a) => a.name === 'ladeGegenstandsDatei');
+  check('main.ts calls gegenstaendeAbgleichenBeimStart exactly once, as a top-level statement', abgleich.length === 1 && abgleich[0]!.oberste, JSON.stringify(abgleich));
+  check('main.ts calls ladeGegenstandsDatei exactly once', laden.length === 1);
+  check('the reconciliation comes BEFORE the load (source order)', abgleich.length === 1 && laden.length === 1 && abgleich[0]!.pos < laden[0]!.pos);
+  check('both get the same working copy variable (gegenstandsDatei)', abgleich.length === 1 && laden.length === 1 && abgleich[0]!.argumente[1] === 'gegenstandsDatei' && laden[0]!.argumente[0] === 'gegenstandsDatei', JSON.stringify([abgleich[0]?.argumente, laden[0]?.argumente]));
+  check('the root argument is the repo root (resolve(DATA_DIR, "../.."), like the path of the working copy)', abgleich.length === 1 && /^resolve\(DATA_DIR,\s*['"]\.\.\/\.\.['"]\)$/.test(abgleich[0]!.argumente[0] ?? ''), abgleich[0]?.argumente[0]);
 }
 
 wendeGegenstandsDatenAn([]);

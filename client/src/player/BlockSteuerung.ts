@@ -134,6 +134,10 @@ export class BlockSteuerung {
   private verdeckt = false;
   /** The server refused the roll: the hidden block comes back when the roll is over in the client. */
   private wiederNehmen = false;
+  /** The hidden block ended without an answer: the server may still hold it, and a late `Rolle=false` says so. */
+  private spaetOffen = false;
+  /** A late `Rolle=false` came: the block is shown again at the next frame if the button is still held. */
+  private spaetWieder = false;
 
   /** @param sende `sendBlock`: called once per change of state. */
   constructor(
@@ -162,11 +166,23 @@ export class BlockSteuerung {
         // The roll is over in the client: refused = the block is back, accepted = the server ended it (`Block=false` came).
         if (this.wiederNehmen) this._blockt = true;
         // No answer by now: the server may still hold the block (a late `Rolle=false`): one more `Block(false)` at the release.
-        else this.ungewiss = true;
+        else { this.ungewiss = true; this.spaetOffen = true; }
         this.verdeckt = false;
         this.wiederNehmen = false;
       }
       return;
+    }
+    if (this.spaetWieder) {
+      // The server refused the roll long after the predicted one ended: it holds the block, so the client shows it again
+      // (button still held) without a new Block(true) and without stamina.
+      this.spaetWieder = false;
+      this.spaetOffen = false;
+      if (!this._blockt && !verboten && (u.rechtsGedrueckt || this.erzwungen)) {
+        this._blockt = true;
+        this.ungewiss = false;
+        this.sofort = false;
+        return;
+      }
     }
     if (this._blockt) {
       if (!(u.rechtsGedrueckt || this.erzwungen) || verboten) this.beende();
@@ -175,6 +191,7 @@ export class BlockSteuerung {
     if (this.ungewiss && (this.sofort || !(u.rechtsGedrueckt || this.erzwungen))) {
       this.ungewiss = false;
       this.sofort = false;
+      this.spaetOffen = false;
       this.sende(false);
     }
     if (u.rechtsFlanke && u.rechtsGedrueckt && !verboten && !schlag) {
@@ -194,6 +211,8 @@ export class BlockSteuerung {
     this._blockt = false;
     this.verdeckt = false;
     this.wiederNehmen = false;
+    this.spaetOffen = false;
+    this.spaetWieder = false;
     this.erzwungen = false;
     this.ungewiss = true;
   }
@@ -203,6 +222,8 @@ export class BlockSteuerung {
     this._blockt = false;
     this.verdeckt = false;
     this.wiederNehmen = false;
+    this.spaetOffen = false;
+    this.spaetWieder = false;
     this.erzwungen = false;
     this.ungewiss = true;
     this.sofort = true;
@@ -230,6 +251,8 @@ export class BlockSteuerung {
    * the roll (`beendeBlockDurchRolle`, `Block=false`) and leaves it when it refuses.
    */
   rolleBeginnt(): void {
+    this.spaetOffen = false;
+    this.spaetWieder = false;
     if (!this._blockt) return;
     this._blockt = false;
     this.verdeckt = true;
@@ -239,6 +262,7 @@ export class BlockSteuerung {
   /** The server answered the roll with `Rolle=false`: a hidden block comes back once the roll is over in the client. */
   rolleAbgelehnt(): void {
     if (this.verdeckt) this.wiederNehmen = true;
+    else if (this.spaetOffen) this.spaetWieder = true;
   }
 
   /** An own swing ends the block (the server does the same). */

@@ -1027,7 +1027,7 @@ export class PlayerController {
     // der Server verbraucht also auch nichts.
     const rennWunsch = this.input.isDown('ShiftLeft');
     // D3-K4: a roll that cannot go on (dead, frozen, build mode) ends; while it runs it drives the figure
-    if (this.rolle.rollt && (this._bauModus || this.frozen || this.avatar.liegt)) this.rolle.abbrechen();
+    if (this.rolle.rollt && (this._bauModus || this.frozen || this.avatar.liegt)) this.rolle.abbrechen(this.avatar.liegt);
     const rollt = this.rolle.rollt;
     const rs = this.rolle.schritt(echteDt);
     const blockt = this._blockt && !this._bauModus && !rollt;

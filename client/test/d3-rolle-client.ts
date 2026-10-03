@@ -31,7 +31,7 @@ import { PacketType } from '@wov/shared';
 import { Vector3 } from '@babylonjs/core/Maths/math';
 import { CharacterSupportedState } from '@babylonjs/core/Physics/v2/characterController';
 import { PlayerController } from '../src/player/PlayerController.js';
-import { blockSperre } from '../src/player/BlockSteuerung.js';
+import { BlockSteuerung, blockSperre, type BlockUmfeld } from '../src/player/BlockSteuerung.js';
 import { RolleLauf, ROLLE_SPERREN, SprungMeldung, rolleRichtungYaw, rolleSperre, type RolleUmfeld } from '../src/player/RolleSteuerung.js';
 import { BlockVerdrahtung, type BlockQuellen } from '../src/player/BlockVerdrahtung.js';
 import { Abgleicher } from '../src/net/Positionsverlauf.js';
@@ -102,7 +102,22 @@ console.log('\n[2] The clock of a roll');
   check('the lock holds for 0.5 s after the clip and then lets go', l.abklingRest > 0 && (l.schritt(1 / 60), l.abklingRest === 0));
   l.starte(1);
   l.abbrechen();
-  check('abbrechen ends the roll without a lock', !l.rollt && l.abklingRest === 0);
+  check('abbrechen (N2-1) ends the roll in the middle of the clip but the lock stays as the server holds it: the rest of the clip (0.875 s) plus 0.5 s', !l.rollt && nah(l.abklingRest, ROLLE_DAUER_MS / 1000 + ROLLE_ABKLINGZEIT_MS / 1000, 1e-9), `${l.abklingRest}`);
+  l.abbrechen();
+  check('abbrechen again (no roll running): the lock is not touched', nah(l.abklingRest, 1.375, 1e-9));
+  l.abbrechen(true);
+  check('abbrechen(true) (death, revival: the server clears the locks) clears it', l.abklingRest === 0);
+  const m = new RolleLauf();
+  m.starte(0);
+  for (let i = 0; i < 6; i++) m.schritt(0.1); // 0.6 s into the clip
+  m.abbrechen();
+  check('cut at 0.6 s: the lock is the 0.275 s left of the clip + 0.5 s (the server counts from the end of the clip)', nah(m.abklingRest, 0.275 + 0.5, 1e-9), `${m.abklingRest}`);
+  const n = new RolleLauf();
+  n.starte(0);
+  for (let i = 0; i < 56; i++) n.schritt(1 / 60); // 0.933 s: the clip is over, 0.442 s of lock left
+  const rest = n.abklingRest;
+  n.abbrechen();
+  check('a teleport after the clip: the running lock stays exactly (no roll, nothing reset)', rest > 0.4 && n.abklingRest === rest, `${rest} -> ${n.abklingRest}`);
   check('no roll: no movement', new RolleLauf().schritt(1).bewegt === 0);
 }
 
@@ -246,7 +261,23 @@ const lauf = (pc: PlayerController, sek: number, dt: number): void => { for (let
   r.update(1 / 60);
   r.startRolle(0);
   r.rolleAbbruch();
-  check('rolleAbbruch (server refused it): no roll and no lock', !r.rollt && r.rolleAbklingRest === 0);
+  check('rolleAbbruch (a teleport or the server ended it) at the first frame: no roll, the lock mirrors the server (about 1.37 s) and the table refuses Q', !r.rollt && r.rolleAbklingRest > 1.3 && rolleSperre({ ...ok, abklingRest: r.rolleAbklingRest }) === 'abklingzeit', `${r.rolleAbklingRest}`);
+  // N2-1: a roll over, then a teleport: Q at once must not start a roll at the client
+  const t = neu().pc;
+  t.update(1 / 60);
+  t.startRolle(0);
+  lauf(t, 0.95, 1 / 60);
+  const vorher = t.rolleAbklingRest;
+  t.rolleAbbruch(); // the Teleport handler
+  check('TELEPORT after the clip: the client lock stands (Q right after it is refused by the table, no predicted roll, no pull-back)', !t.rollt && t.rolleAbklingRest === vorher && vorher > 0.3 && rolleSperre({ ...ok, abklingRest: t.rolleAbklingRest }) === 'abklingzeit', `${vorher} -> ${t.rolleAbklingRest}`);
+  // death: the controller aborts with a cleared lock (the server clears it too)
+  const d = neu().pc;
+  d.update(1 / 60);
+  d.startRolle(0);
+  d.update(1 / 60);
+  Object.defineProperty(d.avatar, 'liegt', { get: () => true });
+  d.update(1 / 60);
+  check('dead during a roll: the roll ends and the lock is cleared (the server clears it at death)', !d.rollt && d.rolleAbklingRest === 0, `${d.rolleAbklingRest}`);
 }
 
 {
@@ -594,10 +625,49 @@ const sekunde = (v: BlockVerdrahtung, spiel: Spiel, n = 1): void => { for (let i
   sekunde(v, spiel, 3);
   h[PacketType.Rolle]!({ readBool: () => false }); // the late refusal
   sekunde(v, spiel, 2);
-  check('late `Rolle=false` (after the predicted roll): the client shows no block (the roll is over), nothing sent yet', !v.blockt && spiel.gesendet.join() === `block:true,rolle:${(Math.PI / 2).toFixed(3)}`, spiel.gesendet.join());
+  check('late `Rolle=false` (N2-2), the button still held: the block is shown again (the server holds it), NO new Block(true), NO new stamina', v.blockt && spiel.gesendet.join() === `block:true,rolle:${(Math.PI / 2).toFixed(3)}` && spiel.abzuege === 1 && spiel.blockPose.at(-1) === true, spiel.gesendet.join());
+  spiel.rechts = false;
+  sekunde(v, spiel, 4);
+  check('... and the RELEASE then ends it with exactly one Block(false)', !v.blockt && spiel.gesendet.at(-1) === 'block:false' && spiel.gesendet.filter((g) => g === 'block:false').length === 1, spiel.gesendet.join());
+}
+{
+  // N2-2: the button was released BEFORE the late refusal: Block(false) went out at the release; the late `Rolle=false` brings nothing back.
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
+  taste(v, spiel);
+  spiel.rollt = true;
+  sekunde(v, spiel, 3);
+  spiel.rollt = false;
+  sekunde(v, spiel, 3);
   spiel.rechts = false;
   sekunde(v, spiel, 2);
-  check('... and the RELEASE sends one Block(false): the server block does not stay until the stamina is gone', spiel.gesendet.at(-1) === 'block:false' && spiel.gesendet.filter((g) => g === 'block:false').length === 1, spiel.gesendet.join());
+  h[PacketType.Rolle]!({ readBool: () => false });
+  spiel.rechts = true; // held again without a fresh press
+  sekunde(v, spiel, 3);
+  check('release first, late `Rolle=false` after it: one Block(false) at the release, no block comes back (a held button needs a fresh press)', !v.blockt && spiel.gesendet.filter((g) => g === 'block:false').length === 1 && spiel.abzuege === 1, spiel.gesendet.join());
+}
+{
+  // N2-2: a late `Rolle=false` of a LATER roll must not bring back a block that an earlier accepted roll ended (no stale `spaetOffen`).
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
+  taste(v, spiel);
+  spiel.rollt = true;
+  h[PacketType.Block]!({ readBool: () => false }); // the first roll was accepted
+  sekunde(v, spiel, 3);
+  spiel.rollt = false;
+  sekunde(v, spiel, 3);
+  spiel.rechts = false; sekunde(v, spiel, 2);
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false; // a fresh block
+  check('(set-up) a new block after the accepted roll', v.blockt);
+  spiel.rechts = false; sekunde(v, spiel, 2);
+  taste(v, spiel); // a second roll, no block held
+  h[PacketType.Rolle]!({ readBool: () => false });
+  spiel.rollt = false;
+  spiel.rechts = true;
+  sekunde(v, spiel, 3);
+  check('a refusal of a roll without any block held brings no block', !v.blockt);
 }
 {
   // The same with the roll that ended for another reason before the answer (the dungeon wait: the controller aborts it).
@@ -676,9 +746,92 @@ console.log('\n[5b] Position reconciliation during a roll: the model of the atta
   ein.merkeEingabe(1, { x: 0, y: 0, z: 0 });
   ein.serverMeldung({ x: 2.4, y: 0, z: 0 }, 1, { x: 0, y: 0, z: 0 }, false, true);
   check('during a roll 2.4 m of drift does not correct, ...', ein.diagnose.ereignisse === 0);
+  for (const [drift, soll] of [[2.45, 0], [2.49, 0], [2.51, 1]] as const) {
+    const g = new Abgleicher();
+    g.merkeEingabe(1, { x: 0, y: 0, z: 0 });
+    g.serverMeldung({ x: drift, y: 0, z: 0 }, 1, { x: 0, y: 0, z: 0 }, false, true);
+    check(`the threshold of a roll is exactly 2.5 m (N2-3): drift ${drift} m ${soll ? 'corrects' : 'does not correct'}`, g.diagnose.ereignisse === soll, String(g.diagnose.ereignisse));
+  }
   ein.merkeEingabe(2, { x: 0, y: 0, z: 0 });
   ein.serverMeldung({ x: 2.6, y: 0, z: 0 }, 2, { x: 0, y: 0, z: 0 }, false, true);
   check('... 2.6 m does (a real divergence is still found), and 8 m+ is hard as always', ein.diagnose.ereignisse === 1 && (() => { ein.merkeEingabe(3, { x: 0, y: 0, z: 0 }); ein.serverMeldung({ x: 9, y: 0, z: 0 }, 3, { x: 0, y: 0, z: 0 }, false, true); return ein.diagnose.hart === 1; })());
+}
+
+// ── [5c] Block x roll fuzz (the attack's probe E): the real BlockSteuerung against a server model with latency ──
+console.log('\n[5c] Block and roll fuzz: 160 runs of 120 s, the display equals the server block at every rest point');
+{
+  let seed = 7;
+  const rnd = (): number => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 2 ** 32; };
+  interface Paket { an: number; was: string; wert?: boolean }
+  const fuzz = (o: { latMin: number; latMax: number; verweigern: number; extra?: 'fenster' }): { abw: string[]; ruhe: number } => {
+    const abw: string[] = [];
+    let ruhe = 0;
+    let jetzt = 0;
+    let aufC: Paket[] = [];
+    let aufS: Paket[] = [];
+    let serverBlock = false, serverRolltBis = -1;
+    let rollt = false, rolltBis = 0, clientSperreBis = 0;
+    const lat = (): number => o.latMin + rnd() * (o.latMax - o.latMin);
+    let letzterAnC = 0, letzterAnS = 0;
+    const anServer = (was: string, wert?: boolean): void => { letzterAnC = Math.max(letzterAnC, jetzt + lat()); aufC.push({ an: letzterAnC, was, wert }); };
+    const anClient = (was: string, wert?: boolean): void => { letzterAnS = Math.max(letzterAnS, jetzt + lat()); aufS.push({ an: letzterAnS, was, wert }); };
+    const b = new BlockSteuerung((an) => { anServer('block', an); return true; });
+    let rechts = false, flanke = false, qBild = false;
+    let letzteAenderung = 0, letztePaket = 0, letzteRolleEnde = 0;
+    let extraAn = false;
+    for (; jetzt < 120000; jetzt += 1000 / 60) {
+      for (const p of aufC.filter((x) => x.an <= jetzt)) {
+        letztePaket = jetzt;
+        if (p.was === 'block') {
+          if (!p.wert) serverBlock = false;
+          else if (!serverBlock) { if (jetzt < serverRolltBis || extraAn) anClient('block', false); else serverBlock = true; }
+        } else if (p.was === 'rolle') {
+          if (jetzt < serverRolltBis || rnd() < o.verweigern) anClient('rolle', false);
+          else { if (serverBlock) { serverBlock = false; anClient('block', false); } serverRolltBis = jetzt + 875; }
+        }
+      }
+      aufC = aufC.filter((x) => x.an > jetzt);
+      for (const p of aufS.filter((x) => x.an <= jetzt)) {
+        letztePaket = jetzt;
+        if (p.was === 'block') b.serverBeendet();
+        else { b.rolleAbgelehnt(); rollt = false; }
+      }
+      aufS = aufS.filter((x) => x.an > jetzt);
+      if (rnd() < 0.02) { rechts = !rechts; if (rechts) flanke = true; letzteAenderung = jetzt; }
+      if (rnd() < 0.01) { qBild = true; letzteAenderung = jetzt; }
+      if (o.extra === 'fenster' && rnd() < 0.003) { extraAn = !extraAn; letzteAenderung = jetzt; }
+      if (rollt && jetzt >= rolltBis) { rollt = false; letzteRolleEnde = jetzt; clientSperreBis = jetzt + 500; }
+      const u: BlockUmfeld = { rechtsGedrueckt: rechts, rechtsFlanke: flanke, zeigerGefangen: true, fensterOffen: o.extra === 'fenster' && extraAn, dekorPlatzieren: false, baumodus: false, bauteilGewaehlt: false, bauwerkzeug: false, gegenstandInHand: true, tot: false, imWasser: false, ausdauer: 100, rollt };
+      b.aktualisiere(u);
+      flanke = false;
+      if (qBild) {
+        qBild = false;
+        if (!rollt && jetzt >= clientSperreBis && !u.fensterOffen) { anServer('rolle'); b.rolleBeginnt(); rollt = true; rolltBis = jetzt + 875; letzteAenderung = jetzt; }
+      }
+      if (jetzt - letzteAenderung > 2500 && jetzt - letztePaket > 1500 && aufC.length === 0 && aufS.length === 0 && !rollt && jetzt > serverRolltBis + 100 && jetzt - letzteRolleEnde > 1500 && !(o.extra === 'fenster' && extraAn)) {
+        ruhe++;
+        if (b.blockt !== serverBlock) abw.push(`t=${jetzt.toFixed(0)}: client shows ${b.blockt}, server holds ${serverBlock}, button ${rechts}`);
+        if (!rechts && serverBlock) abw.push(`t=${jetzt.toFixed(0)}: button up, the server holds the block`);
+        letzteAenderung = jetzt - 1000;
+      }
+    }
+    return { abw, ruhe };
+  };
+  let laeufe = 0, schlecht = 0, ruhepunkte = 0;
+  const beispiele: string[] = [];
+  for (const [name, o] of [
+    ['latency 20-60, refused 30 %', { latMin: 20, latMax: 60, verweigern: 0.3 }],
+    ['latency 100-400, refused 50 %', { latMin: 100, latMax: 400, verweigern: 0.5 }],
+    ['latency 10-900 (beyond the roll), refused 50 %', { latMin: 10, latMax: 900, verweigern: 0.5 }],
+    ['window / server-side block lock, latency 30-120', { latMin: 30, latMax: 120, verweigern: 0.4, extra: 'fenster' as const }],
+  ] as const) {
+    let sl = 0, r = 0;
+    for (let i = 0; i < 40; i++) { seed = 1000 + i * 7919; const res = fuzz(o); laeufe++; r += res.ruhe; if (res.abw.length) { sl++; if (beispiele.length < 6) beispiele.push(`${name} run ${i}: ${res.abw[0]}`); } }
+    console.log(`      ${name}: 40 runs, ${r} rest points, ${sl} runs with a deviation`);
+    schlecht += sl; ruhepunkte += r;
+  }
+  for (const bsp of beispiele) console.log('      ' + bsp);
+  check(`fuzz: ${laeufe} runs of 120 s, ${ruhepunkte} rest points, 0 deviations between the client display and the server block (also beyond a latency of 875 ms)`, laeufe === 160 && schlecht === 0 && ruhepunkte > 250, `${schlecht} bad, ${ruhepunkte} rest points`);
 }
 
 // ── [6] the wire ──────────────────────────────────────────────────────────

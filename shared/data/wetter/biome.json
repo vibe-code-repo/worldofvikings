@@ -12,6 +12,11 @@
       "textKey": "inhalt.wetter.deepforest_mist"
     },
     {
+      "id": "Glen clear",
+      "umgebung": "Glen clear",
+      "textKey": "inhalt.wetter.glen_clear"
+    },
+    {
       "id": "Heath clear",
       "umgebung": "Heath clear",
       "textKey": "inhalt.wetter.heath_clear"
@@ -187,7 +192,7 @@
       "biom": "Greyglen",
       "zustaende": [
         {
-          "zustand": "Clear",
+          "zustand": "Glen clear",
           "gewicht": 5,
           "fensterMin": 1,
           "fensterMax": 1

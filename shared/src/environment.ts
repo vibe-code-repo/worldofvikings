@@ -236,6 +236,13 @@ export const ENV_MISTLANDS = 'Mistlands_dark';
  * The stage-2 look weather — hand-tuned, deliberately not a vanilla name.
  */
 export const ENV_KLAR_COMIC = 'Klar-Comic';
+/**
+ * The clear-weather state of the greyglen biome (bit 128) — hand-tuned, not
+ * a vanilla name, so it lives here and not in envData.json (see the record
+ * at `ENVIRONMENTS`).
+ * Der Klarwetter-Zustand des Bioms greyglen — handgestimmt.
+ */
+export const ENV_GLEN_CLEAR = 'Glen clear';
 
 /**
  * Weather table. Structure + timing verified; colours approximate the
@@ -815,6 +822,44 @@ function buildEnvironments(): readonly EnvSetup[] {
 const builtEnvironments = buildEnvironments();
 const villageBase = builtEnvironments.find((env) => env.name === ENV_KLAR_COMIC)!;
 export const ENV_VILLAGE = 'Village';
+/*
+  ── „Glen clear“: Licht und Nebel des Bioms greyglen (K5) ───────────────
+
+  Nur die TAG-Schlüssel sind eigen, Morgen, Abend und Nacht bleiben die von
+  `Clear`: Die Nacht ist damit bitgleich zum Grasland, und der Übergang
+  vom Grasland in dieses Biom ändert tagsüber Sonne, Grundlicht und Nebel,
+  nachts nichts.
+
+    Sonne      #FFE1BF = (1 / 0,883333 / 0,75), Stärke 2,0 → 0,8435 (wie bei
+               `Village`: die Stärke 2,3 des Vorbilds ist eine URP-Grösse,
+               hier gilt der Quotient 2,0 / 2,3 gegen die kalibrierte 0,97)
+    Winkel     50° (Maximalhöhe des Tages)
+    Nebel      Tagesfarbe #5F8FBF = (0,3745098 / 0,56013644 / 0,7490196)
+    Grundlicht Leuchtdichte so, dass Sonne : Grundlicht = 3,5 : 1 gilt,
+               gerechnet linear als Stärke · Leuchtdichte(Sonnenfarbe) gegen
+               Leuchtdichte(Grundlicht); die Farbe ist der Ton von `Clear`
+               (0,463 / 0,574 / 0,706), linear skaliert
+
+  Die Nebeldichte ist NICHT die 0,015 des Vorbilds: Bei exp2 liegt die
+  90-%-Sichtweite dort bei 101 m, und unsere Kamera sieht 4000 m weit — das
+  Fernbild wäre eine Wand. Der Wert ist an der Wirkung gemessen, die Reihe
+  steht im Bericht und in `shared/test/biom-greyglen-licht.ts`.
+  Density is measured against the visible effect, not copied: 0,015 with
+  exp2 is a wall at our 4000 m camera.
+*/
+const clearBase = builtEnvironments.find((env) => env.name === ENV_CLEAR)!;
+const GLEN_NEBEL_FARBE = c(0.3745098, 0.56013644, 0.7490196);
+const glenClear: EnvSetup = {
+  ...clearBase,
+  name: ENV_GLEN_CLEAR,
+  fogColorDay: GLEN_NEBEL_FARBE,
+  fogColorSunDay: GLEN_NEBEL_FARBE,
+  fogDensityDay: 0.0045,
+  sunColorDay: c(1, 0.883333, 0.75),
+  lightIntensityDay: (0.97 * 2) / 2.3,
+  ambColorDay: c(0.3871, 0.4821, 0.5949),
+  sunAngle: 50,
+};
 export const ENVIRONMENTS: readonly EnvSetup[] = [...builtEnvironments, {
   ...villageBase, name: ENV_VILLAGE,
   fogColorDay: c(0.3745098, 0.56013644, 0.7490196),
@@ -828,7 +873,7 @@ export const ENVIRONMENTS: readonly EnvSetup[] = [...builtEnvironments, {
   // Unity units differ; retain the measured Babylon scale and scene intensity ratio.
   lightIntensityDay: villageBase.lightIntensityDay * 2 / 2.3,
   lightIntensityEvening: villageBase.lightIntensityDay * 2 / 2.3,
-}];
+}, glenClear];
 
 const ENV_BY_NAME: ReadonlyMap<string, EnvSetup> = new Map(
   ENVIRONMENTS.map((e) => [e.name, e])
@@ -848,7 +893,7 @@ const BIOME_ENV: ReadonlyArray<readonly [Biome, string]> = [
   [Biome.Mistlands, ENV_MISTLANDS],
   [Biome.AshLands, ENV_ASH_RAIN],
   [Biome.DeepNorth, ENV_DEEP_NORTH],
-  [Biome.Greyglen, ENV_CLEAR],
+  [Biome.Greyglen, ENV_GLEN_CLEAR],
   [Biome.Ocean, ENV_MISTY],
 ];
 

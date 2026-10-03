@@ -90,21 +90,24 @@ const defs = STANDARD_WETTER_DEFINITIONEN;
 const wiese = defs.biome.find((b) => b.biom === 'Meadows');
 const grau = defs.biome.find((b) => b.biom === 'Greyglen');
 check('weather table has a Greyglen row', grau !== undefined);
-check('Greyglen weather = copy of Meadows (own array)', JSON.stringify(grau?.zustaende) === JSON.stringify(wiese?.zustaende) && grau?.zustaende !== wiese?.zustaende);
+// K5: the clear state is its own ('Glen clear'); every other entry and every weight is still the grassland one
+const alsGras = (z: unknown): string => JSON.stringify(z).split('"Glen clear"').join('"Clear"');
+check('Greyglen weather = Meadows with its own clear state (own array)', alsGras(grau?.zustaende) === JSON.stringify(wiese?.zustaende) && grau?.zustaende !== wiese?.zustaende);
 const wuerfel = new WetterWuerfel();
 let wetterGleich = true;
 for (let t = 0; t < 40; t++) {
   const sec = t * 1800;
   const a = wuerfel.wetterFuer(Biome.Greyglen, sec);
   const b = wuerfel.wetterFuer(Biome.Meadows, sec);
-  if (a.zustand !== b.zustand || a.umgebung !== b.umgebung) wetterGleich = false;
+  const gleich = (n: string): string => (n === 'Glen clear' ? 'Clear' : n);
+  if (gleich(a.zustand) !== b.zustand || gleich(a.umgebung) !== b.umgebung) wetterGleich = false;
 }
-check('drawn weather in greyglen = grassland over 40 windows', wetterGleich);
+check('drawn weather in greyglen = grassland (clear → Glen clear) over 40 windows', wetterGleich);
 check('resolveBiomeBit(128) = 128', (resolveBiomeBit(Biome.Greyglen) as number | null) === 128);
-check('default environment of greyglen = grassland', environmentForBiome(Biome.Greyglen).name === environmentForBiome(Biome.Meadows).name);
+check('default environment of greyglen = its own clear state, grassland keeps Clear', environmentForBiome(Biome.Greyglen).name === 'Glen clear' && environmentForBiome(Biome.Meadows).name === 'Clear');
 const env = (envData as { biomes: { biome: number; name: string; environments: unknown[] }[] }).biomes;
 check('envData has a biome 128 entry', env.some((b) => b.biome === 128 && b.name === 'Greyglen'));
-check('envData 128 = copy of biome 1', JSON.stringify(env.find((b) => b.biome === 128)?.environments) === JSON.stringify(env.find((b) => b.biome === 1)?.environments));
+check('envData 128 = biome 1 with the clear entry swapped to Glen clear', JSON.stringify(env.find((b) => b.biome === 128)?.environments).split('Glen clear').join('Clear') === JSON.stringify(env.find((b) => b.biome === 1)?.environments));
 
 // ── Display names only through keys ──────────────────────────────────
 check('display name de/en via key', inhaltText('inhalt.biom.greyglen', 'de') === 'Grauklamm' && inhaltText('inhalt.biom.greyglen', 'en') === 'Greyglen');

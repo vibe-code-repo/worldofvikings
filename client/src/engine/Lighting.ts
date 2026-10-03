@@ -198,8 +198,21 @@ function lerpEnvColor(a: EnvColor, b: EnvColor, t: number): EnvColor {
   };
 }
 
+/** Linear blend of two unit directions, renormalised; the target when they cancel out. */
+function lerpRichtung(
+  a: { x: number; y: number; z: number },
+  b: { x: number; y: number; z: number },
+  t: number,
+): { x: number; y: number; z: number } {
+  const x = a.x + (b.x - a.x) * t;
+  const y = a.y + (b.y - a.y) * t;
+  const z = a.z + (b.z - a.z) * t;
+  const len = Math.hypot(x, y, z);
+  return len > 1e-6 ? { x: x / len, y: y / len, z: z / len } : b;
+}
+
 /** Blend two evaluated states — used for the biome cross-fade. */
-function lerpEnvState(a: EnvState, b: EnvState, t: number): EnvState {
+export function lerpEnvState(a: EnvState, b: EnvState, t: number): EnvState {
   const l = (x: number, y: number) => x + (y - x) * t;
   return {
     fogColor: lerpEnvColor(a.fogColor, b.fogColor, t),
@@ -209,10 +222,13 @@ function lerpEnvState(a: EnvState, b: EnvState, t: number): EnvState {
     ambColor: lerpEnvColor(a.ambColor, b.ambColor, t),
     lightIntensity: l(a.lightIntensity, b.lightIntensity),
     cloudAlpha: l(a.cloudAlpha, b.cloudAlpha),
-    // direction/elevation come from the day fraction, not the weather, so
-    // both states agree — take the target to avoid drift during the fade
-    lightDir: b.lightDir,
-    sunDir: b.sunDir,
+    // The directions come from the day fraction AND the weather's maximum sun
+    // height (`sunAngle`), which differs between weathers (45° in Clear, 50° in
+    // Glen clear). Taking the target's direction at once made the light jump by
+    // the difference at a biome border; blend and renormalise instead.
+    // Die Richtung hängt auch am Sonnenwinkel des Wetters: mischen und neu normieren.
+    lightDir: lerpRichtung(a.lightDir, b.lightDir, t),
+    sunDir: lerpRichtung(a.sunDir, b.sunDir, t),
     isNight: b.isNight,
     elevation: b.elevation,
   };

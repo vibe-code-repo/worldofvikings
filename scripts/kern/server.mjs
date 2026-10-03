@@ -837,6 +837,8 @@ export default [
   // Wetterdienst und Admin-Befehl rein; dann echter Server mit echten Clients: Fensterwechsel, zwei Biome,
   // Biomwechsel, Override, Editor/Dungeonband ohne Paket. Zwei Server auf ephemeren Ports, ~25 s.
   ['server', 'test/wetter-server.ts'],
+  // greyglen weather on the wire and at the border: server sends the new state in 128 only, the client accepts it, the cross-fade has no jump. <3 s.
+  ['server', 'test/biom-greyglen-wetter.ts'],
   // Wiedereinstieg nach Neustart mit Layout-Abgleich: das Bett wandert mit dem Gelände (der
   // Punkt zieht mit), ein versetztes oder gelöschtes Bett wird gemeldet. Echte Clients.
   ['server', 'test/wiedereinstieg-bett-wandert.ts'],

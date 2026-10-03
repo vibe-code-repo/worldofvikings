@@ -3660,7 +3660,7 @@
       "name": "Greyglen",
       "environments": [
         {
-          "environment": "Clear",
+          "environment": "Glen clear",
           "weight": 5,
           "ashlandsOverride": false,
           "deepnorthOverride": false

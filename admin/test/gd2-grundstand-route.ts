@@ -20,7 +20,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GRUNDBESTAND, GRUNDBESTAND_IDS, leseGegenstandsDatei } from '@wov/shared/src/items/gegenstandsDaten.js';
-import { gegenstandsArbeitsDatei, gegenstandsBasisLesen, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
+import { gegenstandsArbeitsDatei, gegenstandsBasisLesen, gegenstandsBasisStand, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { gegenstaendeBehandeln } from '../src/routen/gegenstaende.js';
 
@@ -109,6 +109,12 @@ try {
     check('1 ... the basis is the repo hash now, grundErsetzt []', gegenstandsBasisLesen(ARBEIT) === sha(REPO_ECHT) && (g.daten.grundErsetzt as unknown[]).length === 0);
   }
   {
+    // an old hash-only basis that already equals the repo hash: GET migrates it to the full copy
+    zustand(dokument([holzaxt]), sha(REPO_ECHT));
+    await get();
+    check('1 an old hash-only basis equal to the repo hash is replaced by the full repo copy on GET', gegenstandsBasisStand(ARBEIT)?.text === REPO_ECHT.toString());
+  }
+  {
     zustand(null, null);
     const g = await get();
     check('1 working copy missing: GET creates an EMPTY document (the base items follow the repo), basis = repo hash', g.status === 200 && readFileSync(ARBEIT, 'utf-8') === dokument([]) && (g.daten.eintraege as unknown[]).length === 0 && gegenstandsBasisLesen(ARBEIT) === sha(REPO_ECHT));
@@ -186,16 +192,41 @@ try {
     const g = await get();
     check('2 invalid Wood copy: GET 200, nothing discarded, Wood named in grundErsetzt (the file is not lost)', g.status === 200 && (g.daten.verworfen as unknown[]).length === 0 && JSON.stringify(g.daten.grundErsetzt) === '["Wood"]' && (g.daten.eintraege as Array<{ id: string }>).map((e) => e.id).sort().join() === 'Holzaxt,Wood', JSON.stringify(g.daten.grundErsetzt));
     const heil = await put(dokument([holzaxt]), String(g.daten.hash));
-    check('2 ... a PUT without it heals the file: 200 (no 422), the file is the Holzaxt only', heil.status === 200 && (JSON.parse(readFileSync(ARBEIT, 'utf-8')) as { gegenstaende: Array<{ id: string }> }).gegenstaende.map((e) => e.id).join() === 'Holzaxt', `${heil.status} ${JSON.stringify(heil.daten)}`);
-    zustand(text, sha(REPO_ECHT));
+    check('2 ... a PUT that leaves the invalid copy out is REFUSED: 422 grundkopie-nur-zuruecksetzen, file byte-equal (healing only by the reset)', heil.status === 422 && heil.daten.fehler === 'grundkopie-nur-zuruecksetzen' && JSON.stringify(heil.daten.grundgegenstaende) === '["Wood"]' && readFileSync(ARBEIT, 'utf-8') === text, `${heil.status} ${JSON.stringify(heil.daten)}`);
+    const heil1 = await put(dokument([holzaxt]), String(g.daten.hash), '?bestaetigt=1');
+    check('2 ... also with ?bestaetigt=1', heil1.status === 422 && heil1.daten.fehler === 'grundkopie-nur-zuruecksetzen' && readFileSync(ARBEIT, 'utf-8') === text);
     const g2 = await get();
     const r = await zurueck('Wood', String(g2.daten.hash));
-    check('2 ... the reset heals it too: 200, Wood gone from the file, Holzaxt stays', r.status === 200 && r.daten.zurueckgesetzt === true && JSON.stringify(r.daten.grundErsetzt) === '[]' && (JSON.parse(readFileSync(ARBEIT, 'utf-8')) as { gegenstaende: Array<{ id: string }> }).gegenstaende.map((e) => e.id).join() === 'Holzaxt', `${r.status} ${JSON.stringify(r.daten)}`);
-    // a copy that deviates in a locked field (also not in effect): leaving it out is allowed as well
-    zustand(dokument([mitWerten('Wood', { stapel: 77 }), holzaxt]), sha(REPO_ECHT));
+    check('2 ... the reset heals it: 200, Wood gone from the file, Holzaxt stays', r.status === 200 && r.daten.zurueckgesetzt === true && JSON.stringify(r.daten.grundErsetzt) === '[]' && (JSON.parse(readFileSync(ARBEIT, 'utf-8')) as { gegenstaende: Array<{ id: string }> }).gegenstaende.map((e) => e.id).join() === 'Holzaxt', `${r.status} ${JSON.stringify(r.daten)}`);
+    // a copy that deviates in a locked field: its own ernte is IN EFFECT, a form that lacks it must not drop it
+    const axt = mitWerten('AxeFlint', { stapel: 77, ernte: { baum: 5 } });
+    const text2 = dokument([axt, holzaxt]);
+    zustand(text2, sha(REPO_ECHT));
     const g3 = await get();
     const heil2 = await put(dokument([holzaxt]), String(g3.daten.hash));
-    check('2 a copy deviating in a locked field (stack 77): a PUT without it is 200 as well', heil2.status === 200, `${heil2.status}`);
+    check('2 a replaced copy with its own ernte (baum 5, stack 77): a PUT without it is 422 grundkopie-nur-zuruecksetzen, the file is byte-equal (the harvest value is not lost)', heil2.status === 422 && heil2.daten.fehler === 'grundkopie-nur-zuruecksetzen' && readFileSync(ARBEIT, 'utf-8') === text2, `${heil2.status} ${JSON.stringify(heil2.daten)}`);
+    const g4 = await get();
+    check('2 ... the replaced copy still carries its harvest (baum 5) in what the mask reads', (g4.daten.eintraege as Array<{ id: string; ernte: { baum?: number } }>).find((e) => e.id === 'AxeFlint')?.ernte.baum === 5);
+    // a valid override (nothing replaced) keeps its own code
+    zustand(dokument([mitWerten('AxeFlint', { ernte: { baum: 5 } }), holzaxt]), sha(REPO_ECHT));
+    const g5 = await get();
+    const hart = await put(dokument([holzaxt]), String(g5.daten.hash));
+    check('2 a valid override left out keeps the code grundgegenstand-nicht-loeschbar', hart.status === 422 && hart.daten.fehler === 'grundgegenstand-nicht-loeschbar', `${hart.status} ${JSON.stringify(hart.daten)}`);
+  }
+  {
+    // the real reason of an invalid base copy in a PUT
+    zustand(dokument([holzaxt]), sha(REPO_ECHT));
+    const g = await get();
+    const hash = String(g.daten.hash);
+    const vor = bytes();
+    const kaputtWood = { ...rohe().find((e) => e.id === 'Wood')!, stapel: 'viel' };
+    const a = await put(dokument([kaputtWood, holzaxt]), hash);
+    const v = (a.daten.verworfen as Array<{ grund: string; id: string }> | undefined) ?? [];
+    check('2 PUT with an INVALID Wood copy: 422 eintraege-verworfen with the REAL reason (zahl-ungueltig), not grundwert-gesperrt', a.status === 422 && a.daten.fehler === 'eintraege-verworfen' && v.length === 1 && v[0]!.id === 'Wood' && v[0]!.grund === 'zahl-ungueltig' && bytes().equals(vor), `${a.status} ${JSON.stringify(a.daten.verworfen)}`);
+    const eigen = await put(dokument([{ ...holzaxt, stapel: 'viel' }]), hash);
+    check('2 ... the same fault on an own item gives the same reason (zahl-ungueltig)', (eigen.daten.verworfen as Array<{ grund: string }>)[0]?.grund === 'zahl-ungueltig');
+    const gesperrt = await put(dokument([mitWerten('Wood', { stapel: 77 }), holzaxt]), hash);
+    check('2 a VALID copy with a locked field still says grundwert-gesperrt', (gesperrt.daten.verworfen as Array<{ grund: string }>)[0]?.grund === 'grundwert-gesperrt', JSON.stringify(gesperrt.daten.verworfen));
   }
 
   {

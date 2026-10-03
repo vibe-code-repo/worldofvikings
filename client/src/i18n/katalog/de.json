@@ -211,6 +211,7 @@
   "editor.gegenstand.route.eintraege_verworfen": "Der Server hat Einträge als ungültig abgelehnt. Nichts wurde gespeichert.",
   "editor.gegenstand.route.gesperrt": "Die Gegenstandsdatei wird gerade geschrieben. Bitte gleich noch einmal versuchen; nichts wurde gespeichert.",
   "editor.gegenstand.route.grundgegenstand_nicht_loeschbar": "Grundgegenstände lassen sich nicht löschen, nur auf den Grundstand zurücksetzen. Nichts wurde gespeichert.",
+  "editor.gegenstand.route.grundkopie_nur_zuruecksetzen": "Die Kopie eines Grundgegenstands ist ungültig oder weicht vom Grundstand ab und lässt sich nur über „Auf Grundstand zurücksetzen“ entfernen. Nichts wurde gespeichert.",
   "editor.gegenstand.route.intern": "Interner Fehler im Betriebsdienst. Nichts wurde gespeichert; Einzelheiten stehen in seinem Log.",
   "editor.gegenstand.route.kein_grundgegenstand": "Nur ein Grundgegenstand lässt sich auf den Grundstand zurücksetzen. Nichts wurde geändert.",
   "editor.gegenstand.route.methode": "Der Betriebsdienst kennt diese Anfrageart nicht.",

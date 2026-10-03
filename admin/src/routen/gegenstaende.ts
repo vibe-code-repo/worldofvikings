@@ -39,20 +39,24 @@
  * `basis-unbestimmt`: it would switch the protection off ("any state exists").
  *
  * ── Base items (card GD2) ────────────────────────────────────────────
- * The working copy holds only DEVIATIONS (own items, base items edited on purpose); a base item without an entry follows
- * the repo. A missing working copy is created EMPTY, and the reconciliation (`gegenstaendeAbgleichen`, the same as the
- * game server's start) takes out entries that equal the repo, under the lock before every read and save, so the first
- * save in the mask never builds on a stale file.
- * The 29 base items are not deletable (Mike, F1): a PUT that takes the entry of a base id out of the old working copy is
- * 422 `grundgegenstand-nicht-loeschbar` (`grundgegenstaende: [ids]`), even with `?bestaetigt=1`, and nothing is written.
- * Exception: a copy the reader REPLACES (it deviates in a locked field, or it is invalid) is not in effect anyway, so
- * a PUT without it heals the file. The explicit way back to the base is `POST /api/gegenstaende/zuruecksetzen` (body
- * `{"id": "<base id>"}`, `If-Match` like a PUT): it takes THAT entry out of the working copy. A separate route and not a
- * flag of the PUT: a PUT writes a whole document, and "this entry goes back to the base" must never be a side effect of a
- * form that merely lacks it. The other entries keep their content; the file is rewritten as JSON with 2-space
- * indentation (hand-made formatting is normalised, nothing else changes). A body that is no JSON object with a string
- * `id` is 400 `anfrage-ungueltig`; a string that is no base id is 422 `kein-grundgegenstand`. The answer carries
- * `grundErsetzt` of the new file.
+ * The working copy holds only DEVIATIONS (own items; base items whose `ernte` somebody changed on purpose). Until card GD3
+ * `ernte` is the ONLY field of a base item that can be changed: any other deviating field is replaced by the base value when
+ * reading (named in `grundErsetzt`), and a PUT that carries one is refused. A base item without an entry follows the repo.
+ * A missing working copy is created EMPTY, and the reconciliation (`gegenstaendeAbgleichen`, the same as the game server's
+ * start) takes out entries that equal the repo or their entry in the basis (the repo state of the last reconciliation, kept
+ * in `gegenstaende.basis`), under the lock before every read and save, so the first save in the mask never builds on a stale
+ * file.
+ * The 29 base items are not deletable (Mike, F1): a PUT that leaves the entry of a base id out of the old working copy is
+ * refused, with or without `?bestaetigt=1`, and nothing is written: 422 `grundgegenstand-nicht-loeschbar` for an entry in
+ * effect, 422 `grundkopie-nur-zuruecksetzen` (`grundgegenstaende: [ids]`) for a copy the reader REPLACES (invalid, or deviating
+ * in a locked field; its own `ernte` is in effect, and an invalid one needs a deliberate act as well). The one way back to the
+ * base is `POST /api/gegenstaende/zuruecksetzen` (body `{"id": "<base id>"}`, `If-Match` like a PUT): it takes THAT entry out
+ * of the working copy, valid or not. A separate route and not a flag of the PUT: a PUT writes a whole document, and "this entry
+ * goes back to the base" must never be a side effect of a form that merely lacks it. The other entries keep their content; the
+ * file is rewritten as JSON with 2-space indentation (hand-made formatting is normalised, nothing else changes). A body that
+ * is no JSON object with a string `id` is 400 `anfrage-ungueltig`; a string that is no base id is 422 `kein-grundgegenstand`.
+ * The answer carries `grundErsetzt` of the new file. A PUT with an invalid base copy names the real reason (`zahl-ungueltig`,
+ * not `grundwert-gesperrt`).
  *
  * Every answer carries a stable `fehler` code (404 `unbekannter-endpunkt`, 405 `methode`, 500 `intern`); raw error texts
  * (paths, `EISDIR`, stacks) go to the log only. How many players hold
@@ -70,10 +74,11 @@ import {
   MAX_DATEI_BYTES,
   istGrundItem,
   leseGegenstandsDatei,
+  pruefeEintrag,
   schreibeGegenstandsDatei,
   type GegenstandsLesung,
 } from '@wov/shared/src/items/gegenstandsDaten.js';
-import { gegenstaendeAbgleichenOhneSperre, gegenstandsArbeitsDatei, gegenstandsBasisLesen, nurAbweichungen, gegenstandsBasisNebenDatei as basisNeben, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
+import { gegenstaendeAbgleichenOhneSperre, gegenstandsArbeitsDatei, gegenstandsBasisStand, nurAbweichungen, gegenstandsBasisNebenDatei as basisNeben, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 
 /**
  * The receipt written by the server watch (Game card G2), next to the working copy. The path rule lives here
@@ -351,10 +356,11 @@ async function lesen(res: ServerResponse, wurzel: string): Promise<void> {
   // An existing working copy is read without the lock (writers replace it by `rename`, so a reader sees a whole file),
   // unless the reconciliation has something to write (entries to take out, a conflict to report once, a stale basis).
   const repoBytes = dateiBytes(repo);
+  const basisStand = gegenstandsBasisStand(arbeit);
   const nurLesen =
     existsSync(arbeit) &&
     !['bereinigt', 'konflikt'].includes(gegenstaendeAbgleichenOhneSperre(repo, arbeit, 'pruefen').fall) &&
-    (repoBytes === null || gegenstandsBasisLesen(arbeit) === layoutHash(repoBytes));
+    (repoBytes === null || (basisStand?.text != null && basisStand.hash === layoutHash(repoBytes)));
   const stand = nurLesen ? standLesen(arbeit, repo) : await unterSperre(arbeit, anlegen);
   if (!standAntwort(res, stand)) return;
   const text = stand.bytes.toString('utf-8');
@@ -435,14 +441,21 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
   }
   if (neu.grundErsetzt.length > 0) {
     // Reading replaces such an entry by the base entry (nothing is lost there); SAVING refuses it, so the author notices.
+    // The reason is the real one: the strict check of ONE entry says `grundwert-gesperrt` for a locked field and the
+    // field's own reason (`zahl-ungueltig`, ...) for an invalid copy.
     let roh: unknown[] = [];
     try { roh = (JSON.parse(text) as { gegenstaende: unknown[] }).gegenstaende; } catch { /* the reader accepted it */ }
     const indexVon = (id: string): number => roh.findIndex((e) => typeof e === 'object' && e !== null && (e as { id?: unknown }).id === id);
+    const grundVon = (id: string): string => {
+      const i = indexVon(id);
+      const andere = neu.eintraege.filter((e) => e.id !== id);
+      return (i < 0 ? undefined : pruefeEintrag(roh[i], andere)[0]) ?? 'grundwert-gesperrt';
+    };
     json(res, 422, {
       ok: false,
       fehler: 'eintraege-verworfen',
-      verworfen: neu.grundErsetzt.map((id) => ({ index: indexVon(id), id, grund: 'grundwert-gesperrt' })),
-      message: `${neu.grundErsetzt.length} Grundgegenstand/Grundgegenstände weichen vom Grundstand ab — nichts geschrieben.`,
+      verworfen: neu.grundErsetzt.map((id) => ({ index: indexVon(id), id, grund: grundVon(id) })),
+      message: `${neu.grundErsetzt.length} Grundgegenstand/Grundgegenstände sind ungültig oder weichen vom Grundstand ab — nichts geschrieben.`,
     });
     return;
   }
@@ -463,7 +476,7 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     | { art: 'veraltet'; hash: string }
     | { art: 'bestaetigung'; hash: string; entfernt: string[]; entferntOhneId: string[] }
     | { art: 'altKaputt'; hash: string; dateiFehler: string }
-    | { art: 'grundEntfernt'; hash: string; ids: string[] }
+    | { art: 'grundEntfernt'; hash: string; ids: string[]; kopie: boolean }
     | { art: 'geschrieben'; hash: string; entfernt: string[]; entferntOhneId: string[]; anzahl: number };
   // ONE synchronous section: read, compare, check removals, rename. No `await` in here (the wait for the lock is
   // asynchronous and happens BEFORE it).
@@ -491,11 +504,15 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     const verworfen = verworfeneIds(altText, alt);
     // A base item is not deletable (F1): taking its entry out of the file is refused, with or without `?bestaetigt=1`.
     // The way back to the base is the explicit reset (`zuruecksetzen`), never a form that merely lacks the entry.
-    // A copy the reader replaces (invalid or deviating in a locked field) is not in effect, so leaving it out is healing.
+    // A copy the reader REPLACES (invalid, or deviating in a locked field) is refused as well, with its own code: its own `ernte`
+    // is in effect, and an invalid copy is healed by the explicit reset, never by a form that lacks it.
+    const kopien = alt.grundErsetzt.filter((id) => !neueIds.has(id) && istGrundItem(id));
     const wirksam = [...new Set([...alt.eintraege.map((e) => e.id).filter((id) => !alt.grundErsetzt.includes(id)), ...verworfen.ids])];
     const grundWeg = wirksam.filter((id) => !neueIds.has(id) && istGrundItem(id));
-    if (grundWeg.length > 0) return { art: 'grundEntfernt', hash: stand.hash, ids: grundWeg };
-    const entfernt = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id) && !istGrundItem(id));
+    if (grundWeg.length > 0) return { art: 'grundEntfernt', hash: stand.hash, ids: grundWeg, kopie: false };
+    if (kopien.length > 0) return { art: 'grundEntfernt', hash: stand.hash, ids: kopien, kopie: true };
+    // (a base id cannot get here: an entry in effect or a replaced copy that is left out was refused above)
+    const entfernt = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id));
     const entferntOhneId = verworfen.ohneId;
     if ((entfernt.length > 0 || entferntOhneId.length > 0) && !bestaetigt) return { art: 'bestaetigung', hash: stand.hash, entfernt, entferntOhneId };
     atomarSchreiben(arbeit, kanonisch);
@@ -525,10 +542,12 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
         422,
         {
           ok: false,
-          fehler: 'grundgegenstand-nicht-loeschbar',
+          fehler: ausgang.kopie ? 'grundkopie-nur-zuruecksetzen' : 'grundgegenstand-nicht-loeschbar',
           grundgegenstaende: ausgang.ids,
           hash: ausgang.hash,
-          message: `Grundgegenstände lassen sich nicht löschen (${ausgang.ids.join(', ')}); sie lassen sich nur auf den Grundstand zurücksetzen. Nichts geschrieben.`,
+          message: ausgang.kopie
+            ? `Die Kopie von ${ausgang.ids.join(', ')} ist ungültig oder weicht vom Grundstand ab; sie lässt sich nur über „Auf Grundstand zurücksetzen“ entfernen. Nichts geschrieben.`
+            : `Grundgegenstände lassen sich nicht löschen (${ausgang.ids.join(', ')}); sie lassen sich nur auf den Grundstand zurücksetzen. Nichts geschrieben.`,
         },
         etag(ausgang.hash)
       );

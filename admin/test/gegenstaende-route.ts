@@ -259,7 +259,7 @@ function dateiListe(): Record<string, string> {
   const a = await get();
   check('1 GET 200', a.status === 200, String(a.status));
   check('1 Arbeitskopie angelegt, Bytes = Repo-Stand', existsSync(ARBEIT) && arbeitBytes().toString('utf-8') === REPO_TEXT);
-  check('1 .basis = sha256 des Repo-Stands', existsSync(BASIS) && readFileSync(BASIS, 'utf-8').trim() === sha(REPO_TEXT));
+  check('1 .basis = voller Repo-Stand (Text; sein Hash ist der Hash des Repo-Stands)', existsSync(BASIS) && readFileSync(BASIS, 'utf-8') === REPO_TEXT && sha(readFileSync(BASIS)) === sha(REPO_TEXT));
   check('1 hash = sha256 der Datei', a.daten.hash === sha(arbeitBytes()), String(a.daten.hash));
   check('1 ETag gesetzt = "hash"', a.etag === `"${String(a.daten.hash)}"`, String(a.etag));
   check('1 quelle = repo (unveraendert)', a.daten.quelle === 'repo', String(a.daten.quelle));

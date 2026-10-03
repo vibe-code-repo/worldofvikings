@@ -465,8 +465,10 @@ function saubereEintrag(roh: unknown, z: Zaehler): GegenstandsEintrag {
       if (z.streng || !z.ersetzt) throw new Verwerfen('grundwert-gesperrt');
       // Reading never loses anything: the base entry stands in (own `ernte` kept), the caller warns.
       z.ersetzt.push(id);
-      // A deep copy: changing the replaced entry never touches the base stock.
-      return { ...structuredClone(grundEintrag), ernte: { ...eintrag.ernte } };
+      // A deep copy: changing the replaced entry never touches the base stock. A copy without its own `ernte` inherits the
+      // harvest of the base entry (an axe must keep felling trees); a copy WITH one keeps it (the one field a copy may change).
+      const eigeneErnte = Object.keys(eintrag.ernte).length > 0;
+      return { ...structuredClone(grundEintrag), ernte: { ...(eigeneErnte ? eintrag.ernte : grundEintrag.ernte) } };
     }
   }
   return eintrag;
@@ -522,7 +524,6 @@ function verarbeiteListe(liste: readonly unknown[], z: Zaehler): { eintraege: Ge
         continue;
       }
       karte.set(v.id, structuredClone(grund));
-      indexVon.set(v.id, v.index);
       z.ersetzt.push(v.id);
     }
     verworfen.length = 0;

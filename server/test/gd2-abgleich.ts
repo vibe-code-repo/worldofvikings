@@ -25,6 +25,7 @@ import { Inventory, findItem, setzeUnbekannteVerwahren, unpackContainer } from '
 import {
   GRUNDBESTAND,
   GRUNDBESTAND_IDS,
+  grundbestandEintraege,
   leseGegenstandsDatei,
   schreibeGegenstandsDatei,
   setzeGrundbestand,
@@ -33,6 +34,7 @@ import {
 import {
   gegenstaendeAbgleichen,
   gegenstandsBasisLesen,
+  gegenstandsBasisStand,
   gegenstandsRepoDatei,
 } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 import { layoutHash, layoutUnterSperre } from '@wov/shared/src/worldlayout/layoutDatei.js';
@@ -234,6 +236,143 @@ console.log('\n[3] A change of the repo reaches the game');
   check('an invalid Wood copy: kept in the file as a deviation (the editor can heal it), not "equal"', a.abweichend?.join() === 'Wood' && ids(f.arbeit) === 'Wood,Holzaxt', `${a.fall} ${ids(f.arbeit)}`);
   const s = laden(f);
   check('the game applies the file: Holzaxt active, Wood is the base entry (stack 50), Wood named in grundErsetzt', s.art === 'angewendet' && s.extra.join() === 'Holzaxt' && s.grundErsetzt === 1 && findItem('Wood')?.maxStackSize === 50, JSON.stringify(s));
+}
+
+console.log('\n[3b] The basis holds the full repo state (N2)');
+{
+  const holzEintrag = leseGegenstandsDatei(dokument([holzaxt])).eintraege[0]!;
+  /** What `main` (GD1) wrote for a missing copy and the mask saved afterwards: the 29 repo entries + an own item, written canonically. */
+  const main29PlusX = (repoText: string | Buffer): string => schreibeGegenstandsDatei([...leseGegenstandsDatei(repoText.toString()).eintraege, holzEintrag]);
+  const neuerBau = (repoText: string): (() => void) => {
+    setzeGrundbestand(leseGegenstandsDatei(repoText).eintraege);
+    return () => { setzeGrundbestand(GRUNDBESTAND); wendeGegenstandsDatenAn([]); };
+  };
+  {
+    // the attack's probe Z1: `main` made the copy (hash-only basis R0), the mask added a Holzaxt, then the repo moves (AxeFlint.ernte 1 → 2)
+    const f = neuerFall(repoAnders());
+    const r0 = REPO_ECHT;
+    writeFileSync(f.arbeit, main29PlusX(r0));
+    writeFileSync(f.basis, `${sha(r0)}\n`);
+    const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    check('Z1: 29 copies of R0 + Holzaxt, hash-only basis R0, repo R1: bereinigt, all 29 (rebuilt basis state, verified by its hash)', a.fall === 'bereinigt' && a.bereinigt?.length === 29 && (a.abweichend ?? []).length === 0, `${a.fall} ${a.bereinigt?.length} ${a.meldung.slice(0, 160)}`);
+    check('Z1: no conflict, only the Holzaxt is left, the old file is in the back-up', ids(f.arbeit) === 'Holzaxt' && baks(f).length === 1 && !a.meldung.includes('Konflikt'), ids(f.arbeit));
+    check('Z1: the basis is now a FULL copy of the repo file (R1)', gegenstandsBasisStand(f.arbeit)?.text === repoAnders() && gegenstandsBasisLesen(f.arbeit) === sha(repoAnders()));
+    const zurueck = neuerBau(repoAnders());
+    try {
+      const s = laden(f);
+      check('Z1: a game built from R1: AxeFlint harvests 2 (it follows the repo), Holzaxt active, grundErsetzt 0', findItem('AxeFlint')?.ernte?.baum === 2 && s.extra.join() === 'Holzaxt' && s.grundErsetzt === 0, JSON.stringify(findItem('AxeFlint')?.ernte));
+    } finally {
+      zurueck();
+    }
+  }
+  {
+    // the same, but one base entry was edited before: the hash does not match, only "equals the repo entry" counts (the honest limit of an old basis)
+    const f = neuerFall(repoAnders());
+    const alt = leseGegenstandsDatei(main29PlusX(REPO_ECHT)).eintraege.map((e) => (e.id === 'Wood' ? { ...e, ernte: { baum: 3 } } : e));
+    writeFileSync(f.arbeit, schreibeGegenstandsDatei(alt));
+    writeFileSync(f.basis, `${sha(REPO_ECHT)}\n`);
+    const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    check('old basis + an edited base entry: only the copies equal to R1 go (27), the edited Wood AND the stale AxeFlint stay, reported as a conflict', a.fall === 'konflikt' && a.bereinigt?.length === 27 && [...(a.abweichend ?? [])].sort().join() === 'AxeFlint,Wood', `${a.fall} ${a.bereinigt?.length} ${a.abweichend?.join()}`);
+  }
+  {
+    // full basis R0: every entry is compared with its own state of then
+    const f = neuerFall(repoAnders());
+    const alt = leseGegenstandsDatei(main29PlusX(REPO_ECHT)).eintraege.map((e) => (e.id === 'Wood' ? { ...e, ernte: { baum: 3 } } : e));
+    writeFileSync(f.arbeit, schreibeGegenstandsDatei(alt));
+    writeFileSync(f.basis, REPO_ECHT);
+    const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    check('full basis R0, Wood edited, repo R1 changed only AxeFlint: 28 copies go (AxeFlint included), Wood and Holzaxt stay, NO conflict', a.fall === 'bereinigt' && a.bereinigt?.length === 28 && a.bereinigt.includes('AxeFlint') && ids(f.arbeit) === 'Wood,Holzaxt', `${a.fall} ${a.bereinigt?.length} ${ids(f.arbeit)}`);
+    check('... the edited Wood is still named as a deviation', a.abweichend?.join() === 'Wood');
+    const zurueck = neuerBau(repoAnders());
+    try {
+      laden(f);
+      check('... a game built from R1: AxeFlint follows the repo (2), Wood keeps the own harvest (3)', findItem('AxeFlint')?.ernte?.baum === 2 && findItem('Wood')?.ernte?.baum === 3);
+    } finally {
+      zurueck();
+    }
+  }
+  {
+    // full basis R0, AxeFlint edited AND the repo changed AxeFlint: a real conflict naming only AxeFlint
+    const f = neuerFall(repoAnders());
+    writeFileSync(f.arbeit, dokument([mitErnte('AxeFlint', { baum: 3 }), mitErnte('Wood', { baum: 3 })]));
+    writeFileSync(f.basis, REPO_ECHT);
+    const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    check('AxeFlint edited and changed in the repo, Wood edited and unchanged in the repo: konflikt naming ONLY AxeFlint', a.fall === 'konflikt' && a.meldung.includes('(AxeFlint)') && [...(a.abweichend ?? [])].sort().join() === 'AxeFlint,Wood', `${a.fall} ${a.meldung.slice(0, 200)}`);
+    check('... nothing overwritten (the file is byte-equal), basis = R1 (reported once)', ids(f.arbeit) === 'AxeFlint,Wood' && baks(f).length === 0 && gegenstandsBasisStand(f.arbeit)?.text === repoAnders());
+    const b = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    check('... the second run is quiet (unveraendert)', b.fall === 'unveraendert');
+  }
+  {
+    // N1-D: an item the repo no longer has, the copy untouched
+    const mitAlt = (repoText: Buffer | string): string => {
+      const doc = JSON.parse(repoText.toString()) as { version: number; gegenstaende: Roh[] };
+      doc.gegenstaende.push({ ...holzaxt, id: 'Alteaxt', nameSchluessel: 'inhalt.gegenstand.Alteaxt.name', texte: { 'inhalt.gegenstand.Alteaxt.name': { de: 'Alteaxt', en: 'Old axe' } } });
+      return `${JSON.stringify(doc, null, 2)}\n`;
+    };
+    const r0 = mitAlt(REPO_ECHT);
+    const f = neuerFall(REPO_ECHT);
+    writeFileSync(f.arbeit, dokument([...JSON.parse(r0).gegenstaende, holzaxt]));
+    writeFileSync(f.basis, r0);
+    const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    check('full basis with an item the repo dropped (Alteaxt), copy unchanged: the Alteaxt is removed with a message, the Holzaxt stays', a.fall === 'bereinigt' && a.entfallen?.join() === 'Alteaxt' && a.meldung.includes('Nicht mehr im Repo') && ids(f.arbeit) === 'Holzaxt', `${a.fall} ${a.entfallen?.join()} ${ids(f.arbeit)}`);
+    const g = neuerFall(REPO_ECHT);
+    writeFileSync(g.arbeit, dokument(JSON.parse(r0).gegenstaende));
+    writeFileSync(g.basis, `${sha(Buffer.from(dokument(JSON.parse(r0).gegenstaende)))}\n`);
+    const b = gegenstaendeAbgleichen({ repoDatei: g.repo, arbeitsDatei: g.arbeit });
+    check('old basis, the whole file equals it (an untouched copy of an older repo): everything goes, the dropped item too (entfallen)', b.fall === 'bereinigt' && b.entfallen?.join() === 'Alteaxt' && ids(g.arbeit) === '', `${b.fall} ${b.entfallen?.join()}`);
+    const h = neuerFall(REPO_ECHT);
+    writeFileSync(h.arbeit, dokument([{ ...JSON.parse(r0).gegenstaende.at(-1), stapel: 7 }]));
+    writeFileSync(h.basis, r0);
+    gegenstaendeAbgleichen({ repoDatei: h.repo, arbeitsDatei: h.arbeit });
+    check('a dropped item the admin CHANGED stays as an own item (not removed)', ids(h.arbeit) === 'Alteaxt');
+  }
+  {
+    // the new basis is written for every case that has to write one
+    const f = neuerFall();
+    writeFileSync(f.arbeit, dokument([holzaxt]));
+    writeFileSync(f.basis, `${sha('alt')}\n`);
+    gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    check('an old hash-only basis is replaced by a full copy of the repo file', gegenstandsBasisStand(f.arbeit)?.text === REPO_ECHT.toString());
+    const h = neuerFall();
+    writeFileSync(h.arbeit, dokument([holzaxt]));
+    writeFileSync(h.basis, `${sha(REPO_ECHT)}\n`);
+    gegenstaendeAbgleichen({ repoDatei: h.repo, arbeitsDatei: h.arbeit });
+    check('a hash-only basis that EQUALS the repo hash is replaced by the full copy as well (the old format is migrated, not kept)', gegenstandsBasisStand(h.arbeit)?.text === REPO_ECHT.toString());
+    const g = neuerFall();
+    gegenstaendeAbgleichen({ repoDatei: g.repo, arbeitsDatei: g.arbeit });
+    check('a created copy gets the full basis too', gegenstandsBasisStand(g.arbeit)?.text === REPO_ECHT.toString());
+  }
+}
+
+console.log('\n[3c] Replaced copies: ernte inherited, deep copy (N2)');
+{
+  const axe = (ueber: Roh): Roh => ({ ...repoRoh().find((e) => e.id === 'AxeFlint')!, ...ueber });
+  const ohneErnte = axe({ stapel: 77 });
+  delete ohneErnte.ernte;
+  const l1 = leseGegenstandsDatei(dokument([ohneErnte]));
+  check('a copy with a locked field changed and NO ernte: replaced, and it inherits the harvest of the base entry (baum 1)', l1.grundErsetzt.join() === 'AxeFlint' && l1.eintraege[0]?.ernte.baum === 1 && l1.eintraege[0]?.stapel === grundbestandEintraege().find((e) => e.id === 'AxeFlint')?.stapel, JSON.stringify(l1.eintraege[0]?.ernte));
+  const l2 = leseGegenstandsDatei(dokument([axe({ stapel: 77, ernte: { baum: 5 } })]));
+  check('a copy WITH an own ernte keeps it (baum 5)', l2.eintraege[0]?.ernte.baum === 5);
+  const f = neuerFall();
+  writeFileSync(f.arbeit, dokument([ohneErnte, holzaxt]));
+  writeFileSync(f.basis, REPO_ECHT);
+  const s = laden(f);
+  check('in the game the axe still fells trees (ernte.baum 1) although its copy was replaced', s.art === 'angewendet' && s.grundErsetzt === 1 && findItem('AxeFlint')?.ernte?.baum === 1, JSON.stringify(findItem('AxeFlint')?.ernte));
+  // an invalid copy is replaced by the whole base entry (harvest included)
+  const l3 = leseGegenstandsDatei(dokument([axe({ stapel: 'viel' })]));
+  check('an INVALID copy is replaced by the whole base entry (ernte baum 1)', l3.grundErsetzt.join() === 'AxeFlint' && l3.eintraege[0]?.ernte.baum === 1);
+  // the replaced entry is a DEEP copy: changing it never touches the base stock
+  for (const [wie, lesung] of [['locked field', l1], ['invalid', l3]] as const) {
+    const e = lesung.eintraege[0]!;
+    const vorher = JSON.stringify(grundbestandEintraege().find((g) => g.id === 'AxeFlint'));
+    e.texte[e.nameSchluessel]!.de = 'VERAENDERT';
+    e.werte.damage = 12345;
+    e.modell.haltePosition?.push(9);
+    e.haltbarkeit.max = 1;
+    e.ernte.baum = 99;
+    if (e.rezept) e.rezept.zutaten.push({ item: 'Wood', menge: 1 });
+    check(`${wie}: changing the replaced entry (texte, werte, modell, haltbarkeit, ernte, rezept) leaves the base stock untouched`, JSON.stringify(grundbestandEintraege().find((g) => g.id === 'AxeFlint')) === vorher && findItem('AxeFlint')?.ernte?.baum === 1);
+  }
 }
 
 console.log('\n[4] Abort-proof order, pruefen, repo missing / broken, the lock');

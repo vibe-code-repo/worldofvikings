@@ -211,6 +211,7 @@
   "editor.gegenstand.route.eintraege_verworfen": "The server refused entries as invalid. Nothing was saved.",
   "editor.gegenstand.route.gesperrt": "The item file is being written right now. Please try again shortly; nothing was saved.",
   "editor.gegenstand.route.grundgegenstand_nicht_loeschbar": "Base items cannot be deleted, only reset to the base state. Nothing was saved.",
+  "editor.gegenstand.route.grundkopie_nur_zuruecksetzen": "The copy of a base item is invalid or differs from the base state; it can only be removed with “Reset to base state”. Nothing was saved.",
   "editor.gegenstand.route.intern": "Internal error in the operations service. Nothing was saved; details are in its log.",
   "editor.gegenstand.route.kein_grundgegenstand": "Only a base item can be reset to the base state. Nothing was changed.",
   "editor.gegenstand.route.methode": "The operations service does not know this kind of request.",

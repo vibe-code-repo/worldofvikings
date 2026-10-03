@@ -258,22 +258,27 @@ console.log('\n[1b] The cost of a block begin (5) and the tap macro');
   blockPaket(genau, true, 1000);
   check('N5: a begin with exactly 5 stamina is allowed (stamina 0 afterwards)', genau.blockSeit === 1000 && genau.stamina === 0);
   check('N5: ... and that block ends at the first tick (nothing left to hold with)', !blockHalteTakt(genau, 1050) && genau.blockSeit === 0);
+  const zweites = attrappe();
+  blockPaket(zweites, true, 1000);
+  blockPaket(zweites, true, 1100);
+  blockPaket(zweites, true, 1200);
+  check('N5: a second "on" while the block is held costs nothing (stamina 95, stamp and start unchanged)', zweites.stamina === 95 && zweites.staminaZuletztVerbraucht === 1000 && zweites.blockSeit === 1000 && zweites.gesendet.length === 0, `${zweites.stamina}`);
   const sperre = attrappe();
   blockPaket(sperre, true, 1000); blockPaket(sperre, false, 1100);
   blockPaket(sperre, true, 1200);
   check('N5: the 0.5 s lock stays (a begin 100 ms after the end has no parry window), and costs 5 again', sperre.blockOhneParade && nah(sperre.stamina, 100 - 5 - 0 - 5, 1e-9), `${sperre.stamina}`);
 
   /** A macro that presses, holds `haltenMs`, releases and waits `wartenMs`; stamina regenerates by the shared rule. Returns the share of time a parry window was open. */
-  const makro = (haltenMs: number, wartenMs: number, dauerMs: number, abMs: number): { quote: number; beginne: number; abgelehnt: number } => {
+  const makro = (haltenMs: number, wartenMs: number, dauerMs: number, abMs: number, salve = 0, ruheMs = 0): { quote: number; beginne: number; abgelehnt: number } => {
     const p = attrappe();
     let offen = 0; let gesamt = 0; let beginne = 0; let abgelehnt = 0;
-    let naechster = 0; let loslassen = -1;
+    let naechster = 0; let loslassen = -1; let imSalve = 0; let ruheBis = 0;
     for (let t = 0; t < dauerMs; t += 10) {
       const jetzt = 1_000_000 + t;
-      if (loslassen >= 0 && t >= loslassen) { blockPaket(p, false, jetzt); loslassen = -1; naechster = t + wartenMs; }
+      if (loslassen >= 0 && t >= loslassen) { blockPaket(p, false, jetzt); loslassen = -1; naechster = Math.max(t + wartenMs, ruheBis); }
       if (loslassen < 0 && p.blockSeit <= 0 && t >= naechster) {
         blockPaket(p, true, jetzt);
-        if (p.blockSeit > 0) { beginne++; loslassen = t + haltenMs; } else { abgelehnt++; naechster = t + 50; }
+        if (p.blockSeit > 0) { beginne++; loslassen = t + haltenMs; if (salve > 0 && ++imSalve >= salve) { imSalve = 0; ruheBis = t + haltenMs + ruheMs; } } else { abgelehnt++; naechster = t + 50; }
       }
       blockHalteTakt(p, jetzt);
       if (p.blockSeit <= 0 || true) {
@@ -287,6 +292,10 @@ console.log('\n[1b] The cost of a block begin (5) and the tap macro');
   const zyklus = makro(200, 500, 60_000, 30_000);   // press, hold 200 ms, release, wait 500 ms (the cycle that was 29 % before)
   const tippen = makro(20, 80, 60_000, 30_000);      // tapping 10 times a second
   console.log(`      parry window open, second half of 60 s: cycle macro ${(zyklus.quote * 100).toFixed(1)} % (${zyklus.beginne} begins, ${zyklus.abgelehnt} refused), tapping ${(tippen.quote * 100).toFixed(1)} % (${tippen.beginne} begins, ${tippen.abgelehnt} refused)`);
+  // The best rhythm found by the attack: hold 199 ms, wait 500 ms, a burst of 18 begins, then 9 s of rest (uses the whole bar, then waits for it to refill).
+  const salve = makro(199, 500, 200_000, 60_000, 18, 9000);
+  console.log(`      best rhythm (199/500 ms, burst of 18, 9 s rest): ${(salve.quote * 100).toFixed(1)} % (${salve.beginne} begins, ${salve.abgelehnt} refused)`);
+  check('N5: the best rhythm (199 ms hold, 500 ms wait, burst of 18, 9 s rest) stays at most 20 % (about 19 %; 29 % before)', salve.quote <= 0.20, `${(salve.quote * 100).toFixed(1)} %`);
   check('N5: the 200/500 ms cycle macro (29 % invulnerable before) is at most 15 % in the long run', zyklus.quote <= 0.15, `${(zyklus.quote * 100).toFixed(1)} %`);
   check('N5: tapping 10 times a second is at most 15 % in the long run, and begins are refused (the stamina is empty)', tippen.quote <= 0.15 && tippen.abgelehnt > 0, `${(tippen.quote * 100).toFixed(1)} %, refused ${tippen.abgelehnt}`);
 }

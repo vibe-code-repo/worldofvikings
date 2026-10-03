@@ -122,7 +122,7 @@ import { Equipment } from './player/Equipment';
 import { waffenStandHandler } from './player/WaffenAbgleich';
 import { KampfEffekte } from './engine/KampfEffekte';
 import { verdrahteKampf } from './net/KampfNetz';
-import { BlockSteuerung } from './player/BlockSteuerung';
+import { BlockVerdrahtung } from './player/BlockVerdrahtung';
 import { Hotbar } from './ui/Hotbar';
 import { InventoryPanel } from './ui/InventoryPanel';
 import { ContainerPanel } from './ui/ContainerPanel';
@@ -994,9 +994,11 @@ async function main() {
   let dungeon2Marke = 0;
   /** Schlag-Sperre (s) — verhindert Dauerfeuer beim Klicken. */
   let angriffCooldown = 0;
-  // D3: rechte Maustaste halten = Block (BlockSteuerung); das Paket geht nur bei einem Wechsel hinaus.
-  const block = new BlockSteuerung((an) => socket?.sendBlock(an));
-  window.addEventListener('blur', () => block.blur());
+  // D3: rechte Maustaste halten = Block (Regeln in BlockSteuerung, Verdrahtung in BlockVerdrahtung).
+  const block = new BlockVerdrahtung({
+    sendBlock: (an) => socket?.sendBlock(an), input, player: () => player, equipment: () => equipment, placement: () => placement,
+    fensterOffen: () => cursorNoetig(), dekorAktiv: () => dekoPlatzierung.aktiv,
+  });
   /**
    * Schlagtakt in Sekunden — kürzester Abstand zwischen zwei Schlägen.
    *
@@ -2484,7 +2486,8 @@ async function main() {
       }
     });
 
-    verdrahteKampf(socket, input, () => player?.avatar ?? null, { kampfEffekte, kampfToene }, undefined, block);
+    verdrahteKampf(socket, input, () => player?.avatar ?? null, { kampfEffekte, kampfToene });
+    block.verdrahte(socket);
 
     socket.on(PacketType.InteractResult, (reader) => {
       reader.readBool();
@@ -3462,21 +3465,7 @@ async function main() {
         equipment?.rightItem?.shared.name ?? ''
       );
     }
-    // Rechte Maustaste HALTEN = Block (D3): Regeln und Konfliktfaelle in BlockSteuerung, hier nur der Zustand des Augenblicks.
-    block.aktualisiere({
-      rechtsGedrueckt: input.isMouseDown(2),
-      rechtsFlanke: input.wasMousePressed(2),
-      zeigerGefangen: !!document.pointerLockElement,
-      fensterOffen: cursorNoetig(),
-      dekorPlatzieren: dekoPlatzierung.aktiv,
-      baumodus: player.bauModus,
-      bauteilGewaehlt: !!placement?.selectedPiece,
-      bauwerkzeug: !!equipment?.pieceTable,
-      gegenstandInHand: !!equipment?.rightItem,
-      tot: player.avatar.liegt,
-      imWasser: player.position.y < WATER_LEVEL,
-    });
-    player.setzeBlock(block.blockt);
+    block.frame(); // rechte Maustaste HALTEN = Block (D3)
 
     // E ist kontextsensitiv: Interagierbares in Reichweite (Pickable, Tür,
     // Truhe) gewinnt; sonst Dungeon betreten/verlassen.

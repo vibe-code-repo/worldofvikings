@@ -20,7 +20,7 @@ import WebSocket from 'ws';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readFileSync, rmSync } from 'fs';
-import { PacketType, eingehenderSchaden, npcKampf, type Vector3 } from '@wov/shared';
+import { PacketType, WATER_LEVEL, eingehenderSchaden, npcKampf, type Vector3 } from '@wov/shared';
 import {
   ROLLE_ABKLINGZEIT_MS, ROLLE_AUSDAUER, ROLLE_BEWEGUNG_MS, ROLLE_DAUER_MS, ROLLE_WEG_M, SPRUNG_AUSDAUER,
 } from '@wov/shared/src/kampf/rolle.js';
@@ -158,6 +158,11 @@ console.log('\n[1] spiel/Rolle.ts on a stand-in peer (fixed clock)');
   check('reset (death, world change): no roll, no lock, no jump lock; a roll that ran is announced (Rolle false)', p.rolleBis === 0 && p.rolleSperreBis === 0 && p.rolleStart === 0 && rolleAus(p) === 1 && p.sprungSperreBis === 0);
   rolleZuruecksetzen(p);
   check('a reset without a roll sends nothing', rolleAus(p) === 1);
+  const sp = attrappe();
+  sprungKosten(sp, true, 1000);
+  check('(set-up) a billed jump set its lock', sp.sprungSperreBis === 1800);
+  rolleZuruecksetzen(sp);
+  check('a reset (death, world change) also clears the jump lock', sp.sprungSperreBis === 0);
   const ohne = { rolleStart: undefined, rolleBis: undefined, rolleSperreBis: undefined, stamina: 100, sendPacketWith: () => undefined } as unknown as RollePeer;
   check('a peer without the roll fields (a stand-in of another test): no roll, no invulnerability', !rolleLaeuft(ohne, 1) && !rolleUnverwundbar(ohne, 1));
 }
@@ -236,13 +241,13 @@ const horizontal = (a: Vek3, b: Vek3): number => Math.hypot(a.x - b.x, a.z - b.z
 
 // ── [3] over the real packet path ────────────────────────────────────────
 interface Socke extends WebSocket {
-  meldungen: string[]; bloecke: boolean[]; rollen: boolean[]; treffer: number;
+  meldungen: string[]; bloecke: boolean[]; rollen: boolean[]; treffer: number; admin: string[];
 }
 function verbinde(name: string): Promise<Socke> {
   return new Promise((ok, fail) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}`) as Socke;
     ws.binaryType = 'nodebuffer';
-    ws.meldungen = []; ws.bloecke = []; ws.rollen = []; ws.treffer = 0;
+    ws.meldungen = []; ws.bloecke = []; ws.rollen = []; ws.treffer = 0; ws.admin = [];
     let auth = false;
     const timer = setTimeout(() => fail(new Error(`handshake timeout: ${name}`)), 8000);
     ws.on('message', (data: Buffer) => {
@@ -267,6 +272,10 @@ function verbinde(name: string): Promise<Socke> {
         ws.rollen.push(r.readBool());
       } else if (type === PacketType.PlayerTreffer) {
         ws.treffer++;
+      } else if (type === PacketType.AdminEvent) {
+        r.readString();
+        r.readBool();
+        ws.admin.push(r.readString());
       } else if (type === P.PeerInfo) {
         clearTimeout(timer);
         ok(ws);
@@ -425,6 +434,22 @@ async function main(): Promise<void> {
     zugriff.spielerbewegung = echte;
     await warte(ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS);
 
+    // ── in the water ──
+    anna.stamina = 100;
+    const yTrocken = anna.position.y;
+    const rs0 = anna.rolleStart;
+    anna.position = { x: anna.position.x, y: WATER_LEVEL - 1, z: anna.position.z };
+    ws.rollen.length = 0;
+    sendRolle(ws, 0);
+    await warte(150);
+    check('IN THE WATER (y below the water line): refused, stamina unchanged, the client got Rolle false', anna.stamina === 100 && anna.rolleStart === rs0 && ws.rollen.join() === 'false', `stamina ${anna.stamina}, ${JSON.stringify(ws.rollen)}`);
+    anna.position = { x: anna.position.x, y: yTrocken, z: anna.position.z };
+
+    // ── a short packet must not cut the player off ──
+    ws.send(Buffer.from([PacketType.Rolle]));
+    await warte(150);
+    check('a Rolle packet without its yaw is dropped: the player is still connected and nothing changed', ws.readyState === WebSocket.OPEN && server.net.getPeers().includes(anna) && anna.rolleStart === rs0 && anna.stamina === 100);
+
     // ── dead ──
     anna.stamina = 100;
     anna.totBis = Date.now() + 5000;
@@ -451,6 +476,16 @@ async function main(): Promise<void> {
     check('WORLD CHANGE (weltWechselVorbereiten) ends the roll and clears the lock', anna.rolleBis === 0 && anna.rolleSperreBis === 0 && anna.rolleStart === 0);
     await warte(100);
 
+    // ── the immediate-revival path ──
+    anna.stamina = 100; anna.totBis = 0;
+    sendRolle(ws, 0);
+    await warte(100);
+    check('(set-up) a roll runs', rolleLaeuft(anna, Date.now()));
+    (server as unknown as { belebeNeu(p: Peer, sofort: boolean): void }).belebeNeu(anna, true);
+    check('REVIVAL on the immediate path (stirb skipped): the roll is over, no lock', anna.rolleBis === 0 && anna.rolleSperreBis === 0);
+    anna.health = 100; anna.stamina = 100;
+    await warte(300);
+
     // ── the jump ──
     anna.stamina = 100; anna.sprungSperreBis = 0; anna.staminaZuletztVerbraucht = 0;
     // a simpler schedule: packets at 0, 400, 900 ms with the jump flag
@@ -471,10 +506,38 @@ async function main(): Promise<void> {
     anna.stamina = 100;
     for (let i = 0; i < 4; i++) { sendInput(ws, 0, 0, 0, false, false); await warte(50); }
     check('no jump flag: nothing billed', anna.stamina >= 100 - 0.01);
+
+    // ── inside a dungeon instance: own branch of handlePlayerInput (no collision at the server) ──
+    console.log('\n[3b] The roll inside a dungeon instance');
+    sendAdmin(ws, 'dungeon create forestcrypt 4242');
+    const td = Date.now();
+    let dungeonId: string | undefined;
+    while (!dungeonId && Date.now() - td < 8000) {
+      await warte(100);
+      dungeonId = ws.admin.map((m) => m.match(/Dungeon erzeugt: (\S+)/)?.[1]).find((x) => x);
+    }
+    if (!dungeonId) throw new Error(`dungeon not created: ${ws.admin.join(' | ')}`);
+    sendAdmin(ws, `dungeon enter ${dungeonId}`);
+    const te = Date.now();
+    while (anna.worldId === 'haupt' && Date.now() - te < 8000) await warte(100);
+    check('Anna is inside the instance', anna.worldId !== 'haupt', anna.worldId);
+    await warte(300);
+    await eingaben(ws, 0, 200);
+    anna.stamina = 100;
+    const dv = { x: anna.position.x, z: anna.position.z };
+    sendRolle(ws, 0);
+    await warte(60);
+    check('inside the dungeon the roll is accepted (no free-room check there: the server has no room colliders)', anna.rolleBis > Date.now() - 100 && nah(anna.stamina, 90, 0.5), `stamina ${anna.stamina}`);
+    for (let t = 0; t <= 800; t += 50) { sendInput(ws, 0, 1, 1, true); await warte(50); }
+    await warte(100);
+    const dweg = Math.hypot(anna.position.x - dv.x, anna.position.z - dv.z);
+    check('DUNGEON ROLL: 4.85 +- 0.1 m along -z, WASD and running of the packets ignored', nah(dweg, ROLLE_WEG_M, 0.1) && nah(anna.position.x, dv.x, 0.05) && anna.position.z < dv.z - 4.7, `${dweg.toFixed(3)} m, x ${(anna.position.x - dv.x).toFixed(3)}, z ${(anna.position.z - dv.z).toFixed(3)}`);
+    check('... and the running flag cost nothing during it (stamina 90 +- 1)', nah(anna.stamina, 90, 1), `${anna.stamina}`);
   } finally {
     for (const s of sockets) s.close();
     server.stop();
     rmSync(WORLDS_DIR, { recursive: true, force: true });
+    rmSync(resolve(__dirname, 'dungeons', 'd3-rolle'), { recursive: true, force: true }); // the instance of [3b] writes its file next to the test dirs
   }
 
   // ── [4] the messages ──

@@ -25,11 +25,14 @@ import { NullEngine } from '@babylonjs/core/Engines/nullEngine';
 import { Scene } from '@babylonjs/core/scene';
 import { SceneLoader } from '@babylonjs/core/Loading/sceneLoader';
 import { PacketType } from '@wov/shared';
+import { Vector3 } from '@babylonjs/core/Maths/math';
+import { CharacterSupportedState } from '@babylonjs/core/Physics/v2/characterController';
 import { PlayerController } from '../src/player/PlayerController.js';
+import { blockSperre } from '../src/player/BlockSteuerung.js';
 import { RolleLauf, ROLLE_SPERREN, SprungMeldung, rolleRichtungYaw, rolleSperre, type RolleUmfeld } from '../src/player/RolleSteuerung.js';
 import { BlockVerdrahtung, type BlockQuellen } from '../src/player/BlockVerdrahtung.js';
 import { GameSocket } from '../src/net/GameSocket.js';
-import { ROLLE_ABKLINGZEIT_MS, ROLLE_AUSDAUER, ROLLE_BEWEGUNG_S, ROLLE_DAUER_MS, ROLLE_WEG_M, rolleRichtung } from '@wov/shared/src/kampf/rolle.js';
+import { ROLLE_ABKLINGZEIT_MS, ROLLE_AUSDAUER, ROLLE_BEWEGUNG_S, ROLLE_DAUER_MS, ROLLE_TEMPO, ROLLE_WEG_M, rolleRichtung } from '@wov/shared/src/kampf/rolle.js';
 import { bewegungsSchritt } from '@wov/shared/src/bewegung/schritt.js';
 import { ebenerBoden, OHNE_HINDERNISSE } from '@wov/shared/src/bewegung/abfragen.js';
 import { AUSDAUER_REGEL } from '@wov/shared/src/bewegung/ausdauer.js';
@@ -105,7 +108,8 @@ class Eingabe {
   readonly tasten = new Set<string>();
   dx = 0;
   isDown(code: string): boolean { return this.tasten.has(code); }
-  wasPressed(): boolean { return false; }
+  readonly flanken = new Set<string>();
+  wasPressed(code: string): boolean { const r = this.flanken.has(code); this.flanken.delete(code); return r; }
   consumeMouseDelta(): [number, number] { const r: [number, number] = [this.dx, 0]; this.dx = 0; return r; }
   consumeWheel(): number { return 0; }
 }
@@ -125,6 +129,8 @@ const lauf = (pc: PlayerController, sek: number, dt: number): void => { for (let
   const z0 = pc.position.z;
   pc.startRolle(0);
   check('startRolle: stamina -10 at once, rolling, the figure faces the roll', pc.rollt && nah(pc.ausdauerStand, AUSDAUER_REGEL.max - ROLLE_AUSDAUER, 0.2) && pc.figurYaw === 0, `${pc.ausdauerStand}`);
+  pc.update(1 / 60);
+  check('one frame later the figure faces the roll direction at once (no turning rate: yaw 0 here)', pc.figurYaw === 0);
   lauf(pc, ROLLE_DAUER_MS / 1000 + 0.05, 1 / 60);
   const weg = Math.hypot(pc.position.x - x0, pc.position.z - z0);
   check('a roll goes 4.853 m (+- 0.05)', nah(weg, ROLLE_WEG_M, 0.05), `${weg.toFixed(4)} m`);
@@ -202,6 +208,30 @@ const lauf = (pc: PlayerController, sek: number, dt: number): void => { for (let
   check('rolleAbbruch (server refused it): no roll and no lock', !r.rollt && r.rolleAbklingRest === 0);
 }
 
+{
+  const { pc } = neu();
+  pc.update(1 / 60);
+  pc.startRolle(1.2);
+  pc.update(1 / 60);
+  check('a roll along yaw 1.2: the figure faces 1.2 after the first frame (not after the turning rate of 300 deg/s)', nah(pc.figurYaw, 1.2, 1e-12), `${pc.figurYaw}`);
+}
+
+{
+  // What the controller tells the figure while it rolls (the clip, the speed, the run cycle as the fallback).
+  const { pc } = neu();
+  pc.update(1 / 60);
+  const letzte: { speed: number; rennt: boolean; luft: boolean }[] = [];
+  const orig = pc.avatar.update.bind(pc.avatar);
+  pc.avatar.update = (dt: number, speed: number, maxSpeed: number, rennt = false, luft = false): void => { letzte.push({ speed, rennt, luft }); orig(dt, speed, maxSpeed, rennt, luft); };
+  pc.update(1 / 60);
+  check('(control) standing: the figure is told speed 0, no run, no air', letzte.at(-1)!.speed === 0 && !letzte.at(-1)!.rennt && !letzte.at(-1)!.luft);
+  pc.startRolle(0);
+  pc.update(1 / 60);
+  check('rolling: the figure is told the roll speed (5.82 m/s) and the run cycle (the fallback without the clip), not "in the air"', nah(letzte.at(-1)!.speed, ROLLE_TEMPO, 1e-9) && letzte.at(-1)!.rennt && !letzte.at(-1)!.luft, JSON.stringify(letzte.at(-1)));
+  // a roll stops a block, and no block starts during it (the table row and the wiring)
+  check('the block table has the row "rolle" (a roll forbids a block)', blockSperre({ rechtsGedrueckt: true, rechtsFlanke: true, zeigerGefangen: true, fensterOffen: false, dekorPlatzieren: false, baumodus: false, bauteilGewaehlt: false, bauwerkzeug: false, gegenstandInHand: true, tot: false, imWasser: false, rollt: true }) === 'rolle');
+}
+
 // ── [4] the jump report ───────────────────────────────────────────────────
 console.log('\n[4] The jump report');
 {
@@ -221,6 +251,52 @@ console.log('\n[4] The jump report');
   check('two jumps before one packet are one flag (the server bills one lock anyway)', s.nimm() === true && s.nimm() === false);
   const { pc } = neu();
   check('the controller offers the flag: false without a jump', pc.nimmSprung() === false && typeof pc.nimmSprung === 'function');
+}
+{
+  // The jump through the controller's physics branch, with a stand-in capsule (the Havok body is not available here): the
+  // decision (stamina, lock, roll) and the flag of the packet are the real code.
+  class Kapsel {
+    p = new Vector3(0, 1, 0);
+    v = Vector3.Zero();
+    checkSupport(): { supportedState: CharacterSupportedState } { return { supportedState: CharacterSupportedState.SUPPORTED }; }
+    getVelocity(): Vector3 { return this.v.clone(); }
+    setVelocity(v: Vector3): void { this.v = v.clone(); }
+    integrate(dt: number): void { this.p.addInPlace(this.v.scale(dt)); }
+    getPosition(): Vector3 { return this.p.clone(); }
+    setPosition(x: Vector3): void { this.p.copyFrom(x); }
+  }
+  const mitKapsel = (): { pc: PlayerController; ein: Eingabe } => {
+    const r = neu();
+    r.pc.update(1 / 60);
+    (r.pc as unknown as { controller: unknown }).controller = new Kapsel();
+    return r;
+  };
+  const springen = (r: { pc: PlayerController; ein: Eingabe }): boolean => { r.ein.flanken.add('Space'); r.pc.update(1 / 60); return r.pc.nimmSprung(); };
+  const { pc, ein } = mitKapsel();
+  check('jump 1 (stamina 100): reported once, stamina 95, in the air', springen({ pc, ein }) === true && nah(pc.ausdauerStand, 95, 0.2) && pc.inLuft, `${pc.ausdauerStand}`);
+  check('... the next packet carries no second flag', pc.nimmSprung() === false);
+  let t = 1 / 60;
+  while (pc.inLuft && t < 2) { pc.update(1 / 60); t += 1 / 60; }
+  check('(set-up) the figure landed before the server\'s lock (0.8 s) ran out', !pc.inLuft && t < 0.8, `landed after ${t.toFixed(2)} s`);
+  while (t < 0.7) { pc.update(1 / 60); t += 1 / 60; }
+  const stamina2 = pc.ausdauerStand;
+  check('jump 2 at ~0.7 s (inside the lock of 0.8 s): none, nothing reported, stamina unchanged', springen({ pc, ein }) === false && pc.ausdauerStand === stamina2 && !pc.inLuft, `${pc.ausdauerStand}`);
+  while (t < 0.85) { pc.update(1 / 60); t += 1 / 60; }
+  check('jump 3 at ~0.85 s (past the lock): reported once, stamina 5 less', springen({ pc, ein }) === true && nah(pc.ausdauerStand, stamina2 - 5, 0.2) && pc.nimmSprung() === false, `${pc.ausdauerStand}`);
+  const arm = mitKapsel();
+  arm.pc.setzeServerAusdauer(4.7); // regenerates 0.23 in the frame: still under 5
+  const s49 = springen(arm);
+  check('stamina 4.7: no jump, nothing reported', s49 === false && !arm.pc.inLuft && arm.pc.ausdauerStand > 4.6, `${s49}, air ${arm.pc.inLuft}, stamina ${arm.pc.ausdauerStand}`);
+  const rollend = mitKapsel();
+  rollend.pc.startRolle(0);
+  check('during a roll: no jump', springen(rollend) === false && !rollend.pc.inLuft);
+  // a space press while nothing is possible is not kept for later (landing, regeneration)
+  const spaeter = mitKapsel();
+  spaeter.pc.setzeServerAusdauer(4);
+  springen(spaeter);
+  spaeter.pc.setzeServerAusdauer(100);
+  for (let i = 0; i < 10; i++) spaeter.pc.update(1 / 60);
+  check('a refused jump press is not saved: with stamina back later nothing happens by itself', spaeter.pc.nimmSprung() === false && !spaeter.pc.inLuft);
 }
 {
   const quelle = readFileSync(resolve(HIER, '../src/main.ts'), 'utf-8');
@@ -300,6 +376,12 @@ const taste = (v: BlockVerdrahtung, spiel: Spiel): void => { spiel.q = true; v.f
   check('Q while blocking: the block ends FIRST (Block false), then the roll goes out', spiel.gesendet.join() === `block:true,block:false,rolle:${(Math.PI / 2).toFixed(3)}` && !v.blockt, spiel.gesendet.join());
   v.frame();
   check('the right button is still held: no new block (a fresh press is needed)', !v.blockt && spiel.gesendet.length === 3);
+}
+{
+  const { v, spiel } = neuesSpiel();
+  spiel.rollt = true;
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
+  check('a press of the right button during a roll starts no block (the wiring hands `rollt` to the table)', !v.blockt && spiel.gesendet.length === 0, spiel.gesendet.join());
 }
 {
   const { v, spiel } = neuesSpiel();

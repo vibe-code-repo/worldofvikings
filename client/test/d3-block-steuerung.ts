@@ -66,8 +66,9 @@ console.log('\n[1] The conflict table of the right click (planner report D3, 2.6
     { id: 'leere-hand', stoerung: { gegenstandInHand: false } },
     { id: 'bauwerkzeug', stoerung: { bauwerkzeug: true } },
     { id: 'wasser', stoerung: { imWasser: true } },
+    { id: 'rolle', stoerung: { rollt: true } }, // D3-K4: a roll is running
   ];
-  check('the table has exactly these nine rows', BLOCK_SPERREN.map((z) => z.id).join() === faelle.map((f) => f.id).join(), BLOCK_SPERREN.map((z) => z.id).join());
+  check('the table has exactly these ten rows', BLOCK_SPERREN.map((z) => z.id).join() === faelle.map((f) => f.id).join(), BLOCK_SPERREN.map((z) => z.id).join());
   for (const f of faelle) {
     const u = { ...FREI, ...f.stoerung };
     const { b, gesendet } = neu();

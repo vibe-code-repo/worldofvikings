@@ -958,11 +958,10 @@ export class PlayerController {
   get rolleBereit(): boolean { return !this.frozen && !this._bauModus; }
   /**
    * D3-K4: begin a roll along `yaw` (the key was accepted: the predicted stamina is paid at once). The figure turns to
-   * the direction in the next frame and plays `rolle`.
+   * the direction in the next frame (`update`) and plays `rolle`.
    */
   startRolle(yaw: number): void {
     this.rolle.starte(yaw);
-    this._figurYaw = yaw;
     this.ausdauer = Math.max(0, this.ausdauer - ROLLE_AUSDAUER);
     this.ausdauerZuletztVerbraucht = Date.now();
   }

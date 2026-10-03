@@ -217,10 +217,10 @@ const sg = frameSchritt(nm('Clear'), nm('Rain'), 0.5, 0.25, 3); // exactly 1.0 w
 check('frameSchritt: exactly blend 1 already ends the fade (>= 1, not > 1)', sg.blend === 1 && sg.prevEnv === null);
 const sk = frameSchritt(nm('Clear'), null, 0.5, 0.3, 5);
 check('frameSchritt: without a fade nothing is advanced or dropped', sk.blend === 0.3 && sk.prevEnv === null && JSON.stringify(sk.state) === JSON.stringify(evaluateEnv(nm('Clear'), 0.5)));
-const sw = frameSchritt(nm('Misty'), nm('SwampRain'), 0.5, 0, 1);
+const sx = frameSchritt(nm('Misty'), nm('SwampRain'), 0.5, 0, 1);
 check('frameSchritt: every field of the state comes from the faded state (sun colour, ambient, fog, intensity, directions)',
-  JSON.stringify(sw.state) === JSON.stringify(uebergangsZustand(nm('SwampRain'), nm('Misty'), 0.5, 0.25))
-  && JSON.stringify(sw.state.sunColor) !== JSON.stringify(evaluateEnv(nm('Misty'), 0.5).sunColor));
+  JSON.stringify(sx.state) === JSON.stringify(uebergangsZustand(nm('SwampRain'), nm('Misty'), 0.5, 0.25))
+  && JSON.stringify(sx.state.sunColor) !== JSON.stringify(evaluateEnv(nm('Misty'), 0.5).sunColor));
 const lighting = readFileSync(new URL('../../client/src/engine/Lighting.ts', import.meta.url), 'utf-8');
 check('Lighting: the biome change cross-fades over a positive time', /const ENV_BLEND_SECONDS = [1-9]/.test(lighting) && /this\.blend = Math\.min\(1, this\.blend \+ dtSeconds \/ ENV_BLEND_SECONDS\)/.test(lighting));
 

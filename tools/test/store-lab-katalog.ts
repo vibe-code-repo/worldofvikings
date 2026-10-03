@@ -417,6 +417,10 @@ try {
   check('Variablen ohne Testschalter: laute Warnung je Variable', ohneSchalter.err.includes('WOV_PFLANZEN_ZIEL ist gesetzt') && ohneSchalter.err.includes('WOV_PFLANZEN_MESSLISTE ist gesetzt') && ohneSchalter.err.includes('ignoriert'), ohneSchalter.err);
   const mitSchalter = pfade({ WOV_PFLANZEN_TEST: '1', WOV_PFLANZEN_ZIEL: join(tmp, 'x-ziel'), WOV_PFLANZEN_MESSLISTE: join(tmp, 'x-liste.json') });
   check('Variablen mit Testschalter: wirken, keine Warnung', mitSchalter.json.ziel === join(tmp, 'x-ziel') && mitSchalter.json.katalog === join(tmp, 'x-liste.json') && mitSchalter.err === '', JSON.stringify(mitSchalter));
+  for (const wert of ['0', 'yes', 'true', '', ' 1', '11']) {
+    const f = pfade({ WOV_PFLANZEN_TEST: wert, WOV_PFLANZEN_ZIEL: join(tmp, 'x-ziel'), WOV_PFLANZEN_MESSLISTE: join(tmp, 'x-liste.json') });
+    check(`Testschalter "${wert}" schaltet NICHT (nur genau "1"): ignoriert, Warnung`, f.json.ziel === standardZiel && f.json.katalog === standardListe && f.err.includes('ignoriert'), JSON.stringify(f));
+  }
   const nur = pfade({});
   check('Ohne Variablen: feste Pfade, keine Warnung', nur.json.ziel === standardZiel && nur.err === '', nur.err);
 } finally {

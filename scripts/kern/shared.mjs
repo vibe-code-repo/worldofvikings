@@ -43,6 +43,8 @@ export default [
   ['shared', 'test/block.ts'],
   // New biome bit 128 (greyglen): bit, names, region, sanitizer, ground tile, weather as a copy of grassland. <1 s.
   ['shared', 'test/biom-greyglen.ts'],
+  // D3-K4: die reine Rollenregel (Weg, Unverwundbarkeit, Sperren, Zeitscheiben, Freiraum-Schwelle), das Rollentempo im gemeinsamen Schritt, die Sprungkosten. Sekunden.
+  ['shared', 'test/d3-rolle.ts'],
   /*
     Karte B4 (2026-09-29): Schrittgeraeusche je Untergrund.
     `shared/test/boden-mischung.ts` rechnet die Bodenmischung

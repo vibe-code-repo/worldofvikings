@@ -25,9 +25,9 @@ import {
   STEIGUNGS_GRENZE_GRAD as STEIGUNGS_GRENZE_GRAD_GETEILT,
 } from '@wov/shared/src/bewegung/masse.js';
 import { BLOCK_TURN_SPEED, blockRichtung, blockSchrittTempo, dreheZu } from './BlockSteuerung';
-import { RolleLauf } from './RolleSteuerung';
+import { RolleLauf, SprungMeldung } from './RolleSteuerung';
 import { ROLLE_TEMPO } from '@wov/shared/src/bewegung/masse.js';
-import { ROLLE_AUSDAUER, SPRUNG_AUSDAUER, SPRUNG_SPERRE_MS } from '@wov/shared/src/kampf/rolle.js';
+import { ROLLE_AUSDAUER } from '@wov/shared/src/kampf/rolle.js';
 import type { Scene } from '@babylonjs/core/scene';
 import type { InputManager } from '../engine/InputManager';
 import type { ClientWorld } from '../world/World';
@@ -285,10 +285,8 @@ export class PlayerController {
   private _blockt = false;
   /** D3-K4: the clock of the roll (the client predicts the path of the server). */
   private readonly rolle = new RolleLauf();
-  /** D3-K4: a jump happened since the last input packet (reported once, see `nimmSprung`). */
-  private sprungMerk = false;
-  /** D3-K4: seconds until the next jump is billed again (the server's lock, 0.8 s). */
-  private sprungKostenSperre = 0;
+  /** D3-K4: the cost side of the jump and its flag for the input packet (see `SprungMeldung`). */
+  private readonly sprung = new SprungMeldung();
   /**
    * Mitgerechnete Ausdauer — dieselbe Regel wie im Server.
    *
@@ -769,18 +767,15 @@ export class PlayerController {
     // nachträglich bei der Landung aus.
     const aufBoden = !this.inDerLuft;
     this.sprungSperre = Math.max(0, this.sprungSperre - dt);
-    this.sprungKostenSperre = Math.max(0, this.sprungKostenSperre - dt);
+    this.sprung.schritt(dt);
     // D3-K4: a jump costs 5 stamina and the server locks the next billed one for 0.8 s: the client jumps only
     // with the predicted stamina, not in a roll, and reports the jump once (`nimmSprung`).
-    const springt = this.sprungWunsch && aufBoden && this.sprungSperre === 0 && !this.rolle.rollt
-      && this.sprungKostenSperre === 0 && this.ausdauer >= SPRUNG_AUSDAUER;
+    const springt = this.sprungWunsch && aufBoden && this.sprungSperre === 0 && this.sprung.erlaubt(this.ausdauer, this.rolle.rollt);
     this.sprungWunsch = false;
     if (springt) {
       this.sprungSperre = SPRUNG_SPERRE;
-      this.sprungKostenSperre = SPRUNG_SPERRE_MS / 1000;
-      this.ausdauer -= SPRUNG_AUSDAUER;
+      this.ausdauer = this.sprung.springe(this.ausdauer);
       this.ausdauerZuletztVerbraucht = Date.now();
-      this.sprungMerk = true;
     }
     // Der Nullsetz-Zweig bleibt an `supported` gebunden — er soll das
     // bisherige Verhalten an Hängen nicht verändern, sondern nur einen
@@ -959,8 +954,8 @@ export class PlayerController {
   get rollt(): boolean { return this.rolle.rollt; }
   /** D3-K4: seconds left of the lock after the last roll. */
   get rolleAbklingRest(): number { return this.rolle.abklingRest; }
-  /** D3-K4: the controller can move the figure by a roll (physics up, not frozen, not in build mode). */
-  get rolleBereit(): boolean { return !!this.controller && !this.frozen && !this._bauModus; }
+  /** D3-K4: the controller can move the figure by a roll (not frozen, not in build mode; before Havok is up the plain path moves it). */
+  get rolleBereit(): boolean { return !this.frozen && !this._bauModus; }
   /**
    * D3-K4: begin a roll along `yaw` (the key was accepted: the predicted stamina is paid at once). The figure turns to
    * the direction in the next frame and plays `rolle`.
@@ -978,9 +973,7 @@ export class PlayerController {
    * (50 ms apart), so a jump between two packets is not lost and one jump is not reported twice.
    */
   nimmSprung(): boolean {
-    const war = this.sprungMerk;
-    this.sprungMerk = false;
-    return war;
+    return this.sprung.nimm();
   }
   get blockt(): boolean { return this._blockt; }
   get pitch(): number { return this._pitch; }
@@ -1143,7 +1136,11 @@ export class PlayerController {
     } else {
       // Before Havok is up: move freely and clamp to the heightmap — the
       // nearest-vertex rule the server validates against.
-      if (moving) {
+      if (rollt) {
+        const weg = ROLLE_TEMPO * rs.bewegt;
+        this.position.x += this.rolle.x * weg;
+        this.position.z += this.rolle.z * weg;
+      } else if (moving) {
         this.position.x += wx * speed * dt;
         this.position.z += wz * speed * dt;
       }

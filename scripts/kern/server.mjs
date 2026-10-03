@@ -142,6 +142,8 @@ export default [
   ['server', 'test/d2-treffer.ts'],
   // D3-K1: gehaltener Block am Server (Paket 89): Standin-Peer mit fester Uhr, dann echter WebSocket-Spieler und Wolf. ~20 s.
   ['server', 'test/d3-block.ts'],
+  // D3-K4: Ausweichrolle (Paket 90) und Sprungkosten am Server: Standin-Peer mit fester Uhr, Weg gegen die echte Kollision, echter WebSocket-Spieler mit Wolf. ~25 s.
+  ['server', 'test/d3-rolle.ts'],
   // D5 N3: the admin flag (ServerConfig bit 7 at login, AdminEvent `admin` live) reaches the client class, and the server refuses a guest whatever the client claims. Real WebSocket, port 0.
   ['server', 'test/d5-beute-admin.ts'],
   // D5 (loot is a box and E does not pick it up): every item that can lie on the ground gets an ITEM_DROP prefab and a listed model; BeuteAmBoden lays it under that prefab.

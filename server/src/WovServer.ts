@@ -2904,7 +2904,7 @@ export class WovServer {
     const blockt = blockHalteTakt(peer, now, now - this.prevUpdateTime);
     const aus = ausdauerSchritt(
       { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
-      { rennWunsch: !peer.flying && running && !blockt, bewegt, dt: deltaSec, jetzt: now }
+      { rennWunsch: !peer.flying && running && !blockt && !rolle.rollt, bewegt, dt: deltaSec, jetzt: now }
     );
     const rennt = !peer.flying && aus.rennt;
     if (!peer.flying) {

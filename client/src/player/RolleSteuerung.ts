@@ -21,6 +21,8 @@ import {
   ROLLE_AUSDAUER,
   ROLLE_BEWEGUNG_S,
   ROLLE_DAUER_MS,
+  SPRUNG_AUSDAUER,
+  SPRUNG_SPERRE_MS,
   rolleRichtung,
   rolleYawVon,
 } from '@wov/shared/src/kampf/rolle.js';
@@ -147,5 +149,39 @@ export class RolleLauf {
       this._abkling = Math.max(0, ROLLE_ABKLINGZEIT_MS / 1000 - (this.t - dauer));
     }
     return { bewegt };
+  }
+}
+
+/**
+ * The cost side of the jump (D3-K4): the client jumps only with the stamina the server will bill (5), not in a roll
+ * and not inside the server's lock (0.8 s), and reports each jump ONCE: the flag waits for the next input packet
+ * (`nimm`), so a jump between two packets 50 ms apart is not lost and one jump is not reported twice.
+ */
+export class SprungMeldung {
+  private sperre = 0;
+  private merk = false;
+
+  /** One frame: the lock runs down. */
+  schritt(dt: number): void {
+    this.sperre = Math.max(0, this.sperre - dt);
+  }
+
+  /** May a jump be billed now (stamina, lock, no roll)? */
+  erlaubt(ausdauer: number, rollt: boolean): boolean {
+    return !rollt && this.sperre === 0 && ausdauer >= SPRUNG_AUSDAUER;
+  }
+
+  /** A jump began: lock and flag. Returns the stamina after the cost. */
+  springe(ausdauer: number): number {
+    this.sperre = SPRUNG_SPERRE_MS / 1000;
+    this.merk = true;
+    return ausdauer - SPRUNG_AUSDAUER;
+  }
+
+  /** The jump flag of the next input packet: true once per jump. */
+  nimm(): boolean {
+    const war = this.merk;
+    this.merk = false;
+    return war;
   }
 }

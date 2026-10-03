@@ -393,7 +393,7 @@ export default [
   //
   //  1. `shared/test/store-registry.ts` rechnet nur mit der erzeugten
   //     Tabelle (eingecheckt) — keine Dateien, keine Weiche, laeuft im
-  //     CI-Checkout. Er haelt fest, dass die 569 Store-Prefabs wirklich
+  //     CI-Checkout. Er haelt fest, dass die 572 Store-Prefabs wirklich
   //     in PREFAB_DEFS/EIGENE_MODELLE stehen und dass kein Hash
   //     zusammenstoesst. Sekundenbruchteile.
   //

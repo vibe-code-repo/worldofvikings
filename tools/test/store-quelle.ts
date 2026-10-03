@@ -8,7 +8,7 @@
  *      dazu), aber `shared/test/store-verhalten.ts` wurde rot, sobald jemand
  *      das Feld wie vorgesehen füllte.
  *  (2) Zwei Quelleinträge auf DIESELBE GLB überschrieben sich still (die Map
- *      ist nach `asset` geschlüsselt): 568 statt 569 Prefabs, und beide
+ *      ist nach `asset` geschlüsselt): 571 statt 572 Prefabs, und beide
  *      bestehenden Tests blieben grün.
  *
  * Die Quelle ist ein Symlink auf einen Speicher außerhalb des Repos, und der
@@ -77,6 +77,8 @@ try {
   const baum = join(tmp, 'baum');
   mkdirSync(join(baum, 'tools'), { recursive: true });
   copyFileSync(join(WURZEL, 'tools/store-prefabs.mjs'), join(baum, 'tools/store-prefabs.mjs'));
+  // Die Messliste der Labor-Modelle liest der Generator relativ zu sich selbst.
+  copyFileSync(join(WURZEL, 'tools/store-lab-katalog.json'), join(baum, 'tools/store-lab-katalog.json'));
   symlinkSync(join(WURZEL, 'client'), join(baum, 'client'));
   symlinkSync(join(WURZEL, 'shared'), join(baum, 'shared'));
   symlinkSync(join(WURZEL, 'node_modules'), join(baum, 'node_modules'));

@@ -4,7 +4,7 @@
  *   npx tsx tools/store-prefabs.mjs
  *
  * Die Kollisionsangabe aus `prefabs.json`, schmal: nur die AUSNAHMEN.
- * 27 Prefabs ohne Körper, 19 mit eigenem Netz,
+ * 30 Prefabs ohne Körper, 19 mit eigenem Netz,
  * 73 mit einer Kiste, die von der Modell-Hüllbox abweicht.
  * Alles andere ist `box` ohne eigene Kiste — das ist die Vorgabe und
  * braucht keine Zeile.
@@ -51,6 +51,9 @@ export const STORE_OHNE_KOERPER: ReadonlySet<StorePrefabName> = new Set([
   'vegetation-bush-1a2-small-1-dark',
   'vegetation-bush-1a2-small-1-snow',
   'vegetation-bush-1a3',
+  'vegetation-fern-1a1',
+  'vegetation-flower-1a12',
+  'vegetation-flower-1a4',
   'vegetation-grass-short-clump-1',
   'vegetation-grass-short-clump-redblue',
   'vegetation-grass-short-clump-snow',

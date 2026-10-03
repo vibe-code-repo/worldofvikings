@@ -204,7 +204,8 @@ check('Lighting.apply takes its state from frameSchritt only, and lerpEnvState i
   && (lichtQuelle.match(/frameZustand\(/g) ?? []).length === 2
   && (lichtQuelle.match(/evaluateEnv\(/g) ?? []).length === 4
   && /const schritt = frameSchritt\(this\.env, this\.prevEnv, this\.timeOfDay, this\.blend, dtSeconds\);/.test(lichtQuelle)
-  && /const state = schritt\.state;/.test(lichtQuelle));
+  && /const state = schritt\.state;/.test(lichtQuelle)
+  && /this\.blend = schritt\.blend;\s+this\.prevEnv = schritt\.prevEnv;/.test(lichtQuelle));
 // one frame of the fade (what Lighting.apply writes): blend advanced first, state taken at the new blend, old weather dropped at the end
 const sa = frameSchritt(nm('Clear'), nm('Rain'), 0.5, 0.2, 2); // 2 s of 4 s: blend 0.2 -> 0.7
 check('frameSchritt: blend advances by dt / 4 s and the state is the one AT the new blend (not the old one)',

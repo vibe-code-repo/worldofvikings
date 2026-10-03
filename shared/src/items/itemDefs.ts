@@ -17,460 +17,11 @@ import { loeseStufe } from './itemStufen.js';
 type ItemRoh = Omit<ItemShared, 'itemLevel' | 'rarity'>;
 
 /**
- * `Hammer.glb` is a 248-byte stub with zero meshes — the real geometry sits in
- * `Hammer_0.glb`. Same trap as the Boar/Greydwarf models (see prefabs.ts).
- * Noted here because the hammer will be added once build pieces exist.
+ * The 29 raw items (tools, weapons, materials) are not code any more: they live in
+ * shared/data/gegenstaende.json and are applied by `grundbestand.ts` when `@wov/shared` loads. What stays here
+ * is the clothing (set parts and the two leather starter pieces), which the armour pipeline owns.
+ * Die 29 Rohgegenstaende stehen in shared/data/gegenstaende.json; hier bleibt nur die Kleidung.
  */
-
-/**
- * Der Rohbestand. Ausgeliefert wird `ITEM_DEFS` weiter unten — dort wird
- * jedes `model` gegen die Whitelist `EIGENE_MODELLE` (prefabs.ts) geprüft.
- */
-const ITEM_DEFS_ROH: readonly ItemRoh[] = [
-  {
-    // Sax — das wikingerzeitliche Allzweckmesser. Kein Fund aus dem
-    // Fremdbestand, sondern eigens gebaut (tools/messer-erzeugen.py),
-    // und der erste Gegenstand mit eigenem Modell UND eigenem Symbol.
-    // Das Symbol ist ein Render desselben Modells — so koennen Bild und
-    // Gegenstand nicht auseinanderlaufen.
-    name: 'Messer',
-    label: 'Sax (Messer)',
-    itemType: ItemType.Tool,
-    icon: 'messer',
-    model: 'Messer',
-    maxStackSize: 1,
-    weight: 0.6,
-    toolTier: 0,
-    // Haltung GEMESSEN, nicht geschaetzt — anders als bei den uebrigen
-    // Eintraegen (s. Kommentar an holdPosition in ItemData.ts).
-    //
-    // In Blender an den Knochen gesetzt und gerendert
-    // (tools/messer-in-hand.py): Griff 0,02 Modelleinheiten aus der
-    // Handflaeche, 0,075 zu den Knoecheln, Klinge hochkant. Das mal 1,8,
-    // weil holdPosition in echten Metern zaehlt: handR traegt
-    // 1/modellSkalierung, die Weltskalierung am Huellknoten ist also 1.
-    //
-    // Dass die Achsen zwischen Blender und Babylon UEBERHAUPT gleich
-    // liegen, ist nachgemessen (tools/out/achsen-messen.mjs), nicht
-    // angenommen — der glTF-Export darf Knochen mitdrehen:
-    //   Handknoten +Y  → zu den Fingern   (Blender: ebenso)
-    //   Handknoten +Z  → zum Koerper hin  (Blender: ebenso)
-    //   Klinge bei Drehung null → -Z
-    // Daraus folgt rotation.x = +PI/2 (Klinge zu den Fingern) und
-    // rotation.z = +PI/2 (Schneide nach vorn; Babylon wendet Z zuerst
-    // an, also im Modellrahmen um die Klingenachse).
-    holdPosition: [0.036, 0.135, 0],
-    holdRotation: [1.5708, 0, 1.5708],
-    maxDurability: 120,
-    useDurabilityDrain: 1,
-    attackStamina: 3,
-  },
-  {
-    // verified: $item_hoe, item type 19, maxDurability 200, drain 1, stamina 5
-    name: 'Hoe',
-    stats: { damage: 2 },
-    label: 'Hacke (Hoe)',
-    itemType: ItemType.Tool,
-    icon: 'hoe',
-    model: 'Hoe',
-    maxStackSize: 1,
-    weight: 2,
-    pieceTable: 'Hoe',
-    toolTier: 0,
-    // Griff in der Faust, Kopf schräg nach vorne-oben (per Auge justiert).
-    holdPosition: [0, -0.05, 0.12],
-    holdRotation: [-1.9, 0, 0],
-    maxDurability: 200,
-    useDurabilityDrain: 1,
-    attackStamina: 5,
-  },
-  {
-    // verified: $item_cultivator, tool with a piece table
-    name: 'Cultivator',
-    stats: { damage: 2 },
-    label: 'Pflug',
-    itemType: ItemType.Tool,
-    // There is no cultivator.png in the rip — only the bronze/iron variants.
-    icon: 'cultivator_bronze',
-    model: 'Cultivator',
-    maxStackSize: 1,
-    weight: 2,
-    pieceTable: 'Cultivator',
-    toolTier: 0,
-    // Griff in der Faust, Kopf schräg nach vorne-oben (per Auge justiert).
-    holdPosition: [0, -0.05, 0.12],
-    holdRotation: [-1.9, 0, 0],
-    maxDurability: 200,
-    useDurabilityDrain: 1,
-    attackStamina: 5,
-  },
-  {
-    // verified: $item_pickaxe_antler, item type 14, no piece table,
-    // spawn-on-terrain-hit -> digg_v3. Digs through the attack path, not build
-    // mode — that is why it has no piece table.
-    name: 'PickaxeAntler',
-    stats: { damage: 8 },
-    label: 'Geweihspitzhacke',
-    itemType: ItemType.TwoHandedWeapon,
-    icon: 'pickaxe_antler',
-    model: 'PickaxeAntler',
-    maxStackSize: 1,
-    weight: 3,
-    spawnOnHitTerrain: 'digg',
-    toolTier: 0,
-    // Harvest level: breaks rocks up to level 1 (the server reads this field, not the name).
-    ernte: { fels: 1 },
-    // Griff in der Faust, Kopf schräg nach vorne-oben (per Auge justiert).
-    holdPosition: [0, -0.05, 0.12],
-    holdRotation: [-1.9, 0, 0],
-    maxDurability: 100,
-    useDurabilityDrain: 1,
-    attackStamina: 4,
-  },
-  {
-    // Kopfnotiz oben: Hammer.glb ist ein 248-Byte-Stub — Hammer_0.glb traegt
-    // die echte Geometrie. Jetzt eingeloest: der Hammer baut (pieceTable).
-    name: 'Hammer',
-    label: 'Hammer',
-    itemType: ItemType.Tool,
-    icon: 'hammer',
-    model: 'Hammer_0',
-    maxStackSize: 1,
-    weight: 2,
-    pieceTable: 'Hammer',
-    toolTier: 0,
-    holdPosition: [0, -0.05, 0.12],
-    holdRotation: [-1.9, 0, 0],
-    maxDurability: 100,
-    useDurabilityDrain: 1,
-    attackStamina: 5,
-  },
-  {
-    name: 'Wood',
-    label: 'Holz',
-    itemType: ItemType.Material,
-    icon: 'wood',
-    model: 'Wood',
-    maxStackSize: 50,
-    weight: 2,
-    toolTier: 0,
-  },
-  {
-    name: 'Stone',
-    label: 'Stein',
-    itemType: ItemType.Material,
-    icon: 'stone',
-    model: 'Stone',
-    maxStackSize: 50,
-    weight: 2,
-    toolTier: 0,
-  },
-  // ── Phase-5-Nachzügler: Materialien für Loot, Pickups und Crafting.
-  // Nur Items mit vorhandenem Sprite (assets/sprites, snake_case geprüft).
-  {
-    name: 'Flint',
-    label: 'Feuerstein',
-    itemType: ItemType.Material,
-    icon: 'flint',
-    model: 'Flint',
-    maxStackSize: 50,
-    weight: 0.5,
-    toolTier: 0,
-  },
-  {
-    name: 'Resin',
-    label: 'Harz',
-    itemType: ItemType.Material,
-    icon: 'resin',
-    model: 'Resin',
-    maxStackSize: 50,
-    weight: 0.5,
-    toolTier: 0,
-  },
-  {
-    name: 'Raspberry',
-    label: 'Himbeeren',
-    itemType: ItemType.Material,
-    icon: 'raspberry',
-    model: 'Raspberry',
-    maxStackSize: 50,
-    weight: 0.5,
-    toolTier: 0,
-  },
-  {
-    name: 'Blueberries',
-    label: 'Blaubeeren',
-    itemType: ItemType.Material,
-    icon: 'blueberries',
-    model: 'Blueberries',
-    maxStackSize: 50,
-    weight: 0.5,
-    toolTier: 0,
-  },
-  {
-    name: 'Mushroom',
-    label: 'Pilz',
-    itemType: ItemType.Material,
-    icon: 'mushroom',
-    model: 'Mushroom',
-    maxStackSize: 50,
-    weight: 0.5,
-    toolTier: 0,
-  },
-  {
-    name: 'Thistle',
-    label: 'Distel',
-    itemType: ItemType.Material,
-    icon: 'thistle',
-    model: 'Thistle',
-    maxStackSize: 50,
-    weight: 0.5,
-    toolTier: 0,
-  },
-  {
-    name: 'Dandelion',
-    label: 'Löwenzahn',
-    itemType: ItemType.Material,
-    icon: 'dandelion',
-    model: 'Dandelion',
-    maxStackSize: 50,
-    weight: 0.5,
-    toolTier: 0,
-  },
-  {
-    name: 'Carrot',
-    label: 'Karotte',
-    itemType: ItemType.Material,
-    icon: 'carrot',
-    model: 'Carrot',
-    maxStackSize: 50,
-    weight: 0.5,
-    toolTier: 0,
-  },
-  {
-    name: 'RawMeat',
-    label: 'Rohes Fleisch',
-    itemType: ItemType.Material,
-    icon: 'raw_meat',
-    model: 'RawMeat',
-    maxStackSize: 50,
-    weight: 0.5,
-    toolTier: 0,
-  },
-  {
-    name: 'Entrails',
-    label: 'Gedärme',
-    itemType: ItemType.Material,
-    icon: 'entrails',
-    model: 'Entrails',
-    maxStackSize: 50,
-    weight: 0.5,
-    toolTier: 0,
-  },
-  {
-    name: 'Coins',
-    label: 'Münzen',
-    itemType: ItemType.Material,
-    icon: 'coins',
-    model: 'Coins',
-    maxStackSize: 50,
-    weight: 0.5,
-    toolTier: 0,
-  },
-  {
-    name: 'Amber',
-    label: 'Bernstein',
-    itemType: ItemType.Material,
-    icon: 'amber',
-    model: 'Amber',
-    maxStackSize: 50,
-    weight: 0.5,
-    toolTier: 0,
-  },
-  {
-    name: 'NeckTail',
-    label: 'Neck-Schwanz',
-    itemType: ItemType.Material,
-    icon: 'necktail',
-    model: 'NeckTail',
-    maxStackSize: 50,
-    weight: 0.5,
-    toolTier: 0,
-  },
-  {
-    name: 'TrophyDeer',
-    label: 'Hirschtrophäe',
-    itemType: ItemType.Material,
-    icon: 'TrophyDeer',
-    model: 'TrophyDeer',
-    maxStackSize: 10,
-    weight: 1.5,
-    toolTier: 0,
-  },
-  {
-    name: 'CookedMeat',
-    label: 'Gebratenes Fleisch',
-    itemType: ItemType.Material,
-    icon: 'necktailgrilled',
-    model: 'CookedMeat',
-    maxStackSize: 20,
-    weight: 1,
-    toolTier: 0,
-  },
-  {
-    // Einfache Nahkampfwaffe — Rezept: 6 Holz an keiner Station.
-    name: 'Club',
-    stats: { damage: 12 },
-    label: 'Keule',
-    itemType: ItemType.TwoHandedWeapon,
-    icon: 'club',
-    model: 'Club',
-    maxStackSize: 1,
-    weight: 2,
-    toolTier: 0,
-    holdPosition: [0, -0.05, 0.12],
-    holdRotation: [-1.9, 0, 0],
-    maxDurability: 100,
-    useDurabilityDrain: 1,
-    attackStamina: 6,
-  },
-  {
-    name: 'HardAntler',
-    label: 'Hartes Geweih',
-    itemType: ItemType.Material,
-    icon: 'HardAntler',
-    model: 'HardAntler',
-    maxStackSize: 20,
-    weight: 2,
-    toolTier: 0,
-  },
-  {
-    name: 'TrophyEikthyr',
-    label: 'Eikthyr-Trophäe',
-    itemType: ItemType.Material,
-    icon: 'TrophyEikthyr',
-    model: 'Eikthyr_Trophy',
-    maxStackSize: 5,
-    weight: 2,
-    toolTier: 0,
-  },
-  {
-    name: 'AxeFlint',
-    stats: { damage: 15 },
-    label: 'Feuersteinaxt',
-    itemType: ItemType.TwoHandedWeapon,
-    icon: 'axe_flint',
-    model: 'AxeFlint',
-    maxStackSize: 1,
-    weight: 2.5,
-    toolTier: 1,
-    // Harvest level: fells trees up to level 1 (the server reads this field, not the name).
-    ernte: { baum: 1 },
-    holdPosition: [0, -0.05, 0.12],
-    holdRotation: [-1.9, 0, 0],
-    maxDurability: 200,
-    useDurabilityDrain: 1,
-    attackStamina: 8,
-  },
-  {
-    // Das Nordschwert (10.09.2026) — erstes Schwert im Spiel, damit sich
-    // der Schwerthieb des Wikingers mit einer Klinge in der Hand pruefen
-    // laesst. Modell: die Wikingerklinge aus dem Waffensatz des privaten
-    // Speichers (SwordNorth.glb), so vorbereitet, dass die Parierstange
-    // im Ursprung liegt und die Klinge entlang +Y zeigt.
-    //
-    // Haltung (im Spiel gemessen, 10.09.2026, Playwright-Probe gegen den
-    // Handknoten Hand_R des Wikingers bei haengendem Arm): +X zeigt in
-    // Daumenrichtung (nach vorn), +Y zu den Fingern (nach unten), +Z zum
-    // Koerper (Handflaeche). Ein Schwert liegt in der FAUST, nicht in der
-    // Verlaengerung des Unterarms: Klinge entlang der Daumenachse, Kante
-    // entlang der Knoechel (Fingerachse), Flachseite in der Handflaeche.
-    // holdRotation ist der Babylon-Euler, der Modell-X (Kante/Parier-
-    // stange) auf Hand-Y, Modell-Y (Klinge) auf Hand-X und Modell-Z auf
-    // Hand-(-Z) legt — ausgerechnet ueber Quaternion.FromRotationMatrix,
-    // nicht von Hand geraten. holdPosition schiebt die Parierstange
-    // in den Fingerring der Original-Greifpose (SwordIdle, in Blender auf
-    // Hand_R gelegt: die gekruemmten Finger umschliessen y 0,06–0,10 /
-    // z 0,00–0,07, Daumen darueber) und 8 cm zur Daumenseite, damit die
-    // Faust den hinteren Teil des 20-cm-Griffs haelt und vor ihr noch
-    // Griff bis zur Parierstange bleibt (Mike, 10.09.: Griff weiter
-    // hinten halten).
-    name: 'SwordNorth',
-    stats: { damage: 12 },
-    label: 'Nordschwert',
-    itemType: ItemType.TwoHandedWeapon,
-    icon: 'sword_north',
-    model: 'SwordNorth',
-    maxStackSize: 1,
-    weight: 2,
-    toolTier: 1,
-    holdPosition: [0.08, 0.08, 0.035],
-    holdRotation: [0, Math.PI, Math.PI / 2],
-    maxDurability: 200,
-    useDurabilityDrain: 1,
-    attackStamina: 10,
-  },
-  {
-    // Kampfstab (Mikes eigenes Modell, 11.09.2026, schlanke Fassung 12.09.):
-    // 1,65 m, Kopf oben, Ursprung am Griffpunkt der rechten Hand 1,08 m
-    // ueber dem unteren Ende — deshalb ohne den 8-cm-Versatz des Schwerts.
-    // Gleiche Drehung wie das Schwert: die Laengsachse laeuft durch die
-    // Faust. Ruhehaltung wie der Speer (Mike, 12.09.): aufrecht in der
-    // rechten Hand, Ende am Boden; Hiebe beidhaendig aus der Stabkette.
-    name: 'Staff',
-    stats: { damage: 10 },
-    label: 'Kampfstab',
-    itemType: ItemType.TwoHandedWeapon,
-    icon: 'staff',
-    model: 'Staff',
-    maxStackSize: 1,
-    weight: 2,
-    toolTier: 1,
-    holdPosition: [0, 0.08, 0.035],
-    holdRotation: [0, Math.PI, Math.PI / 2],
-    // Im Hieb rutscht der Stab 30 cm durch die Faust, die Hand greift also
-    // 30 cm tiefer: die Ruhehaltung fasst ihn 1,08 m ueber dem Ende (Hand
-    // 1,059 m, Stab 2 Grad geneigt), damit er aufrecht am Boden aufsteht —
-    // im beidhaendigen Hieb liegen die Haende in Brusthoehe, und genau
-    // dieser knappe Meter Schaft faehrt sonst durch Rumpf und Beine.
-    // Gemessen (12.09.2026, Stabachse zu Rumpf-/Beinknoten je Hieb): mit
-    // 0,30 noch 1 cm zum Hals, mit 0,70 6 cm, erst mit 0,90 ueberall
-    // ueber 23 cm — die Faust greift dann 18 cm ueber dem Ende, der Stab
-    // wird im Hieb wie eine Klinge gefuehrt.
-    holdOffsetStrike: 0.9,
-    animationSet: 'spear',
-    maxDurability: 200,
-    useDurabilityDrain: 1,
-    attackStamina: 10,
-  },
-  {
-    // Speer (Mikes eigenes Modell, 12.09.2026): 1,90 m, Spitze oben, Ursprung
-    // 1,08 m ueber dem unteren Ende — die Hoehe der rechten Hand in der
-    // Ruhepose arm_speer (Hand 1,059 m, Stab 2 Grad nach hinten gekippt), damit das Ende am Boden
-    // aufsteht. Die Laengsachse laeuft wie beim Schwert durch die Faust;
-    // in der Pose steht die Faustachse fast senkrecht, also der Speer
-    // aufrecht neben der Figur.
-    name: 'Spear',
-    stats: { damage: 11 },
-    label: 'Speer',
-    itemType: ItemType.TwoHandedWeapon,
-    icon: 'spear',
-    model: 'Spear',
-    maxStackSize: 1,
-    weight: 2,
-    toolTier: 1,
-    holdPosition: [0, 0.08, 0.035],
-    holdRotation: [0, Math.PI, Math.PI / 2],
-    // Im Hieb rutscht der Speer 90 cm durch die Faust: die Hand greift
-    // 18 cm ueber dem Ende. Gemessen wie beim Stab: mit 0,70 noch 6 cm
-    // zum Hals, mit 0,90 ueberall ueber 23 cm Abstand zu Rumpf und Beinen.
-    holdOffsetStrike: 0.9,
-    animationSet: 'spear',
-    maxDurability: 200,
-    useDurabilityDrain: 1,
-    attackStamina: 10,
-  },
-];
 
 /**
  * ── Kleidung ────────────────────────────────────────────────────────
@@ -531,7 +82,8 @@ const KLEIDUNG: ItemRoh[] = [
 ];
 
 /**
- * Die ausgelieferten Gegenstände — Rohbestand mit geprüftem `model`.
+ * Die ausgelieferten Code-Gegenstände: die Kleidung, mit geprüftem `model` (bei Kleidung immer `null`).
+ * Die Handgegenstände (Werkzeuge, Waffen, Materialien) kommen aus der Datei und stehen erst in `ITEMS_BY_NAME`.
  *
  * Gestrichen wird das MODELL, nicht der Gegenstand. Das ist der
  * Unterschied zu Features und Spawns: Ein Item ohne Modell bleibt ein
@@ -554,7 +106,7 @@ export const ITEM_DEFS: readonly ItemShared[] = bauItemDefs();
 function bauItemDefs(): ItemShared[] {
   let ohneModell = 0;
   const ohneStufe: string[] = [];
-  const liste = [...ITEM_DEFS_ROH, ...KLEIDUNG].map((roh) => {
+  const liste = KLEIDUNG.map((roh) => {
     // Never throws: an unrated item is level 1 / common (data items bring their own values). That every CODE
     // item has an explicit entry is guaranteed by shared/test/item-stufen.ts, not by a crash at import.
     const { stufe, quelle } = loeseStufe(roh, roh as { itemLevel?: unknown; rarity?: unknown });
@@ -569,7 +121,7 @@ function bauItemDefs(): ItemShared[] {
   }
   if (ohneModell > 0) {
     console.warn(
-      `[items] ${ohneModell} von ${ITEM_DEFS_ROH.length + KLEIDUNG.length} Eintraegen ohne eigenes Modell uebersprungen (Symbol bleibt)`
+      `[items] ${ohneModell} von ${KLEIDUNG.length} Eintraegen ohne eigenes Modell uebersprungen (Symbol bleibt)`
     );
   }
   return liste;
@@ -602,17 +154,30 @@ export function istCodeItemOhneSchreibung(name: string): boolean {
   return CODE_NAMEN_KLEIN.has(name.toLowerCase());
 }
 
+let grundItems: readonly ItemShared[] = [];
+
+/** Registers the base items (called by `gegenstandsDaten.ts` once); `replaceDataItems` keeps them in every state. */
+export function setzeGrundItems(liste: readonly ItemShared[]): void {
+  grundItems = liste;
+}
+
 /**
- * Replaces the WHOLE data-item state (entries left out are gone afterwards). Atomic: the new map is built
+ * Replaces the WHOLE data-item state (entries left out are gone afterwards, the base stock excepted). Atomic: the new map is built
  * and checked first, the reference is swapped last, so a throw halfway leaves the old state untouched.
  * Throws on a name that is already a code item or appears twice; the caller sanitises first
  * (gegenstandsDaten.ts), this is the last line of defence.
  */
 export function replaceDataItems(liste: readonly ItemShared[]): void {
   const neu = new Map<string, ItemShared>(CODE_ITEMS_BY_NAME);
+  // The base stock is never part of what is replaced: it stands unless an entry of `liste` has the same name.
+  for (const g of grundItems) neu.set(g.name, g);
   const daten = new Set<string>();
+  const grundKlein = new Map(grundItems.map((g) => [g.name.toLowerCase(), g.name]));
   for (const item of liste) {
     const name = item.name;
+    // `wood` next to the base item `Wood` is confusable, like a code name in another case.
+    const grundName = grundKlein.get(name.toLowerCase());
+    if (grundName !== undefined && grundName !== name) throw new Error(`[items] data item "${name}" collides with the base item "${grundName}" (ignoring case)`);
     if (CODE_NAMEN_KLEIN.has(name.toLowerCase())) throw new Error(`[items] data item "${name}" collides with a code item (ignoring case)`);
     if (daten.has(name.toLowerCase())) throw new Error(`[items] data item "${name}" appears twice (ignoring case)`);
     daten.add(name.toLowerCase());

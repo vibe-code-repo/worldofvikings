@@ -12,7 +12,7 @@
  *
  * No hand preview at the Viking here (EG3), no "accept" by pull request (EG4).
  */
-import { ITEM_DEFS, uploadedModelRegistry } from '@wov/shared';
+import { GRUNDBESTAND_IDS, ITEM_DEFS, uploadedModelRegistry } from '@wov/shared';
 import type { GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import type { TranslationKey } from '../../i18n';
 import { F, M, SCHRIFT, beschriftungStil, el, grundregelnEinhaengen, stil } from '../design';
@@ -692,7 +692,7 @@ class GegenstandsSeite {
     const listeId = 'wov-gegenstand-zutaten';
     const daten = el('datalist', '');
     daten.id = listeId;
-    const namen = new Set<string>(ITEM_DEFS.map((d) => d.name));
+    const namen = new Set<string>([...ITEM_DEFS.map((d) => d.name), ...GRUNDBESTAND_IDS]);
     for (const e of stand.eintraege) if (e.id !== f.id) namen.add(e.id);
     for (const n of [...namen].sort()) {
       const o = el('option', '');

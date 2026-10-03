@@ -24,9 +24,10 @@ import {
   VERWERF_GRUENDE,
   leseGegenstandsDatei,
   schreibeGegenstandsDatei,
+  istGrundItem,
   type GegenstandsEintrag,
 } from '@wov/shared/src/items/gegenstandsDaten.js';
-import { istCodeItem } from '@wov/shared/src/items/itemDefs.js';
+import { findItem } from '@wov/shared/src/items/itemDefs.js';
 import {
   BEREICHE,
   TEXT_MAX,
@@ -69,7 +70,7 @@ const texte = (id: string, de: string, en: string, bd?: string, be?: string): Re
   ...(bd !== undefined || be !== undefined ? { [`inhalt.gegenstand.${id}.beschreibung`]: { ...(bd !== undefined ? { de: bd } : {}), ...(be !== undefined ? { en: be } : {}) } } : {}),
 });
 
-check('fixture ingredient "Wood" is a code item', istCodeItem('Wood'));
+check('fixture ingredient "Wood" is a base item (not code, but always known)', istGrundItem('Wood') && findItem('Wood') !== undefined);
 const VOLL = eintragAus({
   id: 'Holzaxt',
   nameSchluessel: 'inhalt.gegenstand.Holzaxt.name',
@@ -220,7 +221,7 @@ console.log('\n[5] Gleiche Grund-Codes wie der Server:');
   faelle.push(['id-ungueltig', gut('klein'), andere, 'id-ungueltig']);
   faelle.push(['id-ungueltig (zu kurz)', gut('A'), andere, 'id-ungueltig']);
   faelle.push(['id-doppelt', gut('Feder'), andere, 'id-doppelt']);
-  faelle.push(['id-code-kollision', gut('Club'), andere, 'id-code-kollision']);
+  faelle.push(['id-code-kollision', gut('LederBH'), andere, 'id-code-kollision']);
   faelle.push(['id-schreibung-code', gut('CLUB'), andere, 'id-schreibung-code']);
   faelle.push(['id-schreibung-doppelt', gut('FEDER'), andere, 'id-schreibung-doppelt']);
   {
@@ -301,7 +302,7 @@ console.log('\n[5] Gleiche Grund-Codes wie der Server:');
     const maske = pruefeFormular(f, andere);
     check(`${name}: Server = texte-ungueltig, Maske = ${code} am Feld ${feld}`, gleich(serverGruende(f, andere), ['texte-ungueltig']) && gleich(maske.map((x) => [x.feld, x.code]), [[feld, code]]), JSON.stringify(maske));
   }
-  check('VERWERF_GRUENDE hat 23 Codes (Aenderung bricht die Tabellen in texte.ts am Typ)', VERWERF_GRUENDE.length === 23, String(VERWERF_GRUENDE.length));
+  check('VERWERF_GRUENDE hat 24 Codes (Aenderung bricht die Tabellen in texte.ts am Typ)', VERWERF_GRUENDE.length === 24, String(VERWERF_GRUENDE.length));
 }
 
 // ── [6] ranges = the reader's ranges ───────────────────────────────────

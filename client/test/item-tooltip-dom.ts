@@ -155,7 +155,9 @@ const box = (): El | undefined => body.children.find((c) => 'itemTooltip' in c.d
 const sichtbar = (): boolean => box()?.style.display === 'block';
 
 const BOESE = '<img src=x onerror=alert(1)>';
-const boeses: ItemShared = { ...findItem('AxeFlint')!, name: 'Boese', label: BOESE };
+const ohneSchluessel: ItemShared = { ...findItem('AxeFlint')! };
+delete ohneSchluessel.textKey; // a base item has a textKey; the test needs the plain label path
+const boeses: ItemShared = { ...ohneSchluessel, name: 'Boese', label: BOESE };
 let aktuell: ItemShared | null = boeses;
 const zelle = new El(); const kind = new El(); zelle.appendChild(kind);
 mitTooltip(zelle as never, () => aktuell, () => 'Aktion');

@@ -130,6 +130,7 @@
   "editor.gegenstand.grund.eintrag_kein_objekt": "The entry is not a valid object.",
   "editor.gegenstand.grund.eintrag_ungueltig": "The entry is invalid.",
   "editor.gegenstand.grund.feld_ungueltig": "A field is invalid (harvest, durability or rarity).",
+  "editor.gegenstand.grund.grundwert_gesperrt": "This base item becomes editable with the client update (until then only the harvest field).",
   "editor.gegenstand.grund.id_code_kollision": "This identifier already belongs to a built-in item.",
   "editor.gegenstand.grund.id_doppelt": "This identifier already exists.",
   "editor.gegenstand.grund.id_schreibung_code": "This identifier differs from a built-in item only in letter case.",

@@ -396,6 +396,8 @@ export default [
   ['server', 'test/g9-editor-verbindung.ts'],
   // A guest keeps state and ownership only with their token; nobody inherits a saved state by typing its name, and guests cannot wear an account name.
   ['server', 'test/gaeste-besitz.ts'],
+  // GD1 N1: die Wache kennt den Grundbestand (Grund-Kennung aus der Datei = kein Entfernen).
+  ['server', 'test/gd1-wache-grundbestand.ts'],
   // G2 (item data at run time): harvest by the field `ernte` (Holzaxt 6 blows, flint axe 4), crafting without a station, the live watch with its receipt (10 -> 12 within 2 s, broken file, discarded entries, confirmation for held items, lock held by a second process). Real WebSocket, ~40 s.
   ['server', 'test/gegenstaende-g2-live.ts'],
   // G2 N1: the confirmation covers only the hash and the ids of the receipt (more copies of the same id are removed too); `Inventory.rebind` splits an over-stack, keeps the excess if no slot is free.

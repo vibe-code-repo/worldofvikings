@@ -18,6 +18,7 @@ import {
   type SavedItemStack,
 } from './ItemData.js';
 import { findItem } from './itemDefs.js';
+import './grundbestand.js'; // makes the base stock known wherever an inventory is used
 
 export const INVENTORY_WIDTH = 8;
 export const INVENTORY_HEIGHT = 4;

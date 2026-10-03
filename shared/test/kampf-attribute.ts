@@ -13,7 +13,7 @@
  * Run: npx tsx shared/test/kampf-attribute.ts
  */
 import {
-  ITEM_DEFS, findItem, REGLER, KEINE_WERTE, FAUST_SCHADEN, STAT_IDS, RESERVIERTE_STAT_IDS,
+  ITEMS_BY_NAME, findItem, REGLER, KEINE_WERTE, FAUST_SCHADEN, STAT_IDS, RESERVIERTE_STAT_IDS,
   summiereWerte, eingehenderSchaden, ausgehenderNahkampfSchaden, lebensmaximum, schlagKosten, waffenSchaden,
   lebenNachSchaden, LEBEN_REST_SCHWELLE, SET_WERTE, SET_TEILE, werteFuerRuestungsteil, type StatId,
 } from '../src/index.js';
@@ -34,8 +34,9 @@ for (const [name, alt] of Object.entries(ALT)) {
   if (name !== '') check(`${name} carries stats.damage`, def?.stats?.damage === alt);
 }
 check('fist constant is 4', FAUST_SCHADEN === 4);
-const fremd = ITEM_DEFS.filter((d) => !(d.name in ALT));
+const fremd = [...ITEMS_BY_NAME.values()].filter((d) => !(d.name in ALT)); // all 118 items, base items included
 check('every item outside the old table falls back to 4 (as `?? 4` did)', fremd.every((d) => d.stats?.damage === undefined && waffenSchaden(d.stats) === 4), `${fremd.length} items`);
+check('110 items outside the old table (118 - 8 weapons/tools)', fremd.length === 110);
 
 // ── 2. Bit-identical without gear ─────────────────────────────────
 console.log('\n[2] No gear = old numbers, bit for bit');

@@ -213,6 +213,15 @@ export function uebergangsZustand(von: EnvSetup, nach: EnvSetup, timeOfDay: numb
   return lerpEnvState(evaluateEnv(von, timeOfDay), evaluateEnv(nach, timeOfDay), blend, mischtRichtung(von, nach));
 }
 
+/**
+ * The lighting state of one frame: the current weather alone, or — while a fade is running — the faded
+ * state. The only function `Lighting.apply` takes its state from.
+ * Der Beleuchtungszustand eines Bildes: das Wetter allein oder der Zustand waehrend der Ueberblendung.
+ */
+export function frameZustand(env: EnvSetup, prevEnv: EnvSetup | null, timeOfDay: number, blend: number): EnvState {
+  return prevEnv ? uebergangsZustand(prevEnv, env, timeOfDay, blend) : evaluateEnv(env, timeOfDay);
+}
+
 /** Linear blend of two unit directions, renormalised; the target when they cancel out. */
 function lerpRichtung(
   a: { x: number; y: number; z: number },
@@ -581,12 +590,9 @@ export class Lighting {
       this.timeOfDay = (this.timeOfDay + dtSeconds / WORLD_TIME_LENGTH) % 1;
     }
 
-    let state = evaluateEnv(this.env, this.timeOfDay);
-    if (this.prevEnv) {
-      this.blend = Math.min(1, this.blend + dtSeconds / ENV_BLEND_SECONDS);
-      state = uebergangsZustand(this.prevEnv, this.env, this.timeOfDay, this.blend);
-      if (this.blend >= 1) this.prevEnv = null;
-    }
+    if (this.prevEnv) this.blend = Math.min(1, this.blend + dtSeconds / ENV_BLEND_SECONDS);
+    const state = frameZustand(this.env, this.prevEnv, this.timeOfDay, this.blend);
+    if (this.prevEnv && this.blend >= 1) this.prevEnv = null;
     // Feste Nebeldichte aus server.yml — HIER, vor `this.state`, damit das
     // HUD und jeder andere Leser dieselbe Zahl sehen wie die Szene. Nur
     // die Dichte steht still, die Nebelfarbe folgt weiter der Tageszeit:

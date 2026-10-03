@@ -837,7 +837,11 @@ export const ENV_VILLAGE = 'Village';
     Nebel      Tagesfarbe #5F8FBF = (0,3745098 / 0,56013644 / 0,7490196)
     Grundlicht Leuchtdichte so, dass Sonne : Grundlicht = 3,5 : 1 gilt,
                gerechnet linear als Stärke · Leuchtdichte(Sonnenfarbe) gegen
-               Leuchtdichte(Grundlicht); die Farbe ist der Ton von `Clear`
+               Leuchtdichte(Grundlicht). Das ist ein DATENVERHÄLTNIS: Im Bild
+               hängt das Grundlicht zur Hälfte an der Himmelskuppel
+               (`Lighting.AMBIENT_ANTEIL_HIMMEL`), dieser Anteil ist für
+               Glen clear nicht gemessen; gerendert (`bodenSonne` /
+               `bodenAmbient`) 6,95 gegen 6,84 im Grasland. Die Farbe ist der Ton von `Clear`
                (0,463 / 0,574 / 0,706), linear skaliert
 
   Die Nebeldichte ist 0,009 und nicht die 0,015 aus dem Beschluss: Bei

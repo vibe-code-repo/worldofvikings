@@ -410,6 +410,7 @@ function abendStuetzpunkt(): void {
   // (1) Jedes andere Wetter rechnet Zeichen fuer Zeichen wie vorher.
   const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
   let abweichungen = 0;
+  let geprueft = 0;
   let wo = '';
   for (const env of ENVIRONMENTS) {
     if (env.ambColorEvening !== undefined || env.lightIntensityEvening !== undefined) continue;
@@ -437,12 +438,13 @@ function abendStuetzpunkt(): void {
         st.ambColor.r === altAmb.r &&
         st.ambColor.g === altAmb.g &&
         st.ambColor.b === altAmb.b;
+      geprueft++;
       if (!gleich && abweichungen++ === 0) wo = `${env.name} bei ${(t * 24).toFixed(2)} h`;
     }
   }
   ok(
     abweichungen === 0,
-    `Wetter ohne Abend-Schluessel rechnen bitgenau wie die alte Formel (0 Abweichungen in ${ENVIRONMENTS.length - 1} x 96 Punkten)${wo ? `, zuerst ${wo}` : ''}`
+    `Wetter ohne Abend-Schluessel rechnen bitgenau wie die alte Formel (0 Abweichungen in ${geprueft} Punkten)${wo ? `, zuerst ${wo}` : ''}`
   );
 
   // (2) Die drei Zeitpunkte, an denen der Abend nichts zu suchen hat.

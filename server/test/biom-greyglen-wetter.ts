@@ -11,6 +11,7 @@ import {
   Biome,
   ENVIRONMENT_DURATION,
   ENV_GLEN_CLEAR,
+  ENVIRONMENTS,
   WETTER_AUTOMATISCH,
   WetterWuerfel,
   evaluateEnv,
@@ -20,7 +21,7 @@ import { WetterDienst, type WetterEmpfaenger } from '../src/spiel/Wetter.js';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import { WetterAnnahme, type WetterLeser } from '../../client/src/net/wetterAnnahme.js';
-import { lerpEnvState, mischtRichtung, uebergangsZustand } from '../../client/src/engine/Lighting.js';
+import { frameZustand, lerpEnvState, mischtRichtung, uebergangsZustand } from '../../client/src/engine/Lighting.js';
 
 const nah = (a: number, b: number, eps: number): boolean => Math.abs(a - b) <= eps;
 let fehler = 0;
@@ -175,8 +176,32 @@ for (const [x, y] of [...PAARE, ['Clear', ENV_GLEN_CLEAR], [ENV_GLEN_CLEAR, 'Cle
 check('uebergangsZustand: Glen pairs blend the direction, every other pair is the old behaviour (12 pairs x 3 times x 5 steps)', uebergangOk);
 check('Glen at half blend: the direction is not the target\'s (so the mix really happens)',
   gl(uebergangsZustand(nm('Clear'), glenEnv, 0.5, 0.5).sunDir, nach.sunDir) > 0.5);
+// mischtRichtung over every ordered pair of ENVIRONMENTS: yes exactly when one end is Glen clear
+let paare = 0;
+let paarOk = true;
+for (const x of ENVIRONMENTS) {
+  for (const y of ENVIRONMENTS) {
+    paare++;
+    if (mischtRichtung(x, y) !== (x.name === ENV_GLEN_CLEAR || y.name === ENV_GLEN_CLEAR)) paarOk = false;
+  }
+}
+check('mischtRichtung over ENVIRONMENTS x ENVIRONMENTS: yes exactly when Glen clear is one end', paarOk && paare === ENVIRONMENTS.length ** 2 && paare > 1500, String(paare));
+// the frame state: no fade = the weather alone; fade = uebergangsZustand (direct, every step)
+let frameOk = true;
+for (const [x, y] of [...PAARE, ['Clear', ENV_GLEN_CLEAR], [ENV_GLEN_CLEAR, 'Rain']] as [string, string][]) {
+  for (const f of [0.2, 0.5]) {
+    for (const t of [0, 0.5, 1]) {
+      if (JSON.stringify(frameZustand(nm(y), nm(x), f, t)) !== JSON.stringify(uebergangsZustand(nm(x), nm(y), f, t))) frameOk = false;
+    }
+    if (JSON.stringify(frameZustand(nm(y), null, f, 0.3)) !== JSON.stringify(evaluateEnv(nm(y), f))) frameOk = false;
+  }
+}
+check('frameZustand: without a fade the weather alone, with a fade uebergangsZustand(prev, env) (10 pairs)', frameOk);
 const lichtQuelle = readFileSync(new URL('../../client/src/engine/Lighting.ts', import.meta.url), 'utf-8');
-check('Lighting.apply takes the faded state from uebergangsZustand', /state = uebergangsZustand\(this\.prevEnv, this\.env, this\.timeOfDay, this\.blend\);/.test(lichtQuelle));
+check('Lighting.apply takes its state from frameZustand only, and lerpEnvState is called in exactly one place besides its definition',
+  /const state = frameZustand\(this\.env, this\.prevEnv, this\.timeOfDay, this\.blend\);/.test(lichtQuelle)
+  && (lichtQuelle.match(/lerpEnvState\(/g) ?? []).length === 2 && (lichtQuelle.match(/uebergangsZustand\(/g) ?? []).length === 2
+  && (lichtQuelle.match(/frameZustand\(/g) ?? []).length === 2);
 const lighting = readFileSync(new URL('../../client/src/engine/Lighting.ts', import.meta.url), 'utf-8');
 check('Lighting: the biome change cross-fades over a positive time', /const ENV_BLEND_SECONDS = [1-9]/.test(lighting) && /this\.blend = Math\.min\(1, this\.blend \+ dtSeconds \/ ENV_BLEND_SECONDS\)/.test(lighting));
 

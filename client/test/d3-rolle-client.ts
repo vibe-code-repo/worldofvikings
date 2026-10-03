@@ -824,6 +824,20 @@ console.log('\n[5a] Rolle=false with a reason and a roll number');
   check('an answer with a number of the future is ignored as well', spiel.abbrueche === 1);
 }
 {
+  // a Q that is not sent (no line) takes no number: the answer to the last roll that WAS sent still applies
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  taste(v, spiel);
+  const nr1 = spiel.nrs.at(-1)!;
+  spiel.rollt = true;
+  sekunde(v, spiel, 3);
+  spiel.rollt = false;
+  spiel.online = false;
+  taste(v, spiel); // not sent
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, nr1));
+  check('an unsent Q takes no roll number: the late answer to the last sent roll still applies', spiel.starts.length === 1 && spiel.abbrueche === 1 && spiel.loeschen.at(-1) === true);
+}
+{
   // the late answer to an old roll also leaves the BLOCK memory of the new roll alone
   const { v, spiel } = neuesSpiel();
   const h = verdrahtet(v);

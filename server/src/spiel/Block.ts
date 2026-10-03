@@ -56,12 +56,18 @@ export function beendeBlock(peer: Pick<Peer, 'blockSeit' | 'blockSperreBis' | 'b
   return true;
 }
 
-/** Death, change of world: no block and no lock. */
-export function blockZuruecksetzen(peer: Pick<Peer, 'blockSeit' | 'blockSperreBis' | 'blockOhneParade' | 'blockTaktZeit'>): void {
+/**
+ * Death, change of world, revival: no block and no lock. A block that was held is announced to the client
+ * (`Block` false), so its pose and its slow walk end with it. Every way in which the SERVER ends a block runs
+ * through here or through `beendeDurchServer`; only the client's own "off" is silent.
+ */
+export function blockZuruecksetzen(peer: Pick<Peer, 'blockSeit' | 'blockSperreBis' | 'blockOhneParade' | 'blockTaktZeit' | 'sendPacketWith'>): void {
+  const warBlock = peer.blockSeit > 0;
   peer.blockSeit = 0;
   peer.blockTaktZeit = 0;
   peer.blockSperreBis = 0;
   peer.blockOhneParade = false;
+  if (warBlock) meldeBlockAus(peer);
 }
 
 /** The block ends because the server says so: the client is told. */

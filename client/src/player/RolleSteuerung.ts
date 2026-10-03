@@ -24,6 +24,7 @@ import {
   SPRUNG_AUSDAUER,
   SPRUNG_SPERRE_MS,
   rolleRichtung,
+  rolleWegAnteil,
   rolleYawVon,
 } from '@wov/shared/src/kampf/rolle.js';
 
@@ -131,8 +132,10 @@ export class RolleLauf {
   }
 
   /**
-   * One frame of `dt` seconds. Returns the seconds of this frame in which the figure is moved (the movement
-   * time of the roll is shorter than the clip). The lock runs after the roll.
+   * One frame of `dt` seconds (REAL time: the roll lasts as long as at the server whatever the frame rate; the
+   * caller must not hand it a clamped frame time). Returns the seconds of this frame at the speed `ROLLE_TEMPO`
+   * that cover the share of the path the curve of the clip puts in it (`rolleWegAnteil`, like the server's slices).
+   * The lock runs after the roll.
    */
   schritt(dt: number): { bewegt: number } {
     if (!this._rollt) {
@@ -141,8 +144,8 @@ export class RolleLauf {
     }
     const vorher = this.t;
     this.t += dt;
-    const bewegt = Math.max(0, Math.min(this.t, ROLLE_BEWEGUNG_S) - Math.min(vorher, ROLLE_BEWEGUNG_S));
     const dauer = ROLLE_DAUER_MS / 1000;
+    const bewegt = Math.max(0, rolleWegAnteil(Math.min(this.t, dauer)) - rolleWegAnteil(Math.min(vorher, dauer))) * ROLLE_BEWEGUNG_S;
     if (this.t >= dauer) {
       this._rollt = false;
       // the part of this frame after the clip already counts against the lock

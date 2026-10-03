@@ -6,9 +6,11 @@
  * The server (`server/src/spiel/Rolle.ts`) keeps the per-player state and the packets; the client
  * (`PlayerController`, `RolleSteuerung`) predicts the same path with the same numbers.
  *
- *  - The roll covers `ROLLE_WEG_M` (the root travel of the clip `rolle`) in `ROLLE_BEWEGUNG_S`, in the direction
- *    the client names (`PacketType.Rolle`, yaw of the direction). The server drives the path itself; WASD is
- *    ignored while it runs.
+ *  - The roll covers `ROLLE_WEG_M` (the root travel of the clip `rolle`) in the direction the client names
+ *    (`PacketType.Rolle`, yaw of the direction), along the CURVE of the clip: the root of the clip moves unevenly
+ *    (85 % of the path in the first 0.375 s), `ROLLE_KURVE_ANTEIL` is the share of the path over the time, measured
+ *    on the 21 hip keys of the clip, and server and client both move after it. The server drives the path itself;
+ *    WASD is ignored while it runs.
  *  - The player is invulnerable for the whole clip (`ROLLE_DAUER_MS`) and cannot swing or block.
  *  - A roll costs `ROLLE_AUSDAUER` and needs the lock `ROLLE_ABKLINGZEIT_MS` after the one before.
  *  - Free room: the server simulates the path first with the shared movement step. A roll that would cover less
@@ -23,8 +25,35 @@ export { ROLLE_BEWEGUNG_S, ROLLE_TEMPO, ROLLE_WEG_M };
 
 /** Length of the clip `rolle` (ms): invulnerable, no swing, no block for this long. */
 export const ROLLE_DAUER_MS = 875;
-/** Time the figure is moved by the roll (ms); the rest of the clip stands. */
+/**
+ * The unit of the movement slices: the time (ms) the roll would take at the constant speed `ROLLE_TEMPO`. The
+ * movement of a slice is `ROLLE_TEMPO` times its share of this time; the whole roll adds up to exactly this time,
+ * whatever the rhythm of the packets or frames. (The clip runs `ROLLE_DAUER_MS`; its movement follows the curve.)
+ */
 export const ROLLE_BEWEGUNG_MS = ROLLE_BEWEGUNG_S * 1000;
+
+/** Spacing of the keys of the clip `rolle` (s): 24 keys per second. */
+export const ROLLE_KURVE_SCHRITT_S = 1 / 24;
+/**
+ * Share of `ROLLE_WEG_M` the root of the clip `rolle` has covered at the key k (time (k + 1) / 24 s, k = 0 ... 20; the
+ * first key at 1/24 s is the start: before it the first pose is held). Hips, axis z of `WikingerKoerper.glb` (56 clips),
+ * (z - z first key) / (z last key - z first key); the last key is `ROLLE_DAUER_MS`. Linear between the keys, like the clip.
+ */
+export const ROLLE_KURVE_ANTEIL: readonly number[] = [
+  0.0, 0.18446, 0.320273, 0.390064, 0.451482, 0.530276, 0.638524, 0.754728, 0.847868, 0.881123, 0.886982,
+  0.908614, 0.920243, 0.942273, 0.962263, 0.976639, 0.987873, 0.992778, 0.995664, 0.99918, 1.0,
+];
+
+/** Share (0 ... 1) of the path covered `t` seconds after the start of the roll: the curve of the clip. */
+export function rolleWegAnteil(t: number): number {
+  const n = ROLLE_KURVE_ANTEIL.length;
+  const k = t / ROLLE_KURVE_SCHRITT_S - 1; // position in the table: 0 = first key
+  if (!(k > 0)) return 0;
+  if (k >= n - 1) return 1;
+  const i = Math.floor(k);
+  const f = k - i;
+  return ROLLE_KURVE_ANTEIL[i]! + (ROLLE_KURVE_ANTEIL[i + 1]! - ROLLE_KURVE_ANTEIL[i]!) * f;
+}
 /** Stamina of one roll. */
 export const ROLLE_AUSDAUER = 10;
 /** Gap after a roll before the next one may begin (ms). */
@@ -113,14 +142,16 @@ export function rolleFreiraumOk(weg: number): boolean {
 }
 
 /**
- * The slice of movement of one tick: from `zuletzt` (ms, the end of the last slice) to `jetzt`, clipped to the
- * movement time of the roll that began at `start`. Returns the new end of slice and the seconds to move.
+ * The slice of movement of one tick: from `zuletzt` (ms, the end of the last slice) to `jetzt`, clipped to the clip of
+ * the roll that began at `start`. Returns the new end of slice and the seconds to move at the speed `ROLLE_TEMPO`
+ * (`dt` = the share of the path of the curve in this slice times `ROLLE_BEWEGUNG_S`). All slices add up to
+ * `ROLLE_BEWEGUNG_S`, whatever the rhythm.
  */
 export function rolleScheibe(start: number, zuletzt: number, jetzt: number): { bis: number; dt: number } {
-  const ende = start + ROLLE_BEWEGUNG_MS;
-  const bis = Math.min(jetzt, ende);
-  const dt = Math.max(0, bis - zuletzt) / 1000;
-  return { bis: Math.max(zuletzt, bis), dt };
+  const ende = start + ROLLE_DAUER_MS;
+  const bis = Math.max(zuletzt, Math.min(jetzt, ende));
+  const dt = Math.max(0, rolleWegAnteil((bis - start) / 1000) - rolleWegAnteil((zuletzt - start) / 1000)) * ROLLE_BEWEGUNG_S;
+  return { bis, dt };
 }
 
 /** One billed jump or none: the stamina and the lock after a jump flag `jetzt`. */

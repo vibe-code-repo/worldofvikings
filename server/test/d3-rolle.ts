@@ -22,7 +22,7 @@ import { fileURLToPath } from 'url';
 import { readFileSync, rmSync } from 'fs';
 import { PacketType, WATER_LEVEL, eingehenderSchaden, npcKampf, type Vector3 } from '@wov/shared';
 import {
-  ROLLE_ABKLINGZEIT_MS, ROLLE_BEWEGUNG_MS, ROLLE_DAUER_MS, ROLLE_WEG_M, SPRUNG_AUSDAUER,
+  ROLLE_ABKLINGZEIT_MS, ROLLE_BEWEGUNG_MS, ROLLE_BEWEGUNG_S, ROLLE_DAUER_MS, ROLLE_TEMPO, ROLLE_WEG_M, SPRUNG_AUSDAUER, rolleWegAnteil,
 } from '@wov/shared/src/kampf/rolle.js';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
@@ -31,6 +31,7 @@ import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import type { Peer } from '../src/net/Peer.js';
 import { Kollisionswelt } from '../src/world/Kollisionswelt.js';
+import { rolleScheibe } from '@wov/shared/src/kampf/rolle.js';
 import { Spielerbewegung, neuerRolleWeg } from '../src/world/Spielerbewegung.js';
 import type { KollisionsForm, Vek3 } from '@wov/shared/src/kollision/form.js';
 import { blockPaket } from '../src/spiel/Block.js';
@@ -143,11 +144,13 @@ console.log('\n[1] spiel/Rolle.ts on a stand-in peer (fixed clock)');
   const p = attrappe();
   check('no roll: no movement from the tick', !rolleTakt(p, 1000).rollt);
   rollePaket(p, 0, 30_000, frei);
-  const mitte = rolleTakt(p, 30_850); // after the movement time (833 ms), inside the clip (875)
-  check('at 850 ms: still "rolling" (the clip runs), the remaining 17 ms of movement are paid', mitte.rollt && nah(mitte.dt, (ROLLE_BEWEGUNG_MS - 0) / 1000, 1e-9), `${mitte.dt}`);
-  const spaet = rolleTakt(p, 30_860);
-  check('the next packet in the clip: rolling, no more movement', spaet.rollt && spaet.dt === 0);
-  check('after the clip: not rolling', !rolleTakt(p, 30_875).rollt);
+  const mitte = rolleTakt(p, 30_850); // inside the clip (875): the movement follows the curve of the clip and ends with it
+  check('at 850 ms: rolling, the movement so far is the share of the curve at 0.85 s', mitte.rollt && nah(mitte.dt, rolleWegAnteil(0.85) * ROLLE_BEWEGUNG_S, 1e-12), `${mitte.dt}`);
+  const spaet = rolleTakt(p, 30_874);
+  check('at 874 ms: still rolling, the rest of the path up to there', spaet.rollt && nah(spaet.dt, (rolleWegAnteil(0.874) - rolleWegAnteil(0.85)) * ROLLE_BEWEGUNG_S, 1e-12) && spaet.dt > 0);
+  const nachClip = rolleTakt(p, 30_875);
+  check('a packet at the end of the clip (875 ms) still gets the remainder of the path, and the roll is over for the tick after it', nachClip.rollt && nachClip.dt > 0 && !rolleTakt(p, 30_876).rollt);
+  check('the whole movement of this roll is 0.8333 s at the speed of the roll', nah(mitte.dt + spaet.dt + nachClip.dt, ROLLE_BEWEGUNG_S, 1e-12), `${mitte.dt + spaet.dt + nachClip.dt}`);
 }
 {
   const p = attrappe();
@@ -273,6 +276,24 @@ const horizontal = (a: Vek3, b: Vek3): number => Math.hypot(a.x - b.x, a.z - b.z
     }
     return pos;
   };
+  // Z1: the path driven in slices of the CURVE (rolleScheibe -> rollSchritt with the path state) lags the analytic curve
+  // by at most one sub-step (~0.1 m) at every packet and ends at 4.853 m.
+  for (const takt of [16, 50, 100, 333]) {
+    const lauf = neuerRolleWeg();
+    const w = { position: { x: 0, y: 0, z: 0 } };
+    const s0 = 10_000;
+    let zeit = s0;
+    let maxAbw = 0;
+    for (let t = s0; t <= s0 + 1200; t += takt) {
+      const sc = rolleScheibe(s0, zeit, t);
+      zeit = sc.bis;
+      w.position = offen.rollSchritt(w, 0, -1, sc.dt, lauf);
+      const soll = rolleWegAnteil(Math.min(t - s0, ROLLE_DAUER_MS) / 1000) * ROLLE_WEG_M;
+      maxAbw = Math.max(maxAbw, soll - Math.hypot(w.position.x, w.position.z));
+    }
+    const ende = Math.hypot(w.position.x, w.position.z);
+    check(`curve, packets every ${takt} ms: the server path stays within 0.1 m behind the analytic curve (max ${maxAbw.toFixed(3)} m) and ends at 4.853 m (${ende.toFixed(3)})`, maxAbw < 0.1 && maxAbw > -1e-6 && nah(ende, ROLLE_WEG_M, 0.01));
+  }
   for (const takt of [16, 50, 100]) {
     const e = gehe(offen, 0, -1, takt);
     check(`free: ${takt} ms packets cover the same 4.853 m as the preview (+- 0.02)`, nah(horizontal(e, start), dist, 0.02), `${horizontal(e, start).toFixed(4)} m`);
@@ -436,6 +457,8 @@ async function main(): Promise<void> {
     // packets up to ~860 ms into the roll (past the 833 ms of movement, inside the 875 ms of the clip), none after it
     for (let t = 0; t <= 800; t += 50) { sendInput(ws, 0, 1, 1, true); await warte(50); }
     await warte(100);
+    sendInput(ws, 0, 0, 0, false); // after the clip: the packet that carries the rest of the path (the real client sends 20 per second)
+    await warte(80);
     const weg = Math.hypot(anna.position.x - von.x, anna.position.z - von.z);
     check('THE FREE ROLL: 4.85 +- 0.1 m along -z, the running WASD of the packets ignored', nah(weg, ROLLE_WEG_M, 0.1) && nah(anna.position.x, von.x, 0.05) && anna.position.z < von.z - 4.7, `${weg.toFixed(3)} m, x ${(anna.position.x - von.x).toFixed(3)}, z ${(anna.position.z - von.z).toFixed(3)}`);
     check('stamina -10 (not more: running does not cost during the roll)', nah(anna.stamina, 90, 1), `${anna.stamina}`);
@@ -591,6 +614,25 @@ async function main(): Promise<void> {
       check(`${wie}: no longer invulnerable (the wolf's blow lands)`, anna.health < 100, `life ${anna.health}`);
     }
 
+    // ── the admin switches the flight on in the middle of a roll (Z4) ──
+    {
+      anna.health = 100; anna.stamina = 100; anna.totBis = 0; anna.sprungSperreBis = 0;
+      await warte(ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS);
+      sendRolle(ws, 0);
+      await warte(100);
+      check('(set-up, flight) a roll runs', rolleLaeuft(anna, Date.now()) && !anna.flying);
+      ws.rollen.length = 0;
+      sendAdmin(ws, 'fly');
+      await warte(150);
+      check('FLIGHT switched on in the middle of a roll: the roll is over at the server, the client got Rolle false', anna.flying && anna.rolleBis === 0 && ws.rollen.join() === 'false', `${anna.flying} ${JSON.stringify(ws.rollen)}`);
+      const fz = { x: anna.position.x, z: anna.position.z };
+      for (let t = 0; t < 700; t += 50) { sendInput(ws, 0, 0, 0, false); await warte(50); }
+      check('... and the rest of the clip does not fly the figure along the roll direction (no input: it stands, within 0.2 m)', Math.hypot(anna.position.x - fz.x, anna.position.z - fz.z) < 0.2, `${Math.hypot(anna.position.x - fz.x, anna.position.z - fz.z).toFixed(2)} m`);
+      sendAdmin(ws, 'fly');
+      await warte(150);
+      check('(clean-up) the flight is off again', !anna.flying);
+    }
+
     // ── a jump flag in a roll is not billed (F4) ──
     anna.health = 100; anna.stamina = 100; anna.sprungSperreBis = 0;
     await warte(ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS);
@@ -650,6 +692,8 @@ async function main(): Promise<void> {
     check('inside the dungeon the roll is accepted (no free-room check there: the server has no room colliders)', anna.rolleBis > Date.now() - 100 && nah(anna.stamina, 90, 0.5), `stamina ${anna.stamina}`);
     for (let t = 0; t <= 800; t += 50) { sendInput(ws, 0, 1, 1, true); await warte(50); }
     await warte(100);
+    sendInput(ws, 0, 0, 0, false);
+    await warte(80);
     const dweg = Math.hypot(anna.position.x - dv.x, anna.position.z - dv.z);
     check('DUNGEON ROLL: 4.85 +- 0.1 m along -z, WASD and running of the packets ignored', nah(dweg, ROLLE_WEG_M, 0.1) && nah(anna.position.x, dv.x, 0.05) && anna.position.z < dv.z - 4.7, `${dweg.toFixed(3)} m, x ${(anna.position.x - dv.x).toFixed(3)}, z ${(anna.position.z - dv.z).toFixed(3)}`);
     check('... and the running flag cost nothing during it (stamina 90 +- 1)', nah(anna.stamina, 90, 1), `${anna.stamina}`);

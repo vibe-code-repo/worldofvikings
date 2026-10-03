@@ -66,6 +66,7 @@ export class AdminCommandRegistry {
   constructor(private readonly umgebung?: AdminUmgebung) {
     this.register('fly', (peer) => {
       peer.flying = !peer.flying;
+      if (peer.flying) rolleZuruecksetzen(peer); // the flight branch would take the roll direction as input
       return {
         ok: true,
         active: peer.flying,

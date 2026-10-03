@@ -1000,8 +1000,11 @@ export class PlayerController {
     this.ausdauerZuletztVerbraucht = Date.now();
   }
 
-  /** dt in seconds. */
-  update(dt: number): void {
+  /**
+   * dt in seconds (clamped by the caller); `echteDt` the real frame time. The roll runs on the real time: the server's
+   * roll lasts 875 ms whatever the frame rate, and the one in the client must end with it.
+   */
+  update(dt: number, echteDt: number = dt): void {
     const [dx, dy] = this.input.consumeMouseDelta();
     // dx>0 = mouse moved right → look right → yaw increases (verified via
     // the forward/right basis below: increasing yaw sweeps `forward` from
@@ -1026,7 +1029,7 @@ export class PlayerController {
     // D3-K4: a roll that cannot go on (dead, frozen, build mode) ends; while it runs it drives the figure
     if (this.rolle.rollt && (this._bauModus || this.frozen || this.avatar.liegt)) this.rolle.abbrechen();
     const rollt = this.rolle.rollt;
-    const rs = this.rolle.schritt(dt);
+    const rs = this.rolle.schritt(echteDt);
     const blockt = this._blockt && !this._bauModus && !rollt;
     const ausdauer = ausdauerSchritt(
       { wert: this.ausdauer, zuletztVerbraucht: this.ausdauerZuletztVerbraucht },

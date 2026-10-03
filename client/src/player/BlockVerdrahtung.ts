@@ -88,13 +88,13 @@ export class BlockVerdrahtung extends BlockSteuerung {
       ausdauer: spieler.ausdauerStand,
       rollt: spieler.rollt === true,
     });
-    spieler.setzeBlock(this.blockt);
     if (q.input.wasPressed?.('KeyQ') && istRollenspieler(spieler)) this.rolle(spieler);
+    spieler.setzeBlock(this.blockt); // after the key: a roll hides the block in the same frame
   }
 
   /**
-   * Key Q (D3-K4): the roll, if no row of its table forbids it. A roll ends a block, is sent once and begins in the
-   * client at once (the server walks the same path). Without the connection it does not begin (and the key stays the
+   * Key Q (D3-K4): the roll, if no row of its table forbids it. A roll hides a block (the server ends it when it takes the
+   * roll), is sent once and begins in the client at once (the server walks the same path). Without the connection it does not begin (and the key stays the
    * editor's in the offline test flight).
    */
   private rolle(spieler: RolleSpieler & NonNullable<ReturnType<BlockQuellen['player']>>): void {
@@ -117,8 +117,8 @@ export class BlockVerdrahtung extends BlockSteuerung {
     if (sperre !== null) return;
     const yaw = rolleRichtungYaw(spieler.moveIntent.x, spieler.moveIntent.z, spieler.figurYaw);
     if (!q.sendRolle) return;
-    this.schlag(); // a roll ends the block first (sends Block false), then the roll goes out
     if (!q.sendRolle(yaw)) return;
+    this.rolleBeginnt(); // the block is hidden, not ended: the server ends it with the roll, a refused roll leaves it
     spieler.startRolle(yaw);
   }
 
@@ -136,7 +136,10 @@ export class BlockVerdrahtung extends BlockSteuerung {
     });
     // D3-K4: the server refused or ended the roll (`Rolle` false): the predicted roll stops.
     socket.on(PacketType.Rolle, (reader) => {
-      if (!reader.readBool()) this.q.player()?.rolleAbbruch?.();
+      if (!reader.readBool()) {
+        this.rolleAbgelehnt();
+        this.q.player()?.rolleAbbruch?.();
+      }
     });
   }
 }

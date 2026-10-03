@@ -145,6 +145,8 @@ export default [
   ],
   // D3-K4: Taste Q und Sprungmeldung am Client: Konfliktmatrix, Rollenuhr, der echte PlayerController (Weg 4,853 m, Abgleich < 0,1 m), Verdrahtung, Paket 90, jumping einmal je Sprung.
   ['client', 'test/d3-rolle-client.ts'],
+  // D3-K4 N1: der Clientweg der Rolle durch den ECHTEN Physikzweig (Havok-Charaktercontroller, stepPhysics) bei 144 bis 3 Bildern/s: Kurve des Clips, Ende nach 875 ms Echtzeit, Wand.
+  ['client', 'test/d3-rolle-havok.ts'],
   // D5: the model table of loot against the files on disk (needs assets).
   ['client', 'test/d5-beute-modelle.ts', brauchtModelle('assets/models/HolzTruhe.glb')],
   // D5: E finds loot on the ground even when its model never loaded.

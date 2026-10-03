@@ -10,9 +10,12 @@
  *      it) end less than 0.1 m apart at 60 and at 20 frames per second, in six directions.
  *  [4] The jump report (`SprungMeldung`): once per jump, lock 0.8 s, 5 stamina, none in a roll; and `main.ts` puts
  *      `player.nimmSprung()` in the jump slot of the input packet instead of `false` (checked on the syntax tree).
- *  [5] `BlockVerdrahtung` with the key: Q sends `Rolle` once with the yaw, ends a held block first, the offline
- *      test flight (no line) neither rolls nor takes the key, the refused cases send nothing, the server's `Rolle=false`
- *      and a teleport stop the roll.
+ *      The roll follows the curve of the clip (`rolleWegAnteil`: 85 % of the path in the first 0.375 s) and runs on REAL
+ *      time: at 144, 60, 20, 5 and 3 frames per second the figure stands on the curve and the roll ends after 875 ms.
+ *  [5] `BlockVerdrahtung` with the key: Q sends `Rolle` once with the yaw and HIDES a held block (the server ends it when
+ *      it accepts the roll; a refused roll leaves it: the block is back without a new `Block(true)` and without 5 more
+ *      stamina), the offline test flight (no line) neither rolls nor takes the key, the refused cases send nothing, the
+ *      server's `Rolle=false` and a teleport stop the roll.
  *  [6] The wire: `sendRolle` = [90, Float32 yaw], false without a line.
  *
  * Run: npx tsx client/test/d3-rolle-client.ts
@@ -32,7 +35,7 @@ import { blockSperre } from '../src/player/BlockSteuerung.js';
 import { RolleLauf, ROLLE_SPERREN, SprungMeldung, rolleRichtungYaw, rolleSperre, type RolleUmfeld } from '../src/player/RolleSteuerung.js';
 import { BlockVerdrahtung, type BlockQuellen } from '../src/player/BlockVerdrahtung.js';
 import { GameSocket } from '../src/net/GameSocket.js';
-import { ROLLE_ABKLINGZEIT_MS, ROLLE_AUSDAUER, ROLLE_BEWEGUNG_S, ROLLE_DAUER_MS, ROLLE_TEMPO, ROLLE_WEG_M, rolleRichtung } from '@wov/shared/src/kampf/rolle.js';
+import { ROLLE_ABKLINGZEIT_MS, ROLLE_AUSDAUER, ROLLE_BEWEGUNG_S, ROLLE_DAUER_MS, ROLLE_TEMPO, ROLLE_WEG_M, rolleRichtung, rolleWegAnteil } from '@wov/shared/src/kampf/rolle.js';
 import { bewegungsSchritt } from '@wov/shared/src/bewegung/schritt.js';
 import { ebenerBoden, OHNE_HINDERNISSE } from '@wov/shared/src/bewegung/abfragen.js';
 import { AUSDAUER_REGEL } from '@wov/shared/src/bewegung/ausdauer.js';
@@ -177,6 +180,43 @@ const lauf = (pc: PlayerController, sek: number, dt: number): void => { for (let
       check(`yaw ${yaw}, ${Math.round(1 / dt)} fps: client and server end ${abstand.toFixed(4)} m apart (< 0.1)`, abstand < 0.1);
     }
   }
+}
+{
+  // Z1 + Z3: the roll follows the curve of the clip and runs on REAL time: frames clamped to 0.1 s (main.ts) do not stretch it.
+  for (const fps of [144, 60, 20, 5, 3]) {
+    const { pc } = neu();
+    pc.update(1 / 60);
+    const z0 = pc.position.z;
+    pc.startRolle(0);
+    const echt = 1 / fps;
+    let t = 0;
+    let maxAbw = 0;
+    let endeBei = -1;
+    for (let i = 0; i < Math.ceil(2.5 * fps); i++) {
+      pc.update(Math.min(echt, 0.1), echt);
+      t += echt;
+      maxAbw = Math.max(maxAbw, Math.abs(z0 - pc.position.z - rolleWegAnteil(t) * ROLLE_WEG_M));
+      if (!pc.rollt && endeBei < 0) endeBei = t;
+    }
+    check(`${fps} fps: after every frame the figure stands on the curve of the clip within 0.05 m (max ${maxAbw.toFixed(4)} m)`, maxAbw < 0.05);
+    check(`${fps} fps: the roll ends after 875 ms of real time (within one frame): ${endeBei.toFixed(3)} s`, endeBei >= ROLLE_DAUER_MS / 1000 - 1e-9 && endeBei <= ROLLE_DAUER_MS / 1000 + echt + 1e-9);
+    check(`${fps} fps: the whole path is 4.853 m (+- 0.05)`, nah(z0 - pc.position.z, ROLLE_WEG_M, 0.05), `${(z0 - pc.position.z).toFixed(3)}`);
+  }
+  // the curve itself: 85 % of the path after 0.375 s, not the 45 % of a constant speed
+  const { pc } = neu();
+  pc.update(1 / 60);
+  const z0 = pc.position.z;
+  pc.startRolle(0);
+  for (let i = 0; i < 23; i++) pc.update(1 / 60, 1 / 60); // 0.3833 s
+  const anteil = (z0 - pc.position.z) / ROLLE_WEG_M;
+  check('after 0.383 s the figure has covered about 85 % of the path (the front-loaded clip), not 45 %', anteil > 0.84 && anteil < 0.88, `${(anteil * 100).toFixed(1)} %`);
+  // the old clamp: the same roll at 3 fps with the clamped frame time as the roll clock would take 3 s (the error of Z3)
+  const { pc: alt } = neu();
+  alt.update(1 / 60);
+  alt.startRolle(0);
+  let frames = 0;
+  while (alt.rollt && frames < 100) { alt.update(0.1, 0.1); frames++; }
+  check('(control) with the clamped time as the roll clock (echteDt = dt = 0.1) the roll ends after 9 frames, i.e. 0.9 s at 10 fps; the real-time clock is what keeps a 3 fps roll at 875 ms', frames === 9, `${frames} frames`);
 }
 {
   // Without input the roll goes along the facing; the lock refuses nothing here (the table does that), the controller only rolls.
@@ -333,17 +373,17 @@ console.log('\n[5] BlockVerdrahtung with the key Q');
 interface Spiel {
   q: boolean; rechts: boolean; flanke: boolean; online: boolean; gesendet: Array<string>; meldungen: string[];
   gefangen: boolean; ausdauer: number; rollt: boolean; inLuft: boolean; abkling: number; bereit: boolean; liegt: boolean; y: number;
-  starts: number[]; abbrueche: number; fenster: boolean;
+  starts: number[]; abbrueche: number; fenster: boolean; abzuege: number; blockPose: boolean[];
 }
 function neuesSpiel(): { v: BlockVerdrahtung; spiel: Spiel } {
-  const spiel: Spiel = { q: false, rechts: false, flanke: false, online: true, gesendet: [], meldungen: [], gefangen: true, ausdauer: 100, rollt: false, inLuft: false, abkling: 0, bereit: true, liegt: false, y: 50, starts: [], abbrueche: 0, fenster: false };
+  const spiel: Spiel = { q: false, rechts: false, flanke: false, online: true, gesendet: [], meldungen: [], gefangen: true, ausdauer: 100, rollt: false, inLuft: false, abkling: 0, bereit: true, liegt: false, y: 50, starts: [], abbrueche: 0, fenster: false, abzuege: 0, blockPose: [] };
   const q: BlockQuellen = {
     sendBlock: (an) => { spiel.gesendet.push(`block:${an}`); },
     sendRolle: (yaw) => { if (!spiel.online) return false; spiel.gesendet.push(`rolle:${yaw.toFixed(3)}`); return true; },
     meldung: (t) => spiel.meldungen.push(t),
     input: { isMouseDown: (b) => b === 2 && spiel.rechts, wasMousePressed: (b) => b === 2 && spiel.flanke, wasPressed: (c) => c === 'KeyQ' && spiel.q },
     player: () => ({
-      setzeBlock: () => undefined, zieheAusdauerAb: () => undefined, bauModus: false,
+      setzeBlock: (an: boolean) => { spiel.blockPose.push(an); }, zieheAusdauerAb: () => { spiel.abzuege++; }, bauModus: false,
       get position() { return { y: spiel.y }; }, get avatar() { return { liegt: spiel.liegt }; },
       get rollt() { return spiel.rollt; }, get rolleAbklingRest() { return spiel.abkling; }, get rolleBereit() { return spiel.bereit; },
       get inLuft() { return spiel.inLuft; }, get ausdauerStand() { return spiel.ausdauer; }, figurYaw: 0.25,
@@ -367,14 +407,96 @@ const taste = (v: BlockVerdrahtung, spiel: Spiel): void => { spiel.q = true; v.f
   v.frame();
   check('no key press, no second roll', spiel.gesendet.length === 1);
 }
+const verdrahtet = (v: BlockVerdrahtung): Record<number, (r: { readBool(): boolean }) => void> => {
+  const h: Record<number, (r: { readBool(): boolean }) => void> = {};
+  v.verdrahte({ on: (typ, f) => { h[typ] = f as never; } });
+  return h;
+};
+const sekunde = (v: BlockVerdrahtung, spiel: Spiel, n = 1): void => { for (let i = 0; i < n; i++) v.frame(); void spiel; };
+{
+  // Z2: Q hides the block, it does not end it. The server ends it when it ACCEPTS the roll.
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
+  check('(set-up) blocking: Block(true) sent once, 5 stamina charged once', v.blockt && spiel.gesendet.join() === 'block:true' && spiel.abzuege === 1);
+  taste(v, spiel);
+  spiel.rollt = true; // the controller began the predicted roll
+  check('Q while blocking: only the roll goes out (NO Block(false) from the client), the figure shows no block', spiel.gesendet.join() === `block:true,rolle:${(Math.PI / 2).toFixed(3)}` && !v.blockt && spiel.blockPose.at(-1) === false, spiel.gesendet.join());
+  sekunde(v, spiel, 5);
+  check('during the predicted roll with the button held: no new block, nothing sent, no stamina', !v.blockt && spiel.gesendet.length === 2 && spiel.abzuege === 1, spiel.gesendet.join());
+  h[PacketType.Block]!({ readBool: () => false }); // the server accepted the roll and ended the block
+  spiel.rollt = false;
+  sekunde(v, spiel, 3);
+  check('ACCEPTED: the roll is over, the button is still held: no block back (a fresh press is needed), nothing sent, no stamina', !v.blockt && spiel.gesendet.length === 2 && spiel.abzuege === 1, spiel.gesendet.join());
+  check('... and the next release sends the one idempotent Block(false) of the uncertain state (as after any server `Block=false`), no other packet', (() => { spiel.rechts = false; v.frame(); return spiel.gesendet.join() === `block:true,rolle:${(Math.PI / 2).toFixed(3)},block:false`; })(), spiel.gesendet.join());
+}
+{
+  // Z2: a refused roll leaves the block where it was (wall, rock, water edge, jitter: only the server knows).
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
+  taste(v, spiel);
+  spiel.rollt = true;
+  sekunde(v, spiel, 2);
+  check('(set-up) the block is hidden during the predicted roll', !v.blockt && spiel.gesendet.join() === `block:true,rolle:${(Math.PI / 2).toFixed(3)}`);
+  h[PacketType.Rolle]!({ readBool: () => false }); // the server refused the roll
+  spiel.rollt = false; // the controller stops the predicted roll (`rolleAbbruch`)
+  v.frame();
+  check('REFUSED: the block stands again (the button is held), WITHOUT a new Block(true) and WITHOUT 5 more stamina', v.blockt && spiel.gesendet.length === 2 && spiel.abzuege === 1 && spiel.blockPose.at(-1) === true, `${spiel.gesendet.join()} charged ${spiel.abzuege}`);
+  spiel.rechts = false;
+  v.frame();
+  check('... and the release ends it as usual (Block(false))', !v.blockt && spiel.gesendet.at(-1) === 'block:false');
+}
+{
+  // Z2: refused, but the button was released while the roll was predicted: the server still holds the block, so it gets Block(false).
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
+  taste(v, spiel);
+  spiel.rollt = true;
+  spiel.rechts = false;
+  v.frame();
+  check('the button released during the predicted roll: Block(false) goes out (the server may still hold the block)', spiel.gesendet.at(-1) === 'block:false' && !v.blockt, spiel.gesendet.join());
+  h[PacketType.Rolle]!({ readBool: () => false });
+  spiel.rollt = false;
+  spiel.rechts = true;
+  v.frame();
+  check('... and a late Rolle=false then brings no block back (the button is up in the game: it is held again here only as a level, no fresh press)', !v.blockt && spiel.abzuege === 1);
+}
+{
+  // Z2: a window or death while the block is hidden ends it for good (the other rows still apply).
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
+  taste(v, spiel);
+  spiel.rollt = true;
+  spiel.fenster = true;
+  v.frame();
+  check('a window opens while the block is hidden: Block(false) goes out, the block is gone', spiel.gesendet.at(-1) === 'block:false' && !v.blockt);
+  h[PacketType.Rolle]!({ readBool: () => false });
+  spiel.rollt = false; spiel.fenster = false;
+  v.frame();
+  check('... and the refusal does not bring it back', !v.blockt && spiel.abzuege === 1);
+}
+{
+  // Z2: a teleport (reset) drops a hidden block, nothing comes back.
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
+  taste(v, spiel);
+  spiel.rollt = true;
+  h[PacketType.Rolle]!({ readBool: () => false });
+  h[PacketType.Teleport]!({ readBool: () => false });
+  spiel.rollt = false;
+  v.frame();
+  check('Rolle=false followed by a teleport: the reset wins, no block comes back', !v.blockt);
+}
 {
   const { v, spiel } = neuesSpiel();
   spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
-  check('(set-up) blocking', v.blockt && spiel.gesendet.join() === 'block:true');
+  spiel.online = false;
   taste(v, spiel);
-  check('Q while blocking: the block ends FIRST (Block false), then the roll goes out', spiel.gesendet.join() === `block:true,block:false,rolle:${(Math.PI / 2).toFixed(3)}` && !v.blockt, spiel.gesendet.join());
-  v.frame();
-  check('the right button is still held: no new block (a fresh press is needed)', !v.blockt && spiel.gesendet.length === 3);
+  check('Q while blocking without a line: no roll, the block stays (nothing is hidden)', v.blockt && spiel.starts.length === 0);
 }
 {
   const { v, spiel } = neuesSpiel();

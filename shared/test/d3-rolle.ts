@@ -16,9 +16,12 @@ import {
   ROLLE_ABKLINGZEIT_MS,
   ROLLE_AUSDAUER,
   ROLLE_BEWEGUNG_MS,
+  ROLLE_BEWEGUNG_S,
   ROLLE_DAUER_MS,
   ROLLE_MIN_ANTEIL,
   ROLLE_MIN_WEG_M,
+  ROLLE_KURVE_ANTEIL,
+  ROLLE_KURVE_SCHRITT_S,
   ROLLE_SPERRE_TOLERANZ_MS,
   ROLLE_TEMPO,
   ROLLE_WEG_M,
@@ -29,6 +32,7 @@ import {
   rolleLaeuft,
   rolleRichtung,
   rolleScheibe,
+  rolleWegAnteil,
   rolleUnverwundbar,
   rolleYawVon,
   sprungAbrechnen,
@@ -101,8 +105,46 @@ console.log('\n[3] Slices of movement: the path depends on the time, not on the 
     check(`packets every ${takt} ms: the slices add up to the movement time (0.8333 s)`, nah(mitTakt(takt), ROLLE_BEWEGUNG_MS / 1000, 1e-9), `${mitTakt(takt)}`);
   }
   const letzte = rolleScheibe(s, s + 800, s + 5000);
-  check('a late packet gets the remainder only (33 ms), the next one nothing', nah(letzte.dt, (ROLLE_BEWEGUNG_MS - 800) / 1000, 1e-9) && rolleScheibe(s, letzte.bis, s + 6000).dt === 0);
+  check('a late packet gets the remainder only (the part of the curve after 800 ms), the next one nothing', nah(letzte.dt, (1 - rolleWegAnteil(0.8)) * ROLLE_BEWEGUNG_S, 1e-12) && letzte.bis === s + ROLLE_DAUER_MS && rolleScheibe(s, letzte.bis, s + 6000).dt === 0, `${letzte.dt}`);
+  check('the slices end with the clip (875 ms), not with the 833 ms of the constant speed', rolleScheibe(s, s + 834, s + 874).dt > 0 && rolleScheibe(s, s + 875, s + 900).dt === 0);
+  check('the first 41.7 ms (the pose before the first key) move nothing, the slice 0 ... 125 ms moves the share of the curve', rolleScheibe(s, s, s + 41).dt === 0 && nah(rolleScheibe(s, s, s + 125).dt, rolleWegAnteil(0.125) * ROLLE_BEWEGUNG_S, 1e-12));
   check('a clock that jumped back adds nothing and moves the mark nowhere', rolleScheibe(s, s + 100, s + 50).dt === 0 && rolleScheibe(s, s + 100, s + 50).bis === s + 100);
+}
+
+console.log('\n[3b] The curve of the clip (share of the path over the time)');
+{
+  check('21 keys, the first 0, the last 1, none outside 0 ... 1', ROLLE_KURVE_ANTEIL.length === 21 && ROLLE_KURVE_ANTEIL[0] === 0 && ROLLE_KURVE_ANTEIL[20] === 1 && ROLLE_KURVE_ANTEIL.every((a) => a >= 0 && a <= 1));
+  check('the last key is the clip length: 21 / 24 s = 875 ms', nah(21 * ROLLE_KURVE_SCHRITT_S * 1000, ROLLE_DAUER_MS, 1e-9));
+  check('monotone: no key lies below the one before', ROLLE_KURVE_ANTEIL.every((a, i) => i === 0 || a >= ROLLE_KURVE_ANTEIL[i - 1]!));
+  let monoton = true;
+  let letzteA = 0;
+  let maxSprung = 0;
+  for (let ms = -10; ms <= 1000; ms++) {
+    const a = rolleWegAnteil(ms / 1000);
+    if (a < letzteA) monoton = false;
+    maxSprung = Math.max(maxSprung, a - letzteA);
+    letzteA = a;
+  }
+  check('rolleWegAnteil is monotone on a 1 ms grid and has no jump above 0.02 per ms', monoton && maxSprung < 0.02, `${maxSprung.toFixed(4)}`);
+  check('before the first key (and at it): 0; at the last key and after it: 1; a negative time: 0', rolleWegAnteil(-1) === 0 && rolleWegAnteil(0) === 0 && rolleWegAnteil(1 / 24) === 0 && rolleWegAnteil(0.875) === 1 && rolleWegAnteil(5) === 1);
+  check('at the keys the table values: 2/24 s = 0.18446, 9/24 s = 0.847868', nah(rolleWegAnteil(2 / 24), 0.18446, 1e-9) && nah(rolleWegAnteil(9 / 24), 0.847868, 1e-9));
+  check('linear between the keys: halfway between the first two is 0.09223', nah(rolleWegAnteil(1.5 / 24), 0.09223, 1e-9));
+  check('85 % of the path lie in the first 0.375 s (the clip is front-loaded: the constant speed would be at 45 %)', nah(rolleWegAnteil(0.375), 0.847868, 1e-9) && rolleWegAnteil(0.375) > 0.84 && 0.375 / (ROLLE_BEWEGUNG_S + 1 / 24) < 0.5);
+  check('the last 0.5 s carry only 0.45 m of the 4.853 m (the clip nearly stops)', nah((1 - rolleWegAnteil(0.375)) * ROLLE_WEG_M, 0.7, 0.05) && nah((1 - rolleWegAnteil(0.4167)) * ROLLE_WEG_M, 0.577, 0.01));
+  // the path along the slices (metres at the speed of the roll) is the path of the curve whatever the rhythm
+  for (const takt of [1, 7, 16, 33, 50, 100, 400]) {
+    const s0 = 5000;
+    let zeit = s0;
+    let weg = 0;
+    let bei375 = 0;
+    for (let t = s0; t <= s0 + 1200; t += takt) {
+      const sc = rolleScheibe(s0, zeit, t);
+      zeit = sc.bis;
+      weg += sc.dt * ROLLE_TEMPO;
+      if (t <= s0 + 375) bei375 = weg;
+    }
+    check(`packets every ${takt} ms: the metres add up to 4.853 and the path at <= 375 ms is the curve (${(bei375).toFixed(2)} m)`, nah(weg, ROLLE_WEG_M, 1e-9) && Math.abs(bei375 - rolleWegAnteil(Math.floor(375 / takt) * takt / 1000) * ROLLE_WEG_M) < 1e-9);
+  }
 }
 
 console.log('\n[4] The path in the shared step (flat ground)');

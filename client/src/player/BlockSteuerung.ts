@@ -21,6 +21,12 @@
  *  - Every begin costs `BLOCK_BEGINN_AUSDAUER` stamina, like at the server: below that no block starts (the `zuErschoepft` hook
  *    shows the server's message), a begin calls `beginnt` (the caller charges the stamina). Holding is not affected.
  *
+ *  - A roll (key Q) HIDES the block, it does not end it: the server ends the block when it accepts the roll (and says
+ *    `Block=false`), so a refused roll (wall, rock, water edge, jitter) leaves the guard where it was. While the roll is
+ *    predicted `verdeckt` is set: the figure shows no block, nothing is sent. `Rolle=false` (`rolleAbgelehnt`) brings the
+ *    block back as soon as the roll is over in the client, without a new `Block(true)` and without the 5 stamina; a
+ *    release, a row of the table or `Block=false` ends it as usual (a release sends `Block(false)`: the server still holds it).
+ *
  * Provisional rule (Mike, 02.10.2026, open question): no block with bare hands (only with an item in the
  * hand) and none with a building tool (`pieceTable`) in the hand.
  */
@@ -124,6 +130,10 @@ export class BlockSteuerung {
   private schlagImBild = false;
   /** Measuring cell: the block holds without the mouse (see `erzwinge`). */
   private erzwungen = false;
+  /** A roll hides the block (the server still holds it until it accepts the roll). */
+  private verdeckt = false;
+  /** The server refused the roll: the hidden block comes back when the roll is over in the client. */
+  private wiederNehmen = false;
 
   /** @param sende `sendBlock`: called once per change of state. */
   constructor(
@@ -141,6 +151,21 @@ export class BlockSteuerung {
     const verboten = blockSperre(u) !== null;
     const schlag = this.schlagImBild;
     this.schlagImBild = false;
+    if (this.verdeckt) {
+      // Other rows than the roll's own end the hidden block; a release does too (the server may still hold it).
+      if (!(u.rechtsGedrueckt || this.erzwungen) || blockSperre({ ...u, rollt: false }) !== null) {
+        this.verdeckt = false;
+        this.wiederNehmen = false;
+        this.erzwungen = false;
+        this.sende(false);
+      } else if (!u.rollt) {
+        // The roll is over in the client: refused = the block is back, accepted = the server ended it (`Block=false` came).
+        if (this.wiederNehmen) this._blockt = true;
+        this.verdeckt = false;
+        this.wiederNehmen = false;
+      }
+      return;
+    }
     if (this._blockt) {
       if (!(u.rechtsGedrueckt || this.erzwungen) || verboten) this.beende();
       return;
@@ -165,6 +190,8 @@ export class BlockSteuerung {
   /** The server ended or refused the block (`Block=false`): no answer back, the server knows. */
   serverBeendet(): void {
     this._blockt = false;
+    this.verdeckt = false;
+    this.wiederNehmen = false;
     this.erzwungen = false;
     this.ungewiss = true;
   }
@@ -172,6 +199,8 @@ export class BlockSteuerung {
   /** Teleport, world change, respawn, new connection: forget the block and make sure the server does too. */
   zuruecksetzen(): void {
     this._blockt = false;
+    this.verdeckt = false;
+    this.wiederNehmen = false;
     this.erzwungen = false;
     this.ungewiss = true;
     this.sofort = true;
@@ -192,6 +221,22 @@ export class BlockSteuerung {
   /** The window lost the focus: no mouseup will come. */
   blur(): void {
     this.beende();
+  }
+
+  /**
+   * A roll was sent (Q): hide the block without ending it. Nothing is sent: the server ends the block when it accepts
+   * the roll (`beendeBlockDurchRolle`, `Block=false`) and leaves it when it refuses.
+   */
+  rolleBeginnt(): void {
+    if (!this._blockt) return;
+    this._blockt = false;
+    this.verdeckt = true;
+    this.wiederNehmen = false;
+  }
+
+  /** The server answered the roll with `Rolle=false`: a hidden block comes back once the roll is over in the client. */
+  rolleAbgelehnt(): void {
+    if (this.verdeckt) this.wiederNehmen = true;
   }
 
   /** An own swing ends the block (the server does the same). */

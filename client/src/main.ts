@@ -3154,7 +3154,7 @@ async function main() {
     // Any open menu means: cursor free, so it can be clicked.
     input.setUiOpen(cursorNoetig());
 
-    miss('spieler', () => player!.update(dt));
+    miss('spieler', () => player!.update(dt, engine.getDeltaTime() / 1000));
     weltToene.update(dt);
     // Abgleich Client↔Server. Die Entscheidung ist beim Eintreffen des
     // PlayerState gefallen (abgleicher.serverMeldung, gegen die eigene

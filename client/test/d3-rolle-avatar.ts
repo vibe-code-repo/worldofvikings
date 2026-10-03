@@ -7,6 +7,10 @@
  *      `setzeRolle(false)` (idle again, or the walk cycle while walking).
  *  [3] The length of the clip is the length of the invulnerable time (875 ms).
  *  [4] Without the clip (a body with 48 clips): nothing breaks, the figure keeps its movement clip.
+ *  [5] (N1, Z1) The curve of the roll (`ROLLE_KURVE_ANTEIL`, the movement of server and client) against the hips of the
+ *      clip in the GLB: at every frame of 60 per second at most 5 cm apart; the span of the hips is 4.853 m.
+ *  [6] (N1, T2) The clip runs IN PLACE in the rig: after `messeUndEntferneWurzelbewegung` the hips do not travel along
+ *      the roll axis (at most 2 cm over all frames of the played clip), the travel belongs to the controller.
  *
  * Needs the real body models (56 clips). Run: npx tsx client/test/d3-rolle-avatar.ts
  */
@@ -20,7 +24,7 @@ import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import '@babylonjs/loaders/glTF/2.0';
 import { AvatarRig } from '../src/player/AvatarRig.js';
-import { ROLLE_DAUER_MS, ROLLE_TEMPO } from '@wov/shared/src/kampf/rolle.js';
+import { ROLLE_DAUER_MS, ROLLE_TEMPO, ROLLE_WEG_M, rolleWegAnteil } from '@wov/shared/src/kampf/rolle.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WURZEL = resolve(__dirname, '..', '..');
@@ -67,6 +71,28 @@ async function neuesRig(datei: string): Promise<{ rig: AvatarRig; scene: Scene; 
   };
   schritt(5);
   return { rig, scene, z: rig as unknown as Zugriff, schritt };
+}
+
+/** The hip keys of the clip `rolle` in a GLB: times (s) and the values of the axis z (model units = metres at scale 1). */
+function glbHueftenZ(bytes: Buffer): { t: number[]; z: number[]; interpolation: string } {
+  const jl = bytes.readUInt32LE(12);
+  const json = JSON.parse(bytes.subarray(20, 20 + jl).toString()) as {
+    animations: Array<{ name: string; channels: Array<{ sampler: number; target: { node: number; path: string } }>; samplers: Array<{ input: number; output: number; interpolation?: string }> }>;
+    nodes: Array<{ name: string }>;
+    accessors: Array<{ bufferView: number; byteOffset?: number; count: number; type: string }>;
+    bufferViews: Array<{ byteOffset?: number }>;
+  };
+  const bin = bytes.subarray(20 + jl + 8);
+  const lies = (i: number): number[][] => {
+    const a = json.accessors[i]!;
+    const n = ({ SCALAR: 1, VEC3: 3, VEC4: 4 } as Record<string, number>)[a.type]!;
+    const off = (json.bufferViews[a.bufferView]!.byteOffset ?? 0) + (a.byteOffset ?? 0);
+    return Array.from({ length: a.count }, (_, k) => Array.from({ length: n }, (_, c) => bin.readFloatLE(off + (k * n + c) * 4)));
+  };
+  const an = json.animations.find((x) => x.name === 'rolle')!;
+  const ch = an.channels.find((c) => c.target.path === 'translation' && json.nodes[c.target.node]!.name === 'Hips')!;
+  const s = an.samplers[ch.sampler]!;
+  return { t: lies(s.input).map((x) => x[0]!), z: lies(s.output).map((x) => x[2]!), interpolation: s.interpolation ?? 'LINEAR' };
 }
 
 async function main(): Promise<void> {
@@ -142,6 +168,58 @@ async function main(): Promise<void> {
       schritt(40);
       check('and ends with idle', z.aktiv?.grp.name === 'idle', z.aktiv?.grp.name);
       weglassen = null;
+    }
+
+    console.log('\n[5] The curve of the roll against the hips of the clip');
+    {
+      const k = glbHueftenZ(readFileSync(resolve(WURZEL, 'assets/models', datei)));
+      const z0 = k.z[0]!;
+      const spann = k.z[k.z.length - 1]! - z0;
+      check(`${k.t.length} hip keys, linear, from ${k.t[0]!.toFixed(4)} to ${k.t[k.t.length - 1]!.toFixed(4)} s`, k.t.length === 21 && k.interpolation === 'LINEAR' && Math.abs(k.t[k.t.length - 1]! - ROLLE_DAUER_MS / 1000) < 1e-6);
+      check(`the span of the hips along z is ROLLE_WEG_M (4.853 m, +- 2 mm)`, Math.abs(spann - ROLLE_WEG_M) < 0.002, `${spann.toFixed(4)} m`);
+      const dehnung = (t: number): number => {
+        if (t <= k.t[0]!) return 0;
+        if (t >= k.t[k.t.length - 1]!) return k.z[k.z.length - 1]! - z0;
+        let i = 0;
+        while (k.t[i + 1]! < t) i++;
+        const f = (t - k.t[i]!) / (k.t[i + 1]! - k.t[i]!);
+        return k.z[i]! + (k.z[i + 1]! - k.z[i]!) * f - z0;
+      };
+      let maxAbw = 0;
+      let bei = 0;
+      for (let i = 0; i <= 53; i++) { // 0 ... 0.883 s at 60 frames per second
+        const t = i / 60;
+        const abw = Math.abs(dehnung(t) - rolleWegAnteil(t) * ROLLE_WEG_M);
+        if (abw > maxAbw) { maxAbw = abw; bei = t; }
+      }
+      check(`the curve and the hips of the GLB are at most 5 cm apart at every frame (max ${(maxAbw * 100).toFixed(2)} cm at ${bei.toFixed(3)} s)`, maxAbw <= 0.05);
+      check('the constant speed would have been up to 1.9 m off (the finding): at 0.375 s the hips are 4.1 m ahead, the constant speed is at 2.2 m', Math.abs(dehnung(0.375) - 4.115) < 0.05 && Math.abs(0.375 * ROLLE_TEMPO - 2.18) < 0.02);
+    }
+
+    console.log('\n[6] The clip runs in place in the rig');
+    {
+      const { rig, scene, z, schritt } = await neuesRig(datei);
+      void z;
+      const hueften = scene.getTransformNodeByName('Hips');
+      check('(set-up) the rig has the node Hips', !!hueften);
+      if (hueften) {
+        const massstab = (hueften.parent as { absoluteScaling?: { x: number } } | null)?.absoluteScaling?.x ?? 1;
+        rig.setzeRolle(true);
+        const werte: number[] = [];
+        const hoehen: number[] = [];
+        for (let i = 0; i < 56; i++) {
+          rig.update(0.016, ROLLE_TEMPO, 4.5, true, false);
+          scene.render();
+          werte.push(hueften.position.z * massstab);
+          hoehen.push(hueften.position.y * massstab);
+        }
+        const spannInPlace = Math.max(...werte) - Math.min(...werte);
+        check(`the hips do not travel along the roll axis in the played clip (${werte.length} frames, span ${(spannInPlace * 100).toFixed(2)} cm, at most 2 cm)`, spannInPlace <= 0.02);
+        const spannHoehe = Math.max(...hoehen) - Math.min(...hoehen);
+        check(`(control) the clip plays: the hips do move in height (the roll is not frozen), span ${(spannHoehe * 100).toFixed(1)} cm`, spannHoehe > 0.1);
+        rig.setzeRolle(false);
+        schritt(5);
+      }
     }
   }
   console.log(failures === 0 ? '\nOK' : `\n${failures} FAIL`);

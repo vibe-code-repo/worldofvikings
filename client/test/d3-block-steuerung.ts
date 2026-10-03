@@ -199,6 +199,20 @@ console.log('\n[2c] When the client no longer knows what the server holds');
   check('a normal block afterwards: one true, one false, no extra false', gesendet.join() === 'true,false,true,false,true,false');
 }
 {
+  // Crossing messages (K1-N4 H1): the client sends `Block=true` at the very moment the server reports `Block=false`. The
+  // server may have taken the new request after its own end: it holds, the client shows "off".
+  const { b, gesendet } = neu();
+  b.aktualisiere(FREI); // client: Block(true) goes out
+  b.serverBeendet(); // server: Block(false) arrives, treated like "press the key anew"
+  check('crossing: the client shows "no block" after the server message', !b.blockt && gesendet.join() === 'true');
+  for (let i = 0; i < 30; i++) b.aktualisiere(halten(FREI));
+  check('crossing: it does not start again while the button stays down (a fresh press is needed)', !b.blockt && gesendet.join() === 'true');
+  b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false });
+  check('crossing: the release sends `Block(false)`, so a server that holds the new block lets go', gesendet.join() === 'true,false');
+  b.aktualisiere(FREI);
+  check('crossing: a fresh press sends `true` again and blocks', b.blockt && gesendet.join() === 'true,false,true');
+}
+{
   // The server ended while the button was already up.
   const { b, gesendet } = neu();
   b.aktualisiere(FREI);

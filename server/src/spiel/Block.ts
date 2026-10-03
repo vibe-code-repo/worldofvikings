@@ -12,6 +12,9 @@ import { BLOCK_SPERRE_MS, SERVER_MELDUNG_GEBLOCKT, SERVER_MELDUNG_PARIERT, SERVE
 import { PacketType } from '@wov/shared';
 import type { Peer } from '../net/Peer.js';
 
+/** A server stall longer than this (ms since its last tick) is not billed to a blocking player beyond it. */
+export const BLOCK_LUECKE_MS = 2000;
+
 /** The part of a `Peer` the block reads and writes. */
 export type BlockPeer = Pick<
   Peer,
@@ -94,13 +97,16 @@ export function blockPaket(peer: BlockPeer, an: boolean, jetzt: number): void {
  * (flight mode, nothing in the hand, stamina 0) and keeps the stamina from regenerating. Called from every input
  * packet, from the server tick and before every blow. Returns whether the player blocks afterwards.
  */
-export function blockAbrechnen(peer: BlockPeer, jetzt: number): boolean {
+export function blockAbrechnen(peer: BlockPeer, jetzt: number, luecke = 0): boolean {
   if (!(peer.blockSeit > 0)) return false;
   if (peer.flying || !darfBlocken(peer)) {
     beendeDurchServer(peer, jetzt);
     return false;
   }
-  const gehalten = Math.max(0, (jetzt - (peer.blockTaktZeit > 0 ? peer.blockTaktZeit : peer.blockSeit)) / 1000);
+  // A stall of the SERVER (`luecke` = ms since its last tick, normally ~50) is not the player's doing: what exceeds
+  // BLOCK_LUECKE_MS is not billed. A silent client is billed by every tick, so its gaps stay small: no discount.
+  const erlass = Math.max(0, luecke - BLOCK_LUECKE_MS);
+  const gehalten = Math.max(0, (jetzt - (peer.blockTaktZeit > 0 ? peer.blockTaktZeit : peer.blockSeit) - erlass) / 1000);
   peer.blockTaktZeit = jetzt;
   const nach = blockHalten(peer.stamina, gehalten);
   peer.stamina = nach.wert;
@@ -113,13 +119,13 @@ export function blockAbrechnen(peer: BlockPeer, jetzt: number): boolean {
 }
 
 /** One input packet: bill the block. Returns whether the player blocks (slow movement, no running). */
-export function blockHalteTakt(peer: BlockPeer, jetzt: number): boolean {
-  return blockAbrechnen(peer, jetzt);
+export function blockHalteTakt(peer: BlockPeer, jetzt: number, luecke = 0): boolean {
+  return blockAbrechnen(peer, jetzt, luecke);
 }
 
 /** The server tick: every holding player is billed, also one whose client sends nothing. */
-export function blockTakt(peers: Iterable<BlockPeer>, jetzt: number): void {
-  for (const p of peers) if (p.blockSeit > 0) blockAbrechnen(p, jetzt);
+export function blockTakt(peers: Iterable<BlockPeer>, jetzt: number, luecke = 0): void {
+  for (const p of peers) if (p.blockSeit > 0) blockAbrechnen(p, jetzt, luecke);
 }
 
 /**

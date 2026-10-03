@@ -1922,7 +1922,7 @@ export class WovServer {
     // Dead players whose lying time is over get up (respawn) — every tick, not
     // only in the 1-second block below: the lying time is a promise in ms.
     this.belebeFaellige(now);
-    blockTakt(this.net.getPeers(), now);
+    blockTakt(this.net.getPeers(), now, deltaMs);
 
     // Advance world time
     this.worldTime += deltaSec * this.worldTimeMultiplier;
@@ -2890,7 +2890,7 @@ export class WovServer {
     // sind unveraendert; hier bleibt nur die Frage stehen, ob sie ueberhaupt
     // gilt (im Admin-Flug gilt sie nicht).
     const bewegt = moveX !== 0 || moveZ !== 0;
-    const blockt = blockHalteTakt(peer, now);
+    const blockt = blockHalteTakt(peer, now, now - this.prevUpdateTime);
     const aus = ausdauerSchritt(
       { wert: peer.stamina, zuletztVerbraucht: peer.staminaZuletztVerbraucht },
       { rennWunsch: !peer.flying && running && !blockt, bewegt, dt: deltaSec, jetzt: now }

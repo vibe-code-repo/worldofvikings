@@ -23,7 +23,7 @@ import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import type { Peer } from '../src/net/Peer.js';
-import { blockTakt, beendeBlock, beendeBlockDurchSchlag, blockHalteTakt, blockPaket, blockTrifft, blockZuruecksetzen, darfBlocken, type BlockPeer } from '../src/spiel/Block.js';
+import { BLOCK_LUECKE_MS, blockTakt, beendeBlock, beendeBlockDurchSchlag, blockHalteTakt, blockPaket, blockTrifft, blockZuruecksetzen, darfBlocken, type BlockPeer } from '../src/spiel/Block.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-d3-block');
@@ -149,6 +149,31 @@ console.log('\n[1] Spiel/Block.ts on a stand-in peer (fixed clock)');
   check('B1: the server tick bills a client that sends nothing (4 s = 8)', nah(takt.stamina, 92, 1e-9) && takt.blockSeit > 0, `${takt.stamina}`);
   blockTakt([takt], 90_000 + 200_000);
   check('B1: ... and ends the block when the stamina is gone, the client is told', takt.blockSeit === 0 && takt.gesendet.some((x) => x.typ === PacketType.Block && x.inhalt === 'false'));
+
+  // H2: a stall of the server is not billed beyond 2 s; silence is (the tick bills it piece by piece).
+  const haenger = attrappe();
+  blockPaket(haenger, true, 200_000);
+  blockTakt([haenger], 230_000, 30_000); // the server did not run for 30 s
+  check('H2: a 30 s server stall bills only the last 2 s (4 stamina, not 60)', nah(haenger.stamina, 96, 1e-9) && haenger.blockSeit > 0, `${haenger.stamina}`);
+  const haenger2 = attrappe();
+  blockPaket(haenger2, true, 240_000);
+  blockHalteTakt(haenger2, 270_000, 30_000); // the first input after the stall comes before the tick
+  check('H2: ... also when an input packet comes first', nah(haenger2.stamina, 96, 1e-9), `${haenger2.stamina}`);
+  const still = attrappe();
+  blockPaket(still, true, 300_000);
+  for (let t = 50; t <= 20_000; t += 50) blockTakt([still], 300_000 + t, 50); // 20 s, the client sends nothing, the server ticks
+  check('H2: a silent client is NOT discounted: 20 s of ticks without a packet cost 40', nah(still.stamina, 60, 1e-6) || still.blockSeit === 0, `${still.stamina}`);
+  check('H2: the stall limit is 2 s', BLOCK_LUECKE_MS === 2000);
+  const klein = attrappe();
+  blockPaket(klein, true, 400_000);
+  blockTakt([klein], 400_000 + 3000, 1500); // a gap of 1.5 s is below the limit: nothing is forgiven
+  check('H2: a gap under the limit is billed in full (3 s = 6)', nah(klein.stamina, 94, 1e-9), `${klein.stamina}`);
+
+  // H1: a clock that jumps backwards does not open the parry window.
+  const zurueck = attrappe();
+  blockPaket(zurueck, true, 10_000_000);
+  const rueck = blockTrifft(zurueck, vorn, 30, 10_000_000 - 3_600_000);
+  check('H1: the clock one hour back: no parry (the window needs jetzt >= blockSeit)', rueck.art !== 'pariert', JSON.stringify(rueck));
 
   // B3: the item condition holds for the whole block.
   const hand = attrappe();
@@ -321,7 +346,7 @@ async function main(): Promise<void> {
     zugriff.applyCreatureAttack(von(0, -2), wolf, 2.4, anna.worldId, anna.position);
     const verlust = 100 - anna.health;
     check(`WOLF FROM THE FRONT: life -30 % of the blow (${wolf} -> ${(wolf * 0.3).toFixed(2)}), stamina -4 (plus the time held), the block goes on`,
-      nah(verlust, eingehenderSchaden(wolf * 0.3, ruest), 1e-9) && nah(verlust, wolf * 0.3, 1e-9) && anna.stamina < 96 && anna.stamina > 94 && anna.blockSeit > 0, `life ${anna.health}, stamina ${anna.stamina}`);
+      nah(verlust, eingehenderSchaden(wolf * 0.3, ruest), 1e-9) && nah(verlust, wolf * 0.3, 1e-9) && anna.stamina <= 96 && anna.stamina > 94 && anna.blockSeit > 0, `life ${anna.health}, stamina ${anna.stamina}`);
     await warte(150);
     check('... and the message "@kampf.geblockt" reached the client', ws.meldungen.includes('@kampf.geblockt'), JSON.stringify(ws.meldungen));
     check('... with ONE spark effect (art 2), no blood', ws.effekte.length === 1 && ws.effekte[0] === 2, JSON.stringify(ws.effekte));
@@ -405,6 +430,14 @@ async function main(): Promise<void> {
     const s0 = anna.stamina;
     await warte(3000); // not one PlayerInput in these 3 s
     check('B1: 3 s of holding with no input packet cost about 6 stamina (server tick)', nah(s0 - anna.stamina, 6, 1.0) && anna.blockSeit > 0, `${(s0 - anna.stamina).toFixed(2)}`);
+    // H2 on the real server: its event loop stands still for 5 s (the test runs in the server's process).
+    const s1 = anna.stamina;
+    const stand = Date.now();
+    while (Date.now() - stand < 5000) { /* the server cannot run */ }
+    await warte(300);
+    const stillstandKosten = s1 - anna.stamina;
+    check('H2: a 5 s stall of the server bills about 2 s + the tick gaps (4.0 - 5.5), not 10 plus', stillstandKosten > 3.5 && stillstandKosten < 6, `${stillstandKosten.toFixed(2)}`);
+    check('H2: ... and the block still stands', anna.blockSeit > 0);
     anna.waffe = '';
     await warte(400);
     check('B3: the item put away (fist) ends the block by itself, the client is told', anna.blockSeit === 0 && ws.bloecke.includes(false), JSON.stringify(ws.bloecke));

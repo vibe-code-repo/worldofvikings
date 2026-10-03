@@ -487,7 +487,7 @@ const sekunde = (v: BlockVerdrahtung, spiel: Spiel, n = 1): void => { for (let i
   check('REFUSED: the block stands again (the button is held), WITHOUT a new Block(true) and WITHOUT 5 more stamina', v.blockt && spiel.gesendet.length === 2 && spiel.abzuege === 1 && spiel.blockPose.at(-1) === true, `${spiel.gesendet.join()} charged ${spiel.abzuege}`);
   spiel.rechts = false;
   v.frame();
-  check('... and the release ends it as usual (Block(false))', !v.blockt && spiel.gesendet.at(-1) === 'block:false');
+  check('... and the release ends it as usual: exactly one Block(false)', !v.blockt && spiel.gesendet.at(-1) === 'block:false' && spiel.gesendet.filter((g) => g === 'block:false').length === 1, spiel.gesendet.join());
 }
 {
   // Z2: refused, but the button was released while the roll was predicted: the server still holds the block, so it gets Block(false).

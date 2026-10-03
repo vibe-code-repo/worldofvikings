@@ -755,6 +755,7 @@ async function main(): Promise<void> {
       sendAdmin(ws, 'fly');
       await warte(150);
       check('FLIGHT switched on in the middle of a roll: the roll is over at the server, the client got Rolle false', anna.flying && anna.rolleBis === 0 && ws.rollen.join() === 'false', `${anna.flying} ${JSON.stringify(ws.rollen)}`);
+      check('... the roll lock stays over the flight, too (no cooldown freed)', anna.rolleSperreBis > Date.now());
       const fz = { x: anna.position.x, z: anna.position.z };
       for (let t = 0; t < 700; t += 50) { sendInput(ws, 0, 0, 0, false); await warte(50); }
       check('... and the rest of the clip does not fly the figure along the roll direction (no input: it stands, within 0.2 m)', Math.hypot(anna.position.x - fz.x, anna.position.z - fz.z) < 0.2, `${Math.hypot(anna.position.x - fz.x, anna.position.z - fz.z).toFixed(2)} m`);

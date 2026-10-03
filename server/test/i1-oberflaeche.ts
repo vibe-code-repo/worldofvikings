@@ -273,6 +273,7 @@ export const TEXT_AUSNAHMEN: readonly { datei: string; grund: string }[] = [
  */
 export const FEHLTREFFER: readonly { name: string; datei: string; grund: string }[] = [
   { name: 'zeigeTreffer', datei: 'client/test/tod-treffer-avatar.ts', grund: 'AvatarRig.zeigeTreffer (Client), nicht das Serverfeld gleichen Namens' },
+  { name: 'zeigeTreffer', datei: 'client/test/d3-block-avatar.ts', grund: 'AvatarRig.zeigeTreffer (Client), nicht das Serverfeld gleichen Namens' },
   { name: 'onPacket', datei: 'server/test/i1-form-k.ts', grund: 'Name, unter dem das Mitglied im Syntaxbaum der Klasse gesucht wird (Text, kein Zugriff zur Laufzeit)' },
   { name: 'geklemmteEintraege', datei: 'tools/verschiebung/pruefstand/echt.ts', grund: 'Name in der Namensliste der Echt-Probe des Verschiebebeweises (Zeichenkette), keine Server-Nutzung' },
 ];

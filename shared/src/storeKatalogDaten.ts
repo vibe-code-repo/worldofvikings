@@ -4,16 +4,16 @@
  *   npx tsx tools/store-prefabs.mjs
  *
  * Der vollständige Katalog des Asset-Speichers: JEDE Datei, die unter
- * \`assets/store/\` wirklich liegt — 1306 Einträge, auch
+ * \`assets/store/\` wirklich liegt — 1309 Einträge, auch
  * Texturen, Töne und Kollisionsnetze, zu denen es kein Prefab gibt.
  *
  * ── Warum diese Datei NICHT im Barrel steht ──────────────────────────
  * \`shared/src/index.ts\` exportiert sie mit Absicht nicht, und das ist
  * dieselbe Entscheidung wie bei \`featurePieces.ts\` (Begründung dort im
- * Kopf): Ein \`export *\` von hier zöge diese 1306 Zeilen
+ * Kopf): Ein \`export *\` von hier zöge diese 1309 Zeilen
  * über jedes Client-Modul, das aus '@wov/shared' importiert, ins
  * SPIEL-Bundle. Genau das war der Zustand bis zum 08.09.2026 — der
- * ausgelieferte Prefab-Chunk trug 1306-mal \`lizenzstatus\`
+ * ausgelieferte Prefab-Chunk trug 1309-mal \`lizenzstatus\`
  * durch die Leitung jedes Spielers, für einen Katalog, den nur der
  * Editor aufschlägt (682 KB roh, 118 KB gzip).
  *
@@ -1257,6 +1257,9 @@ const STORE_KATALOG_TEIL_4: readonly StoreEintrag[] = [
   { id: 'vegetation/bush-1a2-small-1-dark', pfad: 'vegetation/bush-1a2-small-1-dark.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Büsche', kennzeichen: ['dark'], bytes: 65452, hash: 'sha256-63cbba9d78462580169eb50297e409cec286db8d664944827fefc21b278df467', bounds: { min: [-1.5637, -0.7085, -1.4342], max: [1.5387, 2.0185, 1.4684] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-bush-1a2-small-1-dark' },
   { id: 'vegetation/bush-1a2-small-1-snow', pfad: 'vegetation/bush-1a2-small-1-snow.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Büsche', kennzeichen: ['snow'], bytes: 65420, hash: 'sha256-d6facb6975ffd9774f0a79417819b09a47c51087ca8cd43c8061367f4d5d1c95', bounds: { min: [-1.5637, -0.7085, -1.4342], max: [1.5387, 2.0185, 1.4684] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-bush-1a2-small-1-snow' },
   { id: 'vegetation/bush-1a3', pfad: 'vegetation/bush-1a3.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Büsche', bytes: 84436, hash: 'sha256-53b9c2ad9095d52bb69095e8648431464eab38a2a6036e6314b8ee7081f00baf', bounds: { min: [-1.7953, -0.6785, -1.6714], max: [1.6396, 2.1279, 1.5466] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-bush-1a3' },
+  { id: 'vegetation/fern-1a1', pfad: 'vegetation/fern-1a1.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Farne', bytes: 13748, hash: 'sha256-46f5010f690b8dc7227e3252775eb054fbee6a07dd52b6415015ebac3937af76', bounds: { min: [-0.6427, -0.0333, -0.6632], max: [0.6991, 0.5571, 0.6249] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-fern-1a1' },
+  { id: 'vegetation/flower-1a12', pfad: 'vegetation/flower-1a12.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Blumen', bytes: 11680, hash: 'sha256-266f3f80adece1e3c9956759ea748761eee48a06bf16b55fc61345fe26fd6cab', bounds: { min: [-0.0494, -0.0255, -0.0914], max: [0.1243, 0.519, 0.1466] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-flower-1a12' },
+  { id: 'vegetation/flower-1a4', pfad: 'vegetation/flower-1a4.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Blumen', bytes: 12352, hash: 'sha256-1e592e2bae234db7216616c843a3977bb06ee2f578d62b90701f21623e6d4e71', bounds: { min: [-0.0915, -0.0329, -0.2754], max: [0.1149, 0.4254, 0.0951] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-flower-1a4' },
   { id: 'vegetation/grass-short-clump-1', pfad: 'vegetation/grass-short-clump-1.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Gras', bytes: 4336, hash: 'sha256-6e750d4ce3b031f641d708748f665f97c927df1b16756e2ec99c3489d125fc04', bounds: { min: [-0.5, -0.0269, -0.4262], max: [0.5, 0.2231, 0.5738] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-grass-short-clump-1' },
   { id: 'vegetation/grass-short-clump-redblue', pfad: 'vegetation/grass-short-clump-redblue.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Gras', bytes: 4328, hash: 'sha256-05c84e0181cd70cb049bec681904c96092838d7bc1fc46b14f9016e7ea1a7133', bounds: { min: [-0.5, -0.0269, -0.4262], max: [0.5, 0.2231, 0.5738] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-grass-short-clump-redblue' },
   { id: 'vegetation/grass-short-clump-snow', pfad: 'vegetation/grass-short-clump-snow.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Gras', kennzeichen: ['snow'], bytes: 4316, hash: 'sha256-467b255ecc5b020230b4f930bd28297717dc91c32f20fbe567e4099f1b8a8e8e', bounds: { min: [-0.5, -0.0269, -0.4262], max: [0.5, 0.2231, 0.5738] }, boundsRaum: 'datei', kollision: { art: 'none' }, lizenzstatus: 'intern', prefabName: 'vegetation-grass-short-clump-snow' },
@@ -1352,7 +1355,7 @@ const STORE_KATALOG_TEIL_4: readonly StoreEintrag[] = [
   { id: 'vegetation/tree-1e2-2', pfad: 'vegetation/tree-1e2-2.glb', art: 'modell', gruppe: 'Vegetation', untergruppe: 'Bäume', bytes: 25580, hash: 'sha256-623966a22421b30337bf52d94417509156b4d3372fd09a5e7a56264cde43c448', bounds: { min: [-4.3711, -0.4387, -4.1166], max: [2.2391, 11.1687, 4.5274] }, boundsRaum: 'datei', kollision: { art: 'box', box: { min: [-0.5094, -0.4387, -0.4974], max: [0.4137, 11.1687, 0.4135] } }, lizenzstatus: 'intern', prefabName: 'vegetation-tree-1e2-2' },
 ];
 
-/** Die 1306 Einträge, nach \`id\` sortiert (s. TEILE oben). */
+/** Die 1309 Einträge, nach \`id\` sortiert (s. TEILE oben). */
 export const STORE_KATALOG: readonly StoreEintrag[] = [
   ...STORE_KATALOG_TEIL_0,
   ...STORE_KATALOG_TEIL_1,
@@ -1366,7 +1369,7 @@ export const STORE_KATALOG_NACH_ID: ReadonlyMap<string, StoreEintrag> = new Map(
   STORE_KATALOG.map((e) => [e.id, e])
 );
 
-/** Prefabname → Katalogeintrag (nur die 569 setzbaren). */
+/** Prefabname → Katalogeintrag (nur die 572 setzbaren). */
 export const STORE_KATALOG_NACH_PREFAB: ReadonlyMap<StorePrefabName, StoreEintrag> = new Map(
   STORE_KATALOG.filter((e) => e.prefabName !== undefined).map((e) => [e.prefabName as string, e])
 );

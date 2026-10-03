@@ -444,6 +444,8 @@ function erstesWort(basis: string): string {
 function vegetationsUntergruppe(basis: string): string {
   if (/bush/.test(basis)) return 'Büsche';
   if (/^pine/.test(basis)) return 'Nadelbäume';
+  if (/^flower/.test(basis)) return 'Blumen';
+  if (/^fern/.test(basis)) return 'Farne';
   if (/tree/.test(basis)) return 'Bäume';
   if (/grass/.test(basis)) return 'Gras';
   if (/mushroom/.test(basis)) return 'Pilze';

@@ -1957,3 +1957,22 @@ if (ohneVorbild.size > 0) {
 } else {
   console.log('  ohne Vorbild: keines');
 }
+
+/*
+  Zum Schluss die drei Pflanzen aus dem Roh-Ordner des Speichers
+  (`assets/store/vegetation-roh/`), denn der Zielordner wurde oben
+  NEU aufgebaut und hat sie sonst nicht mehr. Nur beim echten Lauf in den
+  Standardordner: nicht bei `--nur-pruefen` und nicht bei einem
+  Probeziel (`--ziel`, so fährt `tools/test/store-vegetation.ts`).
+  Fehlt der Ordner, ist es eine Warnung und kein Abbruch.
+*/
+if (!NUR_PRUEFEN && ZIEL === resolve(WURZEL, ZIEL_STANDARD) && QUELLE === resolve(WURZEL, QUELLE_STANDARD)) {
+  console.log('');
+  try {
+    const { pflanzenHolen } = await import('./store-pflanzen-quellen.mjs');
+    pflanzenHolen();
+  } catch (e) {
+    // Der Rollout bricht wegen der Pflanzen nie ab (siehe Kopf von store-pflanzen-quellen.mjs).
+    console.warn(`[pflanzen-quellen] WARNUNG: unerwarteter Fehler — ${e.message}`);
+  }
+}

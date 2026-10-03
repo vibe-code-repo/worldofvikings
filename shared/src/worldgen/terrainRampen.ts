@@ -176,6 +176,51 @@ export function rampenTabelle(): readonly RampenSatz[] {
 }
 
 /**
+ * Ein Rampensatz in `ny` (Kosinus der Neigung), so wie Shader und CPU ihn
+ * rechnen: je Stufe der Beginn, die Breite (Beginn − Voll) und der Deckel.
+ */
+export interface RampeNy {
+  readonly hangB: number;
+  readonly hangW: number;
+  readonly felsB: number;
+  readonly felsW: number;
+  readonly felsA: number;
+  readonly rauB: number;
+  readonly rauW: number;
+  readonly rauA: number;
+}
+
+/** Ein einzelner Satz in `ny`. Rechnet genau wie die Bodenmischung vor K3 (gleiche Ausdruecke, gleiche Zahlen). */
+export function rampeNy(r: RampenSatz): RampeNy {
+  const hangB = nyBeiGrad(r.hang.beginn);
+  const hangV = nyBeiGrad(r.hang.voll);
+  const felsB = nyBeiGrad(r.fels.beginn);
+  const felsV = nyBeiGrad(r.fels.voll);
+  const rauB = nyBeiGrad(r.rau.beginn);
+  const rauV = nyBeiGrad(r.rau.voll);
+  return { hangB, hangW: hangB - hangV, felsB, felsW: felsB - felsV, felsA: r.fels.anteil, rauB, rauW: rauB - rauV, rauA: r.rau.anteil };
+}
+
+/**
+ * Die Rampe an einem Punkt: bilinear ueber die vier Eckgewichte gemischt,
+ * wie die Farbe (K3, N1). Tragen alle vier Ecken denselben Satz, gilt er
+ * unveraendert (keine Rechnung, damit die aelteren Biome Bit fuer Bit
+ * bleiben, was sie waren). Gemischt wird in `ny` und je Wert, nicht in Grad:
+ * ein Mittel aus `ny`-Werten ist stetig in den Gewichten und braucht im Shader
+ * keinen Kosinus je Bildpunkt.
+ *
+ * Without this, the ramp would jump where the dominant corner changes (a hard
+ * seam along the biome border); now it follows the corner weights.
+ */
+export function mischeRampen(saetze: readonly RampenSatz[], gewichte: readonly number[]): RampeNy {
+  const [s0, s1, s2, s3] = saetze;
+  if (s0 === s1 && s0 === s2 && s0 === s3) return rampeNy(s0!);
+  const n = saetze.map(rampeNy);
+  const m = (k: keyof RampeNy): number => n[0]![k] * gewichte[0]! + n[1]![k] * gewichte[1]! + n[2]![k] * gewichte[2]! + n[3]![k] * gewichte[3]!;
+  return { hangB: m('hangB'), hangW: m('hangW'), felsB: m('felsB'), felsW: m('felsW'), felsA: m('felsA'), rauB: m('rauB'), rauW: m('rauW'), rauA: m('rauA') };
+}
+
+/**
  * Hangneigung in Grad → `ny` der Normalen. Der Shader rechnet in `ny`,
  * geredet wird in Grad; diese Funktion ist die einzige Umrechnung.
  */

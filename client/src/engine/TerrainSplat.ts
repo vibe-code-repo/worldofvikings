@@ -73,8 +73,10 @@ import { Constants } from '@babylonjs/core/Engines/constants';
 import { Color3, Vector2, Vector3, Vector4 } from '@babylonjs/core/Maths/math';
 import type { Scene } from '@babylonjs/core/scene';
 
-import { TILE, TILE_ANZAHL, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, BODEN_REGELN } from '@wov/shared/src/worldgen/bodenKacheln.js';
-export { TILE, TILE_ANZAHL, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE };
+import {
+  TILE, TILE_ANZAHL, STAPEL_ZEILEN, TILE_ZEILE, STAPEL_VERSION, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, BODEN_REGELN, kachelFuerStapel,
+} from '@wov/shared/src/worldgen/bodenKacheln.js';
+export { TILE, TILE_ANZAHL, STAPEL_ZEILEN, TILE_ZEILE, STAPEL_VERSION, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, kachelFuerStapel };
 
 const TEX_BASE = '/assets/textures/';
 
@@ -214,9 +216,10 @@ export const SCHICHT_OBERFLAECHE: readonly SchichtOberflaeche[] = [
   /* 13 SwampDark */ { kachelMeter: 2, normalStaerke: 3, metallic: 0.75, smoothness: 0.1 },
   /* 14 Basalt    */ { kachelMeter: 7, normalStaerke: 2, metallic: 0, smoothness: 0 },
   /* 15 LavaCrust */ { kachelMeter: 2, normalStaerke: 0.7, metallic: 0, smoothness: 0.1 },
-  // Greyglen (K3): Gras (Ani Grass 2), Moos (Moss Dark), Fels (Rockwall 3)
-  // und rauer Fels (Rock_Moss mit eigener Normale), je Zeile die Werte der
-  // Quellschicht.
+  // Greyglen (K3): Gras, Moos, Fels und rauer Fels (eigene Normale), je Zeile
+  // die Werte der Quellschicht (Gras wie Kachel 0, Moos wie 11, Fels wie 4,
+  // rauer Fels wie 5 mit eigener Normale). Der Stapel hat dafuer keine eigenen
+  // Zeilen, siehe `TILE_ZEILE`.
   /* 16 GreyGrass    */ { kachelMeter: 2, normalStaerke: 2, metallic: 0.7, smoothness: 0 },
   /* 17 GreyMoss     */ { kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
   /* 18 GreyRock     */ { kachelMeter: 5, normalStaerke: 1.5, metallic: 0.2, smoothness: 0.2 },
@@ -285,8 +288,40 @@ const FELS_VOLL = nyBeiGrad(RAMPEN.fels.voll);
  * Zeilen des Texturstapels (`TILE_ANZAHL`) und seine Hoehe in Kacheln. Der
  * Altbestand-Stapel (`STORE_BODEN_AKTIV` aus) hat weiter 16 Zeilen.
  */
-const ATLAS_ZEILEN = STORE_BODEN_AKTIV ? TILE_ANZAHL : 16;
-const KACHEL_MAX = (ATLAS_ZEILEN - 1).toFixed(1);
+const ATLAS_ZEILEN = STAPEL_ZEILEN;
+/** Letzter gueltiger Kachel-Index in den GLSL-Tabellen (die Tabellen haben `TILE_ANZAHL` Zeilen). */
+const KACHEL_MAX = (TILE_ANZAHL - 1).toFixed(1);
+
+/**
+ * GLSL-Nachschlagetabelle aus einer Liste: `const float NAME[n] = float[n](…)`.
+ *
+ * Ziffern: Vorgabe 4 (`toFixed(4)`, wie alle Oberflaechentabellen seit jeher).
+ * `'exakt'` schreibt die volle Zahl (`String(w)`), so wie Babylon eine Konstante
+ * schreibt; die Felsrampe nutzt das, damit der Shader fuer die aelteren Biome
+ * dieselben Zahlen hat wie vor K3.
+ */
+export function glslTabelle(name: string, werte: readonly number[], ziffern: number | 'exakt' = 4): string[] {
+  const zahl = (w: number): string => (ziffern === 'exakt' ? (Number.isInteger(w) ? w.toFixed(1) : String(w)) : w.toFixed(ziffern));
+  return [
+    `const float ${name}[${werte.length}] = float[${werte.length}](`,
+    '  ' + werte.map(zahl).join(', '),
+    ');',
+  ];
+}
+
+/**
+ * Passt der geladene Stapel zum Code? Die Hoehe muss `STAPEL_ZEILEN` mal die Breite sein.
+ * Rein, damit ein Test sie prueft.
+ */
+export function stapelPasst(breite: number, hoehe: number): boolean {
+  return breite > 0 && hoehe === breite * STAPEL_ZEILEN;
+}
+
+let stapelBrauchbarFlag = true;
+/** Falsch, sobald ein Stapel geladen wurde, der nicht zum Code passt (oder gar nicht lud). */
+export function stapelBrauchbar(): boolean {
+  return stapelBrauchbarFlag;
+}
 
 /**
  * Weltmeter → Kachel-UV. `0.5` heisst: eine Wiederholung je 2 m.
@@ -862,7 +897,31 @@ export class TerrainSplatMaterial {
     const splatDatei = STORE_BODEN_AKTIV
       ? STORE_TEX_BASE + 'store_d_array.png'
       : TEX_BASE + 'terrain_d_array.png';
-    const splatTex = new Texture(splatDatei, scene, false, false, Texture.TRILINEAR_SAMPLINGMODE);
+    // Stapel-URL mit Layout-Version: ein Browser mit einem gemerkten Stapel
+    // eines anderen Layouts holt ihn neu. Der Stapel hat unveraendert
+    // `STAPEL_ZEILEN` Zeilen (siehe dort), die Version haelt nur den Fall fest,
+    // dass sich die Zeilenzuordnung (`TILE_ZEILE`) je aendert.
+    const stapelPruefen = (tex: Texture, was: string): void => {
+      const gr = tex.getSize();
+      const maxTex = scene.getEngine().getCaps().maxTextureSize;
+      if (!stapelPasst(gr.width, gr.height)) {
+        stapelBrauchbarFlag = false;
+        console.error(
+          `[terrain] ${was}: ${gr.width}x${gr.height} passt nicht zu ${STAPEL_ZEILEN} Zeilen (Layout ${STAPEL_VERSION}); ` +
+            'Greyglen-Kacheln fallen auf ihre Grasland-Entsprechungen zurueck. `npm run store:boden` baut den Stapel neu.'
+        );
+      } else if (maxTex && gr.height > maxTex) {
+        console.error(`[terrain] ${was}: ${gr.height} px hoch, die Grafikkarte laedt hoechstens ${maxTex} px.`);
+      }
+    };
+    const stapelFehler = (was: string) => (msg?: string): void => {
+      stapelBrauchbarFlag = false;
+      console.error(`[terrain] ${was} konnte nicht geladen werden (${msg ?? '?'}); Greyglen-Kacheln fallen auf Grasland zurueck.`);
+    };
+    const splatTex = new Texture(
+      `${splatDatei}?v=${STAPEL_VERSION}`, scene, false, false, Texture.TRILINEAR_SAMPLINGMODE,
+      () => stapelPruefen(splatTex, 'Farbstapel'), stapelFehler('Farbstapel')
+    );
     splatTex.anisotropicFilteringLevel = maxAniso;
     splatTex.wrapU = Texture.WRAP_ADDRESSMODE;
     splatTex.wrapV = Texture.CLAMP_ADDRESSMODE;
@@ -1027,7 +1086,8 @@ export class TerrainSplatMaterial {
     let normalQuelle: ImageSourceBlock | null = null;
     if (STORE_BODEN_AKTIV) {
       const nTex = new Texture(
-        STORE_TEX_BASE + 'store_n_array.png', scene, false, false, Texture.TRILINEAR_SAMPLINGMODE
+        `${STORE_TEX_BASE}store_n_array.png?v=${STAPEL_VERSION}`, scene, false, false, Texture.TRILINEAR_SAMPLINGMODE,
+        () => stapelPruefen(nTex, 'Normalenstapel'), stapelFehler('Normalenstapel')
       );
       nTex.anisotropicFilteringLevel = maxAniso;
       nTex.wrapU = Texture.WRAP_ADDRESSMODE;
@@ -1036,21 +1096,6 @@ export class TerrainSplatMaterial {
       normalQuelle.texture = nTex;
     }
 
-    /**
-     * GLSL-Nachschlagetabellen aus einer TypeScript-Liste.
-     *
-     * Ein `const float[16]` mit dynamischem Index ist in GLSL ES 3.00
-     * (unser WebGL2-Pfad) erlaubt und kostet keine Textur, keinen
-     * Sampler und kein Uniform. Erzeugt statt getippt, damit die Zahl im
-     * Shader dieselbe ist wie die in `SCHICHT_OBERFLAECHE` — eine von
-     * Hand nachgeführte Kopie wäre genau die Sorte Fehler, die niemand
-     * sieht, weil beide Fassungen für sich plausibel aussehen.
-     */
-    const glslTabelle = (name: string, werte: readonly number[]): string[] => [
-      `const float ${name}[${werte.length}] = float[${werte.length}](`,
-      '  ' + werte.map((w) => w.toFixed(4)).join(', '),
-      ');',
-    ];
     /**
      * Der UV-Faktor je Schicht: 2 m (die Kachelung des Splats, `uvScale`
      * 0.5) geteilt durch das Kachelmass der Schicht. Rauer Fels ist im
@@ -1073,8 +1118,16 @@ export class TerrainSplatMaterial {
             `float vbKachelFaktor_${suffix}(float tile) {`,
             `  return VB_KACHEL_${suffix}[int(clamp(tile, 0.0, ${KACHEL_MAX}) + 0.5)];`,
             '}',
+            // Welche Stapelzeile eine Kachel zeigt (`TILE_ZEILE`): mehr Kacheln als Zeilen.
+            ...glslTabelle(`VB_ZEILE_${suffix}`, TILE_ZEILE),
+            `float vbZeile_${suffix}(float tile) {`,
+            `  return VB_ZEILE_${suffix}[int(clamp(tile, 0.0, ${KACHEL_MAX}) + 0.5)];`,
+            '}',
           ]
-        : [`float vbKachelFaktor_${suffix}(float tile) { return 1.0; }`];
+        : [
+            `float vbKachelFaktor_${suffix}(float tile) { return 1.0; }`,
+            `float vbZeile_${suffix}(float tile) { return tile; }`,
+          ];
 
     /**
      * Die Gewichte der drei Projektionen, als GLSL — Zeile für Zeile
@@ -1220,8 +1273,20 @@ export class TerrainSplatMaterial {
         const fy = new MultiplyBlock(`tile_${name}_fy`);
         f.y.connectTo(fy.left);
         cnst(`tile_${name}_yinset`, 0.96).output.connectTo(fy.right);
+        // Kachel → Stapelzeile (`TILE_ZEILE`), auch im WebGPU-Pfad. Ein reiner
+        // Float-Block, ohne Sampler-Argument, und damit auch dort uebersetzbar.
+        const zeileBlock = new CustomBlock(`tile_${name}_zeile`);
+        zeileBlock.options = {
+          name: `tile_${name}_zeile`,
+          target: 'Fragment',
+          functionName: `vbZeileWgpu_${name}`,
+          inParameters: [{ name: 'tile', type: 'Float' }],
+          outParameters: [{ name: 'row', type: 'Float' }],
+          code: [...kachelGlsl(name), `void vbZeileWgpu_${name}(float tile, out float row) { row = vbZeile_${name}(tile); }`],
+        };
+        layerInput.connectTo((zeileBlock as unknown as Record<string, NodeMaterialConnectionPoint>).tile!);
         const layerInset = new AddBlock(`tile_${name}_layerInset`);
-        layerInput.connectTo(layerInset.left);
+        (zeileBlock as unknown as Record<string, NodeMaterialConnectionPoint>).row!.connectTo(layerInset.left);
         cnst(`tile_${name}_padding`, 0.02).output.connectTo(layerInset.right);
         const ySumme = new AddBlock(`tile_${name}_ySumme`);
         layerInset.output.connectTo(ySumme.left);
@@ -1285,7 +1350,7 @@ export class TerrainSplatMaterial {
             // in den Atlasraum skaliert.
             `vec3 vbEbene_${name}(sampler2D atlas, vec2 uvKont, vec2 ddx, vec2 ddy, float layer) {`,
             '  vec2 f = fract(uvKont);',
-            `  float y = (layer + 0.02 + f.y * 0.96) / ${ATLAS_ZEILEN}.0;`,
+            `  float y = (vbZeile_${name}(layer) + 0.02 + f.y * 0.96) / ${ATLAS_ZEILEN}.0;`,
             `  const float YS = 0.96 / ${ATLAS_ZEILEN}.0;`,
             '  vec3 c = textureGrad(atlas, vec2(f.x, y),',
             '                       vec2(ddx.x, ddx.y * YS),',
@@ -1403,7 +1468,7 @@ export class TerrainSplatMaterial {
           '  vec2 f = fract(uvKont);',
           // 0.02-Inset + 0.96-Stauchung halten das Sample innerhalb der
           // Tile-Zeile, damit die Nachbarzeile nicht hereinblutet.
-          `  float y = (layer + 0.02 + f.y * 0.96) / ${ATLAS_ZEILEN}.0;`,
+          `  float y = (vbZeile_${name}(layer) + 0.02 + f.y * 0.96) / ${ATLAS_ZEILEN}.0;`,
           `  const float YS = 0.96 / ${ATLAS_ZEILEN}.0;`,
           '  vec3 c = textureGrad(atlas, vec2(f.x, y),',
           '                       vec2(ddx.x, ddx.y * YS),',
@@ -1678,12 +1743,15 @@ export class TerrainSplatMaterial {
           // eigene Zeile tragen die Zahlen von `RAMPEN`.
           ...glslTabelle('VB_HANG_B', rampenSaetze.map((r) => nyBeiGrad(r.hang.beginn))),
           ...glslTabelle('VB_HANG_W', rampenSaetze.map((r) => nyBeiGrad(r.hang.beginn) - nyBeiGrad(r.hang.voll))),
-          ...glslTabelle('VB_FELS_B', rampenSaetze.map((r) => nyBeiGrad(r.fels.beginn))),
-          ...glslTabelle('VB_FELS_W', rampenSaetze.map((r) => nyBeiGrad(r.fels.beginn) - nyBeiGrad(r.fels.voll))),
-          ...glslTabelle('VB_FELS_A', rampenSaetze.map((r) => r.fels.anteil)),
+          // Die Felsrampe in voller Genauigkeit, wie sie vor K3 als Konstante stand.
+          ...glslTabelle('VB_FELS_B', rampenSaetze.map((r) => nyBeiGrad(r.fels.beginn)), 'exakt'),
+          ...glslTabelle('VB_FELS_W', rampenSaetze.map((r) => nyBeiGrad(r.fels.beginn) - nyBeiGrad(r.fels.voll)), 'exakt'),
+          ...glslTabelle('VB_FELS_A', rampenSaetze.map((r) => r.fels.anteil), 'exakt'),
           ...glslTabelle('VB_RAU_B', rampenSaetze.map((r) => nyBeiGrad(r.rau.beginn))),
           ...glslTabelle('VB_RAU_W', rampenSaetze.map((r) => nyBeiGrad(r.rau.beginn) - nyBeiGrad(r.rau.voll))),
           ...glslTabelle('VB_RAU_A', rampenSaetze.map((r) => r.rau.anteil)),
+          // Welche Zeilen denselben Satz tragen (Kennung = erste Kachel mit diesem Satz).
+          ...glslTabelle('VB_RAMPE_ID', rampenSaetze.map((r) => rampenSaetze.indexOf(r))),
           'void vbHangWahl(vec4 tiles, vec4 weights, float ny,',
           '                out float hangTile, out float rauTile,',
           '                out float hangK, out float rauK, out float felsK) {',
@@ -1699,12 +1767,30 @@ export class TerrainSplatMaterial {
           `  int i = int(clamp(t, 0.0, ${KACHEL_MAX}) + 0.5);`,
           '  hangTile = VB_HANG[i];',
           '  rauTile = VB_RAU[i];',
-          '  hangK = clamp((VB_HANG_B[i] - ny) / VB_HANG_W[i], 0.0, 1.0);',
-          '  felsK = clamp((VB_FELS_B[i] - ny) / VB_FELS_W[i], 0.0, 1.0) * VB_FELS_A[i];',
+          // Die RAMPEN dagegen folgen den Eckgewichten wie die Farbe (K3, N1):
+          // tragen alle vier Ecken denselben Satz, gilt er unveraendert (die
+          // aelteren Biome), sonst das gewichtete Mittel. So springt die
+          // Rampe an einer Biomgrenze nicht.
+          `  int i0 = int(clamp(tiles.x, 0.0, ${KACHEL_MAX}) + 0.5);`,
+          `  int i1 = int(clamp(tiles.y, 0.0, ${KACHEL_MAX}) + 0.5);`,
+          `  int i2 = int(clamp(tiles.z, 0.0, ${KACHEL_MAX}) + 0.5);`,
+          `  int i3 = int(clamp(tiles.w, 0.0, ${KACHEL_MAX}) + 0.5);`,
+          '  float hb; float hw; float fb; float fw; float fa; float rb; float rw; float ra;',
+          '  if (VB_RAMPE_ID[i0] == VB_RAMPE_ID[i1] && VB_RAMPE_ID[i0] == VB_RAMPE_ID[i2] && VB_RAMPE_ID[i0] == VB_RAMPE_ID[i3]) {',
+          '    hb = VB_HANG_B[i0]; hw = VB_HANG_W[i0]; fb = VB_FELS_B[i0]; fw = VB_FELS_W[i0]; fa = VB_FELS_A[i0];',
+          '    rb = VB_RAU_B[i0]; rw = VB_RAU_W[i0]; ra = VB_RAU_A[i0];',
+          '  } else {',
+          ...['HANG_B', 'HANG_W', 'FELS_B', 'FELS_W', 'FELS_A', 'RAU_B', 'RAU_W', 'RAU_A'].map((n) => {
+            const v = { HANG_B: 'hb', HANG_W: 'hw', FELS_B: 'fb', FELS_W: 'fw', FELS_A: 'fa', RAU_B: 'rb', RAU_W: 'rw', RAU_A: 'ra' }[n]!;
+            return `    ${v} = VB_${n}[i0] * weights.x + VB_${n}[i1] * weights.y + VB_${n}[i2] * weights.z + VB_${n}[i3] * weights.w;`;
+          }),
+          '  }',
+          '  hangK = clamp((hb - ny) / hw, 0.0, 1.0);',
+          '  felsK = clamp((fb - ny) / fw, 0.0, 1.0) * fa;',
           // Der Deckel: `rau` deckte bis zum 10.09.2026 VOLL, und damit
           // stand jede Wand über 50° auf reinem Fels. Das Vorbild hat
           // dort 0,425 — die Begründung steht bei `RAMPEN`.
-          '  rauK = clamp((VB_RAU_B[i] - ny) / VB_RAU_W[i], 0.0, 1.0) * VB_RAU_A[i];',
+          '  rauK = clamp((rb - ny) / rw, 0.0, 1.0) * ra;',
           '}',
         ],
       };

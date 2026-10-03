@@ -33,7 +33,7 @@
  */
 import { Biome } from '../types.js';
 import { WATER_LEVEL, ZONE_UNITS } from './Heightmap.js';
-import { rampenFuerKachel, nyBeiGrad } from './terrainRampen.js';
+import { rampenFuerKachel, mischeRampen } from './terrainRampen.js';
 import { felsMaskeShaderBei } from './felsRauschen.js';
 import { TILE, TILE_ANZAHL, BIOME_TILE, HANG_TILE, FELS_TILE, RAU_TILE, BODEN_REGELN } from './bodenKacheln.js';
 
@@ -180,28 +180,17 @@ function mischungKern<K extends string>(
   for (let i = 1; i < 4; i++) if (gewichte[i] >= gewichte[dom]) dom = i;
   const domKachel = kacheln[dom];
 
-  // 3. Hangkachel, 4. mittlerer Fels, 5. rauer Fels. Welche Rampe gilt,
-  // sagt die dominante Kachel (`RAMPEN_JE_KACHEL`), wie im Shader.
-  const r = rampenFuerKachel(domKachel);
-  const hangBeginn = nyBeiGrad(r.hang.beginn);
-  const hangVoll = nyBeiGrad(r.hang.voll);
-  const felsBeginn = nyBeiGrad(r.fels.beginn);
-  const felsVoll = nyBeiGrad(r.fels.voll);
-  const rauBeginn = nyBeiGrad(r.rau.beginn);
-  const rauVoll = nyBeiGrad(r.rau.voll);
+  // 3. Hangkachel, 4. mittlerer Fels, 5. rauer Fels. Die Rampe ist ueber die
+  // vier Eckgewichte gemischt (`mischeRampen`), wie im Shader; haben alle Ecken
+  // denselben Satz, gilt er unveraendert.
+  const r = mischeRampen(kacheln.map(rampenFuerKachel), gewichte);
   const maske = felsMaskeShaderBei(x, z);
   const biom = hm.getBiome(x, z);
 
-  lege(v.kachel(HANG_TILE[domKachel]), klemme((hangBeginn - ny) / (hangBeginn - hangVoll)));
+  lege(v.kachel(HANG_TILE[domKachel]), klemme((r.hangB - ny) / r.hangW));
   const felsKachel = FELS_TILE[BIOME_TILE[biom] ?? TILE.Rock] ?? TILE.Rock;
-  lege(
-    v.kachel(felsKachel),
-    klemme((felsBeginn - ny) / (felsBeginn - felsVoll)) * r.fels.anteil * maske,
-  );
-  lege(
-    v.kachel(RAU_TILE[domKachel]),
-    klemme((rauBeginn - ny) / (rauBeginn - rauVoll)) * r.rau.anteil * maske,
-  );
+  lege(v.kachel(felsKachel), klemme((r.felsB - ny) / r.felsW) * r.felsA * maske);
+  lege(v.kachel(RAU_TILE[domKachel]), klemme((r.rauB - ny) / r.rauW) * r.rauA * maske);
 
   // 6. Schnee.
   const schnee =

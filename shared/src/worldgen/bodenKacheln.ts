@@ -14,13 +14,64 @@ export const TILE = {
   Grass: 0, Forest: 1, Dirt: 2, Cleared: 3, Rock: 4, Cliff: 5, LavaEmber: 6,
   Ash: 7, Heath: 8, Sand: 9, SwampMud: 10, Moss: 11, Paved: 12,
   SwampDark: 13, Basalt: 14, LavaCrust: 15,
-  // Greyglen (Bit 128): eigene Kachelreihen, damit Grund, Hang und Fels
-  // des Bioms ihre eigene Rampe tragen koennen (`RAMPEN_JE_KACHEL`).
+  // Greyglen (Bit 128): eigene Kacheln, damit Grund, Hang und Fels des
+  // Bioms ihre eigene Rampe tragen koennen (`RAMPEN_JE_KACHEL`).
   GreyGrass: 16, GreyMoss: 17, GreyRock: 18, GreyRockMoss: 19,
 } as const;
 
-/** Anzahl der Kacheln im Stapel (Zeilen von `store_d_array.png`). */
+/** Anzahl der Kacheln (Tile-Indizes 0 … 19). */
 export const TILE_ANZAHL = 20;
+
+/**
+ * Zeilen des Texturstapels (`store_d_array.png`, `store_n_array.png`).
+ *
+ * Bleibt bei 16, obwohl es 20 Kacheln gibt: Der Stapel ist 512 px breit und
+ * 8192 px hoch, und 20 Zeilen waeren 10240 px, mehr als jede GPU mit
+ * `MAX_TEXTURE_SIZE` 8192 laedt. Die vier Greyglen-Kacheln zeigen deshalb auf
+ * Zeilen, die es schon gibt (`TILE_ZEILE`). Damit bleibt die Datei Zeile fuer
+ * Zeile die alte: ein alter Client liest einen neuen Stapel richtig und ein
+ * neuer Client einen alten.
+ */
+export const STAPEL_ZEILEN = 16;
+
+/**
+ * Welche Stapelzeile eine Kachel zeigt.
+ *
+ *  - Kachel 6 (`LavaEmber`) teilt sich Zeile 5 mit `Cliff`: beide tragen
+ *    dieselbe Farbkarte, dieselbe Normale und dieselben Oberflaechenwerte.
+ *  - Greyglen: Gras → Zeile 0, Moos → Zeile 11, Fels → Zeile 4. Dieselben
+ *    Quellkarten, sie brauchen keine eigene Zeile. Der raue Fels (19) nimmt die
+ *    dadurch frei gewordene Zeile 6: dieselbe Farbkarte wie Zeile 5, aber mit
+ *    der eigenen Normalkarte.
+ *
+ * Aenderst du diese Tabelle oder die Zeilenquellen im Werkzeug, erhoehe
+ * `STAPEL_VERSION`.
+ */
+export const TILE_ZEILE: readonly number[] = [
+  0, 1, 2, 3, 4, 5, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, // 0-15
+  0, 11, 4, 6, // 16-19 Greyglen
+];
+
+/**
+ * Version des Stapel-Layouts. Haengt als Abfrageparameter an der Stapel-URL
+ * (bricht den Browser-Cache) und steht in `store-schichten.json`; die Test-
+ * Datei haelt Werkzeug und Code auf derselben Zahl.
+ */
+export const STAPEL_VERSION = 2;
+
+/**
+ * Rueckfall, wenn der Stapel nicht zum Code passt: jede Greyglen-Kachel auf
+ * ihre Entsprechung im Grasland, alle anderen unveraendert.
+ */
+export const KACHEL_RUECKFALL: readonly number[] = [
+  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+  TILE.Grass, TILE.Moss, TILE.Rock, TILE.Cliff,
+];
+
+/** Die Kachel, die ein Chunk wirklich bekommt: unveraendert, oder bei unbrauchbarem Stapel der Rueckfall. */
+export function kachelFuerStapel(kachel: number, stapelBrauchbar: boolean): number {
+  return stapelBrauchbar ? kachel : (KACHEL_RUECKFALL[kachel] ?? kachel);
+}
 
 /** Biome-Enum-Wert → Tile (Biome aus shared/types.ts). */
 export const BIOME_TILE: Record<number, number> = {

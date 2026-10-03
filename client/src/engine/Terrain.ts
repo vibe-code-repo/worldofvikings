@@ -43,7 +43,7 @@ import {
 } from '@wov/shared';
 import { BODEN_REGELN } from '@wov/shared/src/worldgen/bodenKacheln.js';
 import type { ClientWorld } from '../world/World';
-import { TerrainSplatMaterial, TILE, BIOME_TILE, FELS_TILE, maskUV, maskUVEmpty } from './TerrainSplat';
+import { TerrainSplatMaterial, TILE, BIOME_TILE, FELS_TILE, kachelFuerStapel, stapelBrauchbar, maskUV, maskUVEmpty } from './TerrainSplat';
 import type { HimmelsFarben } from './TerrainSplat';
 import { WaterPlugin } from './WaterPlugin';
 import { WaterRefraction } from './WaterRefraction';
@@ -1458,6 +1458,8 @@ export class TerrainManager {
         const biome = hm.getBiome(wx, wz);
         const tx = sstep(rx / ZONE_UNITS);
         const cb = hm.cornerBiomes;
+        // Passt der Texturstapel nicht zum Code, bekommen die Greyglen-Kacheln ihre Grasland-Entsprechung (K3).
+        const stapelOk = stapelBrauchbar();
 
         // D5 fallback vertex colors (biome + sand/rock/snow/depth rules)
         const bc = BIOME_COLORS[biome] ?? COLOR_FALLBACK;
@@ -1481,10 +1483,10 @@ export class TerrainManager {
           const k = Math.min(1, (ROCK_SLOPE - ny) / 0.25);
           blend(colors, vi, ROCK, k * 0.85);
         }
-        aTiles[vi * 4] = BIOME_TILE[cb[0]] ?? TILE.Rock;
-        aTiles[vi * 4 + 1] = BIOME_TILE[cb[1]] ?? TILE.Rock;
-        aTiles[vi * 4 + 2] = BIOME_TILE[cb[2]] ?? TILE.Rock;
-        aTiles[vi * 4 + 3] = BIOME_TILE[cb[3]] ?? TILE.Rock;
+        aTiles[vi * 4] = kachelFuerStapel(BIOME_TILE[cb[0]] ?? TILE.Rock, stapelOk);
+        aTiles[vi * 4 + 1] = kachelFuerStapel(BIOME_TILE[cb[1]] ?? TILE.Rock, stapelOk);
+        aTiles[vi * 4 + 2] = kachelFuerStapel(BIOME_TILE[cb[2]] ?? TILE.Rock, stapelOk);
+        aTiles[vi * 4 + 3] = kachelFuerStapel(BIOME_TILE[cb[3]] ?? TILE.Rock, stapelOk);
         aWeights[vi * 4] = (1 - tx) * (1 - ty);
         aWeights[vi * 4 + 1] = tx * (1 - ty);
         aWeights[vi * 4 + 2] = (1 - tx) * ty;
@@ -1509,7 +1511,7 @@ export class TerrainManager {
         // Art Tabelle wie `HANG_TILE`/`RAU_TILE` und wie diese über die
         // GRUNDKACHEL des Bioms indiziert, damit alle drei Stufen aus
         // einer Reihe kommen.
-        aRockTile[vi] = FELS_TILE[BIOME_TILE[biome] ?? TILE.Rock] ?? TILE.Rock;
+        aRockTile[vi] = kachelFuerStapel(FELS_TILE[kachelFuerStapel(BIOME_TILE[biome] ?? TILE.Rock, stapelOk)] ?? TILE.Rock, stapelOk);
 
         if (farMaskUV) {
           aMaskUV[vi * 2] = farMaskUV[0];

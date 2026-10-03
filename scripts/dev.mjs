@@ -42,7 +42,7 @@
  * not a hard stop — the client still starts, just without models.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -51,6 +51,28 @@ const WURZEL = resolve(HIER, '..');
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 // ── 1. Asset-Paket, falls es fehlt ───────────────────────────────────────
+
+/**
+ * Ist der gebaute Texturstapel aelter als der Code? `store-schichten.json` nennt
+ * die Layout-Version und die Zeilenzahl, mit denen der Stapel gebaut wurde;
+ * weichen sie vom Werkzeug ab (oder fehlt die Datei), baut `store:boden` neu.
+ * Vorher genuegte „`assets/generiert` ist da": wer den Ordner per rsync von
+ * einem anderen Stand geholt hatte, bekam still einen Stapel, der nicht zum Code
+ * passte (K3).
+ */
+function stapelVeraltet() {
+  try {
+    const datei = resolve(WURZEL, 'assets/generiert/terrain/store-schichten.json');
+    if (!existsSync(datei)) return true;
+    const tabelle = JSON.parse(readFileSync(datei, 'utf-8'));
+    const quelle = readFileSync(resolve(WURZEL, 'tools/store-terrain-schichten.mjs'), 'utf-8');
+    const version = Number(/export const STAPEL_VERSION = (\d+);/.exec(quelle)?.[1]);
+    const zeilen = Number(/const ZEILEN = (\d+);/.exec(quelle)?.[1]);
+    return tabelle.version !== version || tabelle.zeilen !== zeilen;
+  } catch {
+    return true;
+  }
+}
 
 function assetsVorbereiten() {
   const modelle = resolve(WURZEL, 'assets/models');
@@ -70,7 +92,7 @@ function assetsVorbereiten() {
 
   const storeLab = resolve(WURZEL, 'assets/store-lab');
   const generiert = resolve(WURZEL, 'assets/generiert');
-  if (existsSync(resolve(WURZEL, 'assets/store')) && (!existsSync(storeLab) || !existsSync(generiert))) {
+  if (existsSync(resolve(WURZEL, 'assets/store')) && (!existsSync(storeLab) || !existsSync(generiert) || stapelVeraltet())) {
     console.log('[dev] assets/store-lab oder assets/generiert fehlt — bereite die Store-Vegetation auf …');
     for (const script of ['store:aufbereiten', 'store:boden']) {
       const ergebnis = spawnSync(npm, ['run', script], { stdio: 'inherit', cwd: WURZEL });

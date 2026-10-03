@@ -62,6 +62,8 @@ import {
   nyBeiGrad,
   TILE,
   TILE_ANZAHL,
+  STAPEL_ZEILEN,
+  TILE_ZEILE,
   BIOME_TILE,
   HIMMEL_IRRADIANZ,
   himmelIrradianzGewichte,
@@ -235,8 +237,8 @@ const tab = tabelle(512) as { tiles: { tile: number; name: string; quelle: strin
   }
 }
 check(
-  'das Werkzeug beschreibt genau 20 Tiles (TILE_ANZAHL) — so viele hat der Stapel',
-  tab.tiles.length === TILE_ANZAHL && SCHICHT_OBERFLAECHE.length === TILE_ANZAHL && tab.zeilen === TILE_ANZAHL,
+  'das Werkzeug beschreibt genau 20 Kacheln (TILE_ANZAHL) auf einem Stapel von STAPEL_ZEILEN Zeilen',
+  tab.tiles.length === TILE_ANZAHL && SCHICHT_OBERFLAECHE.length === TILE_ANZAHL && tab.zeilen === STAPEL_ZEILEN,
   `${String(tab.tiles.length)} / ${String(SCHICHT_OBERFLAECHE.length)}`
 );
 const abweichungen: string[] = [];
@@ -684,7 +686,7 @@ check(
 {
   const messProgramm = `
     const sharp = require('sharp');
-    const K = 256, ZEILEN = 20;
+    const K = 256, ZEILEN = 16;
     (async () => {
       const b = await sharp(process.argv[1]).raw().toBuffer();
       const lin = (v) => { const s = v / 255; return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
@@ -810,31 +812,32 @@ function irradianzStumpf(ny: number): { wH: number; wZ: number } {
 }
 
 /*
-  Die Normale des rauen Felses von Greyglen (Zeile 19): Im gebauten Normalen-Stapel
-  steht genau die Datei, die `store-schichten.json` als benutzt nennt (die eigene
-  Rock_Moss-Normale, solange sie fehlt der benannte Ersatz). Ein Stapel, der eine
-  andere Normale traegt, als die Tabelle behauptet, sieht richtig aus und ist es nicht.
+  Die Normale des rauen Felses von Greyglen (Kachel 19, Stapelzeile 6): Im gebauten
+  Normalen-Stapel steht in dieser Zeile genau die Datei, die `store-schichten.json`
+  als benutzt nennt (die eigene Normale, solange sie fehlt der benannte Ersatz). Ein
+  Stapel, der eine andere Normale traegt, als die Tabelle behauptet, sieht richtig
+  aus und ist es nicht.
 */
 {
-  const n19 = (tabelle(256) as { tiles: Array<{ normale: string; normaleOrt?: string | null }> }).tiles[19]!;
+  const n19 = (tabelle(256) as { tiles: Array<{ zeile: number; normale: string; normaleOrt?: string | null }> }).tiles[19]!;
   const ordner = n19.normaleOrt === 'labor' ? 'assets/store-lab/textures' : 'assets/store/textures';
   const programm = `
     const sharp = require('sharp');
     (async () => {
-      const K = 256;
+      const K = 256, Z = Number(process.argv[3]);
       const stapel = await sharp(process.argv[1]).raw().toBuffer();
       const quelle = await sharp(process.argv[2]).removeAlpha().resize(K, K, { kernel: 'lanczos3', fit: 'fill' }).raw().toBuffer();
-      const zeile = stapel.subarray(19 * K * K * 3, 20 * K * K * 3);
+      const zeile = stapel.subarray(Z * K * K * 3, (Z + 1) * K * K * 3);
       process.stdout.write(String(Buffer.compare(zeile, quelle) === 0));
     })();
   `;
-  const m = spawnSync(process.execPath, ['-e', programm, join(AUS, 'store_n_array.png'), join(WURZEL, ordner, `${n19.normale}.png`)], {
+  const m = spawnSync(process.execPath, ['-e', programm, join(AUS, 'store_n_array.png'), join(WURZEL, ordner, `${n19.normale}.png`), String(TILE_ZEILE[19])], {
     cwd: WURZEL,
     encoding: 'utf-8',
   });
   check(
-    'Zeile 19 des Normalen-Stapels ist die Normale, die die Tabelle nennt',
-    m.stdout === 'true',
+    `Zeile ${String(TILE_ZEILE[19])} des Normalen-Stapels ist die Normale der Kachel 19, die die Tabelle nennt`,
+    m.stdout === 'true' && n19.zeile === TILE_ZEILE[19],
     `${n19.normale} (${n19.normaleOrt ?? '—'}) ${m.stderr.slice(0, 120)}`
   );
 }

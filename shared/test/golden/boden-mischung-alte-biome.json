@@ -10,6 +10,7 @@
     "256": "414d3151756149f8cd5dc7a1918fef5354be1a6592da6091346c1105f6616f13",
     "512": "290fe268ac0c966fc35227add15a64a72edaf7ecea0a9d5e4e43c2c04410f092"
   },
+  "gemischt": "d72ea928c28148441766b6b9801bcdfdee48e7fed1db1917718537d7a7244800",
   "tabellen": {
     "biomTile": {
       "1": 0,
@@ -120,6 +121,35 @@
       "schneeNyKante0": 0.4,
       "schneeNyKante1": 0.65,
       "lavaAnteil": 0.9
+    }
+  },
+  "stapel": {
+    "zeilen": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      5,
+      7,
+      8,
+      3,
+      1,
+      11,
+      3,
+      2,
+      5,
+      7
+    ],
+    "felsSchicht": {
+      "farbe": "terrain-rock-moss",
+      "farbeErsatz": "terrain-rock-rough",
+      "normale": "terrain-rock-rough-normal",
+      "kachelMeter": 7,
+      "normalStaerke": 2,
+      "metallic": 0,
+      "smoothness": 0
     }
   }
 }

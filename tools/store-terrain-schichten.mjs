@@ -6,8 +6,8 @@
  * (NUR lesend — der Store liegt ausserhalb des Repos) und baut daraus die
  * zwei Stapel, die `client/src/engine/TerrainSplat.ts` sampelt:
  *
- *   assets/generiert/terrain/store_d_array.png   Farbe,  20 Zeilen à K²
- *   assets/generiert/terrain/store_n_array.png   Normale, 20 Zeilen à K²
+ *   assets/generiert/terrain/store_d_array.png   Farbe,  16 Zeilen à K²
+ *   assets/generiert/terrain/store_n_array.png   Normale, 16 Zeilen à K²
  *   assets/generiert/terrain/store-schichten.json  die Tabelle dazu
  *
  * `assets/` ist gitignored; die Dateien entstehen neu, wenn man das
@@ -177,11 +177,21 @@ function farbQuelle(s) {
 /** Zeilen des Altbestand-Stapels — 16 Kacheln à 256², oben beginnend. */
 const ALT_KANTE = 256;
 /**
- * Zeilen des Store-Stapels. 16 stammen aus dem Altbestand-Layout, die
- * Zeilen 16–19 gehören dem Biom Greyglen (`TILE.GreyGrass` … `GreyRockMoss`
- * in `shared/src/worldgen/bodenKacheln.ts`, `TILE_ANZAHL`).
+ * Zeilen des Store-Stapels: 16, auch mit 20 Kacheln (`TILE_ANZAHL`). Der Stapel
+ * bleibt 8192 px hoch (bei 512 px Kante), damit jede GPU mit `MAX_TEXTURE_SIZE`
+ * 8192 ihn laedt; die Kacheln 16-19 (Greyglen) zeigen auf Zeilen, die es gibt
+ * (`TILE_ZEILE` in `shared/src/worldgen/bodenKacheln.ts`, hier als `zeile` in
+ * `ZUORDNUNG`). Die Datei ist dadurch Zeile fuer Zeile die alte.
  */
-const ZEILEN = 20;
+const ZEILEN = 16;
+
+/**
+ * Version des Stapel-Layouts; muss `STAPEL_VERSION` in `bodenKacheln.ts`
+ * entsprechen (haelt `tools/test/boden-greyglen.ts` fest). Steht in
+ * `store-schichten.json`; `scripts/dev.mjs` baut den Stapel neu, wenn sie fehlt
+ * oder abweicht.
+ */
+export const STAPEL_VERSION = 2;
 
 /**
  * Die Schichten, wie sie im Store liegen, mit den Werten des VORBILDS
@@ -250,14 +260,14 @@ export const SCHICHTEN = {
   */
   moss: { farbe: 'terrain-moss-dark', farbeErsatz: 'terrain-moss', normale: 'terrain-moss-normal', kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
   /*
-    Der raue Fels des Bioms Greyglen (Tile 19): dieselbe Farbkarte wie
-    `rock-rough`, aber MIT der eigenen Normalkarte (`terrain-rock-moss-normal`).
-    Die Normale liegt noch nicht im Speicher (sie wird per rsync nach
-    `assets/store/textures/` kopiert); bis dahin traegt die Zeile die
-    Normale von `rock-rough` als benannten Ersatz (`normaleErsatz`), und
-    `store-schichten.json` schreibt mit, welche der beiden sie wirklich hat.
+    Der raue Fels des Bioms Greyglen (Kachel 19, Stapelzeile 6): dieselbe
+    Farbkarte wie `rock-rough`, aber MIT der eigenen Normalkarte
+    (`terrain-rock-moss-normal`). Die Normale liegt noch nicht im Speicher (sie
+    wird per rsync nach `assets/store/textures/` kopiert); bis dahin traegt die
+    Zeile die Normale von `rock-rough` als benannten Ersatz (`normaleErsatz`),
+    und `store-schichten.json` schreibt mit, welche der beiden sie wirklich hat.
   */
-  'rock-moss-grey': { farbe: 'terrain-rock-moss', farbeErsatz: 'terrain-rock-rough', normale: 'terrain-rock-moss-normal', normaleErsatz: 'terrain-rock-rough-normal', kachelMeter: 7, normalStaerke: 2, metallic: 0, smoothness: 0 },
+  'rock-moss': { farbe: 'terrain-rock-moss', farbeErsatz: 'terrain-rock-rough', normale: 'terrain-rock-moss-normal', normaleErsatz: 'terrain-rock-rough-normal', kachelMeter: 7, normalStaerke: 2, metallic: 0, smoothness: 0 },
 };
 
 /**
@@ -312,7 +322,8 @@ export const ZUORDNUNG = [
   /* 3  Cleared    */ { name: 'Cleared', schicht: 'gravel-path', toenung: [1, 1, 1] },
   /* 4  Rock       */ { name: 'Rock', schicht: 'rock-a', toenung: [1, 1, 1] },
   /* 5  Cliff      */ { name: 'Cliff', schicht: 'rock-rough', toenung: [1, 1, 1] },
-  /* 6  LavaEmber  */ { name: 'LavaEmber', schicht: 'rock-rough', toenung: [1, 1, 1] },
+  // Kachel 6 teilt sich Zeile 5 mit Cliff (gleiche Karte, gleiche Werte); ihre eigene Zeile gehoert Kachel 19.
+  /* 6  LavaEmber  */ { name: 'LavaEmber', schicht: 'rock-rough', zeile: 5, toenung: [1, 1, 1] },
   /* 7  Ash        */ { name: 'Ash', altbestand: true },
   /* 8  Heath      */ { name: 'Heath', schicht: 'grass-b', toenung: [1, 1, 1] },
   /* 9  Sand       */ { name: 'Sand', schicht: 'gravel-path', toenung: [1, 1, 1] },
@@ -322,15 +333,31 @@ export const ZUORDNUNG = [
   /* 13 SwampDark  */ { name: 'SwampDark', schicht: 'gravel', toenung: [1, 1, 1] },
   /* 14 Basalt     */ { name: 'Basalt', schicht: 'rock-rough', toenung: [1, 1, 1] },
   /* 15 LavaCrust  */ { name: 'LavaCrust', altbestand: true },
-  // Greyglen (K3). Gras = Ani Grass 2, Moos = Moss Dark, Fels = Rockwall 3
-  // (dieselben Quellkarten wie die Zeilen 0, 11 und 4), rauer Fels = Rock_Moss
-  // mit eigener Normale. Eigene Zeilen, damit die Rampen JE GRUNDKACHEL
-  // (`RAMPEN_JE_KACHEL`) an einem eigenen Tile-Index haengen.
-  /* 16 GreyGrass    */ { name: 'GreyGrass', schicht: 'grass-a', toenung: [1, 1, 1] },
-  /* 17 GreyMoss     */ { name: 'GreyMoss', schicht: 'moss-village', toenung: [1, 1, 1] },
-  /* 18 GreyRock     */ { name: 'GreyRock', schicht: 'rock-a', toenung: [1, 1, 1] },
-  /* 19 GreyRockMoss */ { name: 'GreyRockMoss', schicht: 'rock-moss-grey', toenung: [1, 1, 1] },
+  // Greyglen (K3): eigene Kacheln fuer Grund, Hang, Fels und rauen Fels, damit die
+  // Rampen JE GRUNDKACHEL (`RAMPEN_JE_KACHEL`) an einem eigenen Index haengen. Sie
+  // zeigen auf Stapelzeilen (`zeile`): Gras auf die Grasschicht der Kachel 0, Moos auf
+  // die der Kachel 11, Fels auf die der Kachel 4 (dieselben Quellkarten, keine eigene
+  // Zeile noetig). Der raue Fels bekommt die von Kachel 6 frei gemachte Zeile 6:
+  // dieselbe Farbkarte wie Zeile 5, aber seine eigene Normale (`ueberschreibt`: die
+  // Zeile 6 wird aus dieser Kachel gebaut).
+  /* 16 GreyGrass    */ { name: 'GreyGrass', schicht: 'grass-a', zeile: 0, toenung: [1, 1, 1] },
+  /* 17 GreyMoss     */ { name: 'GreyMoss', schicht: 'moss-village', zeile: 11, toenung: [1, 1, 1] },
+  /* 18 GreyRock     */ { name: 'GreyRock', schicht: 'rock-a', zeile: 4, toenung: [1, 1, 1] },
+  /* 19 GreyRockMoss */ { name: 'GreyRockMoss', schicht: 'rock-moss', zeile: 6, ueberschreibt: true, toenung: [1, 1, 1] },
 ];
+
+/** Die Stapelzeile einer Kachel: ihr eigener Index, oder das `zeile` ihrer Zuordnung. */
+export function zeileVon(kachel) {
+  return ZUORDNUNG[kachel].zeile ?? kachel;
+}
+
+/**
+ * Aus welcher Zuordnung die Stapelzeile `zeile` gebaut wird: aus der Kachel mit
+ * diesem Index, ausser eine Kachel `ueberschreibt` die Zeile (Kachel 19 fuer Zeile 6).
+ */
+export function zeilenQuelle(zeile) {
+  return ZUORDNUNG.find((z, i) => i >= ZEILEN && z.ueberschreibt && z.zeile === zeile) ?? ZUORDNUNG[zeile];
+}
 
 /**
  * Normalmap-Zeile für die zwei Altbestand-Kacheln.
@@ -415,12 +442,14 @@ export function tabelle(kante) {
   return {
     kante,
     zeilen: ZEILEN,
+    version: STAPEL_VERSION,
     /** Weltmeter, die eine Wiederholung im Splat heute abdeckt (uvScale 0.5). */
     grundKachelMeter: 2,
     tiles: ZUORDNUNG.map((z, i) => {
       if (z.altbestand) {
         return {
           tile: i,
+          zeile: zeileVon(i),
           name: z.name,
           quelle: 'altbestand',
           kachelMeter: 2,
@@ -435,6 +464,7 @@ export function tabelle(kante) {
       const nq = normalQuelle(s);
       return {
         tile: i,
+        zeile: zeileVon(i),
         name: z.name,
         quelle: z.schicht,
         // Die WIRKLICH benutzte Karte, nicht die gewuenschte — sonst
@@ -475,7 +505,7 @@ async function baue(kante) {
   const zeilenBytes = kante * kante * 3;
 
   for (let i = 0; i < ZEILEN; i++) {
-    const z = ZUORDNUNG[i];
+    const z = zeilenQuelle(i);
     if (z.altbestand) {
       (await altZeile(altArray, i, kante)).copy(farbe, i * zeilenBytes);
       (await laden(resolve(ALTBESTAND, `${ALT_NORMALE[i]}.png`), kante)).copy(normale, i * zeilenBytes);

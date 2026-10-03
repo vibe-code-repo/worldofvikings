@@ -16,7 +16,7 @@ import { randomBytes } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { weltArbeitsOrdner } from '../instanz.js';
 import { layoutHash, layoutSichern, layoutUnterSperre } from '../worldlayout/layoutDatei.js';
-import { leseGegenstandsDatei, schreibeGegenstandsDatei, type GegenstandsEintrag } from './gegenstandsDaten.js';
+import { ernteFehlt as ernteFehltRoh, leseGegenstandsDatei, mitGeerbterErnte, schreibeGegenstandsDatei, type GegenstandsEintrag } from './gegenstandsDaten.js';
 
 /** Fixed file names. The data are the same for every instance, so no instance name in them. */
 export const GEGENSTAENDE_DATEI = 'gegenstaende.json';
@@ -335,17 +335,25 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   let basisKanon: Map<string, string> | null = null;
   // The entries of the repo state the old (hash only) basis stands for, when it is known: what decides the transition (below).
   let basisEintraege: Map<string, GegenstandsEintrag> | null = null;
+  // The entries of ANY known basis state (full, history, rebuilt, or the repo when the hash equals it): to read a missing `ernte` of an
+  // entry like the game does (it inherits the harvest of THAT state's entry when the file is compared with that state).
+  let basisAlle: Map<string, GegenstandsEintrag> | null = null;
   let dateiIstBasis = false;
   let basisUnbekannt = false;
-  if (basis !== null && basis.text !== null) basisKanon = kanonKarte(basis.text);
+  if (basis !== null && basis.text !== null) {
+    basisKanon = kanonKarte(basis.text);
+    basisAlle = new Map(leseGegenstandsDatei(basis.text, { ohneGrundsperre: true }).eintraege.map((e) => [e.id, e] as const));
+  }
   else if (basis !== null) {
     const historie = historieText(repoPfad, basis.hash);
     if (basis.hash === repoHash) {
       basisKanon = repoKanon;
       basisEintraege = new Map(repoLesung.eintraege.map((e) => [e.id, e] as const));
+      basisAlle = basisEintraege;
     } else if (historie !== null) {
       basisKanon = kanonKarte(historie);
       basisEintraege = new Map(leseGegenstandsDatei(historie, { ohneGrundsperre: true }).eintraege.map((e) => [e.id, e] as const));
+      basisAlle = basisEintraege;
     }
     else if (arbeitHash === basis.hash) dateiIstBasis = true;
     else {
@@ -355,6 +363,7 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
           if (layoutHash(schreibeGegenstandsDatei(kandidat.eintraege)) === basis.hash) {
             basisKanon = new Map(kandidat.eintraege.map((e) => [e.id, schreibeGegenstandsDatei([e])] as const));
             basisEintraege = new Map(kandidat.eintraege.map((e) => [e.id, e] as const));
+            basisAlle = basisEintraege;
           }
         } catch {
           /* cannot be written: no reconstruction */
@@ -382,14 +391,22 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   for (const roh of dokument.gegenstaende) {
     const id = idVon(roh);
     const imRepo = id !== null && repoKanon.has(id);
-    const kanon = id === null ? null : kanonVonRoh(roh);
-    const gleichRepo = imRepo && kanon !== null && kanon === repoKanon.get(id!);
-    const gleichBasis = id !== null && (dateiIstBasis || (basisKanon !== null && kanon !== null && basisKanon.get(id) === kanon));
+    // The file is read like the game reads it: a base entry without `ernte` inherits the harvest of the state it is compared with
+    // (the SAME rule as the reader, `mitGeerbterErnte`). Exception: the GD1 transition, where such an entry ran with `{}` because the
+    // old state had a harvest for it (it is a deviation and gets the explicit `ernte: {}` below).
+    const erbt = id !== null && !(basisEintraege !== null && ernteAlsBasis(id));
+    const gegenRepo = id !== null && erbt && imRepo ? mitGeerbterErnte(roh, repoLesung.eintraege.find((e) => e.id === id)?.ernte ?? {}) : roh;
+    const basisEintrag = id === null ? undefined : basisAlle?.get(id);
+    const gegenBasis = id !== null && erbt && basisEintrag !== undefined ? mitGeerbterErnte(roh, basisEintrag.ernte) : roh;
+    const kanonRepo = id === null ? null : kanonVonRoh(gegenRepo);
+    const kanonBasis = id === null ? null : kanonVonRoh(gegenBasis);
+    const gleichRepo = imRepo && kanonRepo !== null && kanonRepo === repoKanon.get(id!);
+    const gleichBasis = id !== null && (dateiIstBasis || (basisKanon !== null && kanonBasis !== null && basisKanon.get(id) === kanonBasis));
     if (id !== null && (gleichRepo || gleichBasis)) {
       bereinigt.push(id);
       if (!imRepo) entfallen.push(id);
     } else {
-      const ernteFehlt = typeof roh === 'object' && roh !== null && ((roh as { ernte?: unknown }).ernte === undefined || (roh as { ernte?: unknown }).ernte === null);
+      const ernteFehlt = typeof roh === 'object' && roh !== null && ernteFehltRoh((roh as { ernte?: unknown }).ernte);
       if (ernteFehlt && ernteAlsBasis(id!)) { // (`ernteAlsBasis` is false while the basis state is unknown)
         behalten.push({ ...(roh as object), ernte: {} });
         ernteFestgeschrieben.push(id!);

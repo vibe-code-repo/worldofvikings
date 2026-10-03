@@ -366,7 +366,9 @@ try {
     check('3b no notes: GET carries hinweise {ernteUnklar [], basisKaputt false, zeit null}', JSON.stringify(g0.daten.hinweise) === JSON.stringify(keine), JSON.stringify(g0.daten.hinweise));
     // a copy that `main` saved after "the axe harvests nothing" (no ernte field), no basis file: unknown state
     const doc = JSON.parse(schreibeGegenstandsDatei([...leseGegenstandsDatei(REPO_ECHT.toString('utf-8'), { ohneGrundsperre: true }).eintraege, leseGegenstandsDatei(dokument([holzaxt])).eintraege[0]!])) as { version: number; gegenstaende: Array<Record<string, unknown>> };
-    delete doc.gegenstaende.find((e) => e.id === 'AxeFlint')!.ernte;
+    const axt = doc.gegenstaende.find((e) => e.id === 'AxeFlint')!;
+    delete axt.ernte;
+    axt.gewicht = 99; // a deviation that keeps the entry (an entry equal to the repo goes: it inherits)
     zustand(`${JSON.stringify(doc, null, 2)}\n`, null);
     const g = await get();
     const h = g.daten.hinweise as { ernteUnklar: string[]; basisKaputt: boolean; zeit: string | null };
@@ -380,6 +382,11 @@ try {
     const q3 = await anfrage('GET', '/api/gegenstaende/quittung');
     check('3b ... and with an unreadable receipt', q3.daten.status === 'unlesbar' && JSON.stringify(q3.daten.hinweise) === JSON.stringify(h));
     rmSync(QUITTUNG, { force: true });
+    // N6-B: an unreadable basis and NO entry without ernte: the notes still say basisKaputt
+    zustand(dokument([holzaxt]), null);
+    writeFileSync(resolve(ARBEITSORDNER, 'gegenstaende.basis'), REPO_ECHT.toString('utf-8').slice(0, 200));
+    const kb = await get();
+    check('3b unreadable basis, only the Holzaxt: hinweise {ernteUnklar [], basisKaputt true} reaches the mask', JSON.stringify((kb.daten.hinweise as { ernteUnklar: string[] }).ernteUnklar) === '[]' && (kb.daten.hinweise as { basisKaputt: boolean }).basisKaputt === true, JSON.stringify(kb.daten.hinweise));
     // an unreadable basis
     zustand(dokument([{ ...mitWerten('AxeFlint', { gewicht: 99 }), ernte: undefined }, holzaxt]), null);
     writeFileSync(resolve(ARBEITSORDNER, 'gegenstaende.basis'), REPO_ECHT.toString('utf-8').slice(0, 200));

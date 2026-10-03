@@ -560,7 +560,11 @@ console.log('\n[3e] An old-format copy keeps working as GD1 let it: a base entry
   }
   // no basis file at all: the state the file worked under is UNKNOWN, so nothing is written and the message says so (N5)
   const o = neuerFall(REPO_ECHT);
-  writeFileSync(o.arbeit, mainDatei());
+  {
+    const doc = JSON.parse(mainDatei()) as { version: number; gegenstaende: Roh[] };
+    doc.gegenstaende.find((e) => e.id === 'AxeFlint')!.gewicht = 99; // a deviation that keeps the entry (an entry equal to the repo goes: it inherits)
+    writeFileSync(o.arbeit, `${JSON.stringify(doc, null, 2)}\n`);
+  }
   const q = gegenstaendeAbgleichen({ repoDatei: o.repo, arbeitsDatei: o.arbeit });
   check('no basis file: nothing is written for AxeFlint (state unknown), ernteUnklar names it, the message says so; the field inherits', (q.ernteFestgeschrieben ?? []).length === 0 && q.ernteUnklar?.join() === 'AxeFlint' && !mitErnteFeld(o.arbeit) && q.meldung.includes('unbekannt') && q.meldung.includes('nichts festgeschrieben'), q.meldung.slice(-220));
 
@@ -703,7 +707,7 @@ console.log('\n[3g] Without a known basis a missing ernte INHERITS: message and 
   const f = neuerFall(REPO_ECHT);
   writeFileSync(f.arbeit, mainDatei());
   const a1 = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
-  check('no basis file: ernteUnklar names AxeFlint, nothing is written', a1.ernteUnklar?.join() === 'AxeFlint' && (a1.ernteFestgeschrieben ?? []).length === 0);
+  check('no basis file, AxeFlint without ernte and otherwise equal to the repo: it inherits, so it equals the repo entry and goes with the 28 others (nothing is written, no note)', a1.fall === 'bereinigt' && a1.bereinigt?.includes('AxeFlint') === true && (a1.ernteFestgeschrieben ?? []).length === 0 && (a1.ernteUnklar ?? []).length === 0 && ids(f.arbeit) === 'Holzaxt', `${a1.fall} ${ids(f.arbeit)}`);
   const l = laden(f);
   check('... and the GAME inherits: AxeFlint harvests baum 1 (not `{}`), as the message says', findItem('AxeFlint')?.ernte?.baum === 1 && l.grundErsetzt === 0, JSON.stringify(findItem('AxeFlint')?.ernte));
   // N5-A2: later the repo changes a locked field of the axe: no silent switch, the value stays the same
@@ -733,7 +737,7 @@ console.log('\n[3g] Without a known basis a missing ernte INHERITS: message and 
   const n = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
   void n;
   const w = neuerFall(REPO_ECHT);
-  writeFileSync(w.arbeit, mainDatei());
+  writeFileSync(w.arbeit, datei([ohne({ gewicht: 99 }), holzaxt]));
   gegenstaendeAbgleichen({ repoDatei: w.repo, arbeitsDatei: w.arbeit });
   const hw = gegenstandsHinweiseLesen(w.arbeit);
   check('the run writes the notes: ernteUnklar [AxeFlint], basisKaputt false, a time', hw.ernteUnklar.join() === 'AxeFlint' && hw.basisKaputt === false && typeof hw.zeit === 'string');
@@ -747,7 +751,7 @@ console.log('\n[3g] Without a known basis a missing ernte INHERITS: message and 
   const hk = gegenstandsHinweiseLesen(k.arbeit);
   check('an unreadable basis: the notes say basisKaputt true (and ernteUnklar for the entry without ernte)', ak.basisKaputt === true && hk.basisKaputt === true && hk.ernteUnklar.join() === 'AxeFlint');
   const p = neuerFall(REPO_ECHT);
-  writeFileSync(p.arbeit, mainDatei());
+  writeFileSync(p.arbeit, datei([ohne({ gewicht: 99 }), holzaxt]));
   gegenstaendeAbgleichen({ repoDatei: p.repo, arbeitsDatei: p.arbeit, modus: 'pruefen' });
   check('pruefen writes no notes', !existsSync(resolve(dirname(p.arbeit), 'gegenstaende.hinweise.json')));
   const q = neuerFall(REPO_ECHT);
@@ -755,6 +759,80 @@ console.log('\n[3g] Without a known basis a missing ernte INHERITS: message and 
   check('a broken notes file reads as "no notes"', gegenstandsHinweiseLesen(q.arbeit).zeit === null);
   writeFileSync(resolve(dirname(q.arbeit), 'gegenstaende.hinweise.json'), JSON.stringify({ ernteUnklar: [5], basisKaputt: false, zeit: 'x' }));
   check('a notes file of the wrong shape reads as "no notes"', gegenstandsHinweiseLesen(q.arbeit).zeit === null);
+}
+
+console.log('\n[3h] The reconciliation reads a missing ernte exactly like the game (N7)');
+{
+  const neuerBau = (text: string): (() => void) => {
+    setzeGrundbestand([]);
+    setzeGrundbestand(leseGegenstandsDatei(text).eintraege);
+    return () => { setzeGrundbestand(GRUNDBESTAND); wendeGegenstandsDatenAn([]); };
+  };
+  const axeRoh = repoRoh().find((e) => e.id === 'AxeFlint')!;
+  const ohne = (ueber: Roh = {}): Roh => {
+    const e = { ...axeRoh, ...ueber };
+    delete e.ernte;
+    return e;
+  };
+  const datei = (liste: unknown[]): string => `${JSON.stringify({ version: 1, gegenstaende: liste }, null, 2)}\n`;
+  const repoMit = (ueber: Roh): string => {
+    const doc = JSON.parse(REPO_ECHT.toString()) as { version: number; gegenstaende: Roh[] };
+    Object.assign(doc.gegenstaende.find((e) => e.id === 'AxeFlint')!, ueber);
+    return `${JSON.stringify(doc, null, 2)}\n`;
+  };
+  // N6-L: a FULL basis R0, the file holds AxeFlint without ernte, otherwise equal to the repo: no deviation
+  const l0 = neuerFall(REPO_ECHT);
+  writeFileSync(l0.arbeit, datei([ohne(), holzaxt]));
+  writeFileSync(l0.basis, REPO_ECHT);
+  const a0 = gegenstaendeAbgleichen({ repoDatei: l0.repo, arbeitsDatei: l0.arbeit });
+  check('N6-L: full basis, AxeFlint without ernte (equal to the repo otherwise): NOT a deviation, it goes (the game reads it as the repo entry)', (a0.abweichend ?? []).length === 0 && a0.bereinigt?.join() === 'AxeFlint' && ids(l0.arbeit) === 'Holzaxt', `${a0.fall} ${a0.abweichend?.join()}`);
+  // N6-L2a: the repo sets the harvest of the axe to baum 2: it arrives at once, and NO message says "only after the reset"
+  const r2 = repoMit({ ernte: { baum: 2 } });
+  const l2 = neuerFall(r2);
+  writeFileSync(l2.arbeit, datei([ohne(), holzaxt]));
+  writeFileSync(l2.basis, REPO_ECHT);
+  const zurueck = neuerBau(r2);
+  try {
+    const a2 = gegenstaendeAbgleichen({ repoDatei: l2.repo, arbeitsDatei: l2.arbeit });
+    check('N6-L2a: repo harvest baum 2: no conflict, no "only after the reset" message, the entry goes', a2.fall === 'bereinigt' && !a2.meldung.includes('Konflikt') && !a2.meldung.includes('zurueckgesetzt') && (a2.abweichend ?? []).length === 0, `${a2.fall} ${a2.meldung.slice(0, 160)}`);
+    laden(l2);
+    check('... and in the game the new harvest is there at once (baum 2)', findItem('AxeFlint')?.ernte?.baum === 2, JSON.stringify(findItem('AxeFlint')?.ernte));
+  } finally {
+    zurueck();
+  }
+  // N6-L2b: the repo changes the weight: the entry is untouched since the basis, so it is no deviation either
+  const r3 = repoMit({ gewicht: 3 });
+  const l3 = neuerFall(r3);
+  writeFileSync(l3.arbeit, datei([ohne(), holzaxt]));
+  writeFileSync(l3.basis, REPO_ECHT);
+  const zurueck3 = neuerBau(r3);
+  try {
+    const a3 = gegenstaendeAbgleichen({ repoDatei: l3.repo, arbeitsDatei: l3.arbeit });
+    check('N6-L2b: repo changes the weight, the entry (no ernte) is as at the basis: it goes, no conflict', a3.bereinigt?.join() === 'AxeFlint' && (a3.abweichend ?? []).length === 0 && !a3.meldung.includes('Konflikt'), `${a3.fall} ${a3.abweichend?.join()}`);
+    laden(l3);
+    check('... the game: weight 3 and harvest baum 1, nothing replaced', findItem('AxeFlint')?.weight === 3 && findItem('AxeFlint')?.ernte?.baum === 1);
+  } finally {
+    zurueck3();
+  }
+  // the GD1 transition is NOT touched: with a hash basis whose state had a harvest, the missing field still means `{}`
+  const g = neuerFall(REPO_ECHT);
+  writeFileSync(g.arbeit, datei([ohne(), holzaxt]));
+  writeFileSync(g.basis, `${sha(REPO_ECHT)}\n`);
+  const ag = gegenstaendeAbgleichen({ repoDatei: g.repo, arbeitsDatei: g.arbeit });
+  check('hash basis, the state had a harvest for the axe: AxeFlint without ernte is still a deviation (it ran with `{}`) and gets the explicit `ernte: {}`', ag.ernteFestgeschrieben?.join() === 'AxeFlint' && ag.abweichend?.join() === 'AxeFlint' && (ag.bereinigt ?? []).length === 0, `${ag.fall} ${ag.ernteFestgeschrieben?.join()}`);
+  // an entry WITH an explicit `ernte: {}` is a deviation under a full basis (deliberate)
+  const e = neuerFall(REPO_ECHT);
+  writeFileSync(e.arbeit, datei([{ ...axeRoh, ernte: {} }, holzaxt]));
+  writeFileSync(e.basis, REPO_ECHT);
+  const ae = gegenstaendeAbgleichen({ repoDatei: e.repo, arbeitsDatei: e.arbeit });
+  check('full basis, an explicit `ernte: {}`: a deviation, kept', ae.abweichend?.join() === 'AxeFlint' && ids(e.arbeit) === 'AxeFlint,Holzaxt', `${ae.fall}`);
+  // the notes with ONLY basisKaputt (nothing without ernte): the file is kept (N6-B)
+  const k = neuerFall(REPO_ECHT);
+  writeFileSync(k.arbeit, datei([holzaxt]));
+  writeFileSync(k.basis, REPO_ECHT.toString().slice(0, 200));
+  const ak = gegenstaendeAbgleichen({ repoDatei: k.repo, arbeitsDatei: k.arbeit });
+  const hk = gegenstandsHinweiseLesen(k.arbeit);
+  check('unreadable basis and NO entry without ernte: the notes still say basisKaputt true with ernteUnklar [] (the file exists)', ak.fall === 'unveraendert' && ak.basisKaputt === true && hk.basisKaputt === true && hk.ernteUnklar.length === 0 && typeof hk.zeit === 'string' && existsSync(resolve(dirname(k.arbeit), 'gegenstaende.hinweise.json')), JSON.stringify(hk));
 }
 
 console.log('\n[3c] Replaced copies: ernte inherited, deep copy (N2)');

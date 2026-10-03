@@ -460,7 +460,7 @@ function saubereEintrag(roh: unknown, z: Zaehler): GegenstandsEintrag {
   };
   // A base entry whose `ernte` field is MISSING (or null) inherits the harvest of the base entry, replaced or not: "no value" never
   // means "harvests nothing" (that is the explicit `ernte: {}`). Not when a state is read as written (`ohneGrundsperre`).
-  if (!z.ohneGrund && grundIds.has(id) && (ernteRoh === undefined || ernteRoh === null)) {
+  if (!z.ohneGrund && grundIds.has(id) && ernteFehlt(ernteRoh)) {
     const geerbt = grundEintraege.find((g) => g.id === id);
     if (geerbt) eintrag.ernte = { ...geerbt.ernte };
   }
@@ -475,7 +475,7 @@ function saubereEintrag(roh: unknown, z: Zaehler): GegenstandsEintrag {
       // harvest of the base entry (an axe must keep felling trees); a copy WITH one keeps it (the one field a copy may change).
       // "Has its own ernte" means the field is THERE (an explicit empty `ernte: {}` is a deliberate "this item harvests nothing"
       // and is kept); only a missing (or null) field inherits.
-      const eigeneErnte = ernteRoh !== undefined && ernteRoh !== null;
+      const eigeneErnte = !ernteFehlt(ernteRoh);
       return { ...structuredClone(grundEintrag), ernte: { ...(eigeneErnte ? eintrag.ernte : grundEintrag.ernte) } };
     }
   }
@@ -495,6 +495,21 @@ function liegtImZyklus(start: string, karte: ReadonlyMap<string, GegenstandsEint
     if (e?.rezept) for (const x of e.rezept.zutaten) stapel.push(x.item);
   }
   return false;
+}
+
+/**
+ * THE rule for a missing harvest, used by the reader and by the reconciliation so that both read a base entry the same way:
+ * a base entry whose `ernte` field is missing (or null) inherits the harvest of the base entry; an explicit `ernte: {}` is a
+ * deliberate "harvests nothing".
+ */
+export function ernteFehlt(ernteRoh: unknown): boolean {
+  return ernteRoh === undefined || ernteRoh === null;
+}
+
+/** A raw entry as the game reads it: with the inherited harvest filled in when its `ernte` field is missing; anything else unchanged. */
+export function mitGeerbterErnte(roh: unknown, grundErnte: GegenstandsEintrag['ernte']): unknown {
+  if (typeof roh !== 'object' || roh === null || Array.isArray(roh) || !ernteFehlt((roh as { ernte?: unknown }).ernte)) return roh;
+  return { ...(roh as object), ernte: { ...grundErnte } };
 }
 
 /** The shared core of reading: sanitises every entry, then the cross-entry checks. `z` counts unknown fields. */

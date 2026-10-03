@@ -50,6 +50,9 @@ async function dienst(name: string, biome: string): Promise<number> {
       cwd: ADMIN,
       env: { ...process.env, WOV_WURZEL: ordner, WOV_WELT_VERZEICHNIS: welten, WOV_INSTANZ: 'dev', WOV_ADMIN_ADRESSE: '127.0.0.1', WOV_ADMIN_PORT: '0', WOV_QUITTUNG: 'aus', NODE_ENV: 'test', WOV_ADMIN_TOKEN_DATEI: resolve(ordner, 'token') },
       stdio: ['ignore', 'pipe', 'pipe'],
+      // Own process group: tsx starts the service as a CHILD of the process spawned here, so killing only the
+      // spawned process leaves the service (and esbuild) running as an orphan. The whole group is killed below.
+      detached: true,
     });
     kinder.push(kind);
     let log = '';
@@ -94,10 +97,18 @@ try {
   check('greyglen, current version: 200 with the document including the region', neu.status === 200 && neu.daten.ok === true && JSON.stringify(neu.daten.layout).includes('greyglen'));
   check('greyglen, a newer version: 200', (await hole(mit, String(PROTOCOL_VERSION + 4))).status === 200);
 } finally {
-  for (const k of kinder) k.kill('SIGKILL');
+  for (const k of kinder) {
+    try { if (k.pid !== undefined) process.kill(-k.pid, 'SIGKILL'); } catch { /* group already gone */ }
+  }
   await new Promise((r) => setTimeout(r, 300));
   for (const o of ordnerListe) rmSync(o, { recursive: true, force: true });
-  for (const k of kinder) if (k.exitCode === null && !k.killed) console.error('Dienst noch aktiv');
+  for (const k of kinder) {
+    let lebt = false;
+    for (const ziel of k.pid === undefined ? [] : [-k.pid, k.pid]) {
+      try { process.kill(ziel, 0); lebt = true; } catch { /* gone */ }
+    }
+    check('service process group is gone after the test', !lebt);
+  }
 }
 if (fehler > 0) {
   console.error(`\n${fehler} FAIL`);

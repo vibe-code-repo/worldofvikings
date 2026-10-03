@@ -12,7 +12,7 @@ import { BIOME_TILE, TILE } from '../src/worldgen/bodenKacheln.js';
 import { BIOME_BY_NAME, DEFAULT_BASE_LEVEL, sanitizeWorldLayout } from '../src/worldlayout/index.js';
 import { STANDARD_WETTER_DEFINITIONEN, WetterWuerfel } from '../src/wetterDefinition.js';
 import { environmentForBiome } from '../src/environment.js';
-import { resolveBiomeBit } from '../src/weather.js';
+import { resolveBiomeBit, selectWeather } from '../src/weather.js';
 import { ALLE_BIOME } from '../src/flora.js';
 import { inhaltText } from '../src/texte.js';
 import envData from '../src/envData.json' with { type: 'json' };
@@ -107,7 +107,15 @@ check('resolveBiomeBit(128) = 128', (resolveBiomeBit(Biome.Greyglen) as number |
 check('default environment of greyglen = its own clear state, grassland keeps Clear', environmentForBiome(Biome.Greyglen).name === 'Glen clear' && environmentForBiome(Biome.Meadows).name === 'Clear');
 const env = (envData as { biomes: { biome: number; name: string; environments: unknown[] }[] }).biomes;
 check('envData has a biome 128 entry', env.some((b) => b.biome === 128 && b.name === 'Greyglen'));
-check('envData 128 = biome 1 with the clear entry swapped to Glen clear', JSON.stringify(env.find((b) => b.biome === 128)?.environments).split('Glen clear').join('Clear') === JSON.stringify(env.find((b) => b.biome === 1)?.environments));
+check('envData 128 = copy of biome 1 (the data set stays the extraction; Glen clear is swapped in by weather.ts)', JSON.stringify(env.find((b) => b.biome === 128)?.environments) === JSON.stringify(env.find((b) => b.biome === 1)?.environments));
+check('selectWeather(greyglen) draws the same table with Glen clear instead of Clear (100 windows)', (() => {
+  for (let i = 0; i < 100; i++) {
+    const g = selectWeather(Biome.Greyglen, i * 1800).name;
+    const m = selectWeather(Biome.Meadows, i * 1800).name;
+    if (g !== (m === 'Clear' ? 'Glen clear' : m)) return false;
+  }
+  return true;
+})());
 
 // ── Display names only through keys ──────────────────────────────────
 check('display name de/en via key', inhaltText('inhalt.biom.greyglen', 'de') === 'Grauklamm' && inhaltText('inhalt.biom.greyglen', 'en') === 'Greyglen');

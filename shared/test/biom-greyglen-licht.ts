@@ -74,7 +74,8 @@ const s90 = sichtweite('exp2', dichte, 0.1);
 const s90Vorbild = sichtweite('exp2', 0.015, 0.1);
 check('exp2 curve: 90 % fog distance of the number of the decision is 101 m', nah(s90Vorbild, 101.16, 0.01), s90Vorbild.toFixed(2));
 check('the density is lower than the number of the decision (it would be a wall)', dichte < 0.015, String(dichte));
-check('but thicker than grassland, so the haze is the biome\'s own (90 % fog: 200–400 m)', s90 >= 200 && s90 <= 400, `${s90.toFixed(1)} m`);
+check('but thicker than grassland, so the haze is the biome\'s own (90 % fog: 150–250 m)', s90 >= 150 && s90 <= 250, `${s90.toFixed(1)} m`);
+check('measured value 0.009 (extracted from the sweep in the report)', nah(dichte, 0.009, 1e-9), String(dichte));
 
 // ── Night and the other keyframes: unchanged against grassland ─────────
 const FELDER = ['fogColor', 'fogColorSun', 'sunColor', 'ambColor'] as const;

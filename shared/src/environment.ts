@@ -840,10 +840,14 @@ export const ENV_VILLAGE = 'Village';
                Leuchtdichte(Grundlicht); die Farbe ist der Ton von `Clear`
                (0,463 / 0,574 / 0,706), linear skaliert
 
-  Die Nebeldichte ist NICHT die 0,015 des Vorbilds: Bei exp2 liegt die
-  90-%-Sichtweite dort bei 101 m, und unsere Kamera sieht 4000 m weit — das
-  Fernbild wäre eine Wand. Der Wert ist an der Wirkung gemessen, die Reihe
-  steht im Bericht und in `shared/test/biom-greyglen-licht.ts`.
+  Die Nebeldichte ist NICHT die 0,015 des Vorbilds, sondern 0,009: Bei
+  exp2 liegt die 90-%-Sichtweite bei 0,015 in 101 m, bei 0,009 in 169 m.
+  Unsere Kamera sieht 4000 m weit, alles hinter 100 m wäre bei 0,015 ein
+  einheitlich blaues Feld. Gemessen (gleiche Pose, Mittag, Regionen
+  Himmel/Ferne/Mitte/Nah): Nah- und Mittelgrund ändern sich in keinem Wert
+  um mehr als 3 %, der Fernbereich bekommt bei 0,009 rund ein Drittel
+  Dunst (Blau−Rot −24 → +2, bei vollem Nebel +66) statt fast der Hälfte.
+  Die Reihe steht im Bericht (`Berichte/Nachweise/Grauklamm-K5/`).
   Density is measured against the visible effect, not copied: 0,015 with
   exp2 is a wall at our 4000 m camera.
 */
@@ -854,7 +858,7 @@ const glenClear: EnvSetup = {
   name: ENV_GLEN_CLEAR,
   fogColorDay: GLEN_NEBEL_FARBE,
   fogColorSunDay: GLEN_NEBEL_FARBE,
-  fogDensityDay: 0.0045,
+  fogDensityDay: 0.009,
   sunColorDay: c(1, 0.883333, 0.75),
   lightIntensityDay: (0.97 * 2) / 2.3,
   ambColorDay: c(0.3871, 0.4821, 0.5949),

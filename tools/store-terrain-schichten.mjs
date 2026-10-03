@@ -6,8 +6,8 @@
  * (NUR lesend — der Store liegt ausserhalb des Repos) und baut daraus die
  * zwei Stapel, die `client/src/engine/TerrainSplat.ts` sampelt:
  *
- *   assets/generiert/terrain/store_d_array.png   Farbe,  16 Zeilen à K²
- *   assets/generiert/terrain/store_n_array.png   Normale, 16 Zeilen à K²
+ *   assets/generiert/terrain/store_d_array.png   Farbe,  20 Zeilen à K²
+ *   assets/generiert/terrain/store_n_array.png   Normale, 20 Zeilen à K²
  *   assets/generiert/terrain/store-schichten.json  die Tabelle dazu
  *
  * `assets/` ist gitignored; die Dateien entstehen neu, wenn man das
@@ -151,6 +151,20 @@ function farbKandidaten(s) {
   return s.farbeErsatz ? [s.farbe, s.farbeErsatz] : [s.farbe];
 }
 
+/** Die Kandidaten der Normalkarte: die gewünschte zuerst, dann der benannte Ersatz. */
+function normalKandidaten(s) {
+  return s.normaleErsatz ? [s.normale, s.normaleErsatz] : [s.normale];
+}
+
+/** Die Normalkarte, die eine Schicht wirklich bekommt. */
+function normalQuelle(s) {
+  for (const name of normalKandidaten(s)) {
+    const ort = texturOrt(name);
+    if (ort) return { name, ...ort };
+  }
+  return null;
+}
+
 /** Die Farbkarte, die eine Schicht wirklich bekommt. */
 function farbQuelle(s) {
   for (const name of farbKandidaten(s)) {
@@ -162,7 +176,12 @@ function farbQuelle(s) {
 
 /** Zeilen des Altbestand-Stapels — 16 Kacheln à 256², oben beginnend. */
 const ALT_KANTE = 256;
-const ZEILEN = 16;
+/**
+ * Zeilen des Store-Stapels. 16 stammen aus dem Altbestand-Layout, die
+ * Zeilen 16–19 gehören dem Biom Greyglen (`TILE.GreyGrass` … `GreyRockMoss`
+ * in `shared/src/worldgen/bodenKacheln.ts`, `TILE_ANZAHL`).
+ */
+const ZEILEN = 20;
 
 /**
  * Die Schichten, wie sie im Store liegen, mit den Werten des VORBILDS
@@ -230,6 +249,15 @@ export const SCHICHTEN = {
     verbuchen.
   */
   moss: { farbe: 'terrain-moss-dark', farbeErsatz: 'terrain-moss', normale: 'terrain-moss-normal', kachelMeter: 2, normalStaerke: 1.2, metallic: 0, smoothness: 0 },
+  /*
+    Der raue Fels des Bioms Greyglen (Tile 19): dieselbe Farbkarte wie
+    `rock-rough`, aber MIT der eigenen Normalkarte (`terrain-rock-moss-normal`).
+    Die Normale liegt noch nicht im Speicher (sie wird per rsync nach
+    `assets/store/textures/` kopiert); bis dahin traegt die Zeile die
+    Normale von `rock-rough` als benannten Ersatz (`normaleErsatz`), und
+    `store-schichten.json` schreibt mit, welche der beiden sie wirklich hat.
+  */
+  'rock-moss-grey': { farbe: 'terrain-rock-moss', farbeErsatz: 'terrain-rock-rough', normale: 'terrain-rock-moss-normal', normaleErsatz: 'terrain-rock-rough-normal', kachelMeter: 7, normalStaerke: 2, metallic: 0, smoothness: 0 },
 };
 
 /**
@@ -294,6 +322,14 @@ export const ZUORDNUNG = [
   /* 13 SwampDark  */ { name: 'SwampDark', schicht: 'gravel', toenung: [1, 1, 1] },
   /* 14 Basalt     */ { name: 'Basalt', schicht: 'rock-rough', toenung: [1, 1, 1] },
   /* 15 LavaCrust  */ { name: 'LavaCrust', altbestand: true },
+  // Greyglen (K3). Gras = Ani Grass 2, Moos = Moss Dark, Fels = Rockwall 3
+  // (dieselben Quellkarten wie die Zeilen 0, 11 und 4), rauer Fels = Rock_Moss
+  // mit eigener Normale. Eigene Zeilen, damit die Rampen JE GRUNDKACHEL
+  // (`RAMPEN_JE_KACHEL`) an einem eigenen Tile-Index haengen.
+  /* 16 GreyGrass    */ { name: 'GreyGrass', schicht: 'grass-a', toenung: [1, 1, 1] },
+  /* 17 GreyMoss     */ { name: 'GreyMoss', schicht: 'moss-village', toenung: [1, 1, 1] },
+  /* 18 GreyRock     */ { name: 'GreyRock', schicht: 'rock-a', toenung: [1, 1, 1] },
+  /* 19 GreyRockMoss */ { name: 'GreyRockMoss', schicht: 'rock-moss-grey', toenung: [1, 1, 1] },
 ];
 
 /**
@@ -354,7 +390,9 @@ export function fehlendeDateien() {
     if (!farbQuelle(s)) {
       fehlt.push(farbKandidaten(s).map((n) => resolve(STORE, `${n}.png`)).join(' oder '));
     }
-    if (!texturOrt(s.normale)) fehlt.push(resolve(STORE, `${s.normale}.png`));
+    if (!normalQuelle(s)) {
+      fehlt.push(normalKandidaten(s).map((n) => resolve(STORE, `${n}.png`)).join(' oder '));
+    }
   }
   if (!existsSync(resolve(ALTBESTAND, 'terrain_d_array.png'))) {
     fehlt.push(resolve(ALTBESTAND, 'terrain_d_array.png'));
@@ -394,6 +432,7 @@ export function tabelle(kante) {
       }
       const s = SCHICHTEN[z.schicht];
       const fq = farbQuelle(s);
+      const nq = normalQuelle(s);
       return {
         tile: i,
         name: z.name,
@@ -403,7 +442,14 @@ export function tabelle(kante) {
         farbe: fq?.name ?? s.farbe,
         farbeGewuenscht: s.farbe,
         farbeOrt: fq?.ort ?? null,
-        normale: s.normale,
+        ...(s.normaleErsatz
+          ? {
+              // Wie bei der Farbe: die WIRKLICH benutzte Normale, nicht die gewuenschte.
+              normale: nq?.name ?? s.normale,
+              normaleGewuenscht: s.normale,
+              normaleOrt: nq?.ort ?? null,
+            }
+          : { normale: s.normale }),
         toenung: z.toenung,
         kachelMeter: s.kachelMeter,
         kachelFaktor: +(2 / s.kachelMeter).toFixed(6),
@@ -445,7 +491,7 @@ async function baue(kante) {
       farbe[ziel + p + 1] = tg[roh[p + 1]];
       farbe[ziel + p + 2] = tb[roh[p + 2]];
     }
-    (await laden(texturOrt(s.normale).pfad, kante)).copy(normale, ziel);
+    (await laden(normalQuelle(s).pfad, kante)).copy(normale, ziel);
   }
 
   const schreiben = async (daten, datei) => {
@@ -468,6 +514,11 @@ async function baue(kante) {
     const fq = farbQuelle(s);
     console.log(`  Schicht ${name}: ${fq.name} (${fq.ort})` +
       (fq.name === s.farbe ? '' : `  — ERSATZ, ${s.farbe} liegt nirgends`));
+  }
+  for (const [name, s] of Object.entries(SCHICHTEN).filter(([, x]) => x.normaleErsatz)) {
+    const nq = normalQuelle(s);
+    console.log(`  Schicht ${name} Normale: ${nq.name} (${nq.ort})` +
+      (nq.name === s.normale ? '' : `  — ERSATZ, ${s.normale} liegt nirgends`));
   }
   console.log(`  Ausgabe: ${AUS}`);
 }

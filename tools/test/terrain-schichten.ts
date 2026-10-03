@@ -61,6 +61,7 @@ import {
   RAMPEN,
   nyBeiGrad,
   TILE,
+  TILE_ANZAHL,
   BIOME_TILE,
   HIMMEL_IRRADIANZ,
   himmelIrradianzGewichte,
@@ -234,8 +235,8 @@ const tab = tabelle(512) as { tiles: { tile: number; name: string; quelle: strin
   }
 }
 check(
-  'das Werkzeug beschreibt genau 16 Tiles — so viele hat der Stapel',
-  tab.tiles.length === 16 && SCHICHT_OBERFLAECHE.length === 16,
+  'das Werkzeug beschreibt genau 20 Tiles (TILE_ANZAHL) — so viele hat der Stapel',
+  tab.tiles.length === TILE_ANZAHL && SCHICHT_OBERFLAECHE.length === TILE_ANZAHL && tab.zeilen === TILE_ANZAHL,
   `${String(tab.tiles.length)} / ${String(SCHICHT_OBERFLAECHE.length)}`
 );
 const abweichungen: string[] = [];
@@ -305,7 +306,7 @@ check(
 check(
   'jede Rampenkachel hat selbst eine Oberfläche',
   [...HANG_TILE, ...FELS_TILE, ...RAU_TILE].every((t) => SCHICHT_OBERFLAECHE[t] !== undefined),
-  'ein Eintrag zeigt auf ein Tile ausserhalb von 0..15'
+  'ein Eintrag zeigt auf ein Tile ausserhalb des Stapels'
 );
 
 /*
@@ -317,9 +318,9 @@ check(
   Chunk verschwände lautlos.
 */
 check(
-  'alle sechzehn Zeilen haben Hang-, Fels- und Rau-Kachel',
-  HANG_TILE.length === 16 && FELS_TILE.length === 16 && RAU_TILE.length === 16 &&
-    [...HANG_TILE, ...FELS_TILE, ...RAU_TILE].every((t) => Number.isInteger(t) && t >= 0 && t < 16),
+  'alle Zeilen des Stapels haben Hang-, Fels- und Rau-Kachel',
+  HANG_TILE.length === TILE_ANZAHL && FELS_TILE.length === TILE_ANZAHL && RAU_TILE.length === TILE_ANZAHL &&
+    [...HANG_TILE, ...FELS_TILE, ...RAU_TILE].every((t) => Number.isInteger(t) && t >= 0 && t < TILE_ANZAHL),
   `${HANG_TILE.length}/${FELS_TILE.length}/${RAU_TILE.length}`
 );
 
@@ -683,7 +684,7 @@ check(
 {
   const messProgramm = `
     const sharp = require('sharp');
-    const K = 256, ZEILEN = 16;
+    const K = 256, ZEILEN = 20;
     (async () => {
       const b = await sharp(process.argv[1]).raw().toBuffer();
       const lin = (v) => { const s = v / 255; return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };

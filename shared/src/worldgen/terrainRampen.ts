@@ -1,3 +1,5 @@
+import { TILE, TILE_ANZAHL } from './bodenKacheln.js';
+
 /**
  * Die Steigungsrampe des Bodens: ab welcher Hangneigung welche Schicht
  * kommt — und die eine Umrechnung Grad → `ny`.
@@ -129,6 +131,49 @@ export const RAMPEN = {
   /** Steilster Hang, raue Felsschicht (`RAU_TILE`). */
   rau: { beginn: 40, voll: 50, anteil: 0.1 },
 } as const;
+
+/** Ein Satz Rampen: die drei Stufen in Grad, die zwei Felsstufen mit Deckel. */
+export interface RampenSatz {
+  readonly hang: { readonly beginn: number; readonly voll: number };
+  readonly fels: { readonly beginn: number; readonly voll: number; readonly anteil: number };
+  readonly rau: { readonly beginn: number; readonly voll: number; readonly anteil: number };
+}
+
+/**
+ * Rampen JE GRUNDKACHEL (K3 Grauklamm, 03.10.2026).
+ *
+ * `RAMPEN` oben gilt fuer jede Grundkachel, die hier keine eigene Zeile hat;
+ * das sind alle Kacheln der aelteren Biome, ihr Boden bleibt dadurch Zahl
+ * fuer Zahl, wie er war. Welche Zeile gilt, sagt die dominante Eckkachel des
+ * Pixels (dieselbe, die schon `HANG_TILE`/`RAU_TILE` waehlt), im Shader wie in
+ * `bodenMischung`.
+ *
+ * Greyglen (Grundkachel `GreyGrass`) hat ein steileres Gelaende als die Inseln,
+ * auf die `RAMPEN` kalibriert ist (Hang-Histogramm eines Hochland-Tals, siehe
+ * `tools/test/boden-greyglen.ts`: 24,1 % unter 8 Grad, 12,8 % ueber 50 Grad).
+ * Die Zahlen unten sind auf dieses Histogramm kalibriert, so dass die
+ * Flaechenanteile (Gras 57, Fels 17, Moos 15, rauer Fels 7 %) getroffen werden.
+ * Die Herleitung und die Messung stehen im Test.
+ *
+ * Ramp sets per base tile; tiles without a row use `RAMPEN`.
+ */
+export const RAMPEN_JE_KACHEL: Readonly<Record<number, RampenSatz>> = {
+  [TILE.GreyGrass]: {
+    hang: { beginn: 19, voll: 26 },
+    fels: { beginn: 26, voll: 34, anteil: 0.94 },
+    rau: { beginn: 36, voll: 50, anteil: 0.42 },
+  },
+};
+
+/** Der Rampensatz einer Grundkachel: eigene Zeile oder die globale `RAMPEN`. */
+export function rampenFuerKachel(kachel: number): RampenSatz {
+  return RAMPEN_JE_KACHEL[kachel] ?? RAMPEN;
+}
+
+/** Alle `TILE_ANZAHL` Saetze in Kachelreihenfolge (fuer die Shader-Tabellen). */
+export function rampenTabelle(): readonly RampenSatz[] {
+  return Array.from({ length: TILE_ANZAHL }, (_, k) => rampenFuerKachel(k));
+}
 
 /**
  * Hangneigung in Grad → `ny` der Normalen. Der Shader rechnet in `ny`,

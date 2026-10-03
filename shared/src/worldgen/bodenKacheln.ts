@@ -14,7 +14,13 @@ export const TILE = {
   Grass: 0, Forest: 1, Dirt: 2, Cleared: 3, Rock: 4, Cliff: 5, LavaEmber: 6,
   Ash: 7, Heath: 8, Sand: 9, SwampMud: 10, Moss: 11, Paved: 12,
   SwampDark: 13, Basalt: 14, LavaCrust: 15,
+  // Greyglen (Bit 128): eigene Kachelreihen, damit Grund, Hang und Fels
+  // des Bioms ihre eigene Rampe tragen koennen (`RAMPEN_JE_KACHEL`).
+  GreyGrass: 16, GreyMoss: 17, GreyRock: 18, GreyRockMoss: 19,
 } as const;
+
+/** Anzahl der Kacheln im Stapel (Zeilen von `store_d_array.png`). */
+export const TILE_ANZAHL = 20;
 
 /** Biome-Enum-Wert → Tile (Biome aus shared/types.ts). */
 export const BIOME_TILE: Record<number, number> = {
@@ -25,7 +31,7 @@ export const BIOME_TILE: Record<number, number> = {
   16: TILE.Heath, // Plains
   32: TILE.Ash, // AshLands
   64: TILE.Rock, // DeepNorth (+ Schnee)
-  128: TILE.Grass, // Greyglen (Kopie von Meadows)
+  128: TILE.GreyGrass, // Greyglen: eigene Grundkachel
   256: TILE.Sand, // Ocean
   512: TILE.Moss, // Mistlands
 };
@@ -66,6 +72,10 @@ export const HANG_TILE: readonly number[] = [
   /* 13 SwampDark */ TILE.SwampDark,
   /* 14 Basalt    */ TILE.Basalt,
   /* 15 LavaCrust */ TILE.Basalt,
+  /* 16 GreyGrass    */ TILE.GreyMoss,
+  /* 17 GreyMoss     */ TILE.GreyMoss,
+  /* 18 GreyRock     */ TILE.GreyRock,
+  /* 19 GreyRockMoss */ TILE.GreyRockMoss,
 ];
 
 /**
@@ -114,6 +124,10 @@ export const FELS_TILE: readonly number[] = [
   /* 13 SwampDark */ TILE.Rock,
   /* 14 Basalt    */ TILE.Basalt,
   /* 15 LavaCrust */ TILE.Basalt,
+  /* 16 GreyGrass    */ TILE.GreyRock,
+  /* 17 GreyMoss     */ TILE.GreyRock,
+  /* 18 GreyRock     */ TILE.GreyRock,
+  /* 19 GreyRockMoss */ TILE.GreyRockMoss,
 ];
 
 /**
@@ -172,6 +186,10 @@ export const RAU_TILE: readonly number[] = [
   /* 13 SwampDark */ TILE.Rock,
   /* 14 Basalt    */ TILE.Basalt,
   /* 15 LavaCrust */ TILE.Basalt,
+  /* 16 GreyGrass    */ TILE.GreyRockMoss,
+  /* 17 GreyMoss     */ TILE.GreyRockMoss,
+  /* 18 GreyRock     */ TILE.GreyRockMoss,
+  /* 19 GreyRockMoss */ TILE.GreyRockMoss,
 ];
 
 /**

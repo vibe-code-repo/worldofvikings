@@ -209,10 +209,12 @@ console.log('\n[3] Quelltext des Shaders:');
   const wurzel = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
   const splat = readFileSync(resolve(wurzel, 'client/src/engine/TerrainSplat.ts'), 'utf-8');
   const soll = [
-    'nyBeiGrad(RAMPEN.hang.beginn)', 'nyBeiGrad(RAMPEN.hang.voll)',
-    'nyBeiGrad(RAMPEN.fels.beginn)', 'nyBeiGrad(RAMPEN.fels.voll)',
-    'nyBeiGrad(RAMPEN.rau.beginn)', 'nyBeiGrad(RAMPEN.rau.voll)',
-    'RAMPEN.fels.anteil', 'RAMPEN.rau.anteil', 'felsRauschenGlsl()',
+    // Die Rampen kommen je Grundkachel aus `rampenTabelle()` (K3), nicht mehr aus Literalen.
+    'rampenTabelle()',
+    'nyBeiGrad(r.hang.beginn)', 'nyBeiGrad(r.hang.voll)',
+    'nyBeiGrad(r.fels.beginn)', 'nyBeiGrad(r.fels.voll)',
+    'nyBeiGrad(r.rau.beginn)', 'nyBeiGrad(r.rau.voll)',
+    'r.fels.anteil', 'r.rau.anteil', 'felsRauschenGlsl()',
     'BODEN_REGELN.sandUeberWasser', 'BODEN_REGELN.sandSpanne', 'BODEN_REGELN.sandAnteil',
     'BODEN_REGELN.schneeNyKante0', 'BODEN_REGELN.schneeNyKante1', 'BODEN_REGELN.lavaAnteil',
     "glslTabelle('VB_HANG', HANG_TILE)", "glslTabelle('VB_RAU', RAU_TILE)",
@@ -220,7 +222,8 @@ console.log('\n[3] Quelltext des Shaders:');
   for (const s of soll) pruefe(`Shader nutzt ${s}`, splat.includes(s));
   pruefe('TerrainSplat importiert Tabellen und Regeln aus dem shared-Paket',
     splat.includes("from '@wov/shared/src/worldgen/bodenKacheln.js'"));
-  pruefe('Kachel-Enum TILE ist unverändert (Gras 0 … LavaCrust 15)', TILE.Grass === 0 && TILE.LavaCrust === 15 && Object.keys(TILE).length === 16);
+  pruefe('Kachel-Enum TILE: die 16 alten Indizes unverändert (Gras 0 … LavaCrust 15), dazu Greyglen 16–19',
+    TILE.Grass === 0 && TILE.LavaCrust === 15 && TILE.GreyGrass === 16 && TILE.GreyRockMoss === 19 && Object.keys(TILE).length === 20);
   pruefe('ZONE_UNITS ist 64 (die Nachrechnung setzt 64/32 als Literal)', ZONE_UNITS === 64);
 }
 

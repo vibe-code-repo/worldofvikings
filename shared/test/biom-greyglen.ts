@@ -80,7 +80,7 @@ check('sanitizer still rejects an unknown biome name', s !== null && !s.regions.
 
 // ── Ground tile ───────────────────────────────────────────────────────
 check('BIOME_TILE has its own row for 128', Object.hasOwn(BIOME_TILE, 128));
-check('BIOME_TILE[128] = grassland tile', BIOME_TILE[128] === BIOME_TILE[1] && BIOME_TILE[128] === TILE.Grass);
+check('BIOME_TILE[128] = its own ground tile (K3), not the grassland tile', BIOME_TILE[128] === TILE.GreyGrass && BIOME_TILE[128] !== BIOME_TILE[1]);
 check('BIOME_TILE rows of the old biomes unchanged', BIOME_TILE[1] === TILE.Grass && BIOME_TILE[2] === TILE.SwampMud
   && BIOME_TILE[4] === TILE.Rock && BIOME_TILE[8] === TILE.Forest && BIOME_TILE[16] === TILE.Heath
   && BIOME_TILE[32] === TILE.Ash && BIOME_TILE[64] === TILE.Rock && BIOME_TILE[256] === TILE.Sand && BIOME_TILE[512] === TILE.Moss);

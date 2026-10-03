@@ -119,6 +119,8 @@ console.log('\n[1] spiel/Rolle.ts on a stand-in peer (fixed clock)');
   rollePaket(bruch, 0, 10_000, frei, 1);
   rollePaket(bruch, 0, 11_274.5, frei, 2);
   check('a fractional clock (11274.5): the rest is rounded UP to a whole millisecond (1), the Int32 does not throw or truncate to 0', bruch.gesendet.at(-1)!.grund === ROLLE_AUS_GESPERRT && bruch.gesendet.at(-1)!.rest === 1, JSON.stringify(bruch.gesendet.at(-1)));
+  rollePaket(bruch, 0, 11_273.5, frei, 3);
+  check('a fractional clock (11273.5, 1.5 ms left): the rest is 2 (rounded up, not cut to 1)', bruch.gesendet.at(-1)!.rest === 2, JSON.stringify(bruch.gesendet.at(-1)));
   rollePaket(p, 0, 11_274, frei, 4);
   check('101 ms before the lock ends: still locked with the rest 1 ms (never 0 or negative)', p.gesendet.at(-1)!.grund === ROLLE_AUS_GESPERRT && p.gesendet.at(-1)!.rest === 1, JSON.stringify(p.gesendet.at(-1)));
   check('the client may try again after that rest: at lock end - tolerance the roll is taken (stamina 80)', rollePaket(p, 0, 11_275, frei, 5) && p.stamina === 80);

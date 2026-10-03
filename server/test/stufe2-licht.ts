@@ -44,6 +44,8 @@ import { parse as parseYaml } from 'yaml';
 import {
   ENVIRONMENTS,
   ENV_CLEAR,
+  ELEV_UEBERBLENDUNG,
+  ENV_GLEN_CLEAR,
   ENV_KLAR_COMIC,
   LOOK_VORGABE,
   dichteFuerSichtweite,
@@ -408,12 +410,16 @@ function abendStuetzpunkt(): void {
   // (1) Jedes andere Wetter rechnet Zeichen fuer Zeichen wie vorher.
   const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
   let abweichungen = 0;
+  let geprueft = 0;
   let wo = '';
   for (const env of ENVIRONMENTS) {
     if (env.ambColorEvening !== undefined || env.lightIntensityEvening !== undefined) continue;
     for (let i = 0; i < 96; i++) {
       const t = i / 96;
       const st = evaluateEnv(env, t);
+      // 'Glen clear' is Clear below the horizon and fades in above it: the formula holds only from the end
+      // of the fade-in band up (below, shared/test/biom-greyglen-licht.ts checks it)
+      if (env.name === ENV_GLEN_CLEAR && st.elevation < ELEV_UEBERBLENDUNG) continue;
       // Die MENGE Tag kommt seit dem 12.09.2026 aus dem Sonnenstand und
       // nicht mehr aus dem Phasengewicht. Hier stand `w.day` — und genau
       // das war die zweite Uhr, an der zwischen 03:13 und 05:54 sowie
@@ -432,12 +438,13 @@ function abendStuetzpunkt(): void {
         st.ambColor.r === altAmb.r &&
         st.ambColor.g === altAmb.g &&
         st.ambColor.b === altAmb.b;
+      geprueft++;
       if (!gleich && abweichungen++ === 0) wo = `${env.name} bei ${(t * 24).toFixed(2)} h`;
     }
   }
   ok(
     abweichungen === 0,
-    `Wetter ohne Abend-Schluessel rechnen bitgenau wie die alte Formel (0 Abweichungen in ${ENVIRONMENTS.length - 1} x 96 Punkten)${wo ? `, zuerst ${wo}` : ''}`
+    `Wetter ohne Abend-Schluessel rechnen bitgenau wie die alte Formel (0 Abweichungen in ${geprueft} Punkten)${wo ? `, zuerst ${wo}` : ''}`
   );
 
   // (2) Die drei Zeitpunkte, an denen der Abend nichts zu suchen hat.

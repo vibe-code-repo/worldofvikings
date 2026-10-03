@@ -35,7 +35,7 @@ import { rolleScheibe } from '@wov/shared/src/kampf/rolle.js';
 import { ROLLE_SCHRITTE, Spielerbewegung, neuerRolleWeg } from '../src/world/Spielerbewegung.js';
 import type { KollisionsForm, Vek3 } from '@wov/shared/src/kollision/form.js';
 import { blockPaket } from '../src/spiel/Block.js';
-import { rolleLaeuft, rollePaket, rolleTakt, rolleUnverwundbar, rolleZuruecksetzen, sprungKosten, type RollePeer } from '../src/spiel/Rolle.js';
+import { rolleBeenden, rolleLaeuft, rollePaket, rolleTakt, rolleUnverwundbar, rolleZuruecksetzen, sprungKosten, type RollePeer } from '../src/spiel/Rolle.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-d3-rolle');
@@ -156,10 +156,40 @@ console.log('\n[1] spiel/Rolle.ts on a stand-in peer (fixed clock)');
   const p = attrappe();
   rollePaket(p, 0, 1000, frei);
   p.gesendet.length = 0;
-  rolleZuruecksetzen(p);
-  check('reset (death, world change): no roll, no lock, no jump lock; a roll that ran is announced (Rolle false)', p.rolleBis === 0 && p.rolleSperreBis === 0 && p.rolleStart === 0 && rolleAus(p) === 1 && p.sprungSperreBis === 0);
-  rolleZuruecksetzen(p);
+  rolleZuruecksetzen(p, 1500);
+  check('reset (death, revival): no roll, no lock, no jump lock; a roll that ran is announced (Rolle false)', p.rolleBis === 0 && p.rolleSperreBis === 0 && p.rolleStart === 0 && rolleAus(p) === 1 && p.sprungSperreBis === 0);
+  rolleZuruecksetzen(p, 1600);
   check('a reset without a roll sends nothing', rolleAus(p) === 1);
+  // N1-2 / N1-4: ending a roll (teleport, world change, flight) keeps the locks and speaks only when a roll really ran
+  const b = attrappe();
+  sprungKosten(b, true, 400); // a jump lock before the roll, 400 + 800 = 1200
+  rollePaket(b, 0, 1000, frei);
+  b.gesendet.length = 0;
+  const sperre = b.rolleSperreBis;
+  rolleBeenden(b, 1400);
+  check('rolleBeenden in the middle of a roll: the roll is over (state, path), the client is told once', b.rolleBis === 0 && b.rolleStart === 0 && b.rolleZeit === 0 && b.rolleWeg === null && rolleAus(b) === 1);
+  check('... but the roll lock (until 2375) and the jump lock (until 1200) STAY: no cooldown freed by a teleport', b.rolleSperreBis === sperre && sperre === 1000 + ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS && b.sprungSperreBis === 1200);
+  const stB = b.stamina;
+  check('... and a new roll right after is refused by the lock (stamina unchanged)', !rollePaket(b, 0, 1500, frei) && b.stamina === stB);
+  const c = attrappe();
+  rollePaket(c, 0, 1000, frei);
+  c.gesendet.length = 0;
+  rolleBeenden(c, 1875);
+  check('rolleBeenden exactly at the end of the clip (1875): no roll ran any more: nothing is sent, the state is cleared', rolleAus(c) === 0 && c.rolleBis === 0 && c.rolleWeg === null);
+  const d = attrappe();
+  rollePaket(d, 0, 1000, frei);
+  d.gesendet.length = 0;
+  rolleBeenden(d, 1874);
+  check('rolleBeenden 1 ms before the end of the clip: the client is told', rolleAus(d) === 1);
+  const e = attrappe();
+  rolleBeenden(e, 5000);
+  check('rolleBeenden without any roll ever: nothing sent', rolleAus(e) === 0);
+  rollePaket(e, 0, 10_000, frei);
+  e.gesendet.length = 0;
+  rolleBeenden(e, 60_000);
+  check('rolleBeenden long after a roll: nothing sent (a teleport or flight a minute later says nothing)', rolleAus(e) === 0 && e.rolleSperreBis > 0);
+  rolleZuruecksetzen(e, 70_000);
+  check('rolleZuruecksetzen long after a roll: nothing sent either, the locks are cleared', rolleAus(e) === 0 && e.rolleSperreBis === 0);
   const sp = attrappe();
   sprungKosten(sp, true, 1000);
   check('(set-up) a billed jump set its lock', sp.sprungSperreBis === 1800);
@@ -208,13 +238,17 @@ console.log('\n[1] spiel/Rolle.ts on a stand-in peer (fixed clock)');
 {
   // F3: one path state (step grid + slope memory) per roll (set on accept, handed out by the tick, gone with the reset).
   const p = attrappe();
-  check('(set-up) no path state before a roll', p.rolleWeg === null && rolleTakt(p, 1000).weg === undefined);
+  check('(set-up) no path state before a roll', p.rolleWeg === null && !rolleTakt(p, 1000).rollt);
   rollePaket(p, 0, 1000, frei);
   const weg = p.rolleWeg;
   check('a roll sets one path state', weg !== null);
-  check('every tick of the roll hands out the SAME path state', rolleTakt(p, 1100).weg === weg && rolleTakt(p, 1200).weg === weg);
-  rolleZuruecksetzen(p);
-  check('the reset drops it', p.rolleWeg === null && rolleTakt(p, 1300).weg === undefined);
+  {
+    const t1 = rolleTakt(p, 1100);
+    const t2 = rolleTakt(p, 1200);
+    check('every tick of the roll hands out the SAME path state', t1.rollt && t2.rollt && t1.weg === weg && t2.weg === weg);
+  }
+  rolleZuruecksetzen(p, 1300);
+  check('the reset drops it, no tick moves afterwards', p.rolleWeg === null && !rolleTakt(p, 1300).rollt);
   rollePaket(p, 0, 5000, frei);
   check('the next roll gets a fresh one', p.rolleWeg !== null && p.rolleWeg !== weg);
 }
@@ -267,10 +301,11 @@ const horizontal = (a: Vek3, b: Vek3): number => Math.hypot(a.x - b.x, a.z - b.z
   const gehe = (sb: Spielerbewegung, dx: number, dz: number, takt: number): { x: number; y: number; z: number } => {
     let pos = { x: 0, y: 0, z: 0 };
     const w = { position: pos };
+    const lauf = neuerRolleWeg();
     let rest = ROLLE_BEWEGUNG_MS / 1000;
     while (rest > 1e-12) {
       const dt = Math.min(takt / 1000, rest);
-      pos = sb.rollSchritt(w, dx, dz, dt);
+      pos = sb.rollSchritt(w, dx, dz, dt, lauf);
       w.position = pos;
       rest -= dt;
     }
@@ -626,7 +661,7 @@ async function main(): Promise<void> {
     anna.totBis = 0;
 
     // ── death and change of world end the roll ──
-    anna.stamina = 100; anna.sprungSperreBis = 0;
+    anna.stamina = 100; anna.sprungSperreBis = 0; anna.rolleSperreBis = 0; // (the locks of the earlier cases are not what is tested here)
     sendRolle(ws, 0);
     await warte(100);
     check('(set-up) a roll runs', rolleLaeuft(anna, Date.now()));
@@ -638,12 +673,13 @@ async function main(): Promise<void> {
     sendRolle(ws, 0);
     await warte(100);
     check('(set-up) a roll runs again', rolleLaeuft(anna, Date.now()));
-    anna.weltWechselVorbereiten();
-    check('WORLD CHANGE (weltWechselVorbereiten) ends the roll and clears the lock', anna.rolleBis === 0 && anna.rolleSperreBis === 0 && anna.rolleStart === 0);
+    const sperreVorher = anna.rolleSperreBis;
+    anna.weltWechselVorbereiten(); // (a second call: nothing runs any more, nothing may change)
+    check('WORLD CHANGE (weltWechselVorbereiten) ends the roll but KEEPS the lock (no cooldown freed by a portal)', anna.rolleBis === 0 && anna.rolleStart === 0 && anna.rolleWeg === null && anna.rolleSperreBis === sperreVorher && sperreVorher > Date.now());
     await warte(100);
 
     // ── the immediate-revival path ──
-    anna.stamina = 100; anna.totBis = 0;
+    anna.stamina = 100; anna.totBis = 0; anna.rolleSperreBis = 0;
     sendRolle(ws, 0);
     await warte(100);
     check('(set-up) a roll runs', rolleLaeuft(anna, Date.now()));
@@ -672,6 +708,40 @@ async function main(): Promise<void> {
       anna.health = 100;
       zugriff.applyCreatureAttack({ x: anna.position.x, y: anna.position.y, z: anna.position.z - 2 }, wolf, 2.4, anna.worldId, anna.position);
       check(`${wie}: no longer invulnerable (the wolf's blow lands)`, anna.health < 100, `life ${anna.health}`);
+      check(`${wie}: the roll lock STAYS (until the end of the clip + 0.5 s of the ended roll)`, anna.rolleSperreBis > 0, `${anna.rolleSperreBis - Date.now()} ms left`);
+    }
+    {
+      // N1-2: after the clip, a teleport, then at once a new roll: the cooldown holds. N1-4: a teleport without a running roll is silent.
+      anna.health = 100; anna.stamina = 100; anna.totBis = 0; anna.sprungSperreBis = 0;
+      await warte(ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS);
+      anna.rolleSperreBis = 0;
+      sendRolle(ws, 0);
+      await warte(100);
+      check('(set-up) the roll before the teleport began', anna.rolleBis > 0 && anna.rolleStart > 0);
+      await warte(ROLLE_DAUER_MS - 40); // the clip is over, the lock (0.5 s) runs
+      const stamm = anna.rolleStart;
+      ws.rollen.length = 0;
+      (server as unknown as { teleportPeer(p: Peer, pos: Vector3, d: string | null): void }).teleportPeer(anna, { x: 260, y: anna.position.y, z: 260 }, null);
+      await warte(100);
+      check('TELEPORT after the clip: no `Rolle=false` (no roll ran), the lock stands', ws.rollen.length === 0 && anna.rolleSperreBis > Date.now(), JSON.stringify(ws.rollen));
+      anna.stamina = 100;
+      sendRolle(ws, 0);
+      await warte(120);
+      check('... and a new roll at once is refused (Rolle=false, same roll as before, stamina unchanged)', anna.rolleBis === 0 && ws.rollen.join() === 'false' && anna.stamina >= 100 - 0.5, `${JSON.stringify(ws.rollen)} ${anna.stamina} start ${anna.rolleStart} vs ${stamm}`);
+      await warte(ROLLE_ABKLINGZEIT_MS + 300);
+      ws.rollen.length = 0;
+      (server as unknown as { teleportPeer(p: Peer, pos: Vector3, d: string | null): void }).teleportPeer(anna, { x: 262, y: anna.position.y, z: 262 }, null);
+      sendAdmin(ws, 'fly'); await warte(100); sendAdmin(ws, 'fly'); await warte(100);
+      check('a teleport and a flight on/off with no roll at all: the client gets no `Rolle=false`', ws.rollen.length === 0, JSON.stringify(ws.rollen));
+      // the jump lock stays over a teleport, too
+      anna.stamina = 100; anna.sprungSperreBis = 0;
+      sendInput(ws, 0, 0, 0, false, true);
+      await warte(80);
+      const nachSprung = anna.stamina;
+      (server as unknown as { teleportPeer(p: Peer, pos: Vector3, d: string | null): void }).teleportPeer(anna, { x: 264, y: anna.position.y, z: 264 }, null);
+      sendInput(ws, 0, 0, 0, false, true);
+      await warte(120);
+      check('JUMP lock over a teleport: the second jump flag 200 ms later is not billed', nah(anna.stamina, nachSprung, 0.6) && anna.sprungSperreBis > Date.now(), `${nachSprung} -> ${anna.stamina}`);
     }
 
     // ── the admin switches the flight on in the middle of a roll (Z4) ──

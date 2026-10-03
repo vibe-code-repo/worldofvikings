@@ -21,7 +21,7 @@ import { Reader } from '../io/Reader.js';
 import { neuerSchlagZustand, type SchlagZustand } from '../spiel/Treffer.js';
 import { Spielwerte } from '../spiel/Spielwerte.js';
 import { blockZuruecksetzen } from '../spiel/Block.js';
-import { rolleZuruecksetzen } from '../spiel/Rolle.js';
+import { rolleBeenden } from '../spiel/Rolle.js';
 import type { RolleWeg } from '../world/Spielerbewegung.js';
 import { PacketType } from '@wov/shared';
 import type { WebSocket } from 'ws';
@@ -385,7 +385,7 @@ export class Peer {
    */
   weltWechselVorbereiten(): void {
     blockZuruecksetzen(this); // a held block ends with the world; the client is told
-    rolleZuruecksetzen(this); // a roll ends with the world
+    rolleBeenden(this); // a roll ends with the world (the locks stay)
     this.knownZDOs.clear();
     this.fenster.zuruecksetzen();
     this.quittiereZerstoerungen();

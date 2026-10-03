@@ -161,6 +161,8 @@ export class BlockSteuerung {
       } else if (!u.rollt) {
         // The roll is over in the client: refused = the block is back, accepted = the server ended it (`Block=false` came).
         if (this.wiederNehmen) this._blockt = true;
+        // No answer by now: the server may still hold the block (a late `Rolle=false`): one more `Block(false)` at the release.
+        else this.ungewiss = true;
         this.verdeckt = false;
         this.wiederNehmen = false;
       }

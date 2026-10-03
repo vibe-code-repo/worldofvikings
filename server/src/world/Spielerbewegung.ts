@@ -122,11 +122,9 @@ export class Spielerbewegung {
    * Rest, damit die Strecke genau `ROLLE_TEMPO * dt` ist (der Rest eines festen Schritts waere bis zu 10 cm).
    * Dieselbe Kollision und dasselbe Gelaende wie jeder Schritt: kein Durchrollen durch Felsen.
    */
-  rollSchritt(wesen: BewegtesWesen, x: number, z: number, dt: number, lauf?: RolleWeg): Vector3 {
+  rollSchritt(wesen: BewegtesWesen, x: number, z: number, dt: number, lauf: RolleWeg): Vector3 {
     if (!(dt > 0)) return wesen.position;
-    if (lauf) return this.rolleAufRaster(wesen.position, x, z, dt, lauf);
-    const weg = ROLLE_TEMPO * dt;
-    return this.rolleSimulieren(wesen.position, x, z, dt, this.kollision.nahfeld(wesen.position, weg));
+    return this.rolleAufRaster(wesen.position, x, z, dt, lauf);
   }
 
   /**

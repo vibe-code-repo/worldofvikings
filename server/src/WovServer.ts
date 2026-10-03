@@ -121,7 +121,7 @@ import { Kollisionswelt } from './world/Kollisionswelt.js';
 import { Spielerbewegung } from './world/Spielerbewegung.js';
 import { bewegungsTempo } from '@wov/shared/src/bewegung/masse.js';
 import { beendeBlockDurchSchlag, blockHalteTakt, blockPaket, blockTakt, blockTrifft, blockZuruecksetzen } from './spiel/Block.js';
-import { rolleLaeuft, rollePaket, rolleTakt, rolleUnverwundbar, rolleWeicheAus, rolleZuruecksetzen, sprungKosten } from './spiel/Rolle.js';
+import { rolleLaeuft, rollePaket, rolleTakt, rolleUnverwundbar, rolleWeicheAus, rolleZuruecksetzen, sprungKosten, rolleBeenden } from './spiel/Rolle.js';
 // Ueber den expliziten Pfad, nicht ueber den Barrel: eine Geo ohne
 // Landmasse braucht nur der Server, und der Client-Bundle-Schnitt soll
 // nicht daran wachsen.
@@ -4757,7 +4757,7 @@ export class WovServer {
       }
       this.charakterUmziehen(peer, ziel, pos);
     }
-    rolleZuruecksetzen(peer); // a teleport (portal, return, revival) ends a roll; a world change did already
+    rolleBeenden(peer); // a teleport (portal, return, revival) ends the running roll, the locks stay; a world change did already
     peer.position = { ...pos };
     const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
     if (charZDO) {

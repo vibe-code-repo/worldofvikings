@@ -119,16 +119,18 @@ export function rollePaket(peer: RollePeer, yaw: number, jetzt: number, umfeld: 
 }
 
 /** What the input packet does with the roll of this tick. */
-export interface RolleTakt {
-  /** The roll drives the figure now (the packet's WASD is ignored). */
-  readonly rollt: boolean;
-  readonly x: number;
-  readonly z: number;
-  /** Seconds of roll movement to apply in this tick. */
-  readonly dt: number;
-  /** The path state of this roll: the same step grid and one slope memory as the preview of the free-room check. */
-  readonly weg?: RolleWeg;
-}
+export type RolleTakt =
+  | { readonly rollt: false; readonly x: number; readonly z: number; readonly dt: number }
+  | {
+      /** The roll drives the figure now (the packet's WASD is ignored). */
+      readonly rollt: true;
+      readonly x: number;
+      readonly z: number;
+      /** Seconds of roll movement to apply in this tick. */
+      readonly dt: number;
+      /** The path state of this roll: the same step grid and one slope memory as the preview of the free-room check. */
+      readonly weg: RolleWeg;
+    };
 
 const KEINE_ROLLE: RolleTakt = { rollt: false, x: 0, z: 0, dt: 0 };
 
@@ -137,23 +139,34 @@ const KEINE_ROLLE: RolleTakt = { rollt: false, x: 0, z: 0, dt: 0 };
  * of the number of packets: a packet after the end of the movement still gets the remainder, and none after that.
  */
 export function rolleTakt(peer: Pick<Peer, 'rolleStart' | 'rolleBis' | 'rolleZeit' | 'rolleX' | 'rolleZ' | 'rolleWeg'>, jetzt: number): RolleTakt {
-  if (!(peer.rolleBis > 0)) return KEINE_ROLLE;
+  if (!(peer.rolleBis > 0) || !peer.rolleWeg) return KEINE_ROLLE;
   const scheibe = rolleScheibe(peer.rolleStart, peer.rolleZeit, jetzt);
   peer.rolleZeit = scheibe.bis;
   if (scheibe.dt <= 0 && !rolleLaeuftRegel(peer.rolleBis, jetzt)) return KEINE_ROLLE;
-  return { rollt: true, x: peer.rolleX, z: peer.rolleZ, dt: scheibe.dt, weg: peer.rolleWeg ?? undefined };
+  return { rollt: true, x: peer.rolleX, z: peer.rolleZ, dt: scheibe.dt, weg: peer.rolleWeg };
 }
 
-/** Death, change of world, revival, teleport: no roll and no lock. A roll that ran is announced to the client. */
-export function rolleZuruecksetzen(peer: Pick<Peer, 'rolleStart' | 'rolleBis' | 'rolleZeit' | 'rolleSperreBis' | 'sprungSperreBis' | 'rolleWeg' | 'sendPacketWith'>): void {
-  const lief = (peer.rolleBis ?? 0) > 0;
+type RolleEndePeer = Pick<Peer, 'rolleStart' | 'rolleBis' | 'rolleZeit' | 'rolleWeg' | 'sendPacketWith'>;
+
+/**
+ * Ends the roll that is running and forgets its path; the locks (roll, jump) stay. For a teleport, the world change and
+ * the flight: a roll must not go on from the new place, but a teleport must not free the cooldown either. The client is
+ * told (`Rolle=false`) only when a roll really ran at `jetzt` (a roll long over gets no message).
+ */
+export function rolleBeenden(peer: RolleEndePeer, jetzt: number = Date.now()): void {
+  const lief = rolleLaeuftRegel(peer.rolleBis ?? 0, jetzt);
   peer.rolleStart = 0;
   peer.rolleBis = 0;
   peer.rolleZeit = 0;
-  peer.rolleSperreBis = 0;
-  peer.sprungSperreBis = 0;
   peer.rolleWeg = null;
   if (lief) meldeRolleAus(peer);
+}
+
+/** Death and revival: no roll and no lock (the player starts afresh). A roll that ran is announced to the client. */
+export function rolleZuruecksetzen(peer: RolleEndePeer & Pick<Peer, 'rolleSperreBis' | 'sprungSperreBis'>, jetzt: number = Date.now()): void {
+  rolleBeenden(peer, jetzt);
+  peer.rolleSperreBis = 0;
+  peer.sprungSperreBis = 0;
 }
 
 /**

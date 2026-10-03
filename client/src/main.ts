@@ -2418,7 +2418,7 @@ async function main() {
       // Der Abgleich entscheidet hier, OB nachgezogen wird; angewandt
       // wird es im Bild (s. abgleicher.schritt weiter unten).
       if (serverPos && player) {
-        abgleicher.serverMeldung(serverPos, letzterBestaetigterInputSeq, player.position, imDungeon);
+        abgleicher.serverMeldung(serverPos, letzterBestaetigterInputSeq, player.position, imDungeon, player.rollt || player.rolleAbklingRest > 0);
       }
       hud.setVitals(health, stamina);
       // Ausdauer-Abgleich: Der Server ist die Wahrheit, der Controller rechnet

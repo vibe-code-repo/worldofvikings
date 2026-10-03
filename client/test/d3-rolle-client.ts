@@ -34,6 +34,7 @@ import { PlayerController } from '../src/player/PlayerController.js';
 import { blockSperre } from '../src/player/BlockSteuerung.js';
 import { RolleLauf, ROLLE_SPERREN, SprungMeldung, rolleRichtungYaw, rolleSperre, type RolleUmfeld } from '../src/player/RolleSteuerung.js';
 import { BlockVerdrahtung, type BlockQuellen } from '../src/player/BlockVerdrahtung.js';
+import { Abgleicher } from '../src/net/Positionsverlauf.js';
 import { GameSocket } from '../src/net/GameSocket.js';
 import { ROLLE_ABKLINGZEIT_MS, ROLLE_AUSDAUER, ROLLE_BEWEGUNG_S, ROLLE_DAUER_MS, ROLLE_TEMPO, ROLLE_WEG_M, rolleRichtung, rolleWegAnteil } from '@wov/shared/src/kampf/rolle.js';
 import { bewegungsSchritt } from '@wov/shared/src/bewegung/schritt.js';
@@ -373,6 +374,14 @@ console.log('\n[4] The jump report');
   };
   sucheUpdate(sf);
   check('main.ts: `player!.update(dt, engine.getDeltaTime() / 1000)` once: the roll clock gets the real frame time (Z3)', updates.length === 1 && /^dt \| engine\.getDeltaTime\(\) \/ 1000$/.test(updates[0]!), updates.join(' || '));
+  // N1-1: the position reconciliation gets the roll flag (a roll runs or its lock) as the fifth argument.
+  const meldungen: string[] = [];
+  const sucheMeldung = (n: ts.Node): void => {
+    if (ts.isCallExpression(n) && n.expression.getText(sf) === 'abgleicher.serverMeldung') meldungen.push(n.arguments.map((a) => a.getText(sf)).join(' | '));
+    ts.forEachChild(n, sucheMeldung);
+  };
+  sucheMeldung(sf);
+  check('main.ts: `abgleicher.serverMeldung(…, player.rollt || player.rolleAbklingRest > 0)`: the higher threshold holds during a roll and its lock (N1-1)', meldungen.length === 1 && /\| player\.rollt \|\| player\.rolleAbklingRest > 0$/.test(meldungen[0]!), meldungen.join(' || '));
   check('main.ts: one sendPlayerInput call, its 7th argument (jumping) is `player.nimmSprung()`, no literal `false`', aufrufe.length === 1 && letztes === 'player.nimmSprung()', `${aufrufe.length} calls, 7th: ${letztes}`);
 }
 
@@ -570,6 +579,106 @@ const sekunde = (v: BlockVerdrahtung, spiel: Spiel, n = 1): void => { for (let i
   check('`Rolle=true` does not', spiel.abbrueche === 1);
   handler[PacketType.Teleport]!({ readBool: () => false });
   check('a teleport stops the roll too', spiel.abbrueche === 2);
+}
+
+{
+  // N1-3: the server refused the roll, but `Rolle=false` arrives only AFTER the predicted roll ended: the server still holds the
+  // block, the client shows none: the release must send one Block(false) (harmless if the server has none).
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
+  taste(v, spiel);
+  spiel.rollt = true;
+  sekunde(v, spiel, 3);
+  spiel.rollt = false; // the predicted roll is over, no answer yet
+  sekunde(v, spiel, 3);
+  h[PacketType.Rolle]!({ readBool: () => false }); // the late refusal
+  sekunde(v, spiel, 2);
+  check('late `Rolle=false` (after the predicted roll): the client shows no block (the roll is over), nothing sent yet', !v.blockt && spiel.gesendet.join() === `block:true,rolle:${(Math.PI / 2).toFixed(3)}`, spiel.gesendet.join());
+  spiel.rechts = false;
+  sekunde(v, spiel, 2);
+  check('... and the RELEASE sends one Block(false): the server block does not stay until the stamina is gone', spiel.gesendet.at(-1) === 'block:false' && spiel.gesendet.filter((g) => g === 'block:false').length === 1, spiel.gesendet.join());
+}
+{
+  // The same with the roll that ended for another reason before the answer (the dungeon wait: the controller aborts it).
+  const { v, spiel } = neuesSpiel();
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
+  taste(v, spiel);
+  spiel.rollt = true;
+  sekunde(v, spiel, 2);
+  spiel.rollt = false; // aborted by the controller, no `Rolle=false` at all
+  sekunde(v, spiel, 2);
+  spiel.rechts = false;
+  v.frame();
+  check('the roll ended without an answer, then the release: one Block(false) (harmless if the server ended the block with an accepted roll)', spiel.gesendet.at(-1) === 'block:false' && spiel.gesendet.filter((g) => g === 'block:false').length === 1, spiel.gesendet.join());
+}
+
+// ── [5b] the reconciliation during a roll (N1-1) ──────────────────────────
+console.log('\n[5b] Position reconciliation during a roll: the model of the attack on N1 (real Abgleicher, real curve)');
+{
+  let seed = 99;
+  const rnd = (): number => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 2 ** 32; };
+  const teil = ROLLE_WEG_M / Math.ceil(ROLLE_BEWEGUNG_S / (1 / 60) - 1e-9);
+  /** One roll: the client sends an input every 50 ms, the server's path is the curve at the ARRIVAL time of the packet on its own step grid. */
+  const lauf = (J: number, inRolle: boolean): { max: number; eingriffe: number } => {
+    const L = 40;
+    const tQ = rnd() * 50;
+    const phase = rnd() * 50;
+    const ankunft = (t: number, vor: number): number => Math.max(vor, t + L + rnd() * J);
+    let vor = 0;
+    const aR = (vor = ankunft(tQ, vor));
+    const ab = new Abgleicher();
+    let max = 0;
+    let seq = 0;
+    for (let t = phase; t < tQ + ROLLE_DAUER_MS + 400; t += 50) {
+      if (t < tQ) continue;
+      seq++;
+      const clientPos = rolleWegAnteil((t - tQ) / 1000) * ROLLE_WEG_M;
+      ab.merkeEingabe(seq, { x: clientPos, y: 0, z: 0 });
+      const a = (vor = ankunft(t, vor));
+      const tt = Math.max(0, a - aR) / 1000;
+      const serverWeg = Math.floor((rolleWegAnteil(Math.min(tt, ROLLE_DAUER_MS / 1000)) * ROLLE_WEG_M) / teil + 1e-9) * teil;
+      max = Math.max(max, Math.abs(serverWeg - clientPos));
+      ab.serverMeldung({ x: serverWeg, y: 0, z: 0 }, seq, { x: clientPos, y: 0, z: 0 }, false, inRolle);
+    }
+    return { max, eingriffe: ab.diagnose.ereignisse };
+  };
+  for (const J of [0, 50, 80, 120, 200]) {
+    seed = 99 + J;
+    let ohneFlag = 0, mitFlag = 0, maxDrift = 0;
+    const N = 2000;
+    const folge: number[] = [];
+    for (let i = 0; i < N; i++) folge.push(seed = (seed * 1664525 + 1013904223) >>> 0);
+    for (let i = 0; i < N; i++) { seed = folge[i]!; const r = lauf(J, false); if (r.eingriffe > 0) ohneFlag++; maxDrift = Math.max(maxDrift, r.max); }
+    for (let i = 0; i < N; i++) { seed = folge[i]!; const r = lauf(J, true); if (r.eingriffe > 0) mitFlag++; }
+    console.log(`      jitter ${J} ms: runs with a correction without the flag ${ohneFlag}/${N} (max drift ${maxDrift.toFixed(2)} m), with the flag ${mitFlag}/${N}`);
+    check(`jitter ${J} ms, 2000 rolls: with the roll threshold the rate of corrections is 0 (max drift ${maxDrift.toFixed(2)} m < 2.5)`, mitFlag === 0 && maxDrift < 2.5);
+    if (J >= 80) check(`jitter ${J} ms: (control) without the flag the model finds corrections (${ohneFlag}), so the zero above is not blindness`, ohneFlag > 100);
+  }
+  // outside a roll nothing changed: the flag false is the default and gives bit-identical results; the normal threshold is still 1.0 m
+  const a1 = new Abgleicher(); const a2 = new Abgleicher();
+  let gleich = true;
+  seed = 7;
+  for (let i = 1; i <= 400; i++) {
+    const p = { x: rnd() * 3, y: 0, z: rnd() * 3 };
+    a1.merkeEingabe(i, { x: 0, y: 0, z: 0 }); a2.merkeEingabe(i, { x: 0, y: 0, z: 0 });
+    a1.serverMeldung(p, i, { x: 0, y: 0, z: 0 }, false);
+    a2.serverMeldung(p, i, { x: 0, y: 0, z: 0 }, false, false);
+    const b1 = a1.schritt(0.016); const b2 = a2.schritt(0.016);
+    if (JSON.stringify(b1) !== JSON.stringify(b2) || JSON.stringify(a1.diagnose) !== JSON.stringify(a2.diagnose)) gleich = false;
+  }
+  check('outside a roll (flag false or absent): 400 random reports give bit-identical commands and diagnostics', gleich);
+  const aus = new Abgleicher();
+  aus.merkeEingabe(1, { x: 0, y: 0, z: 0 });
+  aus.serverMeldung({ x: 1.2, y: 0, z: 0 }, 1, { x: 0, y: 0, z: 0 }, false);
+  check('outside a roll 1.2 m of drift still corrects (threshold 1.0 m unchanged)', aus.diagnose.ereignisse === 1);
+  const ein = new Abgleicher();
+  ein.merkeEingabe(1, { x: 0, y: 0, z: 0 });
+  ein.serverMeldung({ x: 2.4, y: 0, z: 0 }, 1, { x: 0, y: 0, z: 0 }, false, true);
+  check('during a roll 2.4 m of drift does not correct, ...', ein.diagnose.ereignisse === 0);
+  ein.merkeEingabe(2, { x: 0, y: 0, z: 0 });
+  ein.serverMeldung({ x: 2.6, y: 0, z: 0 }, 2, { x: 0, y: 0, z: 0 }, false, true);
+  check('... 2.6 m does (a real divergence is still found), and 8 m+ is hard as always', ein.diagnose.ereignisse === 1 && (() => { ein.merkeEingabe(3, { x: 0, y: 0, z: 0 }); ein.serverMeldung({ x: 9, y: 0, z: 0 }, 3, { x: 0, y: 0, z: 0 }, false, true); return ein.diagnose.hart === 1; })());
 }
 
 // ── [6] the wire ──────────────────────────────────────────────────────────

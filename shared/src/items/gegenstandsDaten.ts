@@ -458,6 +458,12 @@ function saubereEintrag(roh: unknown, z: Zaehler): GegenstandsEintrag {
     id, nameSchluessel, beschreibungSchluessel, typ: typ as GegenstandsTyp, slot: 'hand', modell,
     bautafel, terrain, symbol, stapel, gewicht, werte, ernte, haltbarkeit, itemLevel, rarity, rezept, texte,
   };
+  // A base entry whose `ernte` field is MISSING (or null) inherits the harvest of the base entry, replaced or not: "no value" never
+  // means "harvests nothing" (that is the explicit `ernte: {}`). Not when a state is read as written (`ohneGrundsperre`).
+  if (!z.ohneGrund && grundIds.has(id) && (ernteRoh === undefined || ernteRoh === null)) {
+    const geerbt = grundEintraege.find((g) => g.id === id);
+    if (geerbt) eintrag.ernte = { ...geerbt.ernte };
+  }
   if (GRUNDWERTE_GESPERRT && grundIds.has(id) && !z.ohneGrund) {
     const grundEintrag = grundEintraege.find((g) => g.id === id);
     const ohneErnte = (e: GegenstandsEintrag): string => JSON.stringify({ ...e, ernte: null });

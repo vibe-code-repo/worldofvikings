@@ -358,7 +358,42 @@ try {
     check('3 refusal: a file with a discarded NON-base entry: 422 eintraege-verworfen with the list, file byte-equal (no quiet clean-up)', b.status === 422 && b.daten.fehler === 'eintraege-verworfen' && Array.isArray(b.daten.verworfen) && (b.daten.verworfen as unknown[]).length === 1 && readFileSync(ARBEIT, 'utf-8') === mitMuell, `${b.status} ${JSON.stringify(b.daten)}`);
   }
 
-  console.log('\n[4] The receipt answer');
+    console.log('\n[3b] The notes of the reconciliation reach the mask (N6)');
+  {
+    const keine = { ernteUnklar: [], basisKaputt: false, zeit: null };
+    zustand(dokument([holzaxt]), sha(REPO_ECHT));
+    const g0 = await get();
+    check('3b no notes: GET carries hinweise {ernteUnklar [], basisKaputt false, zeit null}', JSON.stringify(g0.daten.hinweise) === JSON.stringify(keine), JSON.stringify(g0.daten.hinweise));
+    // a copy that `main` saved after "the axe harvests nothing" (no ernte field), no basis file: unknown state
+    const doc = JSON.parse(schreibeGegenstandsDatei([...leseGegenstandsDatei(REPO_ECHT.toString('utf-8'), { ohneGrundsperre: true }).eintraege, leseGegenstandsDatei(dokument([holzaxt])).eintraege[0]!])) as { version: number; gegenstaende: Array<Record<string, unknown>> };
+    delete doc.gegenstaende.find((e) => e.id === 'AxeFlint')!.ernte;
+    zustand(`${JSON.stringify(doc, null, 2)}\n`, null);
+    const g = await get();
+    const h = g.daten.hinweise as { ernteUnklar: string[]; basisKaputt: boolean; zeit: string | null };
+    check('3b unknown state (no basis, AxeFlint without ernte): GET carries hinweise.ernteUnklar [AxeFlint] and a time', JSON.stringify(h.ernteUnklar) === '["AxeFlint"]' && h.basisKaputt === false && typeof h.zeit === 'string', JSON.stringify(h));
+    const q = await anfrage('GET', '/api/gegenstaende/quittung');
+    check('3b ... and the receipt answer carries the same notes (also with status "keine")', q.status === 200 && JSON.stringify(q.daten.hinweise) === JSON.stringify(h), JSON.stringify(q.daten.hinweise));
+    writeFileSync(QUITTUNG, JSON.stringify({ status: 'angewendet', hash: 'x', zeit: 'jetzt' }));
+    const q2 = await anfrage('GET', '/api/gegenstaende/quittung');
+    check('3b ... with a receipt of the watch as well', JSON.stringify(q2.daten.hinweise) === JSON.stringify(h) && q2.daten.status === 'angewendet');
+    writeFileSync(QUITTUNG, 'kaputt');
+    const q3 = await anfrage('GET', '/api/gegenstaende/quittung');
+    check('3b ... and with an unreadable receipt', q3.daten.status === 'unlesbar' && JSON.stringify(q3.daten.hinweise) === JSON.stringify(h));
+    rmSync(QUITTUNG, { force: true });
+    // an unreadable basis
+    zustand(dokument([{ ...mitWerten('AxeFlint', { gewicht: 99 }), ernte: undefined }, holzaxt]), null);
+    writeFileSync(resolve(ARBEITSORDNER, 'gegenstaende.basis'), REPO_ECHT.toString('utf-8').slice(0, 200));
+    const k = await get();
+    check('3b unreadable basis: hinweise.basisKaputt true', (k.daten.hinweise as { basisKaputt: boolean }).basisKaputt === true, JSON.stringify(k.daten.hinweise));
+    // the next run under the lock (here a reset) finds the basis healthy and removes the notes
+    const k1 = await get();
+    check('3b a plain read after it still shows them (reads only check, they do not write)', (k1.daten.hinweise as { basisKaputt: boolean }).basisKaputt === true);
+    const r = await zurueck('AxeFlint', String(k1.daten.hash));
+    const k2 = await get();
+    check('3b after the next run under the lock (a reset) the notes are gone', r.status === 200 && JSON.stringify(k2.daten.hinweise) === JSON.stringify(keine), `${r.status} ${JSON.stringify(k2.daten.hinweise)}`);
+  }
+
+console.log('\n[4] The receipt answer');
   {
     zustand(null, null);
     await get();

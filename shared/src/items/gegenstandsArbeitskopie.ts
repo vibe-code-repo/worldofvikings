@@ -26,6 +26,36 @@ export const GEGENSTAENDE_QUITTUNG_DATEI = 'gegenstaende.quittung.json';
 /** The confirmation request (`{hash, zeit, id}`, same form as `POST /api/welt/bestaetigen`) the admin route leaves next to the working copy; the watch consumes it. */
 export const GEGENSTAENDE_BESTAETIGEN_DATEI = 'gegenstaende.bestaetigen.json';
 
+/** Notes of the last reconciliation the editor should show (GD4): the base entries without an `ernte` whose old state was unknown, an unreadable basis. */
+export const GEGENSTAENDE_HINWEISE_DATEI = 'gegenstaende.hinweise.json';
+
+export function gegenstandsHinweiseDatei(arbeitsDatei: string): string {
+  return gegenstandsNebenDatei(arbeitsDatei, GEGENSTAENDE_HINWEISE_DATEI);
+}
+
+/** What the editor gets with `GET /api/gegenstaende` and the receipt answer. */
+export interface GegenstandsHinweise {
+  /** Base entries without an `ernte` field whose old state was unknown: they inherit the harvest of the base entry (nothing was written). */
+  ernteUnklar: string[];
+  /** The basis file was unreadable at the last reconciliation and was rewritten. */
+  basisKaputt: boolean;
+  /** When the reconciliation noted it (ISO time), `null` if there is nothing to show. */
+  zeit: string | null;
+}
+
+export const KEINE_HINWEISE: Readonly<GegenstandsHinweise> = { ernteUnklar: [], basisKaputt: false, zeit: null };
+
+/** The notes of the last reconciliation, or `KEINE_HINWEISE` (missing, unreadable or not of this shape). */
+export function gegenstandsHinweiseLesen(arbeitsDatei: string): GegenstandsHinweise {
+  try {
+    const roh = JSON.parse(readFileSync(gegenstandsHinweiseDatei(arbeitsDatei), 'utf-8')) as Partial<GegenstandsHinweise>;
+    if (!Array.isArray(roh.ernteUnklar) || !roh.ernteUnklar.every((x) => typeof x === 'string') || typeof roh.basisKaputt !== 'boolean' || typeof roh.zeit !== 'string') return { ...KEINE_HINWEISE };
+    return { ernteUnklar: [...roh.ernteUnklar], basisKaputt: roh.basisKaputt, zeit: roh.zeit };
+  } catch {
+    return { ...KEINE_HINWEISE };
+  }
+}
+
 /** The accepted repo state (in Git): read and compare, never write at run time. `wurzel` is the project root. */
 export function gegenstandsRepoDatei(wurzel: string): string {
   return resolve(wurzel, 'shared/data', GEGENSTAENDE_DATEI);
@@ -225,6 +255,17 @@ function historieText(repoPfad: string, hash: string): string | null {
   return leseGegenstandsDatei(text, { ohneGrundsperre: true }).dateiFehler === null ? text : null;
 }
 
+/** The notes of this run for the editor (`gegenstaende.hinweise.json`): written when there is something to show, removed when there is not. */
+function hinweiseSchreiben(arbeitsPfad: string, ernteUnklar: readonly string[], basisKaputt: boolean): void {
+  const ziel = gegenstandsHinweiseDatei(arbeitsPfad);
+  if (ernteUnklar.length === 0 && !basisKaputt) {
+    rmSync(ziel, { force: true });
+    return;
+  }
+  const hinweise: GegenstandsHinweise = { ernteUnklar: [...ernteUnklar], basisKaputt, zeit: new Date().toISOString() };
+  atomarSchreiben(ziel, `${JSON.stringify(hinweise, null, 2)}\n`);
+}
+
 const kurz = (h: string | null): string => (h === null ? '-' : h.slice(0, 8));
 const idVon = (roh: unknown): string | null => (typeof roh === 'object' && roh !== null && typeof (roh as { id?: unknown }).id === 'string' ? (roh as { id: string }).id : null);
 
@@ -375,6 +416,7 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   }
   zwischenschritt?.();
   if (basisNachtragen && modus === 'voll') atomarSchreiben(basisPfad, repoBytes);
+  if (modus === 'voll') hinweiseSchreiben(arbeitsPfad, ernteUnklar, basisKaputt);
 
   const mehr = {
     bereinigt, entfallen, abweichend,
@@ -395,8 +437,8 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   const zusatz =
     (entfallen.length > 0 ? ` Nicht mehr im Repo (Eintrag unberuehrt, entfernt): ${entfallen.join(', ')}.` : '') +
     (basisUnbekannt ? ` Die alte Basis (Hash ${kurz(basisHash)}) ist keine bekannte Repo-Fassung und laesst sich nicht aus der Datei aufbauen: nur Gleichheit mit dem Repo-Stand zaehlt.` : '') +
-    (basisKaputt ? ' Die Basisdatei ist unlesbar: sie gilt nicht als altes Format und wird neu geschrieben.' : '') +
-    (ernteUnklar.length > 0 ? ` Eintraege ohne ernte-Feld (${ernteUnklar.join(', ')}): der Stand, unter dem die alte Datei wirkte, ist unbekannt, es wird nichts festgeschrieben; das fehlende Feld erbt die Ernte des Grundeintrags.` : '');
+    (basisKaputt ? ' Die Basisdatei war unlesbar und wird neu geschrieben.' : '') +
+    (ernteUnklar.length > 0 ? ` Eintraege ohne ernte-Feld (${ernteUnklar.join(', ')}): der Stand, unter dem die Datei wirkte, ist unbekannt (Basis fehlt, ist unlesbar oder keine bekannte Repo-Fassung), es wird nichts festgeschrieben; das fehlende Feld erbt die Ernte des Grundeintrags (im Spiel gilt sie, auch nachdem das Repo ein gesperrtes Feld aendert).` : '');
   if (konfliktIds.length > 0) {
     return ergebnis(
       'konflikt',

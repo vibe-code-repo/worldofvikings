@@ -78,7 +78,7 @@ import {
   schreibeGegenstandsDatei,
   type GegenstandsLesung,
 } from '@wov/shared/src/items/gegenstandsDaten.js';
-import { gegenstaendeAbgleichenOhneSperre, gegenstandsArbeitsDatei, gegenstandsBasisStand, nurAbweichungen, gegenstandsBasisNebenDatei as basisNeben, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
+import { gegenstaendeAbgleichenOhneSperre, gegenstandsArbeitsDatei, gegenstandsHinweiseLesen, gegenstandsBasisStand, nurAbweichungen, gegenstandsBasisNebenDatei as basisNeben, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 
 /**
  * The receipt written by the server watch (Game card G2), next to the working copy. The path rule lives here
@@ -376,6 +376,8 @@ async function lesen(res: ServerResponse, wurzel: string): Promise<void> {
       dateiFehler: lesung.dateiFehler,
       // base entries that differ from the base: reading replaced them (shown by the editor from GD4 on)
       grundErsetzt: lesung.grundErsetzt,
+      // notes of the last reconciliation for the mask (GD4): `ernteUnklar` (entries without `ernte` whose old state was unknown) and `basisKaputt`
+      hinweise: gegenstandsHinweiseLesen(arbeit),
       hash: stand.hash,
       quelle: stand.quelle,
     },
@@ -689,7 +691,7 @@ async function zuruecksetzen(req: IncomingMessage, res: ServerResponse, wurzel: 
 function quittungLesen(res: ServerResponse, wurzel: string): void {
   const pfad = gegenstandsQuittungDatei(wurzel);
   if (!existsSync(pfad)) {
-    json(res, 200, { ok: true, status: 'keine' });
+    json(res, 200, { ok: true, status: 'keine', hinweise: gegenstandsHinweiseLesen(gegenstandsArbeitsDatei(wurzel)) });
     return;
   }
   const bytes = dateiBytes(pfad);
@@ -702,12 +704,12 @@ function quittungLesen(res: ServerResponse, wurzel: string): void {
     }
   }
   if (typeof quittung !== 'object' || quittung === null || Array.isArray(quittung) || typeof (quittung as { status?: unknown }).status !== 'string') {
-    json(res, 200, { ok: true, status: 'unlesbar' });
+    json(res, 200, { ok: true, status: 'unlesbar', hinweise: gegenstandsHinweiseLesen(gegenstandsArbeitsDatei(wurzel)) });
     return;
   }
   // `ersetzt` of the watch's receipt, under the name the read answer uses (`grundErsetzt`), for the mask (GD4).
   const q = quittung as Record<string, unknown>;
-  json(res, 200, { ok: true, ...q, grundErsetzt: Array.isArray(q.ersetzt) ? q.ersetzt : [] });
+  json(res, 200, { ok: true, ...q, grundErsetzt: Array.isArray(q.ersetzt) ? q.ersetzt : [], hinweise: gegenstandsHinweiseLesen(gegenstandsArbeitsDatei(wurzel)) });
 }
 
 /**

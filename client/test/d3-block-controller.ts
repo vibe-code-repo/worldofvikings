@@ -173,6 +173,29 @@ console.log('\n[2] The speed: client and server agree');
   check('control: Shift with no stamina left walks at 4.5 m/s (the speed follows `running`, not the key)', Math.abs(Math.hypot(leer.position.x, leer.position.z) - 4.5) < 0.05, `${Math.hypot(leer.position.x, leer.position.z).toFixed(3)} m`);
 }
 
+console.log('\n[2a] The predicted stamina: a one-off charge');
+{
+  // The stamina rule reads the wall clock (`Date.now()`), so the test drives a fake one.
+  const echt = Date.now;
+  let uhr = 1_000_000;
+  Date.now = () => uhr;
+  const takt = (pc: PlayerController, sekunden: number): void => { for (let i = 0; i < Math.round(sekunden * 60); i++) { uhr += 1000 / 60; pc.update(1 / 60); } };
+  try {
+    const { pc } = neu();
+    pc.zieheAusdauerAb(5);
+    check('charge 5: 100 -> 95', pc.ausdauerStand === 95, `${pc.ausdauerStand}`);
+    takt(pc, 1.0);
+    check('no regeneration in the first second (the server stamps the last use too, regeneration starts after 1.5 s)', pc.ausdauerStand === 95, `${pc.ausdauerStand}`);
+    takt(pc, 3.0);
+    check('regenerates afterwards', pc.ausdauerStand > 95, `${pc.ausdauerStand.toFixed(2)}`);
+    pc.setzeServerAusdauer(3);
+    pc.zieheAusdauerAb(5);
+    check('never below 0', pc.ausdauerStand === 0, `${pc.ausdauerStand}`);
+  } finally {
+    Date.now = echt;
+  }
+}
+
 console.log('\n[2b] Build mode and the air');
 {
   // N4: build mode (editor test flight) is no block, even if the flag is set: the figure does not turn to the camera.

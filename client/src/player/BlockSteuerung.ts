@@ -18,10 +18,14 @@
  *  - A swing and a press in the same frame: the swing wins, no block starts in that frame.
  *  - If the line is down (`sende` returns false) the start is dropped: the client never blocks without the server knowing.
  *
+ *  - Every begin costs `BLOCK_BEGINN_AUSDAUER` stamina, like at the server: below that no block starts (the `zuErschoepft` hook
+ *    shows the server's message), a begin calls `beginnt` (the caller charges the stamina). Holding is not affected.
+ *
  * Provisional rule (Mike, 02.10.2026, open question): no block with bare hands (only with an item in the
  * hand) and none with a building tool (`pieceTable`) in the hand.
  */
 import { bewegungsTempo } from '@wov/shared/src/bewegung/masse.js';
+import { BLOCK_BEGINN_AUSDAUER } from '@wov/shared/src/kampf/block.js';
 
 /** How fast the figure turns to the camera while it blocks (rad/s): 540 deg/s, 180 deg in 0.33 s. */
 export const BLOCK_TURN_SPEED = (540 * Math.PI) / 180;
@@ -48,6 +52,8 @@ export interface BlockUmfeld {
   readonly gegenstandInHand: boolean;
   readonly tot: boolean;
   readonly imWasser: boolean;
+  /** The predicted stamina (0..100): a begin needs `BLOCK_BEGINN_AUSDAUER`. */
+  readonly ausdauer: number;
 }
 
 /** One row of the conflict table: why a block is not allowed. */
@@ -117,7 +123,10 @@ export class BlockSteuerung {
   private erzwungen = false;
 
   /** @param sende `sendBlock`: called once per change of state. */
-  constructor(private readonly sende: (an: boolean) => void | boolean) {}
+  constructor(
+    private readonly sende: (an: boolean) => void | boolean,
+    private readonly haken: { zuErschoepft?(): void; beginnt?(): void } = {}
+  ) {}
 
   /** Is the figure blocking right now (what the controller and the rig show)? */
   get blockt(): boolean {
@@ -138,8 +147,15 @@ export class BlockSteuerung {
       this.sofort = false;
       this.sende(false);
     }
-    if (u.rechtsFlanke && u.rechtsGedrueckt && !verboten && !schlag && this.sende(true) !== false) {
-      this._blockt = true;
+    if (u.rechtsFlanke && u.rechtsGedrueckt && !verboten && !schlag) {
+      if (!(u.ausdauer >= BLOCK_BEGINN_AUSDAUER)) {
+        this.haken.zuErschoepft?.();
+        return;
+      }
+      if (this.sende(true) !== false) {
+        this._blockt = true;
+        this.haken.beginnt?.();
+      }
     }
   }
 
@@ -167,6 +183,7 @@ export class BlockSteuerung {
     this._blockt = an;
     this.erzwungen = an;
     this.sende(an);
+    if (an) this.haken.beginnt?.();
   }
 
   /** The window lost the focus: no mouseup will come. */

@@ -43,6 +43,7 @@ const FREI: BlockUmfeld = {
   gegenstandInHand: true,
   tot: false,
   imWasser: false,
+  ausdauer: 100,
 };
 const halten = (u: BlockUmfeld): BlockUmfeld => ({ ...u, rechtsFlanke: false });
 
@@ -250,6 +251,32 @@ console.log('\n[2c] When the client no longer knows what the server holds');
   offen = true;
   b.aktualisiere(FREI);
   check('line back and a fresh press: blocks, true sent', b.blockt && gesendet.join() === 'true');
+}
+
+// ── [2d] the begin cost: hooks (K1 N5) ───────────────────────────────────
+console.log('\n[2d] A begin needs 5 stamina');
+{
+  const ereignisse: string[] = [];
+  const b = new BlockSteuerung(() => undefined, { zuErschoepft: () => ereignisse.push('zu'), beginnt: () => ereignisse.push('beginnt') });
+  b.aktualisiere({ ...FREI, ausdauer: 4.99 });
+  check('4.99: refused, the hook "zuErschoepft" fires once, no begin', !b.blockt && ereignisse.join() === 'zu');
+  b.aktualisiere({ ...halten(FREI), ausdauer: 80 });
+  check('the button is still down and the stamina is back: no start without a fresh press', !b.blockt && ereignisse.join() === 'zu');
+  b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false, ausdauer: 80 });
+  b.aktualisiere({ ...FREI, ausdauer: 5 });
+  check('exactly 5: starts, "beginnt" fires once', b.blockt && ereignisse.join() === 'zu,beginnt');
+  b.aktualisiere({ ...halten(FREI), ausdauer: 0 });
+  check('holding with 0 stamina predicted: the block goes on (the server ends it, not the rule of the begin)', b.blockt && ereignisse.join() === 'zu,beginnt');
+  const c = new BlockSteuerung(() => undefined, { beginnt: () => ereignisse.push('messzelle') });
+  c.erzwinge(true);
+  c.erzwinge(true);
+  check('the measuring cell charges the begin too (once)', ereignisse.slice(2).join() === 'messzelle');
+  const d = new BlockSteuerung(() => false, { beginnt: () => ereignisse.push('x') });
+  d.aktualisiere(FREI);
+  check('a start the line drops is no begin: nothing charged', !d.blockt && !ereignisse.includes('x'));
+  const e = new BlockSteuerung(() => undefined);
+  e.aktualisiere({ ...FREI, ausdauer: 0 });
+  check('without hooks a refusal is silent and does not crash', !e.blockt);
 }
 
 // ── [3] sending ───────────────────────────────────────────────────────────

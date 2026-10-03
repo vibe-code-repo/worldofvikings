@@ -6,6 +6,7 @@
  */
 import { PacketType, WATER_LEVEL } from '@wov/shared';
 import type { BinaryReader } from '../net/GameSocket';
+import { BLOCK_BEGINN_AUSDAUER, SERVER_MELDUNG_ZU_ERSCHOEPFT } from '@wov/shared/src/kampf/block.js';
 import { BlockSteuerung } from './BlockSteuerung';
 
 /** What the wiring needs of the game; every field is a getter, so late-created objects (`let player`) work. */
@@ -15,6 +16,8 @@ export interface BlockQuellen {
   input: { isMouseDown(button: number): boolean; wasMousePressed(button: number): boolean };
   player: () => {
     setzeBlock(an: boolean): void;
+    readonly ausdauerStand: number;
+    zieheAusdauerAb(menge: number): void;
     readonly bauModus: boolean;
     readonly position: { readonly y: number };
     readonly avatar: { readonly liegt: boolean };
@@ -25,6 +28,8 @@ export interface BlockQuellen {
   fensterOffen: () => boolean;
   /** Placing decor (the right button cancels there). */
   dekorAktiv: () => boolean;
+  /** Shows a message to the player (a catalogue key like `@kampf.zu_erschoepft` is translated): `hud.meldung(i18n.serverMeldung(t))`. */
+  meldung: (text: string) => void;
   /** Default: the pointer lock element of the document. */
   zeigerGefangen?: () => boolean;
   /** Default: `window`. */
@@ -33,7 +38,11 @@ export interface BlockQuellen {
 
 export class BlockVerdrahtung extends BlockSteuerung {
   constructor(private readonly q: BlockQuellen) {
-    super((an) => q.sendBlock(an));
+    super((an) => q.sendBlock(an), {
+      // The same rule and message as the server (K1 N5): a begin costs 5 stamina, below 5 it is refused.
+      zuErschoepft: () => q.meldung(SERVER_MELDUNG_ZU_ERSCHOEPFT),
+      beginnt: () => q.player()?.zieheAusdauerAb(BLOCK_BEGINN_AUSDAUER),
+    });
     // Losing the focus sends no mouseup: the block would stay on.
     (q.fenster ?? (typeof window !== 'undefined' ? window : null))?.addEventListener('blur', () => this.blur());
   }
@@ -56,6 +65,7 @@ export class BlockVerdrahtung extends BlockSteuerung {
       gegenstandInHand: !!ausruestung?.rightItem,
       tot: spieler.avatar.liegt,
       imWasser: spieler.position.y < WATER_LEVEL,
+      ausdauer: spieler.ausdauerStand,
     });
     spieler.setzeBlock(this.blockt);
   }

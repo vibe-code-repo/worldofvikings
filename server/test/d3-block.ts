@@ -15,6 +15,8 @@ import WebSocket from 'ws';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readFileSync, rmSync } from 'fs';
+import { ausdauerSchritt } from '@wov/shared/src/bewegung/ausdauer.js';
+import { paradeOffen } from '@wov/shared/src/kampf/block.js';
 import { PacketType, eingehenderSchaden, npcKampf, type Vector3 } from '@wov/shared';
 import { BLOCK_SPERRE_MS } from '@wov/shared/src/kampf/block.js';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
@@ -56,95 +58,106 @@ function attrappe(waffe = 'SwordNorth'): BlockPeer & { gesendet: Gesendet[] } {
   } as BlockPeer & { gesendet: Gesendet[] };
 }
 const vorn: { x: number; z: number } = { x: 0, z: -2 };
+/** Begin a block and give the 5 stamina of the begin back, so the older numbers below stay as they were (the cost has its own tests in [1b]). */
+function beginne(p: BlockPeer, jetzt: number): void {
+  const vorher = p.stamina;
+  blockPaket(p, true, jetzt);
+  if (p.blockSeit > 0) p.stamina = vorher;
+}
+/** Begin with a full bar, then set the stamina to `wert` (a begin needs 5). */
+function beginneMit(p: BlockPeer, jetzt: number, wert: number): void {
+  p.stamina = 100;
+  blockPaket(p, true, jetzt);
+  p.stamina = wert;
+}
 
 console.log('\n[1] Spiel/Block.ts on a stand-in peer (fixed clock)');
 {
   const p = attrappe('');
   check('fist: darfBlocken is false (the one provisional condition)', !darfBlocken(p) && darfBlocken(attrappe('Axt')));
-  blockPaket(p, true, 1000);
+  beginne(p, 1000);
   check('without an item in the hand the block is refused: no state, the client is told Block false', p.blockSeit === 0 && p.gesendet.length === 1 && p.gesendet[0]!.typ === PacketType.Block && p.gesendet[0]!.inhalt === 'false', JSON.stringify(p.gesendet));
 
   const q = attrappe();
-  blockPaket(q, true, 1000);
+  beginne(q, 1000);
   check('with an item: the block begins (blockSeit = now), with a parry window', q.blockSeit === 1000 && !q.blockOhneParade && q.gesendet.length === 0);
-  blockPaket(q, true, 1100);
+  beginne(q, 1100);
   check('a second "on" while held does not restart it (blockSeit unchanged)', q.blockSeit === 1000);
   blockPaket(q, false, 1300);
   check('"off": the block ends and the lock runs 0.5 s from the end', q.blockSeit === 0 && q.blockSperreBis === 1300 + BLOCK_SPERRE_MS && q.gesendet.length === 0, `${q.blockSperreBis}`);
 
   // Click series: no second parry window.
   const k = attrappe();
-  blockPaket(k, true, 5000); blockPaket(k, false, 5050); blockPaket(k, true, 5100);
+  beginne(k, 5000); blockPaket(k, false, 5050); beginne(k, 5100);
   check('click series: the third packet (50 ms after the end) opens a block WITHOUT parry window', k.blockSeit === 5100 && k.blockOhneParade);
   const tr = blockTrifft(k, vorn, 30, 5110);
   check('a blow 10 ms into that block is no parry (30 % of the damage)', tr.art === 'geblockt' && nah(tr.schaden, 9, 1e-9), JSON.stringify(tr));
-  blockPaket(k, false, 5200); blockPaket(k, true, 5699);
+  blockPaket(k, false, 5200); beginne(k, 5699);
   check('a new block 499 ms after the end: still locked', k.blockOhneParade);
-  blockPaket(k, false, 5700); blockPaket(k, true, 6200);
+  blockPaket(k, false, 5700); beginne(k, 6200);
   check('a new block exactly 500 ms after the end: the window is back', !k.blockOhneParade);
-  blockPaket(k, false, 6300); blockPaket(k, true, 6799);
+  blockPaket(k, false, 6300); beginne(k, 6799);
   check('499 ms after the end of the last one: locked again', k.blockOhneParade);
   const ersteres = attrappe();
-  blockPaket(ersteres, true, 100);
+  beginne(ersteres, 100);
   check('the very first block has a window (lock 0 in the past)', !ersteres.blockOhneParade);
 
   // Stamina 0: refused with the message.
   const m = attrappe();
   m.stamina = 0;
-  blockPaket(m, true, 1000);
+  beginne(m, 1000);
   check('stamina 0: no block, message "@kampf.zu_erschoepft" and Block false', m.blockSeit === 0 && m.gesendet.some((g) => g.typ === PacketType.InteractResult && g.inhalt === '@kampf.zu_erschoepft') && m.gesendet.some((g) => g.typ === PacketType.Block && g.inhalt === 'false'), JSON.stringify(m.gesendet));
   const f = attrappe(); f.flying = true;
-  blockPaket(f, true, 1000);
+  beginne(f, 1000);
   check('an admin in flight mode cannot block', f.blockSeit === 0);
   const t = attrappe(); t.totBis = 5000;
-  blockPaket(t, true, 1000);
+  beginne(t, 1000);
   check('a dead player cannot begin a block', t.blockSeit === 0);
 
   // Holding: 2/s over 5 s.
   const h = attrappe();
-  blockPaket(h, true, 10_000);
+  beginne(h, 10_000);
   let jetzt = 10_000;
   let blockt = true;
   for (let i = 0; i < 100; i++) { jetzt += 50; blockt = blockHalteTakt(h, jetzt); }
   check('5 s of holding (100 ticks of 50 ms): stamina 90 +- 0.1, still blocking', nah(h.stamina, 90, 0.1) && blockt && h.blockSeit === 10_000, `${h.stamina}`);
   check('every tick sets the stamp of the last drain (no regeneration while held)', h.staminaZuletztVerbraucht === jetzt);
   const g = attrappe();
-  blockPaket(g, true, 20_000);
+  beginne(g, 20_000);
   const erster = blockHalteTakt(g, 20_020);
   check('the first tick pays only the time the block was really held (20 ms, not the 0.5 s since the last packet)', nah(100 - g.stamina, 2 * 0.02, 1e-9) && erster, `${100 - g.stamina}`);
 
   // Ends at stamina 0.
   const e = attrappe();
-  e.stamina = 0.04;
-  blockPaket(e, true, 30_000);
+  beginneMit(e, 30_000, 0.04);
   const nochBlockt = blockHalteTakt(e, 30_050);
   check('stamina runs out while held: the block ends, stamina 0, the lock starts, the client is told Block false', !nochBlockt && e.blockSeit === 0 && e.stamina === 0 && e.blockSperreBis === 30_050 + BLOCK_SPERRE_MS && e.gesendet.some((x) => x.typ === PacketType.Block && x.inhalt === 'false'), JSON.stringify(e.gesendet));
   check('no block held: the tick costs nothing and answers false', (() => { const n = attrappe(); return !blockHalteTakt(n, 1000) && n.stamina === 100; })());
   const fl = attrappe();
-  blockPaket(fl, true, 1000); fl.flying = true;
+  beginne(fl, 1000); fl.flying = true;
   check('flight mode switched on while held: the tick ends the block', !blockHalteTakt(fl, 1050) && fl.blockSeit === 0);
 
   // B1: the time is billed by the SERVER clock, no cap: a silent client pays too.
   const stumm = attrappe();
-  blockPaket(stumm, true, 50_000);
+  beginne(stumm, 50_000);
   blockHalteTakt(stumm, 50_050);
   const nachStumm = blockHalteTakt(stumm, 56_050); // 6 s without a packet
   check('B1: 6 s without an input packet cost 12 stamina (not a capped slice): 100 - 0.1 - 12', nah(stumm.stamina, 100 - 0.1 - 12, 1e-9) && nachStumm, `${stumm.stamina}`);
   const lang = attrappe();
-  blockPaket(lang, true, 60_000);
+  beginne(lang, 60_000);
   blockHalteTakt(lang, 60_010);
   blockHalteTakt(lang, 90_010); // 30 s of silence
   check('B1: 30 s of silence cost 60 stamina', nah(lang.stamina, 100 - 0.02 - 60, 1e-9), `${lang.stamina}`);
   const treffer = attrappe();
-  blockPaket(treffer, true, 70_000);
+  beginne(treffer, 70_000);
   const tr1 = blockTrifft(treffer, vorn, 30, 70_000 + 10_000); // nothing sent for 10 s, then a blow
   check('B1: a blow bills the time held first (10 s = 20), then the 4 of the blow: 100 - 24', tr1.art === 'geblockt' && nah(treffer.stamina, 76, 1e-9), `${treffer.stamina}`);
   const leer = attrappe();
-  blockPaket(leer, true, 80_000);
+  beginne(leer, 80_000);
   const tr2 = blockTrifft(leer, vorn, 30, 80_000 + 60_000); // 60 s silent: the stamina is gone before the blow
   check('B1: a silent client that held 60 s holds nothing: stamina 0, block ended, the FULL blow', tr2.art === 'keiner' && tr2.schaden === 30 && leer.blockSeit === 0 && leer.stamina === 0, JSON.stringify(tr2));
   const takt = attrappe();
-  blockPaket(takt, true, 90_000);
+  beginne(takt, 90_000);
   blockTakt([takt], 90_000 + 4000);
   check('B1: the server tick bills a client that sends nothing (4 s = 8)', nah(takt.stamina, 92, 1e-9) && takt.blockSeit > 0, `${takt.stamina}`);
   blockTakt([takt], 90_000 + 200_000);
@@ -152,43 +165,43 @@ console.log('\n[1] Spiel/Block.ts on a stand-in peer (fixed clock)');
 
   // H2: a stall of the server is not billed beyond 2 s; silence is (the tick bills it piece by piece).
   const haenger = attrappe();
-  blockPaket(haenger, true, 200_000);
+  beginne(haenger, 200_000);
   blockTakt([haenger], 230_000, 30_000); // the server did not run for 30 s
   check('H2: a 30 s server stall bills only the last 2 s (4 stamina, not 60)', nah(haenger.stamina, 96, 1e-9) && haenger.blockSeit > 0, `${haenger.stamina}`);
   const haenger2 = attrappe();
-  blockPaket(haenger2, true, 240_000);
+  beginne(haenger2, 240_000);
   blockHalteTakt(haenger2, 270_000, 30_000); // the first input after the stall comes before the tick
   check('H2: ... also when an input packet comes first', nah(haenger2.stamina, 96, 1e-9), `${haenger2.stamina}`);
   const still = attrappe();
-  blockPaket(still, true, 300_000);
+  beginne(still, 300_000);
   for (let t = 50; t <= 20_000; t += 50) blockTakt([still], 300_000 + t, 50); // 20 s, the client sends nothing, the server ticks
   check('H2: a silent client is NOT discounted: 20 s of ticks without a packet cost 40', nah(still.stamina, 60, 1e-6) || still.blockSeit === 0, `${still.stamina}`);
   check('H2: the stall limit is 2 s', BLOCK_LUECKE_MS === 2000);
   const klein = attrappe();
-  blockPaket(klein, true, 400_000);
+  beginne(klein, 400_000);
   blockTakt([klein], 400_000 + 3000, 1500); // a gap of 1.5 s is below the limit: nothing is forgiven
   check('H2: a gap under the limit is billed in full (3 s = 6)', nah(klein.stamina, 94, 1e-9), `${klein.stamina}`);
 
   // H1: a clock that jumps backwards does not open the parry window.
   const zurueck = attrappe();
-  blockPaket(zurueck, true, 10_000_000);
+  beginne(zurueck, 10_000_000);
   const rueck = blockTrifft(zurueck, vorn, 30, 10_000_000 - 3_600_000);
   check('H1: the clock one hour back: no parry (the window needs jetzt >= blockSeit)', rueck.art !== 'pariert', JSON.stringify(rueck));
 
   // B3: the item condition holds for the whole block.
   const hand = attrappe();
-  blockPaket(hand, true, 100_000);
+  beginne(hand, 100_000);
   hand.waffe = '';
   check('B3: item put away while held: the tick ends the block', !blockHalteTakt(hand, 100_050) && hand.blockSeit === 0 && hand.gesendet.some((x) => x.typ === PacketType.Block && x.inhalt === 'false'));
   const hand2 = attrappe();
-  blockPaket(hand2, true, 110_000);
+  beginne(hand2, 110_000);
   hand2.waffe = '';
   const tr3 = blockTrifft(hand2, vorn, 30, 110_500);
   check('B3: item put away while held: the next blow is NOT blocked (full damage, no stamina cost for it) and the block is over', tr3.art === 'keiner' && tr3.schaden === 30 && hand2.blockSeit === 0 && hand2.stamina > 98, JSON.stringify(tr3));
 
   // An accepted swing of her own ends the block.
   const s = attrappe();
-  blockPaket(s, true, 40_000);
+  beginne(s, 40_000);
   beendeBlockDurchSchlag(s, 40_300);
   check('an own swing ends the block, lock runs, the client is told', s.blockSeit === 0 && s.blockSperreBis === 40_300 + BLOCK_SPERRE_MS && s.gesendet.some((x) => x.typ === PacketType.Block && x.inhalt === 'false'), JSON.stringify(s.gesendet));
   const s2 = attrappe();
@@ -197,11 +210,11 @@ console.log('\n[1] Spiel/Block.ts on a stand-in peer (fixed clock)');
 
   // Reset.
   const z = attrappe();
-  blockPaket(z, true, 1000); beendeBlock(z, 1100);
+  beginne(z, 1000); beendeBlock(z, 1100);
   blockZuruecksetzen(z);
   check('reset (death, world change): block, lock and flag are cleared', z.blockSeit === 0 && z.blockSperreBis === 0 && !z.blockOhneParade);
   const z2 = attrappe();
-  blockPaket(z2, true, 1000);
+  beginne(z2, 1000);
   blockZuruecksetzen(z2);
   check('N4: a reset of a HELD block tells the client (Block false)', z2.gesendet.filter((x) => x.typ === PacketType.Block && x.inhalt === 'false').length === 1, JSON.stringify(z2.gesendet));
   const z3 = attrappe();
@@ -210,15 +223,15 @@ console.log('\n[1] Spiel/Block.ts on a stand-in peer (fixed clock)');
 
   // Blow of the module: the messages and the state.
   const b = attrappe();
-  blockPaket(b, true, 1000);
+  beginne(b, 1000);
   const hit = blockTrifft(b, vorn, 10, 1500);
   check('a blow: stamp of the last drain set, stamina 100 - 1 (held 0.5 s, billed first) - 4 = 95, message "@kampf.geblockt"', nah(b.stamina, 95, 1e-9) && b.staminaZuletztVerbraucht === 1500 && b.gesendet.some((x) => x.inhalt === '@kampf.geblockt') && hit.art === 'geblockt');
   const pa = attrappe();
-  blockPaket(pa, true, 1000);
+  beginne(pa, 1000);
   blockTrifft(pa, vorn, 10, 1100);
   check('a parry: message "@kampf.pariert", stamina 100 - 0.2 - 4', nah(pa.stamina, 95.8, 1e-9) && pa.gesendet.some((x) => x.inhalt === '@kampf.pariert'));
   const br = attrappe();
-  br.stamina = 3.9; blockPaket(br, true, 1000);
+  beginneMit(br, 1000, 3.9);
   const bruch = blockTrifft(br, vorn, 10, 1500);
   check('3.9 stamina: break (full damage 10), the block ended, message "@kampf.zu_erschoepft" and Block false', bruch.art === 'bruch' && bruch.schaden === 10 && br.blockSeit === 0 && br.stamina === 0 && br.gesendet.some((x) => x.inhalt === '@kampf.zu_erschoepft') && br.gesendet.some((x) => x.typ === PacketType.Block), JSON.stringify(br.gesendet));
   // A stand-in peer of another test has none of the block fields (undefined): that is "no block", not a block.
@@ -228,6 +241,54 @@ console.log('\n[1] Spiel/Block.ts on a stand-in peer (fixed clock)');
   const kein = attrappe();
   const unber = blockTrifft(kein, vorn, 10, 1500);
   check('no block held: the blow is not touched, no message', unber.art === 'keiner' && unber.schaden === 10 && kein.gesendet.length === 0);
+}
+
+// ── [1b] N5: every begin costs stamina; endless tapping no longer buys endless parry windows ────────────────
+console.log('\n[1b] The cost of a block begin (5) and the tap macro');
+{
+  const normal = attrappe();
+  blockPaket(normal, true, 1000);
+  check('N5: an ordinary block costs exactly 5 stamina at the begin, and the stamp of the last drain is set', normal.stamina === 95 && normal.staminaZuletztVerbraucht === 1000 && normal.blockSeit === 1000, `${normal.stamina}`);
+  const knapp = attrappe();
+  knapp.stamina = 4.99;
+  blockPaket(knapp, true, 1000);
+  check('N5: a begin with 4.99 stamina is refused: no block, stamina untouched, "@kampf.zu_erschoepft" and Block false', knapp.blockSeit === 0 && knapp.stamina === 4.99 && knapp.gesendet.some((x) => x.inhalt === '@kampf.zu_erschoepft') && knapp.gesendet.some((x) => x.typ === PacketType.Block && x.inhalt === 'false'), JSON.stringify(knapp.gesendet));
+  const genau = attrappe();
+  genau.stamina = 5;
+  blockPaket(genau, true, 1000);
+  check('N5: a begin with exactly 5 stamina is allowed (stamina 0 afterwards)', genau.blockSeit === 1000 && genau.stamina === 0);
+  check('N5: ... and that block ends at the first tick (nothing left to hold with)', !blockHalteTakt(genau, 1050) && genau.blockSeit === 0);
+  const sperre = attrappe();
+  blockPaket(sperre, true, 1000); blockPaket(sperre, false, 1100);
+  blockPaket(sperre, true, 1200);
+  check('N5: the 0.5 s lock stays (a begin 100 ms after the end has no parry window), and costs 5 again', sperre.blockOhneParade && nah(sperre.stamina, 100 - 5 - 0 - 5, 1e-9), `${sperre.stamina}`);
+
+  /** A macro that presses, holds `haltenMs`, releases and waits `wartenMs`; stamina regenerates by the shared rule. Returns the share of time a parry window was open. */
+  const makro = (haltenMs: number, wartenMs: number, dauerMs: number, abMs: number): { quote: number; beginne: number; abgelehnt: number } => {
+    const p = attrappe();
+    let offen = 0; let gesamt = 0; let beginne = 0; let abgelehnt = 0;
+    let naechster = 0; let loslassen = -1;
+    for (let t = 0; t < dauerMs; t += 10) {
+      const jetzt = 1_000_000 + t;
+      if (loslassen >= 0 && t >= loslassen) { blockPaket(p, false, jetzt); loslassen = -1; naechster = t + wartenMs; }
+      if (loslassen < 0 && p.blockSeit <= 0 && t >= naechster) {
+        blockPaket(p, true, jetzt);
+        if (p.blockSeit > 0) { beginne++; loslassen = t + haltenMs; } else { abgelehnt++; naechster = t + 50; }
+      }
+      blockHalteTakt(p, jetzt);
+      if (p.blockSeit <= 0 || true) {
+        const nach = ausdauerSchritt({ wert: p.stamina, zuletztVerbraucht: p.staminaZuletztVerbraucht }, { rennWunsch: false, bewegt: false, dt: 0.01, jetzt });
+        p.stamina = nach.wert; p.staminaZuletztVerbraucht = nach.zuletztVerbraucht;
+      }
+      if (t >= abMs) { gesamt++; if (paradeOffen(p.blockSeit, p.blockOhneParade, jetzt)) offen++; }
+    }
+    return { quote: offen / gesamt, beginne, abgelehnt };
+  };
+  const zyklus = makro(200, 500, 60_000, 30_000);   // press, hold 200 ms, release, wait 500 ms (the cycle that was 29 % before)
+  const tippen = makro(20, 80, 60_000, 30_000);      // tapping 10 times a second
+  console.log(`      parry window open, second half of 60 s: cycle macro ${(zyklus.quote * 100).toFixed(1)} % (${zyklus.beginne} begins, ${zyklus.abgelehnt} refused), tapping ${(tippen.quote * 100).toFixed(1)} % (${tippen.beginne} begins, ${tippen.abgelehnt} refused)`);
+  check('N5: the 200/500 ms cycle macro (29 % invulnerable before) is at most 15 % in the long run', zyklus.quote <= 0.15, `${(zyklus.quote * 100).toFixed(1)} %`);
+  check('N5: tapping 10 times a second is at most 15 % in the long run, and begins are refused (the stamina is empty)', tippen.quote <= 0.15 && tippen.abgelehnt > 0, `${(tippen.quote * 100).toFixed(1)} %, refused ${tippen.abgelehnt}`);
 }
 
 // ── [2] over the real packet path ────────────────────────────────────────────────────
@@ -395,7 +456,7 @@ async function main(): Promise<void> {
     ws.effekte.length = 0; const flinchVor = ws.treffer;
     zugriff.applyCreatureAttack(von(0, -2), wolf, 2.4, anna.worldId, anna.position);
     const seit = Date.now() - anna.blockSeit;
-    check(`PARRY WINDOW (${seit} ms after the begin): life unchanged, the 4 stamina paid, the block goes on`, anna.health === 100 && nah(anna.stamina, 96, 0.2) && anna.blockSeit > 0 && seit < 200, `life ${anna.health}, stamina ${anna.stamina}`);
+    check(`PARRY WINDOW (${seit} ms after the begin): life unchanged, 5 for the begin and 4 for the blow paid, the block goes on`, anna.health === 100 && nah(anna.stamina, 91, 0.2) && anna.blockSeit > 0 && seit < 200, `life ${anna.health}, stamina ${anna.stamina}`);
     await warte(150);
     check('... message "@kampf.pariert"', ws.meldungen.includes('@kampf.pariert'), JSON.stringify(ws.meldungen));
     check('... a parry shows ONE spark (art 2), no blood and no flinch (no PlayerTreffer)', ws.effekte.length === 1 && ws.effekte[0] === 2 && ws.treffer === flinchVor, `${JSON.stringify(ws.effekte)}, flinches ${ws.treffer - flinchVor}`);
@@ -478,6 +539,8 @@ async function main(): Promise<void> {
       anna.staminaZuletztVerbraucht = Date.now();
       sendBlock(ws, an);
       await warte(150);
+      anna.stamina = 100; // the begin of the block cost 5: measure only the holding
+      anna.staminaZuletztVerbraucht = Date.now();
       const start = { ...anna.position };
       const t = Date.now();
       await eingaben(ws, 0, dauer, 1, rennt);

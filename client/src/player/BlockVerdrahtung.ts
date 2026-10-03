@@ -7,7 +7,7 @@
 import { PacketType, WATER_LEVEL } from '@wov/shared';
 import type { BinaryReader } from '../net/GameSocket';
 import { BLOCK_BEGINN_AUSDAUER, SERVER_MELDUNG_ZU_ERSCHOEPFT } from '@wov/shared/src/kampf/block.js';
-import { SERVER_MELDUNG_ROLLE_ZU_ERSCHOEPFT } from '@wov/shared/src/kampf/rolle.js';
+import { ROLLE_AUS_ABGELEHNT, SERVER_MELDUNG_ROLLE_ZU_ERSCHOEPFT } from '@wov/shared/src/kampf/rolle.js';
 import { BlockSteuerung } from './BlockSteuerung';
 import { rolleRichtungYaw, rolleSperre } from './RolleSteuerung';
 
@@ -20,7 +20,7 @@ export interface RolleSpieler {
   readonly figurYaw: number;
   readonly moveIntent: { readonly x: number; readonly z: number };
   startRolle(yaw: number): void;
-  rolleAbbruch(): void;
+  rolleAbbruch(sperreLoeschen?: boolean): void;
 }
 
 /** What the wiring needs of the game; every field is a getter, so late-created objects (`let player`) work. */
@@ -29,7 +29,7 @@ export interface BlockQuellen {
   sendBlock: (an: boolean) => void | boolean;
   input: { isMouseDown(button: number): boolean; wasMousePressed(button: number): boolean; wasPressed?(code: string): boolean };
   /** D3-K4: `socket?.sendRolle(yaw)`; false = no connection (the roll does not begin). */
-  sendRolle?: (yaw: number) => boolean;
+  sendRolle?: (yaw: number, nr: number) => boolean;
   player: () => {
     setzeBlock(an: boolean): void;
     readonly ausdauerStand: number;
@@ -57,6 +57,9 @@ function istRollenspieler<T extends object>(s: T & Partial<RolleSpieler>): s is 
 }
 
 export class BlockVerdrahtung extends BlockSteuerung {
+  /** The number of the last roll sent: the server's answer carries it back (an answer to an older roll is ignored). */
+  private rolleNr = 0;
+
   constructor(private readonly q: BlockQuellen) {
     super((an) => q.sendBlock(an), {
       // The same rule and message as the server (K1 N5): a begin costs 5 stamina, below 5 it is refused.
@@ -117,7 +120,8 @@ export class BlockVerdrahtung extends BlockSteuerung {
     if (sperre !== null) return;
     const yaw = rolleRichtungYaw(spieler.moveIntent.x, spieler.moveIntent.z, spieler.figurYaw);
     if (!q.sendRolle) return;
-    if (!q.sendRolle(yaw)) return;
+    if (!q.sendRolle(yaw, this.rolleNr + 1)) return;
+    this.rolleNr += 1;
     this.rolleBeginnt(); // the block is hidden, not ended: the server ends it with the roll, a refused roll leaves it
     spieler.startRolle(yaw);
   }
@@ -136,8 +140,16 @@ export class BlockVerdrahtung extends BlockSteuerung {
     });
     // D3-K4: the server refused or ended the roll (`Rolle` false): the predicted roll stops.
     socket.on(PacketType.Rolle, (reader) => {
-      if (!reader.readBool()) {
+      if (reader.readBool()) return;
+      const grund = reader.remaining >= 1 ? reader.readUInt8() : 0; // no reason byte (an older server): ended
+      const nr = reader.remaining >= 4 ? reader.readInt32() : 0; // no number: the current roll
+      if (nr !== 0 && nr !== this.rolleNr) return; // the answer to an older roll: it must not touch the one that runs now
+      if (grund === ROLLE_AUS_ABGELEHNT) {
+        // refused: free of cost at the server, so no lock here either: Q works again at once
         this.rolleAbgelehnt();
+        this.q.player()?.rolleAbbruch?.(true);
+      } else {
+        // ended (teleport, world change, flight) or an older server: the lock stays as the server holds it
         this.q.player()?.rolleAbbruch?.();
       }
     });

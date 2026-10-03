@@ -22,7 +22,7 @@ import { fileURLToPath } from 'url';
 import { readFileSync, rmSync } from 'fs';
 import { PacketType, WATER_LEVEL, eingehenderSchaden, npcKampf, type Vector3 } from '@wov/shared';
 import {
-  ROLLE_ABKLINGZEIT_MS, ROLLE_BEWEGUNG_MS, ROLLE_BEWEGUNG_S, ROLLE_DAUER_MS, ROLLE_TEMPO, ROLLE_WEG_M, SPRUNG_AUSDAUER, rolleWegAnteil,
+  ROLLE_ABKLINGZEIT_MS, ROLLE_AUS_ABGELEHNT, ROLLE_AUS_BEENDET, ROLLE_BEWEGUNG_MS, ROLLE_BEWEGUNG_S, ROLLE_DAUER_MS, ROLLE_TEMPO, ROLLE_WEG_M, SPRUNG_AUSDAUER, rolleWegAnteil,
 } from '@wov/shared/src/kampf/rolle.js';
 import { antwortBerechnen } from '../src/net/Identitaet.js';
 import { createWovServer } from '../src/WovServer.js';
@@ -52,20 +52,24 @@ const warte = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 const nah = (a: number, b: number, eps: number): boolean => Math.abs(a - b) <= eps;
 
 // ── [1] the module on a stand-in peer ────────────────────────────────────
-interface Gesendet { typ: number; inhalt: string }
+interface Gesendet { typ: number; inhalt: string; grund: number; nr: number }
 type Attrappe = RollePeer & { gesendet: Gesendet[] };
 function attrappe(): Attrappe {
   const gesendet: Gesendet[] = [];
   return {
     blockSeit: 0, blockTaktZeit: 0, blockSperreBis: 0, blockOhneParade: false, stamina: 100, staminaZuletztVerbraucht: 0,
     waffe: 'SwordNorth', flying: false, totBis: 0, blickYaw: 0, position: { x: 0, y: 0, z: 0 },
-    rolleStart: 0, rolleBis: 0, rolleZeit: 0, rolleX: 0, rolleZ: 0, rolleSperreBis: 0, sprungSperreBis: 0, rolleWeg: null,
+    rolleStart: 0, rolleBis: 0, rolleZeit: 0, rolleX: 0, rolleZ: 0, rolleSperreBis: 0, sprungSperreBis: 0, rolleWeg: null, rolleNr: 0,
     gesendet,
     sendPacketWith(typ: PacketType, schreibe: (w: Writer) => void): void {
       const w = new Writer();
       schreibe(w);
       const r = new Reader(w.toBuffer());
-      gesendet.push({ typ, inhalt: typ === PacketType.InteractResult ? (r.readBool(), r.readString()) : String(r.readBool()) });
+      const inhalt = typ === PacketType.InteractResult ? (r.readBool(), r.readString()) : String(r.readBool());
+      // `Rolle=false`: the reason byte and the roll number follow (-1 = absent)
+      const grund = typ === PacketType.Rolle && r.remaining() >= 1 ? r.readUInt8() : -1;
+      const nr = typ === PacketType.Rolle && r.remaining() >= 4 ? r.readInt32() : -1;
+      gesendet.push({ typ, inhalt, grund, nr });
     },
   } as Attrappe;
 }
@@ -74,6 +78,31 @@ const rolleAus = (p: Attrappe): number => p.gesendet.filter((g) => g.typ === Pac
 const zustand = (p: Attrappe): string => `${p.rolleStart}/${p.rolleBis}/${p.rolleZeit}/${p.rolleSperreBis}/${p.stamina}`;
 
 console.log('\n[1] spiel/Rolle.ts on a stand-in peer (fixed clock)');
+{
+  // N4: the reason byte and the roll number of `Rolle=false`
+  const p = attrappe();
+  rollePaket(p, 0, 10_000, frei, 41);
+  check('an accepted roll keeps the number the client gave it', p.rolleNr === 41);
+  rollePaket(p, 0, 10_100, frei, 42);
+  const abl = p.gesendet.at(-1)!;
+  check('REFUSED (a roll runs): `Rolle=false`, reason 1 (refused), the number of the refused REQUEST (42), the running roll keeps 41', abl.typ === PacketType.Rolle && abl.inhalt === 'false' && abl.grund === ROLLE_AUS_ABGELEHNT && abl.nr === 42 && p.rolleNr === 41, JSON.stringify(abl));
+  p.gesendet.length = 0;
+  rolleBeenden(p, 10_300);
+  const ende = p.gesendet.at(-1)!;
+  check('ENDED (teleport, world change, flight): reason 2 (ended), the number of the roll that ran (41)', ende.grund === ROLLE_AUS_BEENDET && ende.nr === 41, JSON.stringify(ende));
+  const q = attrappe();
+  q.stamina = 5;
+  rollePaket(q, 0, 1000, frei, 9);
+  check('a refusal for too little stamina: reason 1, the number 9', q.gesendet.at(-1)!.grund === ROLLE_AUS_ABGELEHNT && q.gesendet.at(-1)!.nr === 9);
+  const r = attrappe();
+  rollePaket(r, 0, 1000, frei, 5);
+  r.gesendet.length = 0;
+  rolleZuruecksetzen(r, 1200);
+  check('death or revival during a roll: reason 2, the number 5', r.gesendet.at(-1)!.grund === ROLLE_AUS_BEENDET && r.gesendet.at(-1)!.nr === 5);
+  const alt = attrappe();
+  rollePaket(alt, 0, 1000, frei);
+  check('a request without a number (an older client) is number 0', alt.rolleNr === 0);
+}
 {
   const p = attrappe();
   const ok = rollePaket(p, 0, 10_000, frei);
@@ -440,13 +469,13 @@ const horizontal = (a: Vek3, b: Vek3): number => Math.hypot(a.x - b.x, a.z - b.z
 
 // ── [3] over the real packet path ────────────────────────────────────────
 interface Socke extends WebSocket {
-  meldungen: string[]; bloecke: boolean[]; rollen: boolean[]; treffer: number; admin: string[];
+  meldungen: string[]; bloecke: boolean[]; rollen: boolean[]; aus: Array<{ grund: number; nr: number }>; treffer: number; admin: string[];
 }
 function verbinde(name: string): Promise<Socke> {
   return new Promise((ok, fail) => {
     const ws = new WebSocket(`ws://127.0.0.1:${PORT}`) as Socke;
     ws.binaryType = 'nodebuffer';
-    ws.meldungen = []; ws.bloecke = []; ws.rollen = []; ws.treffer = 0; ws.admin = [];
+    ws.meldungen = []; ws.bloecke = []; ws.rollen = []; ws.aus = []; ws.treffer = 0; ws.admin = [];
     let auth = false;
     const timer = setTimeout(() => fail(new Error(`handshake timeout: ${name}`)), 8000);
     ws.on('message', (data: Buffer) => {
@@ -469,6 +498,7 @@ function verbinde(name: string): Promise<Socke> {
         ws.bloecke.push(r.readBool());
       } else if (type === PacketType.Rolle) {
         ws.rollen.push(r.readBool());
+        ws.aus.push({ grund: r.remaining() >= 1 ? r.readUInt8() : -1, nr: r.remaining() >= 4 ? r.readInt32() : -1 });
       } else if (type === PacketType.PlayerTreffer) {
         ws.treffer++;
       } else if (type === PacketType.AdminEvent) {
@@ -488,8 +518,10 @@ const sendAdmin = (ws: WebSocket, line: string): void => {
   w.writeString(line);
   ws.send(Buffer.concat([Buffer.from([P.AdminCommand]), w.toBuffer()]));
 };
-const sendRolle = (ws: WebSocket, yaw: number): void => {
-  ws.send(Buffer.concat([Buffer.from([PacketType.Rolle]), new Writer().writeFloat32(yaw).toBuffer()]));
+const sendRolle = (ws: WebSocket, yaw: number, nr: number | null = 0): void => {
+  const w = new Writer().writeFloat32(yaw);
+  if (nr !== null) w.writeInt32(nr); // null = the packet of an older client: the yaw only
+  ws.send(Buffer.concat([Buffer.from([PacketType.Rolle]), w.toBuffer()]));
 };
 const sendBlock = (ws: WebSocket, an: boolean): void => {
   ws.send(Buffer.concat([Buffer.from([PacketType.Block]), new Writer().writeBool(an).toBuffer()]));
@@ -626,14 +658,27 @@ async function main(): Promise<void> {
     const echte = zugriff.spielerbewegung;
     zugriff.spielerbewegung = weltMit([{ form: kiste({ x: -50, y: -1, z: -2 }, { x: 50, y: 4, z: 2 }), position: { x: anna.position.x, y: anna.position.y, z: anna.position.z - 3 } }], anna.position.y);
     const start = anna.rolleStart;
-    sendRolle(ws, 0);
+    sendRolle(ws, 0, 77);
     await warte(150);
+    check('A WALL: the answer is `Rolle=false`, reason 1 (refused), the number 77 of the request', ws.aus.at(-1)?.grund === ROLLE_AUS_ABGELEHNT && ws.aus.at(-1)?.nr === 77, JSON.stringify(ws.aus));
     check('A WALL 1 m IN FRONT: the roll is refused, stamina unchanged (100), no roll state', anna.stamina === 100 && anna.rolleStart === start && ws.rollen.join() === 'false', `stamina ${anna.stamina}, ${JSON.stringify(ws.rollen)}`);
     check('... the client got the message "@kampf.rolle_blockiert"', ws.meldungen.includes('@kampf.rolle_blockiert'), JSON.stringify(ws.meldungen));
-    sendRolle(ws, Math.PI);
+    sendRolle(ws, Math.PI, 78);
     await warte(150);
     check('rolling AWAY from that wall (yaw 180 degrees) is allowed', anna.stamina === 90 && anna.rolleStart > start);
+    check('... the server keeps the number 78 of this roll', anna.rolleNr === 78);
     zugriff.spielerbewegung = echte;
+    await warte(ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS);
+
+    // ── a packet of an older client (the yaw only, no number) ──
+    anna.stamina = 100; anna.rolleSperreBis = 0;
+    sendRolle(ws, 0, null);
+    await warte(100);
+    check('a Rolle packet WITHOUT a number (an older client, 4 bytes) is accepted with the number 0', rolleLaeuft(anna, Date.now()) && anna.rolleNr === 0 && ws.readyState === WebSocket.OPEN);
+    ws.aus.length = 0;
+    sendRolle(ws, 0, null);
+    await warte(100);
+    check('... and its refusal comes back as reason 1 with the number 0', ws.aus.at(-1)?.grund === ROLLE_AUS_ABGELEHNT && ws.aus.at(-1)?.nr === 0, JSON.stringify(ws.aus));
     await warte(ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS);
 
     // ── in the water ──
@@ -698,12 +743,14 @@ async function main(): Promise<void> {
     ] as const) {
       anna.health = 100; anna.stamina = 100; anna.totBis = 0; anna.sprungSperreBis = 0;
       await warte(ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS);
-      sendRolle(ws, 0);
+      sendRolle(ws, 0, 55);
       await warte(100);
       check(`(set-up, ${wie}) a roll runs`, rolleLaeuft(anna, Date.now()));
       ws.rollen.length = 0;
+      ws.aus.length = 0;
       mach();
       await warte(150);
+      check(`${wie}: the client is told reason 2 (ended) with the number 55 of the roll that ran`, ws.aus.at(-1)?.grund === ROLLE_AUS_BEENDET && ws.aus.at(-1)?.nr === 55, JSON.stringify(ws.aus));
       check(`${wie} in the middle of a roll: the roll is over at the server, the client got Rolle false`, anna.rolleBis === 0 && ws.rollen.join() === 'false', JSON.stringify(ws.rollen));
       await eingaben(ws, 0, 700); // the packets would carry the roll on for 0.7 s
       const dx = anna.position.x - ziel.x; const dz = anna.position.z - ziel.z;

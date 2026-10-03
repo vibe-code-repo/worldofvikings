@@ -464,9 +464,10 @@ export class GameSocket {
    * Ausweichrolle (D3-K4, Taste Q): Richtung als Yaw (Konvention der Blickrichtung). Der Server prueft und fuehrt den
    * Weg; er antwortet mit Rolle=false, wenn er ablehnt oder beendet. false = keine Verbindung, die Rolle beginnt nicht.
    */
-  sendRolle(yaw: number): boolean {
+  sendRolle(yaw: number, nr = 0): boolean {
     const w = new BinaryWriter();
     w.writeFloat32(yaw);
+    w.writeInt32(nr); // the server's `Rolle=false` brings it back: an answer to an older roll is told apart
     return this.sendPacket(PacketType.Rolle, w.toUint8Array());
   }
 

@@ -79,6 +79,15 @@ export const SPRUNG_AUSDAUER = 5;
 /** Lock after a billed jump (ms): a series of jump flags in a second pays for the first only. */
 export const SPRUNG_SPERRE_MS = 800;
 
+/**
+ * `PacketType.Rolle` of the server (always `bool false`, then, newer servers): `uint8` reason, `int32` roll number.
+ * A refused roll costs nothing and the client may roll again at once; an ended roll (teleport, world change, flight) leaves the
+ * lock where it is. A packet without the reason byte (an older server) counts as ended; the number is the one the client sent
+ * with the request (`int32` after the yaw; 0 = none): an answer to an older roll does not touch a newer one.
+ */
+export const ROLLE_AUS_ABGELEHNT = 1;
+export const ROLLE_AUS_BEENDET = 2;
+
 /** Server messages (catalogue keys, `@key`, de/en). */
 export const SERVER_MELDUNG_ROLLE_ZU_ERSCHOEPFT = '@kampf.zu_erschoepft';
 export const SERVER_MELDUNG_ROLLE_BLOCKIERT = '@kampf.rolle_blockiert';

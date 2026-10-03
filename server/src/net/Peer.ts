@@ -162,6 +162,8 @@ export class Peer {
   rolleZ: number;
   /** Rolle: bis hierhin (ms) darf keine neue Rolle beginnen (Abklingzeit). */
   rolleSperreBis: number;
+  /** Rolle: die Nummer, die der Client der laufenden (oder letzten) Rolle gab; `Rolle=false` des Servers traegt sie zurueck. */
+  rolleNr: number;
   /** Rolle: der Weg der laufenden Rolle (Raster und Hangspeicher wie in der Vorschau), null = keine. */
   rolleWeg: RolleWeg | null;
   /** Sprung (D3-K4): bis hierhin (ms) wird kein weiterer gemeldeter Sprung abgerechnet. */
@@ -322,6 +324,7 @@ export class Peer {
     this.rolleX = 0;
     this.rolleZ = 0;
     this.rolleSperreBis = 0;
+    this.rolleNr = 0;
     this.rolleWeg = null;
     this.sprungSperreBis = 0;
     this.spawnPoint = null;

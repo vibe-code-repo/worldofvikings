@@ -4168,11 +4168,12 @@ export class WovServer {
   private handleRolle(peer: Peer, reader: Reader): void {
     if (reader.remaining() < 4) return;
     const yaw = reader.readFloat32();
+    const nr = reader.remaining() >= 4 ? reader.readInt32() : 0; // an older client sends no number
     const oberwelt = peer.worldId === HAUPTWELT_ID && !peer.flying;
     rollePaket(peer, yaw, Date.now(), {
       imWasser: oberwelt && peer.position.y < WATER_LEVEL,
       freiraum: oberwelt ? (x, z) => this.spielerbewegung.rolleVorschau(peer.position, x, z) : null,
-    });
+    }, nr);
   }
 
   /**

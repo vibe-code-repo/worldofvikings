@@ -13,6 +13,8 @@ import {
   ROLLE_AUSDAUER,
   ROLLE_ABKLINGZEIT_MS,
   ROLLE_DAUER_MS,
+  ROLLE_AUS_ABGELEHNT,
+  ROLLE_AUS_BEENDET,
   SERVER_MELDUNG_AUSGEWICHEN,
   SERVER_MELDUNG_ROLLE_BLOCKIERT,
   SERVER_MELDUNG_ROLLE_ZU_ERSCHOEPFT,
@@ -31,7 +33,7 @@ import { beendeBlockDurchRolle, blockAbrechnen, type BlockPeer } from './Block.j
 
 /** The part of a `Peer` the roll reads and writes. */
 export type RollePeer = BlockPeer &
-  Pick<Peer, 'rolleStart' | 'rolleBis' | 'rolleZeit' | 'rolleX' | 'rolleZ' | 'rolleSperreBis' | 'sprungSperreBis' | 'rolleWeg'>;
+  Pick<Peer, 'rolleStart' | 'rolleBis' | 'rolleZeit' | 'rolleX' | 'rolleZ' | 'rolleSperreBis' | 'sprungSperreBis' | 'rolleWeg' | 'rolleNr'>;
 
 /** What the caller knows and the module does not. */
 export interface RolleUmfeld {
@@ -54,16 +56,18 @@ function meldung(peer: Pick<Peer, 'sendPacketWith'>, text: string): void {
 }
 
 /** Tell the client that the roll was refused or ended by the server. */
-function meldeRolleAus(peer: Pick<Peer, 'sendPacketWith'>): void {
+function meldeRolleAus(peer: Pick<Peer, 'sendPacketWith'>, grund: number, nr: number): void {
   peer.sendPacketWith(PacketType.Rolle, (w) => {
     w.writeBool(false);
+    w.writeUInt8(grund); // refused (free, roll again at once) or ended (the lock stays)
+    w.writeInt32(nr); // the roll number of the client's request
   });
 }
 
-function lehneAb(peer: RollePeer, grund: RolleAblehnung | 'platz'): false {
+function lehneAb(peer: RollePeer, grund: RolleAblehnung | 'platz', nr: number): false {
   if (grund === 'ausdauer') meldung(peer, SERVER_MELDUNG_ROLLE_ZU_ERSCHOEPFT);
   else if (grund === 'platz') meldung(peer, SERVER_MELDUNG_ROLLE_BLOCKIERT);
-  meldeRolleAus(peer);
+  meldeRolleAus(peer, ROLLE_AUS_ABGELEHNT, nr);
   return false;
 }
 
@@ -86,7 +90,7 @@ export function rolleWeicheAus(peer: Pick<Peer, 'sendPacketWith'>): void {
  * `PacketType.Rolle`: the client wants to roll along `yaw`. Returns whether the roll began. A refused roll costs
  * nothing, the client is told (`Rolle` false) and gets a message where the reason is one the player can change.
  */
-export function rollePaket(peer: RollePeer, yaw: number, jetzt: number, umfeld: RolleUmfeld): boolean {
+export function rollePaket(peer: RollePeer, yaw: number, jetzt: number, umfeld: RolleUmfeld, nr = 0): boolean {
   // The block held so far is paid before the stamina is read.
   blockAbrechnen(peer, jetzt);
   const grund = rolleAblehnung(
@@ -101,13 +105,14 @@ export function rollePaket(peer: RollePeer, yaw: number, jetzt: number, umfeld: 
     },
     jetzt
   );
-  if (grund !== null) return lehneAb(peer, grund);
+  if (grund !== null) return lehneAb(peer, grund, nr);
   const richtung = rolleRichtung(yaw);
-  if (umfeld.freiraum && !rolleFreiraumOk(umfeld.freiraum(richtung.x, richtung.z))) return lehneAb(peer, 'platz');
+  if (umfeld.freiraum && !rolleFreiraumOk(umfeld.freiraum(richtung.x, richtung.z))) return lehneAb(peer, 'platz', nr);
 
   peer.stamina -= ROLLE_AUSDAUER;
   peer.staminaZuletztVerbraucht = jetzt;
   beendeBlockDurchRolle(peer, jetzt);
+  peer.rolleNr = nr;
   peer.rolleStart = jetzt;
   peer.rolleZeit = jetzt;
   peer.rolleBis = jetzt + ROLLE_DAUER_MS;
@@ -146,7 +151,7 @@ export function rolleTakt(peer: Pick<Peer, 'rolleStart' | 'rolleBis' | 'rolleZei
   return { rollt: true, x: peer.rolleX, z: peer.rolleZ, dt: scheibe.dt, weg: peer.rolleWeg };
 }
 
-type RolleEndePeer = Pick<Peer, 'rolleStart' | 'rolleBis' | 'rolleZeit' | 'rolleWeg' | 'sendPacketWith'>;
+type RolleEndePeer = Pick<Peer, 'rolleStart' | 'rolleBis' | 'rolleZeit' | 'rolleWeg' | 'rolleNr' | 'sendPacketWith'>;
 
 /**
  * Ends the roll that is running and forgets its path; the locks (roll, jump) stay. For a teleport, the world change and
@@ -159,7 +164,7 @@ export function rolleBeenden(peer: RolleEndePeer, jetzt: number = Date.now()): v
   peer.rolleBis = 0;
   peer.rolleZeit = 0;
   peer.rolleWeg = null;
-  if (lief) meldeRolleAus(peer);
+  if (lief) meldeRolleAus(peer, ROLLE_AUS_BEENDET, peer.rolleNr ?? 0);
 }
 
 /** Death and revival: no roll and no lock (the player starts afresh). A roll that ran is announced to the client. */

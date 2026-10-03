@@ -16,7 +16,9 @@
  *      it accepts the roll; a refused roll leaves it: the block is back without a new `Block(true)` and without 5 more
  *      stamina), the offline test flight (no line) neither rolls nor takes the key, the refused cases send nothing, the
  *      server's `Rolle=false` and a teleport stop the roll.
- *  [6] The wire: `sendRolle` = [90, Float32 yaw], false without a line.
+ *  [5a] `Rolle=false` with a reason (refused: no lock, Q at once; ended: the lock stays; no reason byte: ended) and the roll
+ *      number (a late answer to an older roll does not touch the newer one).
+ *  [6] The wire: `sendRolle` = [90, Float32 yaw, Int32 roll number], false without a line.
  *
  * Run: npx tsx client/test/d3-rolle-client.ts
  */
@@ -36,7 +38,7 @@ import { RolleLauf, ROLLE_SPERREN, SprungMeldung, rolleRichtungYaw, rolleSperre,
 import { BlockVerdrahtung, type BlockQuellen } from '../src/player/BlockVerdrahtung.js';
 import { Abgleicher } from '../src/net/Positionsverlauf.js';
 import { GameSocket } from '../src/net/GameSocket.js';
-import { ROLLE_ABKLINGZEIT_MS, ROLLE_AUSDAUER, ROLLE_BEWEGUNG_S, ROLLE_DAUER_MS, ROLLE_TEMPO, ROLLE_WEG_M, rolleRichtung, rolleWegAnteil } from '@wov/shared/src/kampf/rolle.js';
+import { ROLLE_AUS_ABGELEHNT, ROLLE_AUS_BEENDET, ROLLE_ABKLINGZEIT_MS, ROLLE_AUSDAUER, ROLLE_BEWEGUNG_S, ROLLE_DAUER_MS, ROLLE_TEMPO, ROLLE_WEG_M, rolleRichtung, rolleWegAnteil } from '@wov/shared/src/kampf/rolle.js';
 import { bewegungsSchritt } from '@wov/shared/src/bewegung/schritt.js';
 import { ebenerBoden, OHNE_HINDERNISSE } from '@wov/shared/src/bewegung/abfragen.js';
 import { AUSDAUER_REGEL } from '@wov/shared/src/bewegung/ausdauer.js';
@@ -421,13 +423,13 @@ console.log('\n[5] BlockVerdrahtung with the key Q');
 interface Spiel {
   q: boolean; rechts: boolean; flanke: boolean; online: boolean; gesendet: Array<string>; meldungen: string[];
   gefangen: boolean; ausdauer: number; rollt: boolean; inLuft: boolean; abkling: number; bereit: boolean; liegt: boolean; y: number;
-  starts: number[]; abbrueche: number; fenster: boolean; abzuege: number; blockPose: boolean[];
+  starts: number[]; abbrueche: number; fenster: boolean; abzuege: number; blockPose: boolean[]; nrs: number[]; loeschen: boolean[];
 }
 function neuesSpiel(): { v: BlockVerdrahtung; spiel: Spiel } {
-  const spiel: Spiel = { q: false, rechts: false, flanke: false, online: true, gesendet: [], meldungen: [], gefangen: true, ausdauer: 100, rollt: false, inLuft: false, abkling: 0, bereit: true, liegt: false, y: 50, starts: [], abbrueche: 0, fenster: false, abzuege: 0, blockPose: [] };
+  const spiel: Spiel = { q: false, rechts: false, flanke: false, online: true, gesendet: [], meldungen: [], gefangen: true, ausdauer: 100, rollt: false, inLuft: false, abkling: 0, bereit: true, liegt: false, y: 50, starts: [], abbrueche: 0, fenster: false, abzuege: 0, blockPose: [], nrs: [], loeschen: [] };
   const q: BlockQuellen = {
     sendBlock: (an) => { spiel.gesendet.push(`block:${an}`); },
-    sendRolle: (yaw) => { if (!spiel.online) return false; spiel.gesendet.push(`rolle:${yaw.toFixed(3)}`); return true; },
+    sendRolle: (yaw, nr) => { if (!spiel.online) return false; spiel.gesendet.push(`rolle:${yaw.toFixed(3)}`); spiel.nrs.push(nr); return true; },
     meldung: (t) => spiel.meldungen.push(t),
     input: { isMouseDown: (b) => b === 2 && spiel.rechts, wasMousePressed: (b) => b === 2 && spiel.flanke, wasPressed: (c) => c === 'KeyQ' && spiel.q },
     player: () => ({
@@ -436,7 +438,7 @@ function neuesSpiel(): { v: BlockVerdrahtung; spiel: Spiel } {
       get rollt() { return spiel.rollt; }, get rolleAbklingRest() { return spiel.abkling; }, get rolleBereit() { return spiel.bereit; },
       get inLuft() { return spiel.inLuft; }, get ausdauerStand() { return spiel.ausdauer; }, figurYaw: 0.25,
       moveIntent: { x: -1, z: 0 },
-      startRolle: (yaw: number) => spiel.starts.push(yaw), rolleAbbruch: () => { spiel.abbrueche++; },
+      startRolle: (yaw: number) => spiel.starts.push(yaw), rolleAbbruch: (loeschen?: boolean) => { spiel.abbrueche++; spiel.loeschen.push(loeschen === true); },
     }),
     equipment: () => ({ rightItem: {}, pieceTable: null }),
     placement: () => null,
@@ -455,6 +457,11 @@ const taste = (v: BlockVerdrahtung, spiel: Spiel): void => { spiel.q = true; v.f
   v.frame();
   check('no key press, no second roll', spiel.gesendet.length === 1);
 }
+/** A server `Rolle` packet as the handler reads it: bool false, then (null = absent) the reason byte and the roll number. */
+const rolleAus = (grund: number | null, nr: number | null): { readBool(): boolean; readonly remaining: number; readUInt8(): number; readInt32(): number } => {
+  let rest = 1 + (grund === null ? 0 : 1) + (nr === null ? 0 : 4);
+  return { readBool: () => { rest -= 1; return false; }, get remaining() { return rest; }, readUInt8: () => { rest -= 1; return grund!; }, readInt32: () => { rest -= 4; return nr!; } };
+};
 const verdrahtet = (v: BlockVerdrahtung): Record<number, (r: { readBool(): boolean }) => void> => {
   const h: Record<number, (r: { readBool(): boolean }) => void> = {};
   v.verdrahte({ on: (typ, f) => { h[typ] = f as never; } });
@@ -512,7 +519,7 @@ const sekunde = (v: BlockVerdrahtung, spiel: Spiel, n = 1): void => { for (let i
   spiel.rollt = true;
   sekunde(v, spiel, 2);
   check('(set-up) the block is hidden during the predicted roll', !v.blockt && spiel.gesendet.join() === `block:true,rolle:${(Math.PI / 2).toFixed(3)}`);
-  h[PacketType.Rolle]!({ readBool: () => false }); // the server refused the roll
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, spiel.nrs.at(-1) ?? 0)); // the server refused the roll
   spiel.rollt = false; // the controller stops the predicted roll (`rolleAbbruch`)
   v.frame();
   check('REFUSED: the block stands again (the button is held), WITHOUT a new Block(true) and WITHOUT 5 more stamina', v.blockt && spiel.gesendet.length === 2 && spiel.abzuege === 1 && spiel.blockPose.at(-1) === true, `${spiel.gesendet.join()} charged ${spiel.abzuege}`);
@@ -530,7 +537,7 @@ const sekunde = (v: BlockVerdrahtung, spiel: Spiel, n = 1): void => { for (let i
   spiel.rechts = false;
   v.frame();
   check('the button released during the predicted roll: Block(false) goes out (the server may still hold the block)', spiel.gesendet.at(-1) === 'block:false' && !v.blockt, spiel.gesendet.join());
-  h[PacketType.Rolle]!({ readBool: () => false });
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, spiel.nrs.at(-1) ?? 0));
   spiel.rollt = false;
   spiel.rechts = true;
   v.frame();
@@ -546,7 +553,7 @@ const sekunde = (v: BlockVerdrahtung, spiel: Spiel, n = 1): void => { for (let i
   spiel.fenster = true;
   v.frame();
   check('a window opens while the block is hidden: Block(false) goes out, the block is gone', spiel.gesendet.at(-1) === 'block:false' && !v.blockt);
-  h[PacketType.Rolle]!({ readBool: () => false });
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, spiel.nrs.at(-1) ?? 0));
   spiel.rollt = false; spiel.fenster = false;
   v.frame();
   check('... and the refusal does not bring it back', !v.blockt && spiel.abzuege === 1);
@@ -558,7 +565,7 @@ const sekunde = (v: BlockVerdrahtung, spiel: Spiel, n = 1): void => { for (let i
   spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
   taste(v, spiel);
   spiel.rollt = true;
-  h[PacketType.Rolle]!({ readBool: () => false });
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, spiel.nrs.at(-1) ?? 0));
   h[PacketType.Teleport]!({ readBool: () => false });
   spiel.rollt = false;
   v.frame();
@@ -623,7 +630,7 @@ const sekunde = (v: BlockVerdrahtung, spiel: Spiel, n = 1): void => { for (let i
   sekunde(v, spiel, 3);
   spiel.rollt = false; // the predicted roll is over, no answer yet
   sekunde(v, spiel, 3);
-  h[PacketType.Rolle]!({ readBool: () => false }); // the late refusal
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, spiel.nrs.at(-1) ?? 0)); // the late refusal
   sekunde(v, spiel, 2);
   check('late `Rolle=false` (N2-2), the button still held: the block is shown again (the server holds it), NO new Block(true), NO new stamina', v.blockt && spiel.gesendet.join() === `block:true,rolle:${(Math.PI / 2).toFixed(3)}` && spiel.abzuege === 1 && spiel.blockPose.at(-1) === true, spiel.gesendet.join());
   spiel.rechts = false;
@@ -642,7 +649,7 @@ const sekunde = (v: BlockVerdrahtung, spiel: Spiel, n = 1): void => { for (let i
   sekunde(v, spiel, 3);
   spiel.rechts = false;
   sekunde(v, spiel, 2);
-  h[PacketType.Rolle]!({ readBool: () => false });
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, spiel.nrs.at(-1) ?? 0));
   spiel.rechts = true; // held again without a fresh press
   sekunde(v, spiel, 3);
   check('release first, late `Rolle=false` after it: one Block(false) at the release, no block comes back (a held button needs a fresh press)', !v.blockt && spiel.gesendet.filter((g) => g === 'block:false').length === 1 && spiel.abzuege === 1, spiel.gesendet.join());
@@ -663,7 +670,7 @@ const sekunde = (v: BlockVerdrahtung, spiel: Spiel, n = 1): void => { for (let i
   check('(set-up) a new block after the accepted roll', v.blockt);
   spiel.rechts = false; sekunde(v, spiel, 2);
   taste(v, spiel); // a second roll, no block held
-  h[PacketType.Rolle]!({ readBool: () => false });
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, spiel.nrs.at(-1) ?? 0));
   spiel.rollt = false;
   spiel.rechts = true;
   sekunde(v, spiel, 3);
@@ -685,7 +692,7 @@ const stilleRolle = (): { v: BlockVerdrahtung; spiel: Spiel; h: ReturnType<typeo
   // N2-2: the button goes up in the same frame as the late refusal arrives: nothing is shown, the release's Block(false) went out.
   const { v, spiel, h } = stilleRolle();
   const posen = spiel.blockPose.length;
-  h[PacketType.Rolle]!({ readBool: () => false });
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, spiel.nrs.at(-1) ?? 0));
   spiel.rechts = false;
   sekunde(v, spiel, 3);
   check('late `Rolle=false`, the button released in the same frame: the block is never shown (not even for a frame), one Block(false)', !v.blockt && !spiel.blockPose.slice(posen).includes(true) && spiel.gesendet.filter((g) => g === 'block:false').length === 1, spiel.gesendet.join());
@@ -695,7 +702,7 @@ const stilleRolle = (): { v: BlockVerdrahtung; spiel: Spiel; h: ReturnType<typeo
   const { v, spiel, h } = stilleRolle();
   spiel.fenster = true;
   const posen = spiel.blockPose.length;
-  h[PacketType.Rolle]!({ readBool: () => false });
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, spiel.nrs.at(-1) ?? 0));
   sekunde(v, spiel, 3);
   spiel.fenster = false;
   sekunde(v, spiel, 3);
@@ -706,7 +713,7 @@ const stilleRolle = (): { v: BlockVerdrahtung; spiel: Spiel; h: ReturnType<typeo
   const { v, spiel, h } = stilleRolle();
   taste(v, spiel); // roll 2 (no block shown)
   spiel.rollt = true;
-  h[PacketType.Rolle]!({ readBool: () => false });
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, spiel.nrs.at(-1) ?? 0));
   spiel.rollt = false;
   sekunde(v, spiel, 3);
   check('a new roll resets the memory of the old one: its refusal brings no block back', !v.blockt && spiel.abzuege === 1, spiel.gesendet.join());
@@ -715,7 +722,7 @@ const stilleRolle = (): { v: BlockVerdrahtung; spiel: Spiel; h: ReturnType<typeo
   // Block=false arrives late (the server ended the block after all), then a Rolle=false: no block back
   const { v, spiel, h } = stilleRolle();
   h[PacketType.Block]!({ readBool: () => false });
-  h[PacketType.Rolle]!({ readBool: () => false });
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, spiel.nrs.at(-1) ?? 0));
   sekunde(v, spiel, 3);
   check('Block=false then Rolle=false late: the block is gone and stays gone', !v.blockt && spiel.abzuege === 1);
 }
@@ -723,7 +730,7 @@ const stilleRolle = (): { v: BlockVerdrahtung; spiel: Spiel; h: ReturnType<typeo
   // a teleport (reset) between: a late Rolle=false afterwards brings no block back
   const { v, spiel, h } = stilleRolle();
   h[PacketType.Teleport]!({ readBool: () => false });
-  h[PacketType.Rolle]!({ readBool: () => false });
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, spiel.nrs.at(-1) ?? 0));
   sekunde(v, spiel, 3);
   check('teleport, then a late Rolle=false: no block back', !v.blockt && spiel.abzuege === 1);
 }
@@ -739,6 +746,100 @@ const stilleRolle = (): { v: BlockVerdrahtung; spiel: Spiel; h: ReturnType<typeo
   spiel.rechts = false;
   v.frame();
   check('the roll ended without an answer, then the release: one Block(false) (harmless if the server ended the block with an accepted roll)', spiel.gesendet.at(-1) === 'block:false' && spiel.gesendet.filter((g) => g === 'block:false').length === 1, spiel.gesendet.join());
+}
+
+// ── [5a] the reason and the number of `Rolle=false` (N4) ───────────────────
+console.log('\n[5a] Rolle=false with a reason and a roll number');
+{
+  // a refusal at a wall: Q works again at once, no pull-back
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  taste(v, spiel);
+  spiel.rollt = true;
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, spiel.nrs.at(-1)!));
+  check('REFUSED (a wall, the reason byte 1, the number of the roll): the controller is told to end the roll AND to clear the lock', spiel.abbrueche === 1 && spiel.loeschen.at(-1) === true);
+  const { pc } = neu();
+  pc.update(1 / 60);
+  pc.startRolle(0);
+  lauf(pc, 0.15, 1 / 60);
+  pc.rolleAbbruch(true); // what the handler does for a refusal
+  const ok2: RolleUmfeld = { ...ok, abklingRest: pc.rolleAbklingRest, rollt: pc.rollt };
+  check('... the real controller: no roll, no lock: the table lets Q go at once (no pull-back, no wait of 1.3 s)', !pc.rollt && pc.rolleAbklingRest === 0 && rolleSperre(ok2) === null, `${pc.rolleAbklingRest}`);
+}
+{
+  // ended (teleport, world change, flight): the lock stays
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  taste(v, spiel);
+  spiel.rollt = true;
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_BEENDET, spiel.nrs.at(-1)!));
+  check('ENDED (reason byte 2): the roll ends, the lock is NOT cleared', spiel.abbrueche === 1 && spiel.loeschen.at(-1) === false);
+  const { pc } = neu();
+  pc.update(1 / 60);
+  pc.startRolle(0);
+  lauf(pc, 0.15, 1 / 60);
+  pc.rolleAbbruch(false);
+  check('... the real controller keeps the lock (the rest of the clip + 0.5 s): the table refuses Q', !pc.rollt && pc.rolleAbklingRest > 1.2 && rolleSperre({ ...ok, abklingRest: pc.rolleAbklingRest }) === 'abklingzeit', `${pc.rolleAbklingRest}`);
+}
+{
+  // an older packet without the reason byte (and without a number): ended, applies to the current roll
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  taste(v, spiel);
+  spiel.rollt = true;
+  h[PacketType.Rolle]!(rolleAus(null, null));
+  check('a packet WITHOUT a reason byte (an older server) counts as ended: roll ends, lock stays', spiel.abbrueche === 1 && spiel.loeschen.at(-1) === false);
+  const { v: v2, spiel: s2 } = neuesSpiel();
+  const h2 = verdrahtet(v2);
+  taste(v2, s2);
+  h2[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, null));
+  check('a reason without a number: applies to the current roll', s2.abbrueche === 1 && s2.loeschen.at(-1) === true);
+  const { v: v3, spiel: s3 } = neuesSpiel();
+  const h3 = verdrahtet(v3);
+  taste(v3, s3);
+  h3[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, 0));
+  check('roll number 0 (an older client): applies to the current roll', s3.abbrueche === 1);
+}
+{
+  // Q, Q (after the lock), then a LATE answer to the first: it must not stop or mix up the second
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  taste(v, spiel);
+  const nr1 = spiel.nrs.at(-1)!;
+  spiel.rollt = true;
+  sekunde(v, spiel, 3);
+  spiel.rollt = false; // the first predicted roll is over
+  sekunde(v, spiel, 3);
+  taste(v, spiel); // the second roll (the lock is not part of this fake)
+  const nr2 = spiel.nrs.at(-1)!;
+  spiel.rollt = true;
+  check('(set-up) two rolls with different numbers', spiel.starts.length === 2 && nr2 === nr1 + 1, `${nr1} ${nr2}`);
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, nr1)); // the late refusal of the FIRST roll
+  check('a late answer to the first roll does not stop the second (no abort, the lock untouched)', spiel.abbrueche === 0 && spiel.loeschen.length === 0);
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_BEENDET, nr1));
+  check('... neither an "ended" for the first roll', spiel.abbrueche === 0);
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, nr2));
+  check('the answer to the second roll does apply', spiel.abbrueche === 1 && spiel.loeschen.at(-1) === true);
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, nr2 + 5));
+  check('an answer with a number of the future is ignored as well', spiel.abbrueche === 1);
+}
+{
+  // the late answer to an old roll also leaves the BLOCK memory of the new roll alone
+  const { v, spiel } = neuesSpiel();
+  const h = verdrahtet(v);
+  spiel.rechts = true; spiel.flanke = true; v.frame(); spiel.flanke = false;
+  taste(v, spiel);
+  const nr1 = spiel.nrs.at(-1)!;
+  spiel.rollt = true;
+  sekunde(v, spiel, 3);
+  spiel.rollt = false;
+  sekunde(v, spiel, 3);
+  taste(v, spiel);
+  spiel.rollt = true;
+  h[PacketType.Rolle]!(rolleAus(ROLLE_AUS_ABGELEHNT, nr1));
+  spiel.rollt = false;
+  sekunde(v, spiel, 3);
+  check('a late refusal of the first roll brings no block back while the second runs or after it', !v.blockt && spiel.abzuege === 1);
 }
 
 // ── [5b] the reconciliation during a roll (N1-1) ──────────────────────────
@@ -899,7 +1000,8 @@ console.log('\n[6] sendRolle');
   const socket = new GameSocket('ws://test.invalid', 'Test');
   (socket as unknown as { ws: unknown }).ws = { readyState: WebSocket.OPEN, send: (b: ArrayBuffer) => gesendet.push([...new Uint8Array(b)]) };
   check('the packet type is 90', PacketType.Rolle === 90);
-  check('sendRolle returns true and sends [90, 4 bytes]', socket.sendRolle(1.5) === true && gesendet.length === 1 && gesendet[0]![0] === 90 && gesendet[0]!.length === 5);
+  check('sendRolle returns true and sends [90, 4 bytes yaw, 4 bytes roll number]', socket.sendRolle(1.5, 7) === true && gesendet.length === 1 && gesendet[0]![0] === 90 && gesendet[0]!.length === 9);
+  check('the roll number is the Int32 after the yaw (little endian)', new DataView(new Uint8Array(gesendet[0]!.slice(5)).buffer).getInt32(0, true) === 7);
   const f = new DataView(new Uint8Array(gesendet[0]!.slice(1)).buffer).getFloat32(0, true);
   check('the 4 bytes are the Float32 yaw (little endian)', nah(f, 1.5, 1e-6), `${f}`);
   const zu = new GameSocket('ws://test.invalid', 'Test');

@@ -966,7 +966,7 @@ export class PlayerController {
     this.ausdauerZuletztVerbraucht = Date.now();
   }
   /** D3-K4: the roll ends at once (server refused it, teleport, death). */
-  rolleAbbruch(): void { this.rolle.abbrechen(); }
+  rolleAbbruch(sperreLoeschen = false): void { this.rolle.abbrechen(sperreLoeschen); }
   /**
    * D3-K4: did a jump happen since the last call? True ONCE per jump: the main loop puts it into the next input packet
    * (50 ms apart), so a jump between two packets is not lost and one jump is not reported twice.

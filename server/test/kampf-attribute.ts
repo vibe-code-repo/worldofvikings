@@ -208,7 +208,7 @@ async function main(): Promise<void> {
     check('... loses 8*40/59', nah(biss(bernd), 8 * 40 / 59), `${biss(bernd)}`);
     await ziehAn(bernd, iro.map((t) => t.id));
     // Block: armor is applied AFTER the block (a parried blow does nothing at all). Anna faces -z, the blow comes from the front.
-    anna.peer.health = 100; anna.peer.stamina = 100; anna.peer.blickYaw = 0;
+    anna.peer.health = 100; anna.peer.stamina = 100; anna.peer.blickYaw = 0; anna.peer.waffe = 'SwordNorth';
     anna.peer.blockSeit = Date.now(); anna.peer.blockOhneParade = false;
     zugriff.applyCreatureAttack({ x: anna.peer.position.x, y: anna.peer.position.y, z: anna.peer.position.z - 2 }, 8, 2.4, anna.peer.worldId, anna.peer.position);
     check('parried blow: no damage at all, the block is still held, 4 stamina paid', anna.peer.health === 100 && anna.peer.blockSeit > 0 && anna.peer.stamina === 96, `${anna.peer.health} ${anna.peer.blockSeit} ${anna.peer.stamina}`);

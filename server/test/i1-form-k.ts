@@ -83,13 +83,26 @@
  *  record of its own, an editor that is admin, exactly one player online, the same name twice in one command, two records with the same
  *  name, `dungeons` replaced after the registration, and `getGroundHeight` called on its receiver; the relaxed members keep `readonly`
  *  exactly as frozen in `LOCKERUNGEN_C`.
- *  Not applicable in steps 1A, 1B, 1C, 2 and 3: the identity of returned objects of the stock (K9-5), no function returns a value.
+ *  Step 1, package D: `registerDungeonCommand` (the command `dungeon` with 13 sub-commands) and `resolveDungeonBase` moved into
+ *  `spiel/befehle/Dungeon.ts`. Its context is called `kd`, not `k`: the `steinkit` branch has a local `k` (rule 2.1); `kontextName` in
+ *  `MODULE` names it, the default stays `k`, and a name other than `k` is only allowed where the module declares a `k` of its own
+ *  ([0b]). `resolveDungeonBase` is a context member that the class never calls: only the moved code calls it, once, through the
+ *  context (`nurUeberKontext`). The fixed sequence runs all 13 sub-commands with their error branches (no argument, an unknown id, no
+ *  rights, a guest), on a stand-in (a real registry, every call into the context with its arguments and receiver, the documents after
+ *  every command, members replaced after the registration) and on a real instance (real documents on disk, a real entrance and
+ *  instance, then the two forwardings called again) ([2h], [4f]).
+ *  Step 1, package D, after the attack (N1): ids and keywords in another spelling, the boundaries of licht (just above 3, next to 1)
+ *  and of the seeds (from 2^31), values with a second '=', an unknown texture together with an unknown key, an entrance at x.6, an
+ *  instance without players, names that differ from a kit by an accent, empty ids straight into the handler, and `dungeons` replaced
+ *  after its FIRST use in every branch ([2i], [4g]); the reason for `kd` is read from the syntax tree, not from the text ([1e]).
+ *  Not applicable in steps 1A, 1B, 1C, 1D, 2 and 3: the identity of returned objects of the stock (K9-5), no function returns an
+ *  object of the stock (`resolveDungeonBase` returns a string).
  *
  * Section [0] shows first that each check can turn red: the same checks run over small invented sources, one fault
  * each (`red:`), and over a good stand (`green:`).
  *
  * `--messen-basis`: prints the measured summaries (step 2: stand-in and real instance; step 3: the same for the chest,
- * appearance, figure and chat handlers; step 1 package C: the same for `teleport` and `spieler`) for the stand BEFORE the move, calling `WovServer.prototype.<name>` with
+ * appearance, figure and chat handlers; step 1 package C: the same for `teleport` and `spieler`; step 1 package D: the same for `dungeon`) for the stand BEFORE the move, calling `WovServer.prototype.<name>` with
  * the stand-in as `this` instead of the module functions. On the base commit (where the test file is copied next to the
  * old sources) this reproduces `SOLL_ATTRAPPE`/`SOLL_ECHT`. Reads no source, checks nothing else.
  *
@@ -105,7 +118,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import * as ts from 'typescript';
-import { PacketType, WORLD_TIME_LENGTH, dungeon2, Inventory, WILDWARDEN_PARTS, findItem, FRISUR_VORGABE, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, RUESTUNG, FIGUREN, FRISUREN, HAARFARBEN, AUGENFARBEN, encodeArmor, TRUHE_INHALT_MEMBER, TRUHE_LOOTED_MEMBER, packContainer, unpackContainer, ChatMsgType, STANDARD_WETTER_DEFINITIONEN, PrefabFlag, IRONWARD_PARTS } from '@wov/shared';
+import { PacketType, WORLD_TIME_LENGTH, dungeon2, Inventory, WILDWARDEN_PARTS, findItem, FRISUR_VORGABE, HAARFARBE_VORGABE, AUGENFARBE_VORGABE, RUESTUNG, FIGUREN, FRISUREN, HAARFARBEN, AUGENFARBEN, encodeArmor, TRUHE_INHALT_MEMBER, TRUHE_LOOTED_MEMBER, packContainer, unpackContainer, ChatMsgType, STANDARD_WETTER_DEFINITIONEN, PrefabFlag, IRONWARD_PARTS, getStableHash } from '@wov/shared';
 import { AdminCommandRegistry } from '../src/admin/AdminCommands.js';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
@@ -142,8 +155,12 @@ interface FunktionSpec {
   readonly name: string;
   /** The head of the forwarding in the class, from the modifier to the return type (nothing after the type). */
   readonly kopf: string;
-  /** The method of the class that calls `this.<name>(<args>)` (`onPacket` for the packet handlers, `constructor` for the registrations of step 1). */
-  readonly aufrufer: { readonly methode: string; readonly args: string };
+  /**
+   * The method of the class that calls `this.<name>(<args>)` (`onPacket` for the packet handlers, `constructor` for the registrations of step 1).
+   * With `nurUeberKontext` (step 1D): the class never names `this.<name>`; `methode` is the FUNCTION of the module that calls
+   * `<context>.<name>(<args>)`, exactly once (`resolveDungeonBase`, called by the `create` branch of the dungeon command).
+   */
+  readonly aufrufer: { readonly methode: string; readonly args: string; readonly nurUeberKontext?: true };
   /**
    * Only for a caller `constructor`: the place (from 0) of `this.<name>();` among the statements `this.register…();` of the
    * constructor. The order of registration is behaviour: a later `register` of the same name replaces the handler (step 1).
@@ -160,6 +177,8 @@ interface ModulSpec {
   /** The specifier `WovServer.ts` imports it by. */
   readonly spezifizierer: string;
   readonly kontextTyp: string;
+  /** The name of the context parameter (rule 2.1); `k` when missing. Another name only where the module declares a `k` of its own (step 1D: `kd`). */
+  readonly kontextName?: string;
   readonly mitglieder: readonly string[];
   /** Specifiers of the value imports, in the order of the module. */
   readonly wertImporte: readonly string[];
@@ -267,6 +286,21 @@ const MODULE: readonly ModulSpec[] = [
     // `teleport` first: it overrides the base `teleport` of AdminCommands and is registered before every other command of the server
     funktionen: [REGISTRIERUNG_C('registerTeleportCommand', 0), REGISTRIERUNG_C('registerSpielerCommand', 1)],
   },
+  {
+    // step 1, package D: the context is `kd`, not `k` (the `steinkit` branch declares `const [k, v]`; rule 2.1)
+    datei: 'server/src/spiel/befehle/Dungeon.ts',
+    spezifizierer: './spiel/befehle/Dungeon.js',
+    kontextTyp: 'DungeonKontext',
+    kontextName: 'kd',
+    mitglieder: ['adminCommands', 'dungeons', 'resolveDungeonBase', 'enterDungeon', 'leaveDungeon'],
+    wertImporte: ['@wov/shared'],
+    funktionen: [
+      // the third registration of the constructor, right after teleport and spieler (as before the move)
+      REGISTRIERUNG_C('registerDungeonCommand', 2),
+      // a context member: the forwarding is public; the class never calls it, only the `create` branch of the dungeon command does, through the context
+      { name: 'resolveDungeonBase', kopf: 'resolveDungeonBase(input: string | undefined): string | null', aufrufer: { methode: 'registerDungeonCommand', args: 'args[0]', nurUeberKontext: true }, laenge: 1 },
+    ],
+  },
 ];
 
 /**
@@ -276,7 +310,8 @@ const MODULE: readonly ModulSpec[] = [
  * `kontenDb` and `spielerIdFuerName` (context members of step 1A, relaxed from private), plus `savedPlayers`, `speichertGerade`,
  * `spielerSicherung`, `stempelZaehler` and `wetterDienst` (context members of step 1B, relaxed from private; `savedPlayers` and
  * `spielerSicherung` are context members of step 1C too), plus `teleportPeer` (context member of step 1C, relaxed from
- * private). One per line; a later step adds its relaxations here, each with a reason.
+ * private), plus `resolveDungeonBase` (context member of step 1D, relaxed from private). One per line; a later step adds its
+ * relaxations here, each with a reason.
  */
 const PUBLIC_MEMBERS: readonly string[] = [
   'adminCommands',
@@ -307,6 +342,7 @@ const PUBLIC_MEMBERS: readonly string[] = [
   'net',
   'ohneWeltVerworfen',
   'prefabs',
+  'resolveDungeonBase', // step 1 D: context member of befehle/Dungeon (the forwarding itself is public; only the create branch of the dungeon command calls it)
   'routen',
   'saveWorld',
   'saveWorldAsync',
@@ -352,6 +388,8 @@ function pruefeModul(spec: ModulSpec, text: string): string[] {
   const f: string[] = [];
   const sf = parse(spec.datei, text);
   const line = (n: ts.Node): number => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+  // the name of the context (step 1D): `k` unless the table names another one
+  const kn = spec.kontextName ?? 'k';
   // 1. the top level does nothing when loaded
   const funktionen: ts.FunctionDeclaration[] = [];
   const typAliase: ts.TypeAliasDeclaration[] = [];
@@ -380,19 +418,19 @@ function pruefeModul(spec: ModulSpec, text: string): string[] {
   if (exportListe === null || !same(exportListe, namen)) f.push(`the export list is [${exportListe ?? 'missing'}], expected [${namen}]`);
   for (const fn of funktionen) {
     const p0 = fn.parameters[0];
-    const okKontext = !!p0 && ts.isIdentifier(p0.name) && p0.name.text === 'k' && !p0.initializer && !p0.questionToken && !p0.dotDotDotToken && !!p0.type && p0.type.getText(sf) === spec.kontextTyp;
-    if (!okKontext) f.push(`${fn.name?.text}: the first parameter is not \`k: ${spec.kontextTyp}\``);
+    const okKontext = !!p0 && ts.isIdentifier(p0.name) && p0.name.text === kn && !p0.initializer && !p0.questionToken && !p0.dotDotDotToken && !!p0.type && p0.type.getText(sf) === spec.kontextTyp;
+    if (!okKontext) f.push(`${fn.name?.text}: the first parameter is not \`${kn}: ${spec.kontextTyp}\``);
     const gehe = (n: ts.Node): void => {
-      if (n.kind === ts.SyntaxKind.ThisKeyword) f.push(`line ${line(n)}: ${fn.name?.text} uses \`this\` (it became \`k\`)`);
-      if (ts.isIdentifier(n) && n.text === 'k' && !(fn.parameters[0] && n === fn.parameters[0].name)) {
+      if (n.kind === ts.SyntaxKind.ThisKeyword) f.push(`line ${line(n)}: ${fn.name?.text} uses \`this\` (it became \`${kn}\`)`);
+      if (ts.isIdentifier(n) && n.text === kn && !(fn.parameters[0] && n === fn.parameters[0].name)) {
         const par = n.parent;
         const declariert = (ts.isVariableDeclaration(par) || ts.isParameter(par) || ts.isBindingElement(par)) && par.name === n;
-        if (declariert) f.push(`line ${line(n)}: ${fn.name?.text} declares a second \`k\`, the context is shadowed`);
+        if (declariert) f.push(`line ${line(n)}: ${fn.name?.text} declares a second \`${kn}\`, the context is shadowed`);
         else if (ts.isPropertyAccessExpression(par) && par.name === n) {
           /* `x.k`: a member called k, not the context */
         } else if (ts.isPropertyAccessExpression(par) && par.expression === n && par.questionDotToken !== undefined) {
-          f.push(`line ${line(n)}: ${fn.name?.text} reads \`k?.${par.name.getText(sf)}\`: the context is never missing, an optional chain would hide a missing member`);
-        } else if (!(ts.isPropertyAccessExpression(par) && par.expression === n)) f.push(`line ${line(n)}: ${fn.name?.text} uses \`k\` as a value (${par.getText(sf).slice(0, 40)}): only \`k.<member>\` is allowed`);
+          f.push(`line ${line(n)}: ${fn.name?.text} reads \`${kn}?.${par.name.getText(sf)}\`: the context is never missing, an optional chain would hide a missing member`);
+        } else if (!(ts.isPropertyAccessExpression(par) && par.expression === n)) f.push(`line ${line(n)}: ${fn.name?.text} uses \`${kn}\` as a value (${par.getText(sf).slice(0, 40)}): only \`${kn}.<member>\` is allowed`);
       }
       ts.forEachChild(n, gehe);
     };
@@ -418,12 +456,38 @@ function pruefeModul(spec: ModulSpec, text: string): string[] {
   const gelesen = new Set<string>();
   for (const fn of funktionen) {
     const gehe = (n: ts.Node): void => {
-      if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'k') gelesen.add(n.name.text);
+      if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === kn) gelesen.add(n.name.text);
       ts.forEachChild(n, gehe);
     };
     if (fn.body) gehe(fn.body);
   }
-  if (!same([...gelesen].sort(), [...spec.mitglieder].sort())) f.push(`the members read as k.<member> are [${[...gelesen].sort()}], the context lists [${[...spec.mitglieder].sort()}]: none in reserve, none missing`);
+  if (!same([...gelesen].sort(), [...spec.mitglieder].sort())) f.push(`the members read as ${kn}.<member> are [${[...gelesen].sort()}], the context lists [${[...spec.mitglieder].sort()}]: none in reserve, none missing`);
+  // step 1D, rule 2.1: a context name other than `k` only where the module declares a `k` of its own (the reason for the other name)
+  if (kn !== 'k') {
+    let eigenesK = 0;
+    const g = (n: ts.Node): void => {
+      if (ts.isIdentifier(n) && n.text === 'k' && (ts.isVariableDeclaration(n.parent) || ts.isParameter(n.parent) || ts.isBindingElement(n.parent)) && n.parent.name === n) eigenesK++;
+      ts.forEachChild(n, g);
+    };
+    g(sf);
+    if (eigenesK === 0) f.push(`the context is called \`${kn}\`, but the module declares no \`k\` of its own: rule 2.1 wants \`k\``);
+  }
+  // step 1D: a function the class never calls is called by the moved code, through the context, exactly once, in the frozen function, with the frozen arguments
+  for (const ziel of spec.funktionen.filter((x) => x.aufrufer.nurUeberKontext)) {
+    const stellen: string[] = [];
+    for (const fn of funktionen) {
+      const g = (n: ts.Node): void => {
+        if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === kn && n.name.text === ziel.name) {
+          const c = n.parent;
+          const ruf = ts.isCallExpression(c) && c.expression === n && !c.questionDotToken && !n.questionDotToken && c.arguments.map((x) => x.getText(sf)).join(', ') === ziel.aufrufer.args;
+          stellen.push(`${fn.name?.text ?? '?'}:${ruf ? 'call' : 'other'}`);
+        }
+        ts.forEachChild(n, g);
+      };
+      if (fn.body) g(fn.body);
+    }
+    if (stellen.join() !== `${ziel.aufrufer.methode}:call`) f.push(`${ziel.name}: the module names ${kn}.${ziel.name} at [${stellen.join(', ')}], expected exactly one call ${kn}.${ziel.name}(${ziel.aufrufer.args}) in ${ziel.aufrufer.methode}`);
+  }
   // the context type is `SpielKontext` from `spiel/Kontext.ts` (`./Kontext.js`, from the sub-folder `befehle/` `../Kontext.js`), imported as `import type { SpielKontext }` under its own name: a look-alike from another file could be `any`
   {
     const kontextPfad = kontextSpezifizierer(spec.datei);
@@ -504,15 +568,17 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
       const soll = ['this', ...m.parameters.map((p) => p.name.getText(sf))];
       const ok = ts.isIdentifier(c.expression) && c.expression.text === fn.name && !c.typeArguments && !c.questionDotToken && c.arguments[0]?.kind === ts.SyntaxKind.ThisKeyword && same(args, soll);
       if (!ok) f.push(`${fn.name}: the call is \`${c.getText(sf)}\`, expected \`${fn.name}(${soll.join(', ')})\` with a plain \`this\``);
-      // the caller in the class (`onPacket` or another method that stays) still calls the method by its name
-      const aufrufer = fn.aufrufer.methode === 'constructor' ? klasse.members.find(ts.isConstructorDeclaration) : klasse.members.find((x): x is ts.MethodDeclaration => ts.isMethodDeclaration(x) && nameVon(x) === fn.aufrufer.methode);
+      // the caller in the class (`onPacket` or another method that stays) still calls the method by its name;
+      // step 1D: a function called only through the context has no caller in the class (`pruefeModul` holds its call in the module)
+      const nurKontext = fn.aufrufer.nurUeberKontext === true;
+      const aufrufer = nurKontext ? undefined : fn.aufrufer.methode === 'constructor' ? klasse.members.find(ts.isConstructorDeclaration) : klasse.members.find((x): x is ts.MethodDeclaration => ts.isMethodDeclaration(x) && nameVon(x) === fn.aufrufer.methode);
       let ruft = false;
       const gehe = (n: ts.Node): void => {
         if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.expression.kind === ts.SyntaxKind.ThisKeyword && n.expression.name.text === fn.name && n.arguments.map((a) => a.getText(sf)).join(',') === fn.aufrufer.args.replace(/ /g, '')) ruft = true;
         ts.forEachChild(n, gehe);
       };
       if (aufrufer) gehe(aufrufer);
-      if (!ruft) f.push(`${fn.name}: ${fn.aufrufer.methode} does not call this.${fn.name}(${fn.aufrufer.args})`);
+      if (!ruft && !nurKontext) f.push(`${fn.name}: ${fn.aufrufer.methode} does not call this.${fn.name}(${fn.aufrufer.args})`);
       // exactly ONE mention of the member name in the whole class, and that is the call above (N1, I11B-B3: no second call in the
       // constructor, no call from init() or another method, no `this.<name>` handed on as a value); any receiver counts, so a cast
       // or an alias of `this` (`(this as WovServer).<name>()`, `const ich = this; ich.<name>()`) is a mention too (N2, H5)
@@ -534,7 +600,9 @@ function pruefeKlasse(specs: readonly ModulSpec[], text: string, oeffentlich: re
         ts.forEachChild(n, zaehleErwaehnung);
       };
       for (const s of sf.statements) if (!ts.isImportDeclaration(s)) zaehleErwaehnung(s);
-      if (erwaehnt !== 1) f.push(`${fn.name}: the file names this.${fn.name} ${erwaehnt} times, expected exactly once (the call in ${fn.aufrufer.methode})`);
+      if (nurKontext) {
+        if (erwaehnt !== 0) f.push(`${fn.name}: the class names this.${fn.name} ${erwaehnt} times, expected never (only the moved code calls it, through the context)`);
+      } else if (erwaehnt !== 1) f.push(`${fn.name}: the file names this.${fn.name} ${erwaehnt} times, expected exactly once (the call in ${fn.aufrufer.methode})`);
       if (direkt !== 1 || direktInWeiterleitung !== 1) f.push(`${fn.name}: the file uses the imported function ${fn.name} ${direkt} times outside the import lines (${direktInWeiterleitung} in the forwarding), expected exactly once, as the call in the forwarding`);
       // a registration: its place among the constructor's statements `this.register…();` (step 1; a swapped order replaces another handler)
       if (fn.aufrufNr !== undefined) {
@@ -601,6 +669,7 @@ const MODIFIKATOREN: Readonly<Record<string, string>> = {
   stempelZaehler: '', // step 1 B
   wetterDienst: '', // step 1 B
   teleportPeer: '', // step 1 C (savedPlayers and spielerSicherung, context members of 1C too, stand above under 1 B; LOCKERUNGEN_C agrees)
+  resolveDungeonBase: '', // step 1 D (the forwarding; its whole head is also frozen in MODULE)
 };
 function pruefeModifikatoren(text: string, soll: Readonly<Record<string, string>>): string[] {
   const f: string[] = [];
@@ -1003,6 +1072,103 @@ console.log('\n[0] Self-test of the checks on invented sources');
   }
 }
 
+// ── [0b] Step 1, package D: another name of the context (rule 2.1), and a function the class never calls ──
+
+console.log('\n[0b] Step 1D: the name of the context and a function called only through the context, on invented sources');
+{
+  // a module whose moved code has a `k` of its own: the context is `kd`; `fh` is a context member that only the moved code calls
+  const SD: ModulSpec = {
+    datei: 'server/src/spiel/befehle/TestD.ts', spezifizierer: './spiel/befehle/TestD.js', kontextTyp: 'TestDKontext', kontextName: 'kd', mitglieder: ['a', 'fh'], wertImporte: [],
+    funktionen: [REGISTRIERUNG_C('registerTestD', 0), { name: 'fh', kopf: 'fh(x: string | undefined): string | null', aufrufer: { methode: 'registerTestD', args: 'args[0]', nurUeberKontext: true }, laenge: 1 }],
+  };
+  const gutD = [
+    "import type { SpielKontext } from '../Kontext.js';",
+    '',
+    "type TestDKontext = SpielKontext<'a' | 'fh'>;",
+    '',
+    'function registerTestD(kd: TestDKontext): void {',
+    "  kd.a.register('d', (peer: unknown, args: string[]) => {",
+    '    const base = kd.fh(args[0]);',
+    '    for (const arg of args) {',
+    "      const [k, v] = arg.split('=', 2);",
+    "      if (k === 'x') return v;",
+    '    }',
+    '    return base;',
+    '  });',
+    '}',
+    '',
+    'function fh(kd: TestDKontext, x: string | undefined): string | null {',
+    '  return x ?? null;',
+    '}',
+    '',
+    'export { registerTestD, fh };',
+    '',
+  ].join('\n');
+  check('[0b] green: a module with the context kd, its own k and a function called through the context', pruefeModul(SD, gutD).length === 0, show(pruefeModul(SD, gutD)));
+  const mitD = (a: string, b: string): string => { if (!gutD.includes(a)) throw new Error('fault anchor missing: ' + a); return gutD.replace(a, b); };
+  const modulFehlerD: [string, ModulSpec, string, string][] = [
+    // [name, spec, text, the finding must contain]
+    ['the entry without kontextName (default k) for a module whose context is kd', { ...SD, kontextName: undefined }, gutD, 'the first parameter is not `k:'],
+    ['kontextName names another name than the module uses', { ...SD, kontextName: 'kx' }, gutD, 'the first parameter is not `kx:'],
+    ['kontextName k for a module whose context is kd', { ...SD, kontextName: 'k' }, gutD, 'the first parameter is not `k:'],
+    ['the context kd although the module has no k of its own (rule 2.1 wants k)', SD, mitD("      const [k, v] = arg.split('=', 2);\n      if (k === 'x') return v;", "      const [kk, v] = arg.split('=', 2);\n      if (kk === 'x') return v;"), 'declares no `k` of its own'],
+    ['kd shadowed by an inner variable', SD, mitD('    return base;', '    const kd = 1;\n    return base + String(kd);'), 'declares a second `kd`'],
+    ['kd passed on as a value', SD, mitD('    return base;', '    weiter(kd);\n    return base;'), 'uses `kd` as a value'],
+    ['kd with an optional chain', SD, mitD("  kd.a.register('d',", "  kd?.a.register('d',"), 'reads `kd?.a`'],
+    ['this instead of kd', SD, mitD('    const base = kd.fh(args[0]);', '    const base = this.fh(args[0]);'), 'uses `this`'],
+    ['fh called twice', SD, mitD('    return base;', '    return base ?? kd.fh(args[1]);'), 'expected exactly one call kd.fh(args[0]) in registerTestD'],
+    ['fh called with another argument', SD, mitD('    const base = kd.fh(args[0]);', '    const base = kd.fh(args[1]);'), 'expected exactly one call kd.fh(args[0]) in registerTestD'],
+    ['fh called as an optional call', SD, mitD('    const base = kd.fh(args[0]);', '    const base = kd.fh?.(args[0]);'), 'expected exactly one call kd.fh(args[0]) in registerTestD'],
+    ['fh read but not called', SD, mitD('    const base = kd.fh(args[0]);', '    const f = kd.fh;\n    const base = f(args[0]);'), 'expected exactly one call kd.fh(args[0]) in registerTestD'],
+    ['fh called directly, not through the context', SD, mitD('    const base = kd.fh(args[0]);', '    const base = fh(kd, args[0]);'), 'expected exactly one call kd.fh(args[0]) in registerTestD'],
+    ['fh called from another function', SD, mitD('    const base = kd.fh(args[0]);', '    const base = args[0] ?? null;').replace('  return x ?? null;', '  return x ?? kd.fh(x);'), 'expected exactly one call kd.fh(args[0]) in registerTestD'],
+  ];
+  for (const [name, spec, text, soll] of modulFehlerD) {
+    const f = pruefeModul(spec, text);
+    check(`[0b] red: module, ${name}`, f.some((x) => x.includes(soll)), show(f) || 'no finding');
+  }
+  // the default `k` still holds for a module without kontextName: a module with its own k is red there (shadowing)
+  const gutK = gutD.split('kd').join('k');
+  check('[0b] red: module, the context k with a k of its own (the default name, shadowed)', pruefeModul({ ...SD, kontextName: undefined }, gutK).some((x) => x.includes('declares a second `k`')), show(pruefeModul({ ...SD, kontextName: undefined }, gutK)) || 'no finding');
+  const ohneEigenesK = gutK.replace("      const [k, v] = arg.split('=', 2);\n      if (k === 'x') return v;", "      const [kk, v] = arg.split('=', 2);\n      if (kk === 'x') return v;");
+  check('[0b] green: the same module with the default k and no k of its own', pruefeModul({ ...SD, kontextName: undefined }, ohneEigenesK).length === 0, show(pruefeModul({ ...SD, kontextName: undefined }, ohneEigenesK)));
+  // the class: `fh` is public (a context member), the class itself never names `this.fh`
+  const gutDK = [
+    "import { registerTestD, fh } from './spiel/befehle/TestD.js';",
+    'export class WovServer {',
+    '  readonly a = 1;',
+    '  constructor() {',
+    '    this.registerTestD();',
+    '  }',
+    '',
+    '  private registerTestD(): void {',
+    '    return registerTestD(this);',
+    '  }',
+    '',
+    '  fh(x: string | undefined): string | null {',
+    '    return fh(this, x);',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const OD = ['a', 'fh'];
+  check('[0b] green: the class with a registration and a public forwarding the class never calls', pruefeKlasse([SD], gutDK, OD).length === 0, show(pruefeKlasse([SD], gutDK, OD)));
+  const mitK = (a: string, b: string): string => { if (!gutDK.includes(a)) throw new Error('fault anchor missing: ' + a); return gutDK.replace(a, b); };
+  const klassenFehlerD: [string, string, readonly string[], string][] = [
+    ['the class calls fh itself', mitK('    this.registerTestD();', "    this.registerTestD();\n    this.fh('x');"), OD, 'fh: the class names this.fh 1 times, expected never'],
+    ['the class hands fh on as a value', mitK('    this.registerTestD();', '    this.registerTestD();\n    void [this.fh];'), OD, 'fh: the class names this.fh 1 times, expected never'],
+    ['the class calls the module function fh directly', mitK('    this.registerTestD();', "    this.registerTestD();\n    fh(this, 'y');"), OD, 'fh: the file uses the imported function fh 2 times'],
+    ['the forwarding of fh became private', mitK('  fh(x: string | undefined)', '  private fh(x: string | undefined)'), OD, 'fh: head of the forwarding'],
+    ['the forwarding of fh passes another argument', mitK('    return fh(this, x);', '    return fh(this, undefined);'), OD, 'fh: the call is'],
+    ['fh is not listed as a public member', gutDK, ['a'], 'new non-private members'],
+    ['the registration is not called by the constructor', mitK('    this.registerTestD();\n', ''), OD, 'registerTestD:'],
+  ];
+  for (const [name, text, oeff, soll] of klassenFehlerD) {
+    const f = pruefeKlasse([SD], text, oeff);
+    check(`[0b] red: class, ${name}`, f.some((x) => x.startsWith(soll) || x.includes(soll)), show(f) || 'no finding');
+  }
+}
+
 // ── [1] The real sources ───────────────────────────────────────────────
 
 const klassenText = readFileSync(join(WURZEL, 'server/src/WovServer.ts'), 'utf8');
@@ -1272,6 +1438,61 @@ console.log('\n[1d] Step 1C: the place of the three calls in the constructor (th
   // the real constructor (in the measuring mode the old stand has other calls; there this check is skipped)
   if (!MESSEN_BASIS) {
     check(`WovServer.ts: the ${AUFRUF_STELLEN_C.length} calls of step 1C stand directly in the constructor between their frozen neighbours, once each`, pr(klassenText).length === 0, show(pr(klassenText)));
+  }
+}
+
+// ── [1e] Step 1, package D: the context name in the table, the local k of steinkit ──
+
+/**
+ * N1, H-1: does `registerDungeonCommand` bind its own `k` in the branch `case 'steinkit':`, as `const [k, v] = arg.split('=', 2)`, read from
+ * the syntax tree? A line in a comment, a `k` bound elsewhere in the module, a renamed binding or another call do not count.
+ */
+function steinkitBindetK(text: string): boolean {
+  const sf = parse('Dungeon.ts', text);
+  const fn = sf.statements.find((x): x is ts.FunctionDeclaration => ts.isFunctionDeclaration(x) && x.name?.text === 'registerDungeonCommand');
+  let treffer = 0;
+  const gehe = (n: ts.Node, imSteinkit: boolean): void => {
+    const hier = imSteinkit || (ts.isCaseClause(n) && ts.isStringLiteral(n.expression) && n.expression.text === 'steinkit');
+    if (hier && ts.isVariableDeclaration(n) && ts.isArrayBindingPattern(n.name) && n.initializer && ts.isCallExpression(n.initializer)) {
+      const [e0, e1] = n.name.elements;
+      const c = n.initializer;
+      const ok = n.name.elements.length === 2 && !!e0 && ts.isBindingElement(e0) && ts.isIdentifier(e0.name) && e0.name.text === 'k' && !!e1 && ts.isBindingElement(e1) && ts.isIdentifier(e1.name) && e1.name.text === 'v'
+        && ts.isPropertyAccessExpression(c.expression) && c.expression.name.text === 'split' && ts.isIdentifier(c.expression.expression) && c.expression.expression.text === 'arg'
+        && c.arguments.length === 2 && c.arguments[0]!.getText(sf) === "'='" && c.arguments[1]!.getText(sf) === '2';
+      if (ok) treffer++;
+    }
+    ts.forEachChild(n, (x) => gehe(x, hier));
+  };
+  if (fn?.body) gehe(fn.body, false);
+  return treffer === 1;
+}
+
+console.log('\n[1e] Step 1D: the name of the context of Dungeon.ts and the default k of every other module');
+{
+  // self-test of steinkitBindetK on invented sources (N1, H-1)
+  const sk = (koerper: string): string => `function registerDungeonCommand(kd: K): void {\n  kd.a.register('dungeon', (peer, args) => {\n    switch (args[0]) {\n      case 'steinkit': {\n        for (const arg of args) {\n${koerper}\n        }\n        break;\n      }\n    }\n  });\n}\n`;
+  check('[1e] green: steinkitBindetK finds the binding of k in the case steinkit', steinkitBindetK(sk("          const [k, v] = arg.split('=', 2);")));
+  for (const [name, text] of [
+    ['the line only in a comment, the local is called key', sk("          // const [k, v] = arg.split('=', 2);\n          const [key, v] = arg.split('=', 2);")],
+    ['the line only in a comment, another k bound elsewhere in the function (attack KD4c)', sk("          // const [k, v] = arg.split('=', 2);\n          const [key, v] = arg.split('=', 2);\n          [1].map((k) => k);")],
+    ['k bound outside the case steinkit', `${sk("          const [key, v] = arg.split('=', 2);")}function andere(): void {\n  const [k, v] = 'a=b'.split('=', 2);\n}\n`.replace("case 'steinkit'", "case 'steinkit'")],
+    ['k bound in another case of the same switch, not in steinkit', sk("          const [key, v] = arg.split('=', 2);").replace("      case 'steinkit': {", "      case 'licht': {\n        for (const arg of args) {\n          const [k, v] = arg.split('=', 2);\n        }\n        break;\n      }\n      case 'steinkit': {")],
+    ['k bound by another call', sk("          const [k, v] = arg.split(':', 2);")],
+    ['k bound without the limit 2', sk("          const [k, v] = arg.split('=');")],
+    ['k and v swapped', sk("          const [v, k] = arg.split('=', 2);")],
+    ['the binding twice', sk("          const [k, v] = arg.split('=', 2);\n          { const [k, v] = arg.split('=', 2); }")],
+  ] as const) check(`[1e] red: steinkitBindetK, ${name}`, !steinkitBindetK(text));
+  // the table holds the decision: exactly one module has another context name, Dungeon.ts with `kd`; every other module keeps `k`
+  const andere = MODULE.filter((m) => (m.kontextName ?? 'k') !== 'k').map((m) => `${m.datei}=${m.kontextName}`);
+  check('[1e] exactly one module has a context name other than k: server/src/spiel/befehle/Dungeon.ts with kd', same(andere, ['server/src/spiel/befehle/Dungeon.ts=kd']), andere.join(', '));
+  check('[1e] no module names k explicitly (the default is written by leaving the field out)', MODULE.every((m) => m.kontextName !== 'k'), MODULE.filter((m) => m.kontextName === 'k').map((m) => m.datei).join(', '));
+  const nurKontext = MODULE.flatMap((m) => m.funktionen.filter((x) => x.aufrufer.nurUeberKontext).map((x) => `${m.datei}:${x.name}`));
+  check('[1e] exactly one function is called only through the context: resolveDungeonBase of Dungeon.ts', same(nurKontext, ['server/src/spiel/befehle/Dungeon.ts:resolveDungeonBase']), nurKontext.join(', '));
+  if (!MESSEN_BASIS) {
+    const t = readFileSync(join(WURZEL, 'server/src/spiel/befehle/Dungeon.ts'), 'utf8');
+    // the reason for `kd`, read from the syntax tree (N1, H-1: a comment or another `k` elsewhere is no reason): the steinkit branch binds `k`
+    check('[1e] Dungeon.ts: the steinkit branch still binds its own k, `const [k, v] = arg.split(\'=\', 2)` in the syntax tree (the reason for kd)', steinkitBindetK(t), 'no such binding in the case steinkit of registerDungeonCommand');
+    check('[1e] Dungeon.ts: kd is the first parameter of both functions', (t.match(/^function \w+\(kd: DungeonKontext[,)]/gm) ?? []).length === 2);
   }
 }
 
@@ -5148,6 +5369,1878 @@ const SOLL_SPIELER_ECHT_N1: Aufzeichnung = {
   ],
 };
 
+// ── [2h] Behaviour of step 1, package D: the command dungeon with its 13 sub-commands, and resolveDungeonBase ──
+
+/** The 13 sub-commands of `dungeon`, as its default branch names them; the fixed sequences below run each one (no argument, an unknown id, no rights, a guest). */
+const DUNGEON_UNTERBEFEHLE = ['list', 'entrances', 'entrance-mode', 'create', 'create2', 'enter', 'leave', 'assign', 'regen', 'steinkit', 'licht', 'reset', 'delete'] as const;
+/** Ten digits and more (time stamps) and the temporary folder are not behaviour: written `<zahl>` and `<tmp>`. */
+const normD = (t: string, tmp = ''): string => (tmp ? t.split(tmp).join('<tmp>') : t).replace(/\b\d{10,}\b/g, '<zahl>');
+/** A peer of the dungeon command: admin by default; the fields enter, leave and teleport write. */
+const peerD = (a: Aufzeichnung, name: string, o: Record<string, unknown> = {}): Record<string, unknown> => peerB(a, name, { userId: 7, spielerId: `sp-${name}`, ...o });
+const gastD = (a: Aufzeichnung): Record<string, unknown> => peerD(a, 'Gast', { isAdmin: false, userId: 0, spielerId: '' });
+const keinAdminD = (a: Aufzeichnung): Record<string, unknown> => peerD(a, 'Kein', { isAdmin: false, userId: 23 });
+/** One command line through a registry: the whole result as text, the peer after it. */
+function befehlD(a: Aufzeichnung, reg: { execute(p: unknown, l: string): unknown }, zeile: string, p: Record<string, unknown>, tmp = ''): void {
+  try { a.notizen.push(`> ${zeile} (${String(p['name'])}) = ${normD(JSON.stringify(reg.execute(p, zeile)), tmp)}`); } catch (e) { a.ausnahmen.push((e as Error).name); a.notizen.push(`> ${zeile} (${String(p['name'])}) throws ${(e as Error).name}`); }
+  a.notizen.push(normD(zustandB(p), tmp));
+}
+/** The lines every sub-command gets: without an argument (admin), with an unknown id (admin); `nix` is no document, no entrance, no instance. */
+const DUNGEON_GRUNDZEILEN = ['dungeon', 'DUNGEON LIST', 'dungeon quatsch', ...DUNGEON_UNTERBEFEHLE.map((s) => `dungeon ${s}`), ...DUNGEON_UNTERBEFEHLE.map((s) => `dungeon ${s} nix`)];
+
+/** The stand-in of package D: a real registry, `dungeons` answers from a small state and notes every call with its arguments and receiver. */
+function dungeonAttrappe(a: Aufzeichnung, ueber: Record<string, (...x: unknown[]) => unknown> = {}): { k: Record<string, unknown>; ziel: Record<string, unknown>; reg: AdminCommandRegistry; docs1: Record<string, Record<string, unknown>>; zustand: { liste: boolean; eingaenge: boolean }; mach: (label: string) => Record<string, unknown> } {
+  const reg = new AdminCommandRegistry();
+  const registriere = reg.register.bind(reg);
+  reg.register = (n, h): void => { a.notizen.push(`  register ${n}`); registriere(n, h); };
+  const raeume = (n: number): Record<string, unknown>[] => Array.from({ length: n }, (_x, i) => ({ i }));
+  const docs1: Record<string, Record<string, unknown>> = {
+    d1: { id: 'd1', base: 'DG_ForestCrypt', mode: 'generated', layout: { rooms: raeume(3) }, zoneSize: 64 },
+    dc: { id: 'dc', base: 'DG_Cave', mode: 'custom', layout: { rooms: raeume(2) }, zoneSize: 32 },
+    dfail: { id: 'dfail', base: 'DG_SunkenCrypt', mode: 'generated', layout: { rooms: raeume(1) }, zoneSize: 64, ambientLicht: 0.25 },
+  };
+  const docs2: Record<string, Record<string, unknown>> = { e2: { id: 'e2', thema: 'steingrab', modus: 'erzeugt', seeds: { architektur: 1, material: 2, deko: 3 }, pruefsumme: 'P2' } };
+  const zustand = { liste: false, eingaenge: false };
+  const eingang = (id: string, regen: boolean): Record<string, unknown> => ({ zoneKey: '3,3', feature: 'Vault1', pos: { x: 192.4, y: 10, z: -191.6 }, dungeonId: id, regenerateOnEnter: regen });
+  const tabelle: Record<string, (...x: unknown[]) => unknown> = {
+    listDocuments: () => (zustand.liste ? Object.values(docs1) : []),
+    listDokumente2: () => (zustand.liste ? Object.values(docs2) : []),
+    getInstance: (id) => (id === 'd1' ? { players: new Set([1, 2]) } : undefined),
+    erzeugeDungeon2: (thema, seeds, id, amb) => ((seeds as { architektur: number }).architektur === 13 ? null : { id: id ?? `${String(thema)}-neu`, thema, pruefsumme: 'PX', ambientLicht: amb, seeds }),
+    listEntrances: () => (zustand.eingaenge ? [eingang('d1', true), { ...eingang('e2', false), feature: 'Cave2', pos: { x: -5.5, y: 0, z: 1e3 } }] : []),
+    eingangZuDungeon: (id) => (id === 'd1' || id === 'dx' ? eingang(String(id), false) : undefined),
+    setzeEingangsModus: (id) => id === 'd1',
+    createGenerated: (base, seed, id) => (base === 'DG_SunkenCrypt' || id === 'dfail' ? null : { id: id ?? `neu-${String(seed)}`, layout: { rooms: raeume(4) }, zoneSize: 48 }),
+    findEntranceNear: (pos) => ((pos as { x: number }).x === 999 ? eingang('nah', false) : null),
+    hatDokument: (id) => typeof id === 'string' && (id in docs1 || id in docs2),
+    assignEntrance: (_z, id) => id === 'd1',
+    getDocument: (id) => docs1[String(id)],
+    destroyInstance: (id) => id === 'd1',
+    saveDocument: () => undefined,
+    deleteDocument: (id) => id === 'd1',
+    ...ueber,
+  };
+  const ziel: Record<string, unknown> = {
+    adminCommands: reg,
+    enterDungeon(this: unknown, p: unknown, id: unknown): unknown { zaehle(a, 'enterDungeon'); a.notizen.push(`  call enterDungeon ${nm(p)} ${JSON.stringify(id)} receiver=${this === k ? 'context' : 'LOST'}`); return { ok: id === 'gut' || id === 'nah', message: `enter:${String(id)}` }; },
+    leaveDungeon(this: unknown, p: unknown): unknown { zaehle(a, 'leaveDungeon'); a.notizen.push(`  call leaveDungeon ${nm(p)} receiver=${this === k ? 'context' : 'LOST'}`); return { ok: nm(p) !== 'Gast', message: 'leave' }; },
+    resolveDungeonBase(this: unknown, x: unknown): unknown { zaehle(a, 'resolveDungeonBase'); a.notizen.push(`  call resolveDungeonBase ${JSON.stringify(x)} receiver=${this === k ? 'context' : 'LOST'}`); return F['resolveDungeonBase']!(this, x); },
+  };
+  // the same recorder under another label: a replacement of `dungeons` whose calls show which object the handler reached (N1, D-9)
+  const mach = (label: string): Record<string, unknown> => {
+    const dungeons: Record<string, unknown> = {};
+    for (const [m, f] of Object.entries(tabelle)) dungeons[m] = function (this: unknown, ...x: unknown[]): unknown { zaehle(a, `${label}.${m}`); a.notizen.push(`  call ${label}.${m} ${JSON.stringify(x)}${this === ziel['dungeons'] ? '' : ' receiver=LOST'}`); return f(...x); };
+    return dungeons;
+  };
+  ziel['dungeons'] = mach('dungeons');
+  const k: Record<string, unknown> = new Proxy(ziel, {
+    get(t, p, r) { if (typeof p === 'string') zaehle(a, `k.${p}`); return Reflect.get(t, p, r) as unknown; },
+    set(t, p, v, r) { a.notizen.push(`  WRITE k.${String(p)}`); return Reflect.set(t, p, v, r); },
+  });
+  return { k, ziel, reg, docs1, zustand, mach };
+}
+
+/** The fixed sequence of package D on a stand-in: every sub-command with valid and invalid arguments, no rights, a guest, members replaced after the registration. */
+function messeDungeonAttrappe(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  try {
+    mitZufall(31, () => {
+      const { k, ziel, reg, docs1, zustand } = dungeonAttrappe(a);
+      versuche(a, () => F['registerDungeonCommand']!(k));
+      a.notizen.push(`  commands ${[...(reg as unknown as { handlers: Map<string, unknown> }).handlers.keys()].join(',')}`);
+      const ich = (o: Record<string, unknown> = {}): Record<string, unknown> => peerD(a, 'Ich', o);
+      const nah = (): Record<string, unknown> => peerD(a, 'Ich', { position: { x: 999, y: 0, z: 0 } });
+      const docs = (): void => { a.notizen.push(`  docs ${JSON.stringify(docs1)}`); };
+      const ex = (zeile: string, p: Record<string, unknown> = ich()): void => befehlD(a, reg, zeile, p);
+      // every sub-command without an argument and with an unknown id, before any document exists, then with documents and entrances
+      for (const z of DUNGEON_GRUNDZEILEN) ex(z);
+      zustand.liste = true; zustand.eingaenge = true;
+      for (const z of ['dungeon list', 'dungeon List extra', 'dungeon entrances', 'dungeon ENTRANCES 1']) ex(z);
+      // no rights and a guest: the registry refuses every sub-command, the handler is not reached
+      for (const s of DUNGEON_UNTERBEFEHLE) { ex(`dungeon ${s} d1`, keinAdminD(a)); ex(`dungeon ${s} d1`, gastD(a)); }
+      // entrance-mode
+      for (const z of ['dungeon entrance-mode d1', 'dungeon entrance-mode d1 bogus', 'dungeon entrance-mode d1 REGEN', 'dungeon entrance-mode dx fixed', 'dungeon entrance-mode d1 regen', 'dungeon entrance-mode d1 fixed', 'dungeon Entrance-Mode d1 regen extra']) ex(z);
+      // create
+      for (const z of ['dungeon create camp', 'dungeon create forestcrypt', 'dungeon create DG_ForestCrypt 42', 'dungeon create ForestCrypt 42 5 64', 'dungeon create dg_cave abc', 'dungeon create cave 1 x 64', 'dungeon create cave 1 5 y', 'dungeon create cave 1.9 5.5 -3', 'dungeon create cave 1e3 0x10 Infinity', 'dungeon create cave 1 Infinity 64', 'dungeon create cave 1 -0 0', 'dungeon create sunkencrypt 7', 'dungeon CREATE Cave 2']) ex(z);
+      // create2
+      for (const z of ['dungeon create2 STEINGRAB 5', 'dungeon create2 steingrab abc', 'dungeon create2 steingrab 5 meinid', 'dungeon create2 steingrab 5 meinid 0.3', 'dungeon create2 steingrab 5 meinid 7', 'dungeon create2 steingrab 5 meinid -1', 'dungeon create2 steingrab 5 meinid abc', 'dungeon create2 steingrab 5 meinid 0', 'dungeon create2 steingrab 5 meinid 1', 'dungeon create2 steingrab 13', 'dungeon create2 steingrab 2.7 x 1e-1', 'dungeon create2 steingrab -3']) ex(z);
+      // enter and leave; at an entrance
+      ex('dungeon enter', nah());
+      for (const z of ['dungeon enter gut', 'dungeon enter schlecht', 'dungeon ENTER gut x', 'dungeon enter GUT', 'dungeon leave x']) ex(z);
+      // assign: far from an entrance, then near one (1.0 accepted, 2.0 refused, custom accepted by the stand-in's rule)
+      ex('dungeon assign d1');
+      for (const z of ['dungeon assign d1', 'dungeon assign e2', 'dungeon assign dc', 'dungeon ASSIGN d1 x']) ex(z, nah());
+      // regen
+      for (const z of ['dungeon regen e2', 'dungeon regen dc', 'dungeon regen d1 99', 'dungeon regen d1', 'dungeon regen d1 abc', 'dungeon regen d1 -7.9', 'dungeon regen dfail 5']) ex(z);
+      // steinkit: the document and one room, the reset, every key, values outside the range, unknown keys
+      for (const z of ['dungeon steinkit e2 reset', 'dungeon steinkit d1 wand=stein_clean', 'dungeon steinkit d1 wand=stein_clean decke=stein_moos boden=stein_wet moos=2 frost=9 nass=1 kachel=2 deckenkachel=3', 'dungeon steinkit d1 wand=foo', 'dungeon steinkit d1 bogus', 'dungeon steinkit d1 x=1', 'dungeon steinkit d1 =v', 'dungeon steinkit d1 wand=', 'dungeon steinkit d1 moos=', 'dungeon steinkit d1 room=', 'dungeon steinkit d1 moos=abc', 'dungeon steinkit d1', 'dungeon steinkit d1 room=x', 'dungeon steinkit d1 room=1.5', 'dungeon steinkit d1 room=9 moos=1', 'dungeon steinkit d1 room=-1 moos=1', 'dungeon steinkit d1 room=3 moos=1', 'dungeon steinkit d1 room=0 boden=stein_frost moos=3', 'dungeon steinkit d1 room=2 room=1 frost=4', 'dungeon steinkit d1 room=2 nass=2', 'dungeon steinkit d1 room=0 reset', 'dungeon steinkit d1 reset extra', 'dungeon steinkit d1 reset', 'dungeon steinkit dc kachel=0', 'dungeon steinkit dc kachel=999 deckenkachel=-1', 'dungeon steinkit dc nass=-3 moos=4.5', 'dungeon steinkit dc decke=/assets/models/stein_moos.png', 'dungeon steinkit dc wand=STEIN_MOOS', 'dungeon steinkit dc reset']) { ex(z); docs(); }
+      // licht
+      for (const z of ['dungeon licht e2 0.5', 'dungeon licht d1', 'dungeon licht dfail', 'dungeon licht d1 0.5', 'dungeon licht d1', 'dungeon licht d1 1', 'dungeon licht d1 2', 'dungeon licht d1 3', 'dungeon licht d1 0', 'dungeon licht d1 -0', 'dungeon licht d1 abc', 'dungeon licht d1 -1', 'dungeon licht d1 99', 'dungeon licht d1 Infinity', 'dungeon licht d1 0x1', 'dungeon licht d1 1e0', 'dungeon licht d1 reset', 'dungeon licht d1', 'dungeon licht dfail RESET', 'dungeon licht dfail reset']) { ex(z); docs(); }
+      // reset, delete
+      for (const z of ['dungeon reset d1', 'dungeon delete d1', 'dungeon DELETE d1', 'dungeon liste', 'dungeon ???']) ex(z);
+      // the handler itself checks no rights: called directly as a guest (the registry is the gate)
+      const h = (reg as unknown as { handlers: Map<string, Handler> }).handlers.get('dungeon');
+      for (const z of ['list', 'create cave 3', 'licht d1 0.4', 'delete d1']) befehlB(a, h, z, gastD(a));
+      // arguments the registry never produces (it splits at white space), straight into the handler: the handler's own guards
+      for (const args of [['licht', 'd1', ''], ['licht', 'd1', ' '], ['steinkit', 'd1', ''], ['create', ''], ['assign', ''], ['enter', '']]) {
+        try { a.notizen.push(`> direct ${JSON.stringify(args)} = ${JSON.stringify(h?.(ich(), [...args]))}`); } catch (e) { a.ausnahmen.push((e as Error).name); a.notizen.push(`> direct ${JSON.stringify(args)} throws ${(e as Error).name}`); }
+      }
+      docs();
+      // members replaced AFTER the registration: the handler reads kd.<member> at every call, never a copy
+      const neu: Record<string, unknown> = {};
+      for (const m of ['listDocuments', 'listDokumente2', 'getInstance', 'createGenerated', 'destroyInstance']) neu[m] = (...x: unknown[]): unknown => { zaehle(a, `dungeonsNeu.${m}`); a.notizen.push(`  call dungeonsNeu.${m} ${JSON.stringify(x)}`); return m === 'destroyInstance' ? true : m === 'createGenerated' ? { id: 'x', layout: { rooms: [] }, zoneSize: 1 } : []; };
+      ziel['dungeons'] = neu;
+      ziel['enterDungeon'] = (p: unknown, id: unknown): unknown => { zaehle(a, 'enterDungeonNeu'); a.notizen.push(`  call enterDungeonNeu ${nm(p)} ${JSON.stringify(id)}`); return { ok: true, message: 'neu' }; };
+      ziel['leaveDungeon'] = (): unknown => { zaehle(a, 'leaveDungeonNeu'); return { ok: false, message: 'neu-leave' }; };
+      ziel['resolveDungeonBase'] = (x: unknown): unknown => { zaehle(a, 'resolveDungeonBaseNeu'); a.notizen.push(`  call resolveDungeonBaseNeu ${JSON.stringify(x)}`); return 'DG_Cave'; };
+      for (const z of ['dungeon list', 'dungeon enter gut', 'dungeon leave', 'dungeon create egal 5', 'dungeon reset d1']) ex(z);
+      // a context without a member the handler reads: the exception, by its name
+      for (const [fehlt, zeile] of [['dungeons', 'dungeon list'], ['enterDungeon', 'dungeon enter gut'], ['leaveDungeon', 'dungeon leave'], ['resolveDungeonBase', 'dungeon create cave 1']] as const) {
+        const merk = ziel[fehlt];
+        delete ziel[fehlt];
+        ex(zeile);
+        ziel[fehlt] = merk;
+      }
+      // resolveDungeonBase itself (before the move: the method of the prototype on the stand-in)
+      for (const x of [undefined, '', 'forestcrypt', 'DG_ForestCrypt', 'ForestCrypt', 'dg_FORESTCRYPT', 'cave', 'DG_Cave', 'sunkencrypt', 'camp', 'DG_Camp', 'nix', 'dg_', 'DG_DG_Cave', ' cave', 'Höhle']) {
+        try { a.notizen.push(`resolveDungeonBase ${JSON.stringify(x)} = ${JSON.stringify(F['resolveDungeonBase']!(k, x))}`); } catch (e) { a.ausnahmen.push((e as Error).name); a.notizen.push(`resolveDungeonBase ${JSON.stringify(x)} throws ${(e as Error).name}`); }
+      }
+    });
+  } finally {
+    ruecksetzen();
+  }
+  return a;
+}
+
+/** The same on a real instance: the registry its constructor built (through the forwarding), real documents on disk, a real entrance, a real instance; then the forwardings called again. */
+function messeDungeonEcht(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  const tmp = mkdtempSync(join(tmpdir(), 'i1-form-k-'));
+  try {
+    mitZufall(37, () => {
+      mkdirSync(join(tmp, 'generiert'), { recursive: true });
+      const server = createWovServer({
+        port: 0, worldFeatures: false, worldName: 'i1-form-k1d', everyoneAdmin: true,
+        worldsDir: join(tmp, 'worlds'), kontenDir: join(tmp, 'konten'), forumDir: join(tmp, 'forum'), generiertDir: join(tmp, 'generiert'),
+      } as never) as unknown as Record<string, unknown>;
+      // the main world only exists after init(): a real ZDO space and an empty list of terrain changes, as the tests do
+      const haupt = { id: HAUPTWELT_ID, zdos: new ZDOManager(1n), heightmaps: { listTerrainComps: (): unknown[] => { zaehle(a, 'listTerrainComps'); return []; } } };
+      (server['welten'] as Map<string, unknown>).set(HAUPTWELT_ID, haupt);
+      server['hauptwelt'] = haupt;
+      server['getGroundHeight'] = (x: number, z: number): number => { zaehle(a, 'getGroundHeight'); return x * 0.5 + z * 0.25 + 0.0625; };
+      const reg = server['adminCommands'] as AdminCommandRegistry;
+      const dungeons = server['dungeons'] as Record<string, (...x: unknown[]) => unknown>;
+      const wurzel = (server['dungeonsWurzel'] as () => string).call(server);
+      const platte = (): void => {
+        const dateien = readdirSync(wurzel, { recursive: true }).map(String).filter((f) => f.endsWith('.json')).sort();
+        a.notizen.push(`  disk ${dateien.map((f) => `${f}=${kennung(Buffer.from(normD(readFileSync(join(wurzel, f), 'utf8'), tmp)))}`).join(' ')}`);
+      };
+      const ich = peerD(a, 'Ich', { userId: 21 });
+      const ex = (zeile: string, p: Record<string, unknown> = ich): void => befehlD(a, reg, zeile, p, tmp);
+      for (const z of DUNGEON_GRUNDZEILEN) ex(z);
+      for (const s of DUNGEON_UNTERBEFEHLE) { ex(`dungeon ${s}`, keinAdminD(a)); ex(`dungeon ${s}`, gastD(a)); }
+      for (const z of ['dungeon create camp', 'dungeon create cave 42', 'dungeon create forestcrypt 43 5 64', 'dungeon create DG_SunkenCrypt 44 x 32', 'dungeon create2 steingrab 7', 'dungeon create2 steingrab 8 k1d-zwei 0.5', 'dungeon create2 steingrab 9 k1d-drei 9', 'dungeon list']) ex(z);
+      platte();
+      const d1 = ((dungeons['listDocuments']!.call(dungeons) as { id: string }[])[0]?.id) ?? 'fehlt';
+      const dB = ((dungeons['listDocuments']!.call(dungeons) as { id: string }[])[1]?.id) ?? 'fehlt';
+      const d2 = ((dungeons['listDokumente2']!.call(dungeons) as { id: string }[])[0]?.id) ?? 'fehlt';
+      a.notizen.push(`  ids ${d1} ${dB} ${d2}`);
+      // a real entrance, as m5b-eingang registers one (without world features there is none)
+      const e = dungeons['registerEntrance']!.call(dungeons, 'Vault1', getStableHash('DG_StoneVault'), '3,3', { x: 192, y: 10, z: 192 }, 1000);
+      a.notizen.push(`  entrance ${JSON.stringify(e)}`);
+      const nah = peerD(a, 'Nah', { userId: 22, position: { x: 190, y: 10, z: 195 } });
+      for (const z of ['dungeon entrances', `dungeon assign ${d1}`]) ex(z);
+      for (const z of [`dungeon assign ${d2}`, `dungeon assign ${d1}`, 'dungeon entrances', 'dungeon enter', 'dungeon leave', 'dungeon leave']) ex(z, nah);
+      for (const z of [`dungeon entrance-mode ${d1} regen`, `dungeon entrance-mode ${dB} regen`, `dungeon entrance-mode ${d1} fixed`, `dungeon entrance-mode ${d2} regen`, `dungeon entrance-mode ${d1} bogus`, 'dungeon entrances']) ex(z);
+      for (const z of [`dungeon steinkit ${d1} wand=foo`, `dungeon steinkit ${d1} wand=stein_moos decke=stein_clean boden=stein_wet moos=2 frost=9 nass=1 kachel=2 deckenkachel=3`, `dungeon steinkit ${d1} room=1 moos=3`, `dungeon steinkit ${d1} room=99 moos=1`, `dungeon steinkit ${d1} room=x`, `dungeon steinkit ${d1} bogus`, `dungeon steinkit ${d1} moos=abc`, `dungeon steinkit ${d1} room=1 reset`, `dungeon steinkit ${d2} reset`]) { ex(z); platte(); }
+      for (const z of [`dungeon licht ${d1}`, `dungeon licht ${d1} 0`, `dungeon licht ${d1} 0.5`, `dungeon licht ${d1}`, `dungeon licht ${d1} abc`, `dungeon licht ${d1} 9`, `dungeon licht ${d1} 1`, `dungeon licht ${d1} 2.5`, `dungeon licht ${d1} reset`, `dungeon licht ${d2} 0.5`]) { ex(z); platte(); }
+      for (const z of [`dungeon regen ${d1} 99`, `dungeon regen ${d2}`, `dungeon regen ${dB}`]) { ex(z); platte(); }
+      for (const z of [`dungeon enter ${d1}`, 'dungeon list', 'dungeon leave', `dungeon enter ${d2}`, `dungeon reset ${d2}`, 'dungeon leave', `dungeon reset ${d1}`]) ex(z);
+      for (const z of [`dungeon delete ${d2}`, `dungeon delete ${dB}`, 'dungeon entrances', 'dungeon list']) { ex(z); platte(); }
+      // the forwardings, called again on the instance: they hand the instance over; `dungeons` replaced afterwards is read at the call
+      const neu = new AdminCommandRegistry();
+      server['adminCommands'] = neu;
+      versuche(a, () => (server['registerDungeonCommand'] as () => unknown).call(server));
+      a.notizen.push(`  resolveDungeonBase on the instance ${JSON.stringify(['cave', 'DG_ForestCrypt', 'nix', undefined].map((x) => (server['resolveDungeonBase'] as (y: unknown) => unknown).call(server, x)))}`);
+      ex('dungeon list');
+      server['dungeons'] = { listDocuments: (): unknown[] => { zaehle(a, 'dungeonsNeu.listDocuments'); return [{ id: 'ersatz', base: 'DG_Cave', mode: 'generated', layout: { rooms: [1] } }]; }, listDokumente2: (): unknown[] => [], getInstance: (): undefined => undefined };
+      befehlD(a, neu, 'dungeon list', ich, tmp);
+      befehlD(a, reg, 'dungeon list', ich, tmp);
+      (server['kontenDb'] as { close?: () => void } | undefined)?.close?.();
+    });
+  } finally {
+    ruecksetzen();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  return a;
+}
+
+/** Measured on the stand before the move (`--messen-basis` on c19d4fe8), package D. */
+const SOLL_DUNGEON_ATTRAPPE: Aufzeichnung = {
+ "paket": [],
+ "aufrufe": {
+  "k.adminCommands": 1,
+  "k.dungeons": 217,
+  "dungeons.listDocuments": 7,
+  "dungeons.listDokumente2": 7,
+  "dungeons.listEntrances": 4,
+  "k.resolveDungeonBase": 19,
+  "resolveDungeonBase": 17,
+  "dungeons.erzeugeDungeon2": 13,
+  "dungeons.findEntranceNear": 8,
+  "k.leaveDungeon": 5,
+  "leaveDungeon": 3,
+  "k.enterDungeon": 8,
+  "enterDungeon": 6,
+  "dungeons.hatDokument": 6,
+  "dungeons.getDocument": 63,
+  "dungeons.destroyInstance": 32,
+  "dungeons.deleteDocument": 4,
+  "dungeons.getInstance": 12,
+  "dungeons.eingangZuDungeon": 4,
+  "dungeons.setzeEingangsModus": 4,
+  "dungeons.createGenerated": 18,
+  "dungeons.assignEntrance": 4,
+  "dungeons.saveDocument": 26,
+  "dungeonsNeu.listDocuments": 1,
+  "dungeonsNeu.listDokumente2": 1,
+  "enterDungeonNeu": 1,
+  "leaveDungeonNeu": 1,
+  "resolveDungeonBaseNeu": 1,
+  "dungeonsNeu.createGenerated": 1,
+  "dungeonsNeu.destroyInstance": 1
+ },
+ "konsole": {
+  "log": 0,
+  "warn": 0
+ },
+ "zustand": [],
+ "ausnahmen": [
+  "TypeError",
+  "TypeError",
+  "TypeError",
+  "TypeError"
+ ],
+ "notizen": [
+  "  register dungeon",
+  "  commands fly,zone,teleport,dungeon",
+  "  call dungeons.listDocuments []",
+  "  call dungeons.listDokumente2 []",
+  "> dungeon (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Keine Dungeons vorhanden\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.listDocuments []",
+  "  call dungeons.listDokumente2 []",
+  "> DUNGEON LIST (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Keine Dungeons vorhanden\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon quatsch (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon list|entrances|entrance-mode|create|create2|enter|leave|assign|regen|steinkit|licht|reset|delete\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.listDocuments []",
+  "  call dungeons.listDokumente2 []",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Keine Dungeons vorhanden\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.listEntrances []",
+  "> dungeon entrances (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Keine Eingänge registriert\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon entrance-mode <dungeonId> <fixed|regen>\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase undefined receiver=context",
+  "> dungeon create (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon create <basis> [seed] [räume] [zone] — Basis z. B. forestcrypt, sunkencrypt, cave; räume/zone leer = Kit-Vorgabe\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":1443659015,\"material\":1363048140,\"deko\":2403393581},null,null]",
+  "> dungeon create2 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: steingrab-neu (Thema steingrab, Seed <zahl>, Prüfsumme PX, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.findEntranceNear [{\"x\":1,\"y\":2,\"z\":3},16]",
+  "> dungeon enter (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Kein Dungeon-Eingang in der Nähe\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call leaveDungeon Ich receiver=context",
+  "> dungeon leave (Ich) = {\"ok\":true,\"active\":false,\"message\":\"leave\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon assign (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: ?\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon regen (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: ?\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon steinkit (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: ?\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon licht (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: ?\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon reset (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Keine aktive Instanz: ?\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon delete (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: ?\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.listDocuments []",
+  "  call dungeons.listDokumente2 []",
+  "> dungeon list nix (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Keine Dungeons vorhanden\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.listEntrances []",
+  "> dungeon entrances nix (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Keine Eingänge registriert\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon entrance-mode <dungeonId> <fixed|regen>\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"nix\" receiver=context",
+  "> dungeon create nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon create <basis> [seed] [räume] [zone] — Basis z. B. forestcrypt, sunkencrypt, cave; räume/zone leer = Kit-Vorgabe\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create2 nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon create2 <thema> [seed] — bekannt: steingrab\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call enterDungeon Ich \"nix\" receiver=context",
+  "> dungeon enter nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"enter:nix\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call leaveDungeon Ich receiver=context",
+  "> dungeon leave nix (Ich) = {\"ok\":true,\"active\":false,\"message\":\"leave\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.hatDokument [\"nix\"]",
+  "> dungeon assign nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: nix\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"nix\"]",
+  "> dungeon regen nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: nix\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"nix\"]",
+  "> dungeon steinkit nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: nix\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"nix\"]",
+  "> dungeon licht nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: nix\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.destroyInstance [\"nix\"]",
+  "> dungeon reset nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Keine aktive Instanz: nix\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.deleteDocument [\"nix\"]",
+  "> dungeon delete nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: nix\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.listDocuments []",
+  "  call dungeons.listDokumente2 []",
+  "  call dungeons.getInstance [\"d1\"]",
+  "  call dungeons.getInstance [\"dc\"]",
+  "  call dungeons.getInstance [\"dfail\"]",
+  "  call dungeons.getInstance [\"e2\"]",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 (DG_ForestCrypt, generated, 3 Räume) [aktiv, 2 Spieler] | dc (DG_Cave, custom, 2 Räume) | dfail (DG_SunkenCrypt, generated, 1 Räume) | e2 (2.0, steingrab, erzeugt, Seeds 1/2/3, Prüfsumme P2)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.listDocuments []",
+  "  call dungeons.listDokumente2 []",
+  "  call dungeons.getInstance [\"d1\"]",
+  "  call dungeons.getInstance [\"dc\"]",
+  "  call dungeons.getInstance [\"dfail\"]",
+  "  call dungeons.getInstance [\"e2\"]",
+  "> dungeon List extra (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 (DG_ForestCrypt, generated, 3 Räume) [aktiv, 2 Spieler] | dc (DG_Cave, custom, 2 Räume) | dfail (DG_SunkenCrypt, generated, 1 Räume) | e2 (2.0, steingrab, erzeugt, Seeds 1/2/3, Prüfsumme P2)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.listEntrances []",
+  "> dungeon entrances (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@(192,-192) → d1 [regen] | Cave2@(-6,1000) → e2 [fest]\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.listEntrances []",
+  "> dungeon ENTRANCES 1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@(192,-192) → d1 [regen] | Cave2@(-6,1000) → e2 [fest]\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon list d1 (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon list d1 (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrances d1 (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrances d1 (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode d1 (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode d1 (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create d1 (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create d1 (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create2 d1 (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create2 d1 (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon enter d1 (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon enter d1 (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon leave d1 (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon leave d1 (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon assign d1 (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon assign d1 (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon regen d1 (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon regen d1 (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon steinkit d1 (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon steinkit d1 (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon licht d1 (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon licht d1 (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon reset d1 (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon reset d1 (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon delete d1 (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon delete d1 (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode d1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon entrance-mode <dungeonId> <fixed|regen>\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode d1 bogus (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon entrance-mode <dungeonId> <fixed|regen>\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode d1 REGEN (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon entrance-mode <dungeonId> <fixed|regen>\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.eingangZuDungeon [\"dx\"]",
+  "  call dungeons.setzeEingangsModus [\"dx\",\"fixed\"]",
+  "> dungeon entrance-mode dx fixed (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Kein Rezept (base) für dx — nur erzeugte 1.0-Dungeons mit DG_*-Basis können bei jedem Betreten neu würfeln\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.eingangZuDungeon [\"d1\"]",
+  "  call dungeons.setzeEingangsModus [\"d1\",\"regen\"]",
+  "> dungeon entrance-mode d1 regen (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@3,3 → d1: würfelt bei jedem Betreten neu\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.eingangZuDungeon [\"d1\"]",
+  "  call dungeons.setzeEingangsModus [\"d1\",\"fixed\"]",
+  "> dungeon entrance-mode d1 fixed (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@3,3 → d1: fest\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.eingangZuDungeon [\"d1\"]",
+  "  call dungeons.setzeEingangsModus [\"d1\",\"regen\"]",
+  "> dungeon Entrance-Mode d1 regen extra (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@3,3 → d1: würfelt bei jedem Betreten neu\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"camp\" receiver=context",
+  "> dungeon create camp (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon create <basis> [seed] [räume] [zone] — Basis z. B. forestcrypt, sunkencrypt, cave; räume/zone leer = Kit-Vorgabe\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"forestcrypt\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_ForestCrypt\",1795180445,null,null]",
+  "> dungeon create forestcrypt (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-<zahl> (4 Räume, Seed <zahl>, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"DG_ForestCrypt\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_ForestCrypt\",42,null,null]",
+  "> dungeon create DG_ForestCrypt 42 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-42 (4 Räume, Seed 42, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"ForestCrypt\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_ForestCrypt\",42,null,{\"maxRooms\":5,\"zoneSize\":64}]",
+  "> dungeon create ForestCrypt 42 5 64 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-42 (4 Räume, Seed 42, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"dg_cave\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_Cave\",1609883563,null,null]",
+  "> dungeon create dg_cave abc (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-<zahl> (4 Räume, Seed <zahl>, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"cave\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_Cave\",1,null,{\"zoneSize\":64}]",
+  "> dungeon create cave 1 x 64 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-1 (4 Räume, Seed 1, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"cave\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_Cave\",1,null,{\"maxRooms\":5}]",
+  "> dungeon create cave 1 5 y (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-1 (4 Räume, Seed 1, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"cave\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_Cave\",1,null,{\"maxRooms\":5.5,\"zoneSize\":-3}]",
+  "> dungeon create cave 1.9 5.5 -3 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-1 (4 Räume, Seed 1, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"cave\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_Cave\",1000,null,{\"maxRooms\":16}]",
+  "> dungeon create cave 1e3 0x10 Infinity (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-1000 (4 Räume, Seed 1000, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"cave\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_Cave\",1,null,{\"zoneSize\":64}]",
+  "> dungeon create cave 1 Infinity 64 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-1 (4 Räume, Seed 1, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"cave\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_Cave\",1,null,{\"maxRooms\":0,\"zoneSize\":0}]",
+  "> dungeon create cave 1 -0 0 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-1 (4 Räume, Seed 1, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"sunkencrypt\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_SunkenCrypt\",7,null,null]",
+  "> dungeon create sunkencrypt 7 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Erzeugung fehlgeschlagen (DG_SunkenCrypt)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"Cave\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_Cave\",2,null,null]",
+  "> dungeon CREATE Cave 2 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-2 (4 Räume, Seed 2, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":5,\"material\":784992901,\"deko\":1139810000},null,null]",
+  "> dungeon create2 STEINGRAB 5 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: steingrab-neu (Thema steingrab, Seed 5, Prüfsumme PX, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":105048754,\"material\":2238434521,\"deko\":962037590},null,null]",
+  "> dungeon create2 steingrab abc (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: steingrab-neu (Thema steingrab, Seed 105048754, Prüfsumme PX, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":5,\"material\":784992901,\"deko\":1139810000},\"meinid\",null]",
+  "> dungeon create2 steingrab 5 meinid (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: meinid (Thema steingrab, Seed 5, Prüfsumme PX, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":5,\"material\":784992901,\"deko\":1139810000},\"meinid\",0.3]",
+  "> dungeon create2 steingrab 5 meinid 0.3 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: meinid (Thema steingrab, Seed 5, Prüfsumme PX, Grundhelligkeit 0.30 je Dokument)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":5,\"material\":784992901,\"deko\":1139810000},\"meinid\",1]",
+  "> dungeon create2 steingrab 5 meinid 7 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: meinid (Thema steingrab, Seed 5, Prüfsumme PX, Grundhelligkeit 1.00 je Dokument)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":5,\"material\":784992901,\"deko\":1139810000},\"meinid\",0]",
+  "> dungeon create2 steingrab 5 meinid -1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: meinid (Thema steingrab, Seed 5, Prüfsumme PX, Grundhelligkeit 0.00 je Dokument)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":5,\"material\":784992901,\"deko\":1139810000},\"meinid\",null]",
+  "> dungeon create2 steingrab 5 meinid abc (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: meinid (Thema steingrab, Seed 5, Prüfsumme PX, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":5,\"material\":784992901,\"deko\":1139810000},\"meinid\",0]",
+  "> dungeon create2 steingrab 5 meinid 0 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: meinid (Thema steingrab, Seed 5, Prüfsumme PX, Grundhelligkeit 0.00 je Dokument)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":5,\"material\":784992901,\"deko\":1139810000},\"meinid\",1]",
+  "> dungeon create2 steingrab 5 meinid 1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: meinid (Thema steingrab, Seed 5, Prüfsumme PX, Grundhelligkeit 1.00 je Dokument)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":13,\"material\":548258153,\"deko\":4085841662},null,null]",
+  "> dungeon create2 steingrab 13 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Erzeugung fehlgeschlagen (steingrab)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":2,\"material\":924828731,\"deko\":3333651121},\"x\",0.1]",
+  "> dungeon create2 steingrab 2.7 x 1e-1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: x (Thema steingrab, Seed 2, Prüfsumme PX, Grundhelligkeit 0.10 je Dokument)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":4294967293,\"material\":2679349528,\"deko\":179127522},null,null]",
+  "> dungeon create2 steingrab -3 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: steingrab-neu (Thema steingrab, Seed -3, Prüfsumme PX, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.findEntranceNear [{\"x\":999,\"y\":0,\"z\":0},16]",
+  "  call enterDungeon Ich \"nah\" receiver=context",
+  "> dungeon enter (Ich) = {\"ok\":true,\"active\":true,\"message\":\"enter:nah\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":999,\"y\":0,\"z\":0} worldId=\"haupt\" char=0:0",
+  "  call enterDungeon Ich \"gut\" receiver=context",
+  "> dungeon enter gut (Ich) = {\"ok\":true,\"active\":true,\"message\":\"enter:gut\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call enterDungeon Ich \"schlecht\" receiver=context",
+  "> dungeon enter schlecht (Ich) = {\"ok\":false,\"active\":false,\"message\":\"enter:schlecht\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call enterDungeon Ich \"gut\" receiver=context",
+  "> dungeon ENTER gut x (Ich) = {\"ok\":true,\"active\":true,\"message\":\"enter:gut\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call enterDungeon Ich \"GUT\" receiver=context",
+  "> dungeon enter GUT (Ich) = {\"ok\":false,\"active\":false,\"message\":\"enter:GUT\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call leaveDungeon Ich receiver=context",
+  "> dungeon leave x (Ich) = {\"ok\":true,\"active\":false,\"message\":\"leave\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.hatDokument [\"d1\"]",
+  "  call dungeons.findEntranceNear [{\"x\":1,\"y\":2,\"z\":3},16]",
+  "> dungeon assign d1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Kein Dungeon-Eingang in der Nähe (≤16 m)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.hatDokument [\"d1\"]",
+  "  call dungeons.findEntranceNear [{\"x\":999,\"y\":0,\"z\":0},16]",
+  "  call dungeons.assignEntrance [\"3,3\",\"d1\"]",
+  "> dungeon assign d1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Eingang Vault1@3,3 → d1\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":999,\"y\":0,\"z\":0} worldId=\"haupt\" char=0:0",
+  "  call dungeons.hatDokument [\"e2\"]",
+  "  call dungeons.findEntranceNear [{\"x\":999,\"y\":0,\"z\":0},16]",
+  "  call dungeons.assignEntrance [\"3,3\",\"e2\"]",
+  "> dungeon assign e2 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Zuweisung fehlgeschlagen: kein 1.0-Dokument unter 'e2' — 2.0-Dokumente lassen sich (noch) nicht zuweisen\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":999,\"y\":0,\"z\":0} worldId=\"haupt\" char=0:0",
+  "  call dungeons.hatDokument [\"dc\"]",
+  "  call dungeons.findEntranceNear [{\"x\":999,\"y\":0,\"z\":0},16]",
+  "  call dungeons.assignEntrance [\"3,3\",\"dc\"]",
+  "> dungeon assign dc (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Zuweisung fehlgeschlagen: kein 1.0-Dokument unter 'dc' — 2.0-Dokumente lassen sich (noch) nicht zuweisen\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":999,\"y\":0,\"z\":0} worldId=\"haupt\" char=0:0",
+  "  call dungeons.hatDokument [\"d1\"]",
+  "  call dungeons.findEntranceNear [{\"x\":999,\"y\":0,\"z\":0},16]",
+  "  call dungeons.assignEntrance [\"3,3\",\"d1\"]",
+  "> dungeon ASSIGN d1 x (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Eingang Vault1@3,3 → d1\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":999,\"y\":0,\"z\":0} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"e2\"]",
+  "> dungeon regen e2 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: e2\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"dc\"]",
+  "> dungeon regen dc (Ich) = {\"ok\":false,\"active\":false,\"message\":\"dc ist von Hand gebaut (mode custom) — 'regen' würfelt aus Basis und Seed neu und die Handarbeit wäre verloren. Neu generieren geht im Editor über „Neu anlegen\\\" mit „voll generieren\\\".\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.createGenerated [\"DG_ForestCrypt\",99,\"d1\"]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon regen d1 99 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 neu generiert (Seed 99, 4 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.createGenerated [\"DG_ForestCrypt\",894940899,\"d1\"]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon regen d1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 neu generiert (Seed 894940899, 4 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.createGenerated [\"DG_ForestCrypt\",742229990,\"d1\"]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon regen d1 abc (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 neu generiert (Seed 742229990, 4 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.createGenerated [\"DG_ForestCrypt\",-7,\"d1\"]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon regen d1 -7.9 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 neu generiert (Seed -7, 4 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"dfail\"]",
+  "  call dungeons.createGenerated [\"DG_SunkenCrypt\",5,\"dfail\"]",
+  "> dungeon regen dfail 5 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Neugenerierung fehlgeschlagen\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"e2\"]",
+  "> dungeon steinkit e2 reset (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: e2\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\"}}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 wand=stein_clean (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Steinmaterial gesetzt — {\\\"wandTextur\\\":\\\"/assets/models/stein_clean.png\\\"}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\"}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":2,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 wand=stein_clean decke=stein_moos boden=stein_wet moos=2 frost=9 nass=1 kachel=2 deckenkachel=3 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Steinmaterial gesetzt — {\\\"wandTextur\\\":\\\"/assets/models/stein_clean.png\\\",\\\"deckeTextur\\\":\\\"/assets/models/stein_moos.png\\\",\\\"bodenTextur\\\":\\\"/assets/models/stein_wet.png\\\",\\\"verwitterung\\\":{\\\"moos\\\":2,\\\"frost\\\":4,\\\"nass\\\":1},\\\"kachelM\\\":2,\\\"deckeKachelM\\\":3}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":2,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 wand=foo (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Textur \\\"foo\\\" — erlaubt: stein_clean, stein_decke, stein_fels, stein_moos, stein_frost, stein_tripo_rock, stein_wet\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":2,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 bogus (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe: bogus — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":2,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 x=1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe: x=1 — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":2,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 =v (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe: =v — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":2,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 wand= (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Textur \\\"\\\" — erlaubt: stein_clean, stein_decke, stein_fels, stein_moos, stein_frost, stein_tripo_rock, stein_wet\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":2,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":0,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 moos= (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Steinmaterial gesetzt — {\\\"wandTextur\\\":\\\"/assets/models/stein_clean.png\\\",\\\"deckeTextur\\\":\\\"/assets/models/stein_moos.png\\\",\\\"bodenTextur\\\":\\\"/assets/models/stein_wet.png\\\",\\\"verwitterung\\\":{\\\"moos\\\":0,\\\"frost\\\":4,\\\"nass\\\":1},\\\"kachelM\\\":2,\\\"deckeKachelM\\\":3}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":0,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 room= (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Nichts Gültiges angegeben — nichts geändert\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"moos\":0,\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 moos=abc (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Steinmaterial gesetzt — {\\\"wandTextur\\\":\\\"/assets/models/stein_clean.png\\\",\\\"deckeTextur\\\":\\\"/assets/models/stein_moos.png\\\",\\\"bodenTextur\\\":\\\"/assets/models/stein_wet.png\\\",\\\"verwitterung\\\":{\\\"frost\\\":4,\\\"nass\\\":1},\\\"kachelM\\\":2,\\\"deckeKachelM\\\":3}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Steinmaterial gesetzt — {\\\"wandTextur\\\":\\\"/assets/models/stein_clean.png\\\",\\\"deckeTextur\\\":\\\"/assets/models/stein_moos.png\\\",\\\"bodenTextur\\\":\\\"/assets/models/stein_wet.png\\\",\\\"verwitterung\\\":{\\\"frost\\\":4,\\\"nass\\\":1},\\\"kachelM\\\":2,\\\"deckeKachelM\\\":3}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 room=x (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Kein Raumindex: room=x\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 room=1.5 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Kein Raumindex: room=1.5\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 room=9 moos=1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Raumindex 9 liegt ausserhalb — d1 hat 3 Räume (0..2)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 room=-1 moos=1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Raumindex -1 liegt ausserhalb — d1 hat 3 Räume (0..2)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 room=3 moos=1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Raumindex 3 liegt ausserhalb — d1 hat 3 Räume (0..2)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0,\"steinKit\":{\"bodenTextur\":\"/assets/models/stein_frost.png\",\"verwitterung\":{\"moos\":3}}},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 room=0 boden=stein_frost moos=3 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 Raum 0: Steinmaterial gesetzt — {\\\"bodenTextur\\\":\\\"/assets/models/stein_frost.png\\\",\\\"verwitterung\\\":{\\\"moos\\\":3}}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0,\"steinKit\":{\"bodenTextur\":\"/assets/models/stein_frost.png\",\"verwitterung\":{\"moos\":3}}},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0,\"steinKit\":{\"bodenTextur\":\"/assets/models/stein_frost.png\",\"verwitterung\":{\"moos\":3}}},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 room=2 room=1 frost=4 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 Raum 1: Steinmaterial gesetzt — {\\\"verwitterung\\\":{\\\"frost\\\":4}}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0,\"steinKit\":{\"bodenTextur\":\"/assets/models/stein_frost.png\",\"verwitterung\":{\"moos\":3}}},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0,\"steinKit\":{\"bodenTextur\":\"/assets/models/stein_frost.png\",\"verwitterung\":{\"moos\":3}}},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 room=2 nass=2 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 Raum 2: Steinmaterial gesetzt — {\\\"verwitterung\\\":{\\\"nass\\\":2}}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0,\"steinKit\":{\"bodenTextur\":\"/assets/models/stein_frost.png\",\"verwitterung\":{\"moos\":3}}},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 room=0 reset (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 Raum 0: Steinmaterial gelöscht — es gilt wieder das des Dokuments\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 reset extra (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe: reset extra — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_clean.png\",\"deckeTextur\":\"/assets/models/stein_moos.png\",\"bodenTextur\":\"/assets/models/stein_wet.png\",\"verwitterung\":{\"frost\":4,\"nass\":1},\"kachelM\":2,\"deckeKachelM\":3}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 reset (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Steinmaterial gelöscht — es gilt wieder die Kit-Vorgabe\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"dc\"]",
+  "  call dungeons.saveDocument [{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32,\"steinKit\":{\"kachelM\":0.05}}]",
+  "  call dungeons.destroyInstance [\"dc\"]",
+  "> dungeon steinkit dc kachel=0 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"dc: Steinmaterial gesetzt — {\\\"kachelM\\\":0.05}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32,\"steinKit\":{\"kachelM\":0.05}},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"dc\"]",
+  "  call dungeons.saveDocument [{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32,\"steinKit\":{\"kachelM\":64,\"deckeKachelM\":0.05}}]",
+  "  call dungeons.destroyInstance [\"dc\"]",
+  "> dungeon steinkit dc kachel=999 deckenkachel=-1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"dc: Steinmaterial gesetzt — {\\\"kachelM\\\":64,\\\"deckeKachelM\\\":0.05}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32,\"steinKit\":{\"kachelM\":64,\"deckeKachelM\":0.05}},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"dc\"]",
+  "  call dungeons.saveDocument [{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32,\"steinKit\":{\"verwitterung\":{\"moos\":4,\"nass\":0},\"kachelM\":64,\"deckeKachelM\":0.05}}]",
+  "  call dungeons.destroyInstance [\"dc\"]",
+  "> dungeon steinkit dc nass=-3 moos=4.5 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"dc: Steinmaterial gesetzt — {\\\"verwitterung\\\":{\\\"moos\\\":4,\\\"nass\\\":0},\\\"kachelM\\\":64,\\\"deckeKachelM\\\":0.05}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32,\"steinKit\":{\"verwitterung\":{\"moos\":4,\"nass\":0},\"kachelM\":64,\"deckeKachelM\":0.05}},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"dc\"]",
+  "  call dungeons.saveDocument [{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32,\"steinKit\":{\"deckeTextur\":\"/assets/models/stein_moos.png\",\"verwitterung\":{\"moos\":4,\"nass\":0},\"kachelM\":64,\"deckeKachelM\":0.05}}]",
+  "  call dungeons.destroyInstance [\"dc\"]",
+  "> dungeon steinkit dc decke=/assets/models/stein_moos.png (Ich) = {\"ok\":true,\"active\":false,\"message\":\"dc: Steinmaterial gesetzt — {\\\"deckeTextur\\\":\\\"/assets/models/stein_moos.png\\\",\\\"verwitterung\\\":{\\\"moos\\\":4,\\\"nass\\\":0},\\\"kachelM\\\":64,\\\"deckeKachelM\\\":0.05}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32,\"steinKit\":{\"deckeTextur\":\"/assets/models/stein_moos.png\",\"verwitterung\":{\"moos\":4,\"nass\":0},\"kachelM\":64,\"deckeKachelM\":0.05}},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"dc\"]",
+  "> dungeon steinkit dc wand=STEIN_MOOS (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Textur \\\"STEIN_MOOS\\\" — erlaubt: stein_clean, stein_decke, stein_fels, stein_moos, stein_frost, stein_tripo_rock, stein_wet\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32,\"steinKit\":{\"deckeTextur\":\"/assets/models/stein_moos.png\",\"verwitterung\":{\"moos\":4,\"nass\":0},\"kachelM\":64,\"deckeKachelM\":0.05}},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"dc\"]",
+  "  call dungeons.saveDocument [{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32}]",
+  "  call dungeons.destroyInstance [\"dc\"]",
+  "> dungeon steinkit dc reset (Ich) = {\"ok\":true,\"active\":false,\"message\":\"dc: Steinmaterial gelöscht — es gilt wieder die Kit-Vorgabe\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"e2\"]",
+  "> dungeon licht e2 0.5 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: e2\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon licht d1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"d1: Grundbeleuchtung 1.00 (Vorgabe, Feld nicht gesetzt) — Aufruf: dungeon licht <id> <0..3> | dungeon licht <id> reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"dfail\"]",
+  "> dungeon licht dfail (Ich) = {\"ok\":false,\"active\":false,\"message\":\"dfail: Grundbeleuchtung 0.25 — Aufruf: dungeon licht <id> <0..3> | dungeon licht <id> reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":0.5}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon licht d1 0.5 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Grundbeleuchtung 0.50 gesetzt (dunkler als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":0.5},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon licht d1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"d1: Grundbeleuchtung 0.50 — Aufruf: dungeon licht <id> <0..3> | dungeon licht <id> reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":0.5},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":1}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon licht d1 1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Grundbeleuchtung 1.00 gesetzt (wie die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":1},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":2}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon licht d1 2 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Grundbeleuchtung 2.00 gesetzt (heller als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":2},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":3}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon licht d1 3 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Grundbeleuchtung 3.00 gesetzt (heller als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":3},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":0}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon licht d1 0 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Grundbeleuchtung 0.00 gesetzt (dunkler als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":0},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":0}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon licht d1 -0 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Grundbeleuchtung 0.00 gesetzt (dunkler als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":0},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon licht d1 abc (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Keine Zahl: abc\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":0},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon licht d1 -1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Grundbeleuchtung muss zwischen 0 und 3 liegen — -1 liegt ausserhalb\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":0},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon licht d1 99 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Grundbeleuchtung muss zwischen 0 und 3 liegen — 99 liegt ausserhalb\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":0},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon licht d1 Infinity (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Keine Zahl: Infinity\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":0},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":1}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon licht d1 0x1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Grundbeleuchtung 1.00 gesetzt (wie die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":1},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":1}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon licht d1 1e0 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Grundbeleuchtung 1.00 gesetzt (wie die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":1},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon licht d1 reset (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Grundbeleuchtung gelöscht — es gilt wieder die Umgebung (1)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon licht d1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"d1: Grundbeleuchtung 1.00 (Vorgabe, Feld nicht gesetzt) — Aufruf: dungeon licht <id> <0..3> | dungeon licht <id> reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"dfail\"]",
+  "> dungeon licht dfail RESET (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Keine Zahl: RESET\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"dfail\"]",
+  "  call dungeons.saveDocument [{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64}]",
+  "  call dungeons.destroyInstance [\"dfail\"]",
+  "> dungeon licht dfail reset (Ich) = {\"ok\":true,\"active\":false,\"message\":\"dfail: Grundbeleuchtung gelöscht — es gilt wieder die Umgebung (1)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64}}",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon reset d1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Instanz d1 zurückgesetzt\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.deleteDocument [\"d1\"]",
+  "> dungeon delete d1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon d1 gelöscht\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.deleteDocument [\"d1\"]",
+  "> dungeon DELETE d1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon d1 gelöscht\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon liste (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon list|entrances|entrance-mode|create|create2|enter|leave|assign|regen|steinkit|licht|reset|delete\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon ??? (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon list|entrances|entrance-mode|create|create2|enter|leave|assign|regen|steinkit|licht|reset|delete\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.listDocuments []",
+  "  call dungeons.listDokumente2 []",
+  "  call dungeons.getInstance [\"d1\"]",
+  "  call dungeons.getInstance [\"dc\"]",
+  "  call dungeons.getInstance [\"dfail\"]",
+  "  call dungeons.getInstance [\"e2\"]",
+  "> [\"list\"] = {\"ok\":true,\"active\":false,\"message\":\"d1 (DG_ForestCrypt, generated, 3 Räume) [aktiv, 2 Spieler] | dc (DG_Cave, custom, 2 Räume) | dfail (DG_SunkenCrypt, generated, 1 Räume) | e2 (2.0, steingrab, erzeugt, Seeds 1/2/3, Prüfsumme P2)\"} args=[]",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"cave\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_Cave\",3,null,null]",
+  "> [\"create\",\"cave\",\"3\"] = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-3 (4 Räume, Seed 3, Zone 48)\"} args=[\"cave\",\"3\"]",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":0.4}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> [\"licht\",\"d1\",\"0.4\"] = {\"ok\":true,\"active\":false,\"message\":\"d1: Grundbeleuchtung 0.40 gesetzt (dunkler als die Umgebung)\"} args=[\"d1\",\"0.4\"]",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.deleteDocument [\"d1\"]",
+  "> [\"delete\",\"d1\"] = {\"ok\":true,\"active\":false,\"message\":\"Dungeon d1 gelöscht\"} args=[\"d1\"]",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> direct [\"licht\",\"d1\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Keine Zahl: \"}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> direct [\"licht\",\"d1\",\" \"] = {\"ok\":false,\"active\":false,\"message\":\"Keine Zahl:  \"}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> direct [\"steinkit\",\"d1\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe:  — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "  call resolveDungeonBase \"\" receiver=context",
+  "> direct [\"create\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon create <basis> [seed] [räume] [zone] — Basis z. B. forestcrypt, sunkencrypt, cave; räume/zone leer = Kit-Vorgabe\"}",
+  "> direct [\"assign\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: \"}",
+  "  call dungeons.findEntranceNear [{\"x\":1,\"y\":2,\"z\":3},16]",
+  "> direct [\"enter\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Kein Dungeon-Eingang in der Nähe\"}",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1,\"steinKit\":{\"verwitterung\":{\"frost\":4}}},{\"i\":2,\"steinKit\":{\"verwitterung\":{\"nass\":2}}}]},\"zoneSize\":64,\"ambientLicht\":0.4},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64}}",
+  "  call dungeonsNeu.listDocuments []",
+  "  call dungeonsNeu.listDokumente2 []",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Keine Dungeons vorhanden\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call enterDungeonNeu Ich \"gut\"",
+  "> dungeon enter gut (Ich) = {\"ok\":true,\"active\":true,\"message\":\"neu\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon leave (Ich) = {\"ok\":false,\"active\":false,\"message\":\"neu-leave\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBaseNeu \"egal\"",
+  "  call dungeonsNeu.createGenerated [\"DG_Cave\",5,null,null]",
+  "> dungeon create egal 5 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: x (0 Räume, Seed 5, Zone 1)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.destroyInstance [\"d1\"]",
+  "> dungeon reset d1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Instanz d1 zurückgesetzt\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon list (Ich) throws TypeError",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon enter gut (Ich) throws TypeError",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon leave (Ich) throws TypeError",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create cave 1 (Ich) throws TypeError",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "resolveDungeonBase undefined = null",
+  "resolveDungeonBase \"\" = null",
+  "resolveDungeonBase \"forestcrypt\" = \"DG_ForestCrypt\"",
+  "resolveDungeonBase \"DG_ForestCrypt\" = \"DG_ForestCrypt\"",
+  "resolveDungeonBase \"ForestCrypt\" = \"DG_ForestCrypt\"",
+  "resolveDungeonBase \"dg_FORESTCRYPT\" = \"DG_ForestCrypt\"",
+  "resolveDungeonBase \"cave\" = \"DG_Cave\"",
+  "resolveDungeonBase \"DG_Cave\" = \"DG_Cave\"",
+  "resolveDungeonBase \"sunkencrypt\" = \"DG_SunkenCrypt\"",
+  "resolveDungeonBase \"camp\" = null",
+  "resolveDungeonBase \"DG_Camp\" = null",
+  "resolveDungeonBase \"nix\" = null",
+  "resolveDungeonBase \"dg_\" = null",
+  "resolveDungeonBase \"DG_DG_Cave\" = null",
+  "resolveDungeonBase \" cave\" = null",
+  "resolveDungeonBase \"Höhle\" = null"
+ ]
+};
+const SOLL_DUNGEON_ECHT: Aufzeichnung = {
+ "paket": [
+  "Nah:Teleport:52:a5fccccadc0313c6",
+  "Nah:Teleport:40:953e6e118ba67c99",
+  "Ich:Teleport:52:a5fccccadc0313c6",
+  "Ich:Teleport:40:41c7ae408d25e74f",
+  "Ich:Teleport:99:7bed5317ca436d81",
+  "Ich:Teleport:40:41c7ae408d25e74f"
+ ],
+ "aufrufe": {
+  "weltWechselVorbereiten": 7,
+  "listTerrainComps": 3,
+  "dungeonsNeu.listDocuments": 2
+ },
+ "konsole": {
+  "log": 11,
+  "warn": 1
+ },
+ "zustand": [],
+ "ausnahmen": [],
+ "notizen": [
+  "log 53:f911fa34cfc45148:[Konto] Spalte konten.avatar_charakter_id nachge",
+  "log 42:0bcdb099a81be718:[Konto] Spalte konten.token_ab nachgezogen",
+  "log 44:1f27737a280d0efa:[Konto] Spalte konten.spieler_ab nachgezogen",
+  "log 45:63bbb1146dd82dc1:[Konto] Spalte konten.profil_text nachgezogen",
+  "> dungeon (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Keine Dungeons vorhanden\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> DUNGEON LIST (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Keine Dungeons vorhanden\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon quatsch (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon list|entrances|entrance-mode|create|create2|enter|leave|assign|regen|steinkit|licht|reset|delete\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Keine Dungeons vorhanden\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrances (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Keine Eingänge registriert\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon entrance-mode <dungeonId> <fixed|regen>\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon create <basis> [seed] [räume] [zone] — Basis z. B. forestcrypt, sunkencrypt, cave; räume/zone leer = Kit-Vorgabe\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create2 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: steingrab-42167a42 (Thema steingrab, Seed <zahl>, Prüfsumme 021bc22c, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon enter (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Kein Dungeon-Eingang in der Nähe\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon leave (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Du bist in keinem Dungeon\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon assign (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: ?\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon regen (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: ?\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon steinkit (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: ?\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon licht (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: ?\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon reset (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Keine aktive Instanz: ?\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon delete (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: ?\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon list nix (Ich) = {\"ok\":true,\"active\":false,\"message\":\"steingrab-42167a42 (2.0, steingrab, erzeugt, Seeds <zahl>/<zahl>/<zahl>, Prüfsumme 021bc22c)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrances nix (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Keine Eingänge registriert\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon entrance-mode <dungeonId> <fixed|regen>\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon create <basis> [seed] [räume] [zone] — Basis z. B. forestcrypt, sunkencrypt, cave; räume/zone leer = Kit-Vorgabe\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create2 nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon create2 <thema> [seed] — bekannt: steingrab\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon enter nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: nix\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon leave nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Du bist in keinem Dungeon\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon assign nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: nix\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon regen nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: nix\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon steinkit nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: nix\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon licht nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: nix\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon reset nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Keine aktive Instanz: nix\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon delete nix (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: nix\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon list (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon list (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrances (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrances (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create2 (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create2 (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon enter (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon enter (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon leave (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon leave (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon assign (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon assign (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon regen (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon regen (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon steinkit (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon steinkit (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon licht (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon licht (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon reset (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon reset (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon delete (Kein) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Kein dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon delete (Gast) = {\"ok\":false,\"active\":false,\"message\":\"Admin commands are not allowed for this player\"}",
+  "peer Gast dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create camp (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon create <basis> [seed] [räume] [zone] — Basis z. B. forestcrypt, sunkencrypt, cave; räume/zone leer = Kit-Vorgabe\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create cave 42 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: cave-2a (52 Räume, Seed 42, Zone 64)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create forestcrypt 43 5 64 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: forestcrypt-2b (15 Räume, Seed 43, Zone 64)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create DG_SunkenCrypt 44 x 32 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: sunkencrypt-2c (10 Räume, Seed 44, Zone 32)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create2 steingrab 7 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: steingrab-7 (Thema steingrab, Seed 7, Prüfsumme caf13fad, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create2 steingrab 8 k1d-zwei 0.5 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: k1d-zwei (Thema steingrab, Seed 8, Prüfsumme fc1cbe79, Grundhelligkeit 0.50 je Dokument)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create2 steingrab 9 k1d-drei 9 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: k1d-drei (Thema steingrab, Seed 9, Prüfsumme a4de7f93, Grundhelligkeit 1.00 je Dokument)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a (DG_Cave, generated, 52 Räume) | forestcrypt-2b (DG_ForestCrypt, generated, 15 Räume) | sunkencrypt-2c (DG_SunkenCrypt, generated, 10 Räume) | steingrab-42167a42 (2.0, steingrab, erzeugt, Seeds <zahl>/<zahl>/<zahl>, Prüfsumme 021bc22c) | steingrab-7 (2.0, steingrab, erzeugt, Seeds 7/<zahl>/879019654, Prüfsumme caf13fad) | k1d-zwei (2.0, steingrab, erzeugt, Seeds 8/851520757/<zahl>, Prüfsumme fc1cbe79) | k1d-drei (2.0, steingrab, erzeugt, Seeds 9/<zahl>/951336992, Prüfsumme a4de7f93)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15677:de388d4f316cf700 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "  ids cave-2a forestcrypt-2b steingrab-42167a42",
+  "log 50:727474c6dbb56d4f:[Dungeon] Entrance 'Vault1' @ 3,3 → stonevault-3",
+  "  entrance {\"zoneKey\":\"3,3\",\"pos\":{\"x\":192,\"y\":10,\"z\":192},\"feature\":\"Vault1\",\"dungeonId\":\"stonevault-3x3\",\"base\":\"DG_StoneVault\",\"seed\":1000}",
+  "> dungeon entrances (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@(192,192) → stonevault-3x3 [fest]\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon assign cave-2a (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Kein Dungeon-Eingang in der Nähe (≤16 m)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon assign steingrab-42167a42 (Nah) = {\"ok\":false,\"active\":false,\"message\":\"Zuweisung fehlgeschlagen: kein 1.0-Dokument unter 'steingrab-42167a42' — 2.0-Dokumente lassen sich (noch) nicht zuweisen\"}",
+  "peer Nah dungeonId=null dungeonReturn=null position={\"x\":190,\"y\":10,\"z\":195} worldId=\"haupt\" char=0:0",
+  "> dungeon assign cave-2a (Nah) = {\"ok\":true,\"active\":false,\"message\":\"Eingang Vault1@3,3 → cave-2a\"}",
+  "peer Nah dungeonId=null dungeonReturn=null position={\"x\":190,\"y\":10,\"z\":195} worldId=\"haupt\" char=0:0",
+  "> dungeon entrances (Nah) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@(192,192) → cave-2a [fest]\"}",
+  "peer Nah dungeonId=null dungeonReturn=null position={\"x\":190,\"y\":10,\"z\":195} worldId=\"haupt\" char=0:0",
+  "log 89:d5dd0335bffe73ed:[Dungeon] Instance 'cave-2a' materialized in wor",
+  "> dungeon enter (Nah) = {\"ok\":true,\"active\":true,\"message\":\"Dungeon betreten: Cave #2a\"}",
+  "peer Nah dungeonId=\"cave-2a\" dungeonReturn={\"x\":190,\"y\":10,\"z\":195} position={\"x\":2.3841854120595425e-7,\"y\":0.5,\"z\":1.<zahl>} worldId=\"dungeon:cave-2a\" char=0:0",
+  "> dungeon leave (Nah) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon verlassen\"}",
+  "peer Nah dungeonId=null dungeonReturn=null position={\"x\":190,\"y\":10,\"z\":195} worldId=\"haupt\" char=0:0",
+  "> dungeon leave (Nah) = {\"ok\":false,\"active\":false,\"message\":\"Du bist in keinem Dungeon\"}",
+  "peer Nah dungeonId=null dungeonReturn=null position={\"x\":190,\"y\":10,\"z\":195} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode cave-2a regen (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@3,3 → cave-2a: würfelt bei jedem Betreten neu\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode forestcrypt-2b regen (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Kein Eingang zeigt auf: forestcrypt-2b\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode cave-2a fixed (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@3,3 → cave-2a: fest\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode steingrab-42167a42 regen (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Kein Eingang zeigt auf: steingrab-42167a42\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode cave-2a bogus (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon entrance-mode <dungeonId> <fixed|regen>\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon entrances (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@(192,192) → cave-2a [fest]\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon steinkit cave-2a wand=foo (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Textur \\\"foo\\\" — erlaubt: stein_clean, stein_decke, stein_fels, stein_moos, stein_frost, stein_tripo_rock, stein_wet\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15677:de388d4f316cf700 i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "log 50:874725001659ca98:[Dungeon] Instance 'cave-2a' destroyed (1068 ZDO",
+  "> dungeon steinkit cave-2a wand=stein_moos decke=stein_clean boden=stein_wet moos=2 frost=9 nass=1 kachel=2 deckenkachel=3 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a: Steinmaterial gesetzt — {\\\"wandTextur\\\":\\\"/assets/models/stein_moos.png\\\",\\\"deckeTextur\\\":\\\"/assets/models/stein_clean.png\\\",\\\"bodenTextur\\\":\\\"/assets/models/stein_wet.png\\\",\\\"verwitterung\\\":{\\\"moos\\\":2,\\\"frost\\\":4,\\\"nass\\\":1},\\\"kachelM\\\":2,\\\"deckeKachelM\\\":3}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15948:04d3caf0e7b7b7c3 i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon steinkit cave-2a room=1 moos=3 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a Raum 1: Steinmaterial gesetzt — {\\\"verwitterung\\\":{\\\"moos\\\":3}}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=16019:16afde125f6dda9c i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon steinkit cave-2a room=99 moos=1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Raumindex 99 liegt ausserhalb — cave-2a hat 52 Räume (0..51)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=16019:16afde125f6dda9c i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon steinkit cave-2a room=x (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Kein Raumindex: room=x\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=16019:16afde125f6dda9c i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon steinkit cave-2a bogus (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe: bogus — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=16019:16afde125f6dda9c i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon steinkit cave-2a moos=abc (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a: Steinmaterial gesetzt — {\\\"wandTextur\\\":\\\"/assets/models/stein_moos.png\\\",\\\"deckeTextur\\\":\\\"/assets/models/stein_clean.png\\\",\\\"bodenTextur\\\":\\\"/assets/models/stein_wet.png\\\",\\\"verwitterung\\\":{\\\"frost\\\":4,\\\"nass\\\":1},\\\"kachelM\\\":2,\\\"deckeKachelM\\\":3}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=16005:bacc87d47fba6c78 i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon steinkit cave-2a room=1 reset (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a Raum 1: Steinmaterial gelöscht — es gilt wieder das des Dokuments\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15934:7c990bf5b9d582f7 i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon steinkit steingrab-42167a42 reset (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: steingrab-42167a42\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15934:7c990bf5b9d582f7 i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon licht cave-2a (Ich) = {\"ok\":false,\"active\":false,\"message\":\"cave-2a: Grundbeleuchtung 1.00 (Vorgabe, Feld nicht gesetzt) — Aufruf: dungeon licht <id> <0..3> | dungeon licht <id> reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15934:7c990bf5b9d582f7 i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon licht cave-2a 0 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a: Grundbeleuchtung 0.00 gesetzt (dunkler als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15954:a67232c2e60070a1 i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon licht cave-2a 0.5 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a: Grundbeleuchtung 0.50 gesetzt (dunkler als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15956:c60ab85e48ac0b6d i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon licht cave-2a (Ich) = {\"ok\":false,\"active\":false,\"message\":\"cave-2a: Grundbeleuchtung 0.50 — Aufruf: dungeon licht <id> <0..3> | dungeon licht <id> reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15956:c60ab85e48ac0b6d i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon licht cave-2a abc (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Keine Zahl: abc\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15956:c60ab85e48ac0b6d i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon licht cave-2a 9 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Grundbeleuchtung muss zwischen 0 und 3 liegen — 9 liegt ausserhalb\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15956:c60ab85e48ac0b6d i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon licht cave-2a 1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a: Grundbeleuchtung 1.00 gesetzt (wie die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15954:c1cac257b2cc702d i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon licht cave-2a 2.5 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a: Grundbeleuchtung 2.50 gesetzt (heller als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15956:d8993bf787fef84b i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon licht cave-2a reset (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a: Grundbeleuchtung gelöscht — es gilt wieder die Umgebung (1)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15934:7c990bf5b9d582f7 i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon licht steingrab-42167a42 0.5 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: steingrab-42167a42\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=15934:7c990bf5b9d582f7 i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon regen cave-2a 99 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a neu generiert (Seed 99, 35 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=10593:7c9689121142b9eb i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon regen steingrab-42167a42 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: steingrab-42167a42\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=10593:7c9689121142b9eb i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=4955:d8237c92ba610f8d i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon regen forestcrypt-2b (Ich) = {\"ok\":true,\"active\":false,\"message\":\"forestcrypt-2b neu generiert (Seed <zahl>, 16 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=10593:7c9689121142b9eb i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=5225:c08ba77ed9385f43 i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-42167a42.json=251:ddee4f7225fa6055 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "log 88:6a8358b8497d133f:[Dungeon] Instance 'cave-2a' materialized in wor",
+  "> dungeon enter cave-2a (Ich) = {\"ok\":true,\"active\":true,\"message\":\"Dungeon betreten: Cave #63\"}",
+  "peer Ich dungeonId=\"cave-2a\" dungeonReturn={\"x\":1,\"y\":2,\"z\":3} position={\"x\":2.3841854120595425e-7,\"y\":0.5,\"z\":1.<zahl>} worldId=\"dungeon:cave-2a\" char=0:0",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a (DG_Cave, generated, 35 Räume) [aktiv, 1 Spieler] | forestcrypt-2b (DG_ForestCrypt, generated, 16 Räume) | sunkencrypt-2c (DG_SunkenCrypt, generated, 10 Räume) | steingrab-42167a42 (2.0, steingrab, erzeugt, Seeds <zahl>/<zahl>/<zahl>, Prüfsumme 021bc22c) | steingrab-7 (2.0, steingrab, erzeugt, Seeds 7/<zahl>/879019654, Prüfsumme caf13fad) | k1d-zwei (2.0, steingrab, erzeugt, Seeds 8/851520757/<zahl>, Prüfsumme fc1cbe79) | k1d-drei (2.0, steingrab, erzeugt, Seeds 9/<zahl>/951336992, Prüfsumme a4de7f93)\"}",
+  "peer Ich dungeonId=\"cave-2a\" dungeonReturn={\"x\":1,\"y\":2,\"z\":3} position={\"x\":2.3841854120595425e-7,\"y\":0.5,\"z\":1.<zahl>} worldId=\"dungeon:cave-2a\" char=0:0",
+  "> dungeon leave (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon verlassen\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "log 143:69f556aac1807fb4:[Dungeon] Instance 'steingrab-42167a42' (2.0) ma",
+  "> dungeon enter steingrab-42167a42 (Ich) = {\"ok\":true,\"active\":true,\"message\":\"Dungeon betreten: steingrab #42167a42\"}",
+  "peer Ich dungeonId=\"steingrab-42167a42\" dungeonReturn={\"x\":1,\"y\":2,\"z\":3} position={\"x\":2,\"y\":0,\"z\":2} worldId=\"dungeon:steingrab-42167a42\" char=0:0",
+  "log 58:9a52ea53e0561e96:[Dungeon] Instance 'steingrab-42167a42' destroye",
+  "> dungeon reset steingrab-42167a42 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Instanz steingrab-42167a42 zurückgesetzt\"}",
+  "peer Ich dungeonId=\"steingrab-42167a42\" dungeonReturn={\"x\":1,\"y\":2,\"z\":3} position={\"x\":2,\"y\":0,\"z\":2} worldId=\"dungeon:steingrab-42167a42\" char=0:0",
+  "warn 109:e52b12a459d20149:[WoV] Peer \"Ich\": Welt \"dungeon:steingrab-42167a",
+  "> dungeon leave (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon verlassen\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "log 49:098e9327c872989f:[Dungeon] Instance 'cave-2a' destroyed (686 ZDOs",
+  "> dungeon reset cave-2a (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Instanz cave-2a zurückgesetzt\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon delete steingrab-42167a42 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon steingrab-42167a42 gelöscht\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=10593:7c9689121142b9eb i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/forestcrypt-2b.json=5225:c08ba77ed9385f43 i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon delete forestcrypt-2b (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon forestcrypt-2b gelöscht\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=10593:7c9689121142b9eb i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon entrances (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@(192,192) → cave-2a [fest]\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=10593:7c9689121142b9eb i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a (DG_Cave, generated, 35 Räume) | sunkencrypt-2c (DG_SunkenCrypt, generated, 10 Räume) | steingrab-7 (2.0, steingrab, erzeugt, Seeds 7/<zahl>/879019654, Prüfsumme caf13fad) | k1d-zwei (2.0, steingrab, erzeugt, Seeds 8/851520757/<zahl>, Prüfsumme fc1cbe79) | k1d-drei (2.0, steingrab, erzeugt, Seeds 9/<zahl>/951336992, Prüfsumme a4de7f93)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1d/cave-2a.json=10593:7c9689121142b9eb i1-form-k1d/entrances.json=209:195c1a2e1f527c24 i1-form-k1d/k1d-drei.json=252:5abd5821168fe294 i1-form-k1d/k1d-zwei.json=254:078bc6d7e637ccb4 i1-form-k1d/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1d/sunkencrypt-2c.json=2778:15dc55ce5a83f4d7",
+  "  resolveDungeonBase on the instance [\"DG_Cave\",\"DG_ForestCrypt\",null,null]",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a (DG_Cave, generated, 35 Räume) | sunkencrypt-2c (DG_SunkenCrypt, generated, 10 Räume) | steingrab-7 (2.0, steingrab, erzeugt, Seeds 7/<zahl>/879019654, Prüfsumme caf13fad) | k1d-zwei (2.0, steingrab, erzeugt, Seeds 8/851520757/<zahl>, Prüfsumme fc1cbe79) | k1d-drei (2.0, steingrab, erzeugt, Seeds 9/<zahl>/951336992, Prüfsumme a4de7f93)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"ersatz (DG_Cave, generated, 1 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"ersatz (DG_Cave, generated, 1 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0"
+ ]
+};
+
+// ── [2i] Behaviour of step 1, package D, after the attack (N1): spellings, boundaries, values with '=', precedence, empty ids, dungeons replaced after its first use ──
+
+/** The command lines of N1 that both sequences run; `<1>` is a 1.0 document, `<2>` a 2.0 document of the sequence. */
+const N1_D_STEINKIT = ['RESET', 'WAND=stein_moos', 'MOOS=2', 'ROOM=0 moos=1', 'kachel=2=3', 'wand=stein_moos=x', 'wand=foo bogus', 'bogus wand=foo'];
+const N1_D_LICHT = ['3.0001', '3.5', '0.95', '1.05'];
+/** Seeds at and beyond 2^31: `| 0` wraps them, a truncation would not. */
+const N1_D_SEEDS = ['2147483648', '4294967301'];
+/** Arguments of a call as text: objects of a class (a live instance with its ZDO space) by their class name, bigints with `n`. */
+const argText = (x: unknown): string => JSON.stringify(x, (schl, v: unknown) => (typeof v === 'bigint' ? `${v}n` : schl !== '' && v !== null && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) !== Object.prototype ? `<${(v as object).constructor?.name ?? 'object'}>` : v));
+/** The same sequence on a stand-in: ids in another spelling (`D1`), keywords of steinkit in capitals, boundaries of licht and of the seeds, an entrance at x.6, an instance without players, empty ids straight into the handler, `dungeons` replaced after its first use. */
+function messeDungeonAttrappeN1(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  try {
+    mitZufall(41, () => {
+      // dc has a live instance without players; the entrances lie at x.6 and x.5 (toFixed rounds them up, floor would not)
+      const { k, ziel, reg, docs1, zustand, mach } = dungeonAttrappe(a, {
+        getInstance: (id) => (id === 'd1' ? { players: new Set([1, 2]) } : id === 'dc' ? { players: new Set() } : undefined),
+        listEntrances: () => [{ zoneKey: '3,3', feature: 'Vault1', pos: { x: 192.6, y: 10, z: 0.5 }, dungeonId: 'd1', regenerateOnEnter: false }, { zoneKey: '4,4', feature: 'Cave2', pos: { x: -0.6, y: 0, z: 255.5 }, dungeonId: 'e2', regenerateOnEnter: true }],
+      });
+      zustand.liste = true; zustand.eingaenge = true;
+      versuche(a, () => F['registerDungeonCommand']!(k));
+      const ich = (o: Record<string, unknown> = {}): Record<string, unknown> => peerD(a, 'Ich', o);
+      const nah = (): Record<string, unknown> => peerD(a, 'Ich', { position: { x: 999, y: 0, z: 0 } });
+      const docs = (): void => { a.notizen.push(`  docs ${JSON.stringify(docs1)}`); };
+      const ex = (zeile: string, p: Record<string, unknown> = ich()): void => befehlD(a, reg, zeile, p);
+      // an instance without players in the list, the entrances at x.6
+      for (const z of ['dungeon list', 'dungeon entrances']) ex(z);
+      // D-1: every id in another spelling than the document's (`D1`), and a wished id of create2 in capitals
+      for (const z of ['dungeon entrance-mode D1 regen', 'dungeon regen D1 5', 'dungeon steinkit D1 reset', 'dungeon licht D1 0.5', 'dungeon reset D1', 'dungeon delete D1', 'dungeon create2 steingrab 5 MEINID', 'dungeon create2 steingrab 5 Mein-Id 0.5']) ex(z);
+      ex('dungeon assign D1', nah());
+      ex('dungeon assign E2', nah());
+      // D-2, D-6, D-7: keywords of steinkit in capitals, values with a second '=', an unknown texture together with an unknown key
+      for (const z of N1_D_STEINKIT) { ex(`dungeon steinkit d1 ${z}`); docs(); }
+      // D-3: just above the upper limit of licht, and next to 1 on both sides
+      for (const z of N1_D_LICHT) { ex(`dungeon licht d1 ${z}`); docs(); }
+      // D-4: seeds at and beyond 2^31 for create, create2 and regen
+      for (const s of N1_D_SEEDS) for (const z of [`dungeon create cave ${s}`, `dungeon create2 steingrab ${s}`, `dungeon regen d1 ${s}`]) ex(z);
+      // D-11: an empty id straight into the handler (the registry never produces one): no call into dungeons
+      const h = (reg as unknown as { handlers: Map<string, Handler> }).handlers.get('dungeon');
+      for (const args of [['regen', ''], ['regen', '', '5'], ['steinkit', '', 'reset'], ['steinkit', '', 'moos=1'], ['licht', '', '0.5'], ['licht', ''], ['reset', ''], ['delete', ''], ['entrance-mode', '', 'regen']]) {
+        try { a.notizen.push(`> direct ${JSON.stringify(args)} = ${JSON.stringify(h?.(ich(), [...args]))}`); } catch (e) { a.ausnahmen.push((e as Error).name); a.notizen.push(`> direct ${JSON.stringify(args)} throws ${(e as Error).name}`); }
+      }
+      // D-9: dungeons used once in every branch, THEN replaced; every branch again: each call must reach the replacement (dungeonsNeu)
+      const zweige = ['dungeon delete d1', 'dungeon steinkit d1 moos=1', 'dungeon licht d1 0.5', 'dungeon entrances', 'dungeon entrance-mode d1 fixed', 'dungeon regen d1 7', 'dungeon create2 steingrab 7 n1-id', 'dungeon create cave 7', 'dungeon reset d1', 'dungeon list'];
+      for (const z of zweige) ex(z);
+      ex('dungeon assign d1', nah());
+      ex('dungeon enter', nah());
+      ziel['dungeons'] = mach('dungeonsNeu');
+      for (const z of zweige) ex(z);
+      ex('dungeon assign d1', nah());
+      ex('dungeon enter', nah());
+      docs();
+      // D-10: names that differ from a kit only by an accent or a special letter form
+      for (const x of ['cavé', 'ſunkencrypt', 'CAVÉ', 'cavé', 'forestcrypt ', 'ForestCrypt​']) {
+        try { a.notizen.push(`resolveDungeonBase ${JSON.stringify(x)} = ${JSON.stringify(F['resolveDungeonBase']!(k, x))}`); } catch (e) { a.ausnahmen.push((e as Error).name); a.notizen.push(`resolveDungeonBase ${JSON.stringify(x)} throws ${(e as Error).name}`); }
+      }
+      ex('dungeon create cavé 3');
+    });
+  } finally {
+    ruecksetzen();
+  }
+  return a;
+}
+
+/** N1 on a real instance: the same lines with real documents, two real entrances (one at x.6), an instance left without players, and the real manager replaced by a recording wrapper after its first use. */
+function messeDungeonEchtN1(): Aufzeichnung {
+  const a = neueAufzeichnung();
+  const ruecksetzen = konsole(a);
+  const tmp = mkdtempSync(join(tmpdir(), 'i1-form-k-'));
+  try {
+    mitZufall(43, () => {
+      mkdirSync(join(tmp, 'generiert'), { recursive: true });
+      const server = createWovServer({
+        port: 0, worldFeatures: false, worldName: 'i1-form-k1dn1', everyoneAdmin: true,
+        worldsDir: join(tmp, 'worlds'), kontenDir: join(tmp, 'konten'), forumDir: join(tmp, 'forum'), generiertDir: join(tmp, 'generiert'),
+      } as never) as unknown as Record<string, unknown>;
+      const haupt = { id: HAUPTWELT_ID, zdos: new ZDOManager(1n), heightmaps: { listTerrainComps: (): unknown[] => { zaehle(a, 'listTerrainComps'); return []; } } };
+      (server['welten'] as Map<string, unknown>).set(HAUPTWELT_ID, haupt);
+      server['hauptwelt'] = haupt;
+      server['getGroundHeight'] = (x: number, z: number): number => { zaehle(a, 'getGroundHeight'); return x * 0.5 + z * 0.25 + 0.0625; };
+      const reg = server['adminCommands'] as AdminCommandRegistry;
+      const echt = server['dungeons'] as Record<string, (...x: unknown[]) => unknown>;
+      const wurzel = (server['dungeonsWurzel'] as () => string).call(server);
+      const platte = (): void => {
+        const dateien = readdirSync(wurzel, { recursive: true }).map(String).filter((f) => f.endsWith('.json')).sort();
+        a.notizen.push(`  disk ${dateien.map((f) => `${f}=${kennung(Buffer.from(normD(readFileSync(join(wurzel, f), 'utf8'), tmp)))}`).join(' ')}`);
+      };
+      const ich = peerD(a, 'Ich', { userId: 21 });
+      const ex = (zeile: string, p: Record<string, unknown> = ich): void => befehlD(a, reg, zeile, p, tmp);
+      for (const z of ['dungeon create cave 42', 'dungeon create forestcrypt 43', 'dungeon create2 steingrab 7', 'dungeon create2 steingrab 8 K1D-GROSS 0.5']) ex(z);
+      platte();
+      const ids = (echt['listDocuments']!.call(echt) as { id: string }[]).map((d) => d.id);
+      const d1 = ids[0] ?? 'fehlt';
+      const dB = ids[1] ?? 'fehlt';
+      const d2 = ((echt['listDokumente2']!.call(echt) as { id: string }[])[0]?.id) ?? 'fehlt';
+      const D1 = d1.toUpperCase();
+      a.notizen.push(`  ids ${d1} ${dB} ${d2}`);
+      for (const [f, z, pos] of [['Vault1', '3,3', { x: 192.6, y: 10, z: 192.5 }], ['Vault2', '5,5', { x: 320.4, y: 10, z: 319.6 }]] as const) a.notizen.push(`  entrance ${JSON.stringify(echt['registerEntrance']!.call(echt, f, getStableHash('DG_StoneVault'), z, { ...pos }, 1000))}`);
+      const nah = peerD(a, 'Nah', { userId: 22, position: { x: 190, y: 10, z: 195 } });
+      ex('dungeon entrances');
+      // D-1: ids in capitals
+      for (const z of [`dungeon assign ${D1}`, `dungeon assign ${d1}`]) ex(z, nah);
+      for (const z of [`dungeon entrance-mode ${D1} regen`, `dungeon steinkit ${D1} reset`, `dungeon licht ${D1} 0.5`, `dungeon regen ${D1} 5`, `dungeon reset ${D1}`, `dungeon delete ${D1}`, `dungeon enter ${d2.toUpperCase()}`]) { ex(z); platte(); }
+      // D-2, D-6, D-7, D-3
+      for (const z of N1_D_STEINKIT) { ex(`dungeon steinkit ${d1} ${z}`); platte(); }
+      for (const z of N1_D_LICHT) { ex(`dungeon licht ${d1} ${z}`); platte(); }
+      // D-4: seeds at and beyond 2^31
+      for (const s of N1_D_SEEDS) for (const z of [`dungeon create cave ${s}`, `dungeon create2 steingrab ${s}`, `dungeon regen ${dB} ${s}`]) { ex(z); platte(); }
+      // D-8: enter and leave: the instance stays, without players, and list shows it
+      for (const z of [`dungeon enter ${d1}`, 'dungeon leave', 'dungeon list']) ex(z);
+      // D-11: empty ids straight into the handler
+      const h = (reg as unknown as { handlers: Map<string, Handler> }).handlers.get('dungeon');
+      for (const args of [['regen', ''], ['steinkit', '', 'reset'], ['licht', '', '0.5'], ['reset', ''], ['delete', '']]) {
+        try { a.notizen.push(`> direct ${JSON.stringify(args)} = ${normD(JSON.stringify(h?.(ich, [...args])), tmp)}`); } catch (e) { a.ausnahmen.push((e as Error).name); a.notizen.push(`> direct ${JSON.stringify(args)} throws ${(e as Error).name}`); }
+      }
+      // D-9: the real manager behind a recording wrapper after its first use in every branch; every branch again must go through the wrapper
+      const zweige = [`dungeon steinkit ${d1} moos=1`, `dungeon licht ${d1} 0.5`, 'dungeon entrances', `dungeon entrance-mode ${d1} fixed`, `dungeon regen ${d1} 7`, 'dungeon create2 steingrab 7 k1dn1-id', 'dungeon list', `dungeon reset ${d1}`];
+      for (const z of ['dungeon enter', 'dungeon leave']) ex(z, nah);
+      server['dungeons'] = new Proxy(echt, {
+        get(t, p, r) {
+          const v = Reflect.get(t, p, r) as unknown;
+          if (typeof v !== 'function' || typeof p !== 'string') return v;
+          return (...x: unknown[]): unknown => { zaehle(a, `dungeonsNeu.${p}`); a.notizen.push(`  call dungeonsNeu.${p} ${normD(argText(x), tmp)}`); return (v as (...y: unknown[]) => unknown).apply(t, x); };
+        },
+      });
+      for (const z of zweige) ex(z);
+      for (const z of [`dungeon assign ${d1}`, 'dungeon enter', 'dungeon leave']) ex(z, nah);
+      ex(`dungeon delete ${d2}`);
+      platte();
+      (server['kontenDb'] as { close?: () => void } | undefined)?.close?.();
+    });
+  } finally {
+    ruecksetzen();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+  return a;
+}
+
+/** Measured on the stand before the move (`--messen-basis` on c19d4fe8), package D after the attack (N1). */
+const SOLL_DUNGEON_ATTRAPPE_N1: Aufzeichnung = {
+ "paket": [],
+ "aufrufe": {
+  "k.adminCommands": 1,
+  "k.dungeons": 99,
+  "dungeons.listDocuments": 2,
+  "dungeons.listDokumente2": 2,
+  "dungeons.getInstance": 8,
+  "dungeons.listEntrances": 2,
+  "dungeons.eingangZuDungeon": 2,
+  "dungeons.getDocument": 20,
+  "dungeons.destroyInstance": 11,
+  "dungeons.deleteDocument": 2,
+  "dungeons.erzeugeDungeon2": 5,
+  "dungeons.hatDokument": 3,
+  "dungeons.saveDocument": 6,
+  "k.resolveDungeonBase": 5,
+  "resolveDungeonBase": 5,
+  "dungeons.createGenerated": 6,
+  "dungeons.setzeEingangsModus": 1,
+  "dungeons.findEntranceNear": 2,
+  "dungeons.assignEntrance": 1,
+  "k.enterDungeon": 2,
+  "enterDungeon": 2,
+  "dungeonsNeu.deleteDocument": 1,
+  "dungeonsNeu.getDocument": 3,
+  "dungeonsNeu.saveDocument": 2,
+  "dungeonsNeu.destroyInstance": 4,
+  "dungeonsNeu.listEntrances": 1,
+  "dungeonsNeu.eingangZuDungeon": 1,
+  "dungeonsNeu.setzeEingangsModus": 1,
+  "dungeonsNeu.createGenerated": 2,
+  "dungeonsNeu.erzeugeDungeon2": 1,
+  "dungeonsNeu.listDocuments": 1,
+  "dungeonsNeu.listDokumente2": 1,
+  "dungeonsNeu.getInstance": 4,
+  "dungeonsNeu.hatDokument": 1,
+  "dungeonsNeu.findEntranceNear": 2,
+  "dungeonsNeu.assignEntrance": 1
+ },
+ "konsole": {
+  "log": 0,
+  "warn": 0
+ },
+ "zustand": [],
+ "ausnahmen": [],
+ "notizen": [
+  "  register dungeon",
+  "  call dungeons.listDocuments []",
+  "  call dungeons.listDokumente2 []",
+  "  call dungeons.getInstance [\"d1\"]",
+  "  call dungeons.getInstance [\"dc\"]",
+  "  call dungeons.getInstance [\"dfail\"]",
+  "  call dungeons.getInstance [\"e2\"]",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 (DG_ForestCrypt, generated, 3 Räume) [aktiv, 2 Spieler] | dc (DG_Cave, custom, 2 Räume) [aktiv, 0 Spieler] | dfail (DG_SunkenCrypt, generated, 1 Räume) | e2 (2.0, steingrab, erzeugt, Seeds 1/2/3, Prüfsumme P2)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.listEntrances []",
+  "> dungeon entrances (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@(193,1) → d1 [fest] | Cave2@(-1,256) → e2 [regen]\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.eingangZuDungeon [\"D1\"]",
+  "> dungeon entrance-mode D1 regen (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Kein Eingang zeigt auf: D1\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"D1\"]",
+  "> dungeon regen D1 5 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: D1\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"D1\"]",
+  "> dungeon steinkit D1 reset (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: D1\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"D1\"]",
+  "> dungeon licht D1 0.5 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: D1\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.destroyInstance [\"D1\"]",
+  "> dungeon reset D1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Keine aktive Instanz: D1\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.deleteDocument [\"D1\"]",
+  "> dungeon delete D1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: D1\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":5,\"material\":784992901,\"deko\":1139810000},\"MEINID\",null]",
+  "> dungeon create2 steingrab 5 MEINID (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: MEINID (Thema steingrab, Seed 5, Prüfsumme PX, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":5,\"material\":784992901,\"deko\":1139810000},\"Mein-Id\",0.5]",
+  "> dungeon create2 steingrab 5 Mein-Id 0.5 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: Mein-Id (Thema steingrab, Seed 5, Prüfsumme PX, Grundhelligkeit 0.50 je Dokument)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.hatDokument [\"D1\"]",
+  "> dungeon assign D1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: D1\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":999,\"y\":0,\"z\":0} worldId=\"haupt\" char=0:0",
+  "  call dungeons.hatDokument [\"E2\"]",
+  "> dungeon assign E2 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: E2\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":999,\"y\":0,\"z\":0} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 RESET (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe: RESET — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 WAND=stein_moos (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe: WAND=stein_moos — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 MOOS=2 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe: MOOS=2 — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 ROOM=0 moos=1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe: ROOM=0 — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"kachelM\":2}}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 kachel=2=3 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Steinmaterial gesetzt — {\\\"kachelM\\\":2}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"kachelM\":2}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"kachelM\":2}}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 wand=stein_moos=x (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Steinmaterial gesetzt — {\\\"wandTextur\\\":\\\"/assets/models/stein_moos.png\\\",\\\"kachelM\\\":2}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"kachelM\":2}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 wand=foo bogus (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Textur \\\"foo\\\" — erlaubt: stein_clean, stein_decke, stein_fels, stein_moos, stein_frost, stein_tripo_rock, stein_wet\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"kachelM\":2}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon steinkit d1 bogus wand=foo (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Textur \\\"foo\\\" — erlaubt: stein_clean, stein_decke, stein_fels, stein_moos, stein_frost, stein_tripo_rock, stein_wet\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"kachelM\":2}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon licht d1 3.0001 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Grundbeleuchtung muss zwischen 0 und 3 liegen — 3.0001 liegt ausserhalb\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"kachelM\":2}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "> dungeon licht d1 3.5 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Grundbeleuchtung muss zwischen 0 und 3 liegen — 3.5 liegt ausserhalb\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"kachelM\":2}},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"kachelM\":2},\"ambientLicht\":0.95}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon licht d1 0.95 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Grundbeleuchtung 0.95 gesetzt (dunkler als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"kachelM\":2},\"ambientLicht\":0.95},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"kachelM\":2},\"ambientLicht\":1.05}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon licht d1 1.05 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Grundbeleuchtung 1.05 gesetzt (heller als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"kachelM\":2},\"ambientLicht\":1.05},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "  call resolveDungeonBase \"cave\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_Cave\",-2147483648,null,null]",
+  "> dungeon create cave 2147483648 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu--<zahl> (4 Räume, Seed -<zahl>, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":2147483648,\"material\":3903345492,\"deko\":2340155043},null,null]",
+  "> dungeon create2 steingrab 2147483648 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: steingrab-neu (Thema steingrab, Seed -<zahl>, Prüfsumme PX, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.createGenerated [\"DG_ForestCrypt\",-2147483648,\"d1\"]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon regen d1 2147483648 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 neu generiert (Seed -<zahl>, 4 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"cave\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_Cave\",5,null,null]",
+  "> dungeon create cave 4294967301 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-5 (4 Räume, Seed 5, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":5,\"material\":784992901,\"deko\":1139810000},null,null]",
+  "> dungeon create2 steingrab 4294967301 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: steingrab-neu (Thema steingrab, Seed 5, Prüfsumme PX, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.createGenerated [\"DG_ForestCrypt\",5,\"d1\"]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon regen d1 4294967301 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 neu generiert (Seed 5, 4 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> direct [\"regen\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: \"}",
+  "> direct [\"regen\",\"\",\"5\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: \"}",
+  "> direct [\"steinkit\",\"\",\"reset\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: \"}",
+  "> direct [\"steinkit\",\"\",\"moos=1\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: \"}",
+  "> direct [\"licht\",\"\",\"0.5\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: \"}",
+  "> direct [\"licht\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: \"}",
+  "> direct [\"reset\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Keine aktive Instanz: \"}",
+  "> direct [\"delete\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: \"}",
+  "> direct [\"entrance-mode\",\"\",\"regen\"] = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon entrance-mode <dungeonId> <fixed|regen>\"}",
+  "  call dungeons.deleteDocument [\"d1\"]",
+  "> dungeon delete d1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon d1 gelöscht\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"verwitterung\":{\"moos\":1},\"kachelM\":2},\"ambientLicht\":1.05}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 moos=1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Steinmaterial gesetzt — {\\\"wandTextur\\\":\\\"/assets/models/stein_moos.png\\\",\\\"verwitterung\\\":{\\\"moos\\\":1},\\\"kachelM\\\":2}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"verwitterung\":{\"moos\":1},\"kachelM\":2},\"ambientLicht\":0.5}]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon licht d1 0.5 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Grundbeleuchtung 0.50 gesetzt (dunkler als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.listEntrances []",
+  "> dungeon entrances (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@(193,1) → d1 [fest] | Cave2@(-1,256) → e2 [regen]\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.eingangZuDungeon [\"d1\"]",
+  "  call dungeons.setzeEingangsModus [\"d1\",\"fixed\"]",
+  "> dungeon entrance-mode d1 fixed (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@3,3 → d1: fest\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.getDocument [\"d1\"]",
+  "  call dungeons.createGenerated [\"DG_ForestCrypt\",7,\"d1\"]",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon regen d1 7 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 neu generiert (Seed 7, 4 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.erzeugeDungeon2 [\"steingrab\",{\"architektur\":7,\"material\":2520902017,\"deko\":879019654},\"n1-id\",null]",
+  "> dungeon create2 steingrab 7 n1-id (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: n1-id (Thema steingrab, Seed 7, Prüfsumme PX, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"cave\" receiver=context",
+  "  call dungeons.createGenerated [\"DG_Cave\",7,null,null]",
+  "> dungeon create cave 7 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-7 (4 Räume, Seed 7, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.destroyInstance [\"d1\"]",
+  "> dungeon reset d1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Instanz d1 zurückgesetzt\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.listDocuments []",
+  "  call dungeons.listDokumente2 []",
+  "  call dungeons.getInstance [\"d1\"]",
+  "  call dungeons.getInstance [\"dc\"]",
+  "  call dungeons.getInstance [\"dfail\"]",
+  "  call dungeons.getInstance [\"e2\"]",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 (DG_ForestCrypt, generated, 3 Räume) [aktiv, 2 Spieler] | dc (DG_Cave, custom, 2 Räume) [aktiv, 0 Spieler] | dfail (DG_SunkenCrypt, generated, 1 Räume) | e2 (2.0, steingrab, erzeugt, Seeds 1/2/3, Prüfsumme P2)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeons.hatDokument [\"d1\"]",
+  "  call dungeons.findEntranceNear [{\"x\":999,\"y\":0,\"z\":0},16]",
+  "  call dungeons.assignEntrance [\"3,3\",\"d1\"]",
+  "> dungeon assign d1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Eingang Vault1@3,3 → d1\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":999,\"y\":0,\"z\":0} worldId=\"haupt\" char=0:0",
+  "  call dungeons.findEntranceNear [{\"x\":999,\"y\":0,\"z\":0},16]",
+  "  call enterDungeon Ich \"nah\" receiver=context",
+  "> dungeon enter (Ich) = {\"ok\":true,\"active\":true,\"message\":\"enter:nah\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":999,\"y\":0,\"z\":0} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.deleteDocument [\"d1\"]",
+  "> dungeon delete d1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon d1 gelöscht\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.getDocument [\"d1\"]",
+  "  call dungeonsNeu.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"verwitterung\":{\"moos\":1},\"kachelM\":2},\"ambientLicht\":0.5}]",
+  "  call dungeonsNeu.destroyInstance [\"d1\"]",
+  "> dungeon steinkit d1 moos=1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Steinmaterial gesetzt — {\\\"wandTextur\\\":\\\"/assets/models/stein_moos.png\\\",\\\"verwitterung\\\":{\\\"moos\\\":1},\\\"kachelM\\\":2}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.getDocument [\"d1\"]",
+  "  call dungeonsNeu.saveDocument [{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"verwitterung\":{\"moos\":1},\"kachelM\":2},\"ambientLicht\":0.5}]",
+  "  call dungeonsNeu.destroyInstance [\"d1\"]",
+  "> dungeon licht d1 0.5 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1: Grundbeleuchtung 0.50 gesetzt (dunkler als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.listEntrances []",
+  "> dungeon entrances (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@(193,1) → d1 [fest] | Cave2@(-1,256) → e2 [regen]\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.eingangZuDungeon [\"d1\"]",
+  "  call dungeonsNeu.setzeEingangsModus [\"d1\",\"fixed\"]",
+  "> dungeon entrance-mode d1 fixed (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@3,3 → d1: fest\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.getDocument [\"d1\"]",
+  "  call dungeonsNeu.createGenerated [\"DG_ForestCrypt\",7,\"d1\"]",
+  "  call dungeonsNeu.destroyInstance [\"d1\"]",
+  "> dungeon regen d1 7 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 neu generiert (Seed 7, 4 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.erzeugeDungeon2 [\"steingrab\",{\"architektur\":7,\"material\":2520902017,\"deko\":879019654},\"n1-id\",null]",
+  "> dungeon create2 steingrab 7 n1-id (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: n1-id (Thema steingrab, Seed 7, Prüfsumme PX, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call resolveDungeonBase \"cave\" receiver=context",
+  "  call dungeonsNeu.createGenerated [\"DG_Cave\",7,null,null]",
+  "> dungeon create cave 7 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: neu-7 (4 Räume, Seed 7, Zone 48)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.destroyInstance [\"d1\"]",
+  "> dungeon reset d1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Instanz d1 zurückgesetzt\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.listDocuments []",
+  "  call dungeonsNeu.listDokumente2 []",
+  "  call dungeonsNeu.getInstance [\"d1\"]",
+  "  call dungeonsNeu.getInstance [\"dc\"]",
+  "  call dungeonsNeu.getInstance [\"dfail\"]",
+  "  call dungeonsNeu.getInstance [\"e2\"]",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"d1 (DG_ForestCrypt, generated, 3 Räume) [aktiv, 2 Spieler] | dc (DG_Cave, custom, 2 Räume) [aktiv, 0 Spieler] | dfail (DG_SunkenCrypt, generated, 1 Räume) | e2 (2.0, steingrab, erzeugt, Seeds 1/2/3, Prüfsumme P2)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.hatDokument [\"d1\"]",
+  "  call dungeonsNeu.findEntranceNear [{\"x\":999,\"y\":0,\"z\":0},16]",
+  "  call dungeonsNeu.assignEntrance [\"3,3\",\"d1\"]",
+  "> dungeon assign d1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Eingang Vault1@3,3 → d1\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":999,\"y\":0,\"z\":0} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.findEntranceNear [{\"x\":999,\"y\":0,\"z\":0},16]",
+  "  call enterDungeon Ich \"nah\" receiver=context",
+  "> dungeon enter (Ich) = {\"ok\":true,\"active\":true,\"message\":\"enter:nah\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":999,\"y\":0,\"z\":0} worldId=\"haupt\" char=0:0",
+  "  docs {\"d1\":{\"id\":\"d1\",\"base\":\"DG_ForestCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1},{\"i\":2}]},\"zoneSize\":64,\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"verwitterung\":{\"moos\":1},\"kachelM\":2},\"ambientLicht\":0.5},\"dc\":{\"id\":\"dc\",\"base\":\"DG_Cave\",\"mode\":\"custom\",\"layout\":{\"rooms\":[{\"i\":0},{\"i\":1}]},\"zoneSize\":32},\"dfail\":{\"id\":\"dfail\",\"base\":\"DG_SunkenCrypt\",\"mode\":\"generated\",\"layout\":{\"rooms\":[{\"i\":0}]},\"zoneSize\":64,\"ambientLicht\":0.25}}",
+  "resolveDungeonBase \"cavé\" = null",
+  "resolveDungeonBase \"ſunkencrypt\" = null",
+  "resolveDungeonBase \"CAVÉ\" = null",
+  "resolveDungeonBase \"cavé\" = null",
+  "resolveDungeonBase \"forestcrypt \" = null",
+  "resolveDungeonBase \"ForestCrypt​\" = null",
+  "  call resolveDungeonBase \"cavé\" receiver=context",
+  "> dungeon create cavé 3 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Aufruf: dungeon create <basis> [seed] [räume] [zone] — Basis z. B. forestcrypt, sunkencrypt, cave; räume/zone leer = Kit-Vorgabe\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0"
+ ]
+};
+const SOLL_DUNGEON_ECHT_N1: Aufzeichnung = {
+ "paket": [
+  "Ich:Teleport:110:f105a95e30481800",
+  "Ich:Teleport:40:41c7ae408d25e74f",
+  "Nah:Teleport:110:f105a95e30481800",
+  "Nah:Teleport:40:953e6e118ba67c99",
+  "Nah:Teleport:52:a5fccccadc0313c6",
+  "Nah:Teleport:40:953e6e118ba67c99"
+ ],
+ "aufrufe": {
+  "weltWechselVorbereiten": 6,
+  "listTerrainComps": 3,
+  "dungeonsNeu.getDocument": 4,
+  "dungeonsNeu.saveDocument": 2,
+  "dungeonsNeu.destroyInstance": 4,
+  "dungeonsNeu.listEntrances": 1,
+  "dungeonsNeu.eingangZuDungeon": 1,
+  "dungeonsNeu.setzeEingangsModus": 1,
+  "dungeonsNeu.createGenerated": 1,
+  "dungeonsNeu.erzeugeDungeon2": 1,
+  "dungeonsNeu.listDocuments": 1,
+  "dungeonsNeu.listDokumente2": 1,
+  "dungeonsNeu.getInstance": 10,
+  "dungeonsNeu.hatDokument": 1,
+  "dungeonsNeu.findEntranceNear": 2,
+  "dungeonsNeu.assignEntrance": 1,
+  "dungeonsNeu.vorBetreten": 1,
+  "dungeonsNeu.getOrCreateInstance": 1,
+  "dungeonsNeu.getDokument2": 1,
+  "dungeonsNeu.getSpawnPoint": 1,
+  "dungeonsNeu.deleteDocument": 1
+ },
+ "konsole": {
+  "log": 9,
+  "warn": 0
+ },
+ "zustand": [],
+ "ausnahmen": [],
+ "notizen": [
+  "log 53:f911fa34cfc45148:[Konto] Spalte konten.avatar_charakter_id nachge",
+  "log 42:0bcdb099a81be718:[Konto] Spalte konten.token_ab nachgezogen",
+  "log 44:1f27737a280d0efa:[Konto] Spalte konten.spieler_ab nachgezogen",
+  "log 45:63bbb1146dd82dc1:[Konto] Spalte konten.profil_text nachgezogen",
+  "> dungeon create cave 42 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: cave-2a (52 Räume, Seed 42, Zone 64)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create forestcrypt 43 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: forestcrypt-2b (36 Räume, Seed 43, Zone 64)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create2 steingrab 7 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: steingrab-7 (Thema steingrab, Seed 7, Prüfsumme caf13fad, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon create2 steingrab 8 K1D-GROSS 0.5 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: k1d-gross (Thema steingrab, Seed 8, Prüfsumme 9438974a, Grundhelligkeit 0.50 je Dokument)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15677:de388d4f316cf700 i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "  ids cave-2a forestcrypt-2b steingrab-7",
+  "log 50:727474c6dbb56d4f:[Dungeon] Entrance 'Vault1' @ 3,3 → stonevault-3",
+  "  entrance {\"zoneKey\":\"3,3\",\"pos\":{\"x\":192.6,\"y\":10,\"z\":192.5},\"feature\":\"Vault1\",\"dungeonId\":\"stonevault-3x3\",\"base\":\"DG_StoneVault\",\"seed\":1000}",
+  "log 50:83b80fbc7d38c4cc:[Dungeon] Entrance 'Vault2' @ 5,5 → stonevault-5",
+  "  entrance {\"zoneKey\":\"5,5\",\"pos\":{\"x\":320.4,\"y\":10,\"z\":319.6},\"feature\":\"Vault2\",\"dungeonId\":\"stonevault-5x5\",\"base\":\"DG_StoneVault\",\"seed\":1000}",
+  "> dungeon entrances (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@(193,193) → stonevault-3x3 [fest] | Vault2@(320,320) → stonevault-5x5 [fest]\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon assign CAVE-2A (Nah) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: CAVE-2A\"}",
+  "peer Nah dungeonId=null dungeonReturn=null position={\"x\":190,\"y\":10,\"z\":195} worldId=\"haupt\" char=0:0",
+  "> dungeon assign cave-2a (Nah) = {\"ok\":true,\"active\":false,\"message\":\"Eingang Vault1@3,3 → cave-2a\"}",
+  "peer Nah dungeonId=null dungeonReturn=null position={\"x\":190,\"y\":10,\"z\":195} worldId=\"haupt\" char=0:0",
+  "> dungeon entrance-mode CAVE-2A regen (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Kein Eingang zeigt auf: CAVE-2A\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15677:de388d4f316cf700 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon steinkit CAVE-2A reset (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: CAVE-2A\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15677:de388d4f316cf700 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon licht CAVE-2A 0.5 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: CAVE-2A\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15677:de388d4f316cf700 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon regen CAVE-2A 5 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: CAVE-2A\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15677:de388d4f316cf700 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon reset CAVE-2A (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Keine aktive Instanz: CAVE-2A\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15677:de388d4f316cf700 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon delete CAVE-2A (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: CAVE-2A\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15677:de388d4f316cf700 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon enter STEINGRAB-7 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: STEINGRAB-7\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15677:de388d4f316cf700 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon steinkit cave-2a RESET (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe: RESET — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15677:de388d4f316cf700 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon steinkit cave-2a WAND=stein_moos (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe: WAND=stein_moos — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15677:de388d4f316cf700 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon steinkit cave-2a MOOS=2 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe: MOOS=2 — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15677:de388d4f316cf700 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon steinkit cave-2a ROOM=0 moos=1 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Angabe: ROOM=0 — Aufruf: dungeon steinkit <id> [room=<i>] wand=<name> decke=<name> boden=<name> moos=<0..4> frost=<0..4> nass=<0..4> kachel=<m> deckenkachel=<m> | [room=<i>] reset\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15677:de388d4f316cf700 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon steinkit cave-2a kachel=2=3 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a: Steinmaterial gesetzt — {\\\"kachelM\\\":2}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15711:d1a18a87fe6b961a i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon steinkit cave-2a wand=stein_moos=x (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a: Steinmaterial gesetzt — {\\\"wandTextur\\\":\\\"/assets/models/stein_moos.png\\\",\\\"kachelM\\\":2}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15760:729acecbf4b75890 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon steinkit cave-2a wand=foo bogus (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Textur \\\"foo\\\" — erlaubt: stein_clean, stein_decke, stein_fels, stein_moos, stein_frost, stein_tripo_rock, stein_wet\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15760:729acecbf4b75890 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon steinkit cave-2a bogus wand=foo (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Unbekannte Textur \\\"foo\\\" — erlaubt: stein_clean, stein_decke, stein_fels, stein_moos, stein_frost, stein_tripo_rock, stein_wet\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15760:729acecbf4b75890 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon licht cave-2a 3.0001 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Grundbeleuchtung muss zwischen 0 und 3 liegen — 3.0001 liegt ausserhalb\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15760:729acecbf4b75890 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon licht cave-2a 3.5 (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Grundbeleuchtung muss zwischen 0 und 3 liegen — 3.5 liegt ausserhalb\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15760:729acecbf4b75890 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon licht cave-2a 0.95 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a: Grundbeleuchtung 0.95 gesetzt (dunkler als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15783:e55dbbb8093be01c i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon licht cave-2a 1.05 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a: Grundbeleuchtung 1.05 gesetzt (heller als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15783:ff69fd107648b6ec i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon create cave 2147483648 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: cave-80000000 (27 Räume, Seed -<zahl>, Zone 64)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15783:ff69fd107648b6ec i1-form-k1dn1/cave-80000000.json=7547:b5a1658d33878cc2 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31",
+  "> dungeon create2 steingrab 2147483648 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: steingrab-80000000 (Thema steingrab, Seed -<zahl>, Prüfsumme 9432207e, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15783:ff69fd107648b6ec i1-form-k1dn1/cave-80000000.json=7547:b5a1658d33878cc2 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=10571:f49f9561a5364c91 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1dn1/steingrab-80000000.json=251:0b02fea00894e874",
+  "> dungeon regen forestcrypt-2b 2147483648 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"forestcrypt-2b neu generiert (Seed -<zahl>, 38 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15783:ff69fd107648b6ec i1-form-k1dn1/cave-80000000.json=7547:b5a1658d33878cc2 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=11619:ad387c31095063b7 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1dn1/steingrab-80000000.json=251:0b02fea00894e874",
+  "> dungeon create cave 4294967301 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon erzeugt: cave-5 (46 Räume, Seed 5, Zone 64)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15783:ff69fd107648b6ec i1-form-k1dn1/cave-5.json=13145:57c9a837e73021e7 i1-form-k1dn1/cave-80000000.json=7547:b5a1658d33878cc2 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=11619:ad387c31095063b7 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1dn1/steingrab-80000000.json=251:0b02fea00894e874",
+  "> dungeon create2 steingrab 4294967301 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: steingrab-5 (Thema steingrab, Seed 5, Prüfsumme 6e06097a, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15783:ff69fd107648b6ec i1-form-k1dn1/cave-5.json=13145:57c9a837e73021e7 i1-form-k1dn1/cave-80000000.json=7547:b5a1658d33878cc2 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=11619:ad387c31095063b7 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-5.json=235:afe0978cff0847a7 i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1dn1/steingrab-80000000.json=251:0b02fea00894e874",
+  "> dungeon regen forestcrypt-2b 4294967301 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"forestcrypt-2b neu generiert (Seed 5, 46 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=15783:ff69fd107648b6ec i1-form-k1dn1/cave-5.json=13145:57c9a837e73021e7 i1-form-k1dn1/cave-80000000.json=7547:b5a1658d33878cc2 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=14181:e510664b77b82ad7 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/steingrab-5.json=235:afe0978cff0847a7 i1-form-k1dn1/steingrab-7.json=235:0e61ae1ca55d6d31 i1-form-k1dn1/steingrab-80000000.json=251:0b02fea00894e874",
+  "log 89:d5dd0335bffe73ed:[Dungeon] Instance 'cave-2a' materialized in wor",
+  "> dungeon enter cave-2a (Ich) = {\"ok\":true,\"active\":true,\"message\":\"Dungeon betreten: Cave #2a\"}",
+  "peer Ich dungeonId=\"cave-2a\" dungeonReturn={\"x\":1,\"y\":2,\"z\":3} position={\"x\":2.3841854120595425e-7,\"y\":0.5,\"z\":1.<zahl>} worldId=\"dungeon:cave-2a\" char=0:0",
+  "> dungeon leave (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon verlassen\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a (DG_Cave, generated, 52 Räume) [aktiv, 0 Spieler] | forestcrypt-2b (DG_ForestCrypt, generated, 46 Räume) | cave-80000000 (DG_Cave, generated, 27 Räume) | cave-5 (DG_Cave, generated, 46 Räume) | steingrab-7 (2.0, steingrab, erzeugt, Seeds 7/<zahl>/879019654, Prüfsumme caf13fad) | k1d-gross (2.0, steingrab, erzeugt, Seeds 8/851520757/<zahl>, Prüfsumme 9438974a) | steingrab-80000000 (2.0, steingrab, erzeugt, Seeds <zahl>/<zahl>/<zahl>, Prüfsumme 9432207e) | steingrab-5 (2.0, steingrab, erzeugt, Seeds 5/784992901/<zahl>, Prüfsumme 6e06097a)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "> direct [\"regen\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: \"}",
+  "> direct [\"steinkit\",\"\",\"reset\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: \"}",
+  "> direct [\"licht\",\"\",\"0.5\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter 1.0-Dungeon: \"}",
+  "> direct [\"reset\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Keine aktive Instanz: \"}",
+  "> direct [\"delete\",\"\"] = {\"ok\":false,\"active\":false,\"message\":\"Unbekannter Dungeon: \"}",
+  "> dungeon enter (Nah) = {\"ok\":true,\"active\":true,\"message\":\"Dungeon betreten: Cave #2a\"}",
+  "peer Nah dungeonId=\"cave-2a\" dungeonReturn={\"x\":190,\"y\":10,\"z\":195} position={\"x\":2.3841854120595425e-7,\"y\":0.5,\"z\":1.<zahl>} worldId=\"dungeon:cave-2a\" char=0:0",
+  "> dungeon leave (Nah) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon verlassen\"}",
+  "peer Nah dungeonId=null dungeonReturn=null position={\"x\":190,\"y\":10,\"z\":195} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.getDocument [\"cave-2a\"]",
+  "  call dungeonsNeu.saveDocument [{\"version\":6,\"id\":\"cave-2a\",\"name\":\"Cave #2a\",\"base\":\"DG_Cave\",\"mode\":\"generated\",\"seed\":42,\"zoneSize\":64,\"layout\":{\"rooms\":[{\"room\":\"cave_new_entrance02\",\"pos\":{\"x\":0.<zahl>,\"y\":0,\"z\":12.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":1,\"seed\":25608},{\"room\":\"cave_new_sloperoom04\",\"pos\":{\"x\":-18.<zahl>,\"y\":-8.75,\"z\":6.<zahl>},\"rot\":{\"x\":0,\"y\":-1.1920928955078125e-7,\"z\":0,\"w\":-1.<zahl>},\"placeOrder\":2,\"seed\":-137570},{\"room\":\"cave_new_sloperoom04\",\"pos\":{\"x\":18.<zahl>,\"y\":9,\"z\":5.<zahl>},\"rot\":{\"x\":0,\"y\":-1.<zahl>,\"z\":0,\"w\":1.1920928955078125e-7},\"placeOrder\":2,\"seed\":170231},{\"room\":\"cave_new_crossroads01_ice\",\"pos\":{\"x\":-12.<zahl>,\"y\":-17.75,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":3,\"seed\":-243709},{\"room\":\"cave_new_crossroads01_hole_ice\",\"pos\":{\"x\":-24.<zahl>,\"y\":-8.75,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":4,\"seed\":-212278},{\"room\":\"cave_shrine_start02_ice\",\"pos\":{\"x\":4.<zahl>,\"y\":-16.75,\"z\":-18.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":4,\"seed\":-168320},{\"room\":\"cave_shrine_start02\",\"pos\":{\"x\":-7.<zahl>,\"y\":-1.75,\"z\":-18.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":5,\"seed\":-77496},{\"room\":\"cave_shrine_shrine01\",\"pos\":{\"x\":8.<zahl>,\"y\":-4.75,\"z\":-18.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":6,\"seed\":-40992},{\"room\":\"cave_shrine_corridor01\",\"pos\":{\"x\":21.<zahl>,\"y\":-16,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":5,\"seed\":-93579},{\"room\":\"cave_shrine_start02_corridor\",\"pos\":{\"x\":5.<zahl>,\"y\":-19.5,\"z\":-6.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":3,\"seed\":-166002},{\"room\":\"cave_new_sloperoom02\",\"pos\":{\"x\":-12.<zahl>,\"y\":26.75,\"z\":-12.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":3,\"seed\":162002},{\"room\":\"cave_shrine_start02\",\"pos\":{\"x\":0.<zahl>,\"y\":16,\"z\":10.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":1.<zahl>},\"placeOrder\":4,\"seed\":168332},{\"room\":\"cave_shrine_corridor04\",\"pos\":{\"x\":12.<zahl>,\"y\":-21,\"z\":5.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-1.<zahl>},\"placeOrder\":4,\"seed\":-131005},{\"room\":\"cave_shrine_corridor06\",\"pos\":{\"x\":-11.<zahl>,\"y\":14.5,\"z\":15.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":1.<zahl>},\"placeOrder\":5,\"seed\":113647},{\"room\":\"cave_shrine_start02\",\"pos\":{\"x\":-24.<zahl>,\"y\":16,\"z\":10.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":1.<zahl>},\"placeOrder\":4,\"seed\":65828},{\"room\":\"cave_shrine_shrine01\",\"pos\":{\"x\":0.<zahl>,\"y\":-22.5,\"z\":6.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":-189310},{\"room\":\"cave_shrine_start02_ice_corridor\",\"pos\":{\"x\":24.<zahl>,\"y\":-21.75,\"z\":-0.<zahl>},\"rot\":{\"x\":0,\"y\":1.<zahl>,\"z\":0,\"w\":-2.086162567138672e-7},\"placeOrder\":4,\"seed\":-90423},{\"room\":\"cave_shrine_shrine03\",\"pos\":{\"x\":16.<zahl>,\"y\":-22.5,\"z\":17.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":5,\"seed\":-97500},{\"room\":\"cave_new_endcap02\",\"pos\":{\"x\":0.<zahl>,\"y\":0,\"z\":24.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":2,\"seed\":51216},{\"room\":\"cave_shrine_endcap_noshrine02\",\"pos\":{\"x\":-30.<zahl>,\"y\":-16.75,\"z\":-5.<zahl>},\"rot\":{\"x\":0,\"y\":-1.7881393432617188e-7,\"z\":0,\"w\":-1.<zahl>},\"placeOrder\":3,\"seed\":-285792},{\"room\":\"cave_new_endcap_painting01\",\"pos\":{\"x\":12.<zahl>,\"y\":0,\"z\":24.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":3,\"seed\":102468},{\"room\":\"cave_new_endcap02_crystal\",\"pos\":{\"x\":30.<zahl>,\"y\":0,\"z\":17.<zahl>},\"rot\":{\"x\":0,\"y\":1.7881393432617188e-7,\"z\":0,\"w\":1.<zahl>},\"placeOrder\":3,\"seed\":164408},{\"room\":\"cave_new_iceendcap02\",\"pos\":{\"x\":-12.<zahl>,\"y\":-17.75,\"z\":-23.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":4,\"seed\":-256513},{\"room\":\"cave_new_iceendcap02_crystal\",\"pos\":{\"x\":-30.<zahl>,\"y\":-17.75,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":-1.<zahl>,\"z\":0,\"w\":3.5762786865234375e-7},\"placeOrder\":5,\"seed\":-320587},{\"room\":\"cave_new_iceendcap02\",\"pos\":{\"x\":-24.<zahl>,\"y\":-17.75,\"z\":-11.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":-282157},{\"room\":\"cave_shrine_endcap_noshrine\",\"pos\":{\"x\":-30.<zahl>,\"y\":1,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":-3.5762786865234375e-7,\"z\":0,\"w\":-1.<zahl>},\"placeOrder\":5,\"seed\":-155221},{\"room\":\"cave_shrine_endcap_noshrine\",\"pos\":{\"x\":-24.<zahl>,\"y\":1,\"z\":-23.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":-142399},{\"room\":\"cave_shrine_endcap01\",\"pos\":{\"x\":8.<zahl>,\"y\":-16,\"z\":-11.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":-136298},{\"room\":\"cave_shrine_endcap03\",\"pos\":{\"x\":9.<zahl>,\"y\":-16,\"z\":-24.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":5,\"seed\":-159769},{\"room\":\"cave_shrine_endcap04\",\"pos\":{\"x\":-2.<zahl>,\"y\":-3.25,\"z\":-12.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":6,\"seed\":-61711},{\"room\":\"cave_shrine_endcap03\",\"pos\":{\"x\":-3.<zahl>,\"y\":-3.25,\"z\":-24.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":6,\"seed\":-91590},{\"room\":\"cave_shrine_endcap02\",\"pos\":{\"x\":27.<zahl>,\"y\":-16,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":1.<zahl>,\"z\":0,\"w\":9.834766387939453e-7},\"placeOrder\":6,\"seed\":-67953},{\"room\":\"cave_shrine_endcap\",\"pos\":{\"x\":21.<zahl>,\"y\":-16,\"z\":-23.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":6,\"seed\":-106383},{\"room\":\"cave_shrine_endcap05\",\"pos\":{\"x\":20.<zahl>,\"y\":-16,\"z\":-11.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":6,\"seed\":-85046},{\"room\":\"cave_shrine_endcap01\",\"pos\":{\"x\":11.<zahl>,\"y\":-21,\"z\":-12.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":4,\"seed\":-171554},{\"room\":\"cave_shrine_endcap_noshrine\",\"pos\":{\"x\":-0.<zahl>,\"y\":36.5,\"z\":-24.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":4,\"seed\":279516},{\"room\":\"cave_new_endcap_painting01\",\"pos\":{\"x\":-30.<zahl>,\"y\":17.75,\"z\":-18.<zahl>},\"rot\":{\"x\":0,\"y\":1.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":4,\"seed\":-10363},{\"room\":\"cave_new_endcap02\",\"pos\":{\"x\":-24.<zahl>,\"y\":17.75,\"z\":-24.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":4,\"seed\":2459},{\"room\":\"cave_shrine_endcap_noshrine02\",\"pos\":{\"x\":5.<zahl>,\"y\":18.75,\"z\":-18.<zahl>},\"rot\":{\"x\":0,\"y\":1.<zahl>,\"z\":0,\"w\":-2.682209014892578e-7},\"placeOrder\":4,\"seed\":148309},{\"room\":\"cave_new_endcap02\",\"pos\":{\"x\":-0.<zahl>,\"y\":17.75,\"z\":-24.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":4,\"seed\":104963},{\"room\":\"cave_shrine_endcap05\",\"pos\":{\"x\":0.<zahl>,\"y\":14.5,\"z\":20.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":171298},{\"room\":\"cave_shrine_endcap04\",\"pos\":{\"x\":6.<zahl>,\"y\":14.5,\"z\":14.<zahl>},\"rot\":{\"x\":0,\"y\":1.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":5,\"seed\":184120},{\"room\":\"cave_shrine_endcap03\",\"pos\":{\"x\":18.<zahl>,\"y\":-21,\"z\":5.<zahl>},\"rot\":{\"x\":0,\"y\":-1.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":-105379},{\"room\":\"cave_shrine_endcap01\",\"pos\":{\"x\":-11.<zahl>,\"y\":14.5,\"z\":21.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":6,\"seed\":126451},{\"room\":\"cave_shrine_endcap01\",\"pos\":{\"x\":-12.<zahl>,\"y\":14.5,\"z\":9.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":6,\"seed\":96572},{\"room\":\"cave_shrine_endcap02\",\"pos\":{\"x\":-23.<zahl>,\"y\":14.5,\"z\":21.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":75199},{\"room\":\"cave_shrine_endcap04\",\"pos\":{\"x\":-29.<zahl>,\"y\":14.5,\"z\":15.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":1.<zahl>},\"placeOrder\":5,\"seed\":36769},{\"room\":\"cave_new_iceendcap02\",\"pos\":{\"x\":24.<zahl>,\"y\":-22.75,\"z\":11.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":5,\"seed\":-76136},{\"room\":\"cave_shrine_endcap04\",\"pos\":{\"x\":24.<zahl>,\"y\":-21,\"z\":-12.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":5,\"seed\":-116031},{\"room\":\"cave_shrine_endcap05\",\"pos\":{\"x\":30.<zahl>,\"y\":-21,\"z\":-6.<zahl>},\"rot\":{\"x\":0,\"y\":-1.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":-77601},{\"room\":\"cave_shrine_endcap04\",\"pos\":{\"x\":12.<zahl>,\"y\":-21,\"z\":23.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":6,\"seed\":-92593},{\"room\":\"cave_shrine_endcap05\",\"pos\":{\"x\":6.<zahl>,\"y\":-21,\"z\":18.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-1.<zahl>},\"placeOrder\":6,\"seed\":-128889}],\"doors\":[{\"prefabName\":\"caverock_ice_pillar_wall\",\"prefabHash\":-150393364,\"pos\":{\"x\":-5.<zahl>,\"y\":-3,\"z\":18.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>}},{\"prefabName\":\"caverock_ice_pillar_wall\",\"prefabHash\":-150393364,\"pos\":{\"x\":6.<zahl>,\"y\":-3,\"z\":18.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>}},{\"prefabName\":\"caverock_ice_pillar_wall\",\"prefabHash\":-150393364,\"pos\":{\"x\":-6.<zahl>,\"y\":-20.75,\"z\":-18.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>}},{\"prefabName\":\"caverock_ice_pillar_wall\",\"prefabHash\":-150393364,\"pos\":{\"x\":-18.<zahl>,\"y\":-3,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>}},{\"prefabName\":\"cloth_hanging_door_double\",\"prefabHash\":-691115746,\"pos\":{\"x\":2.<zahl>,\"y\":-5.75,\"z\":-18.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>}},{\"prefabName\":\"cloth_hanging_door_double\",\"prefabHash\":-691115746,\"pos\":{\"x\":15.<zahl>,\"y\":-18.5,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>}},{\"prefabName\":\"caverock_ice_pillar_wall\",\"prefabHash\":-150393364,\"pos\":{\"x\":5.<zahl>,\"y\":14.75,\"z\":-6.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>}},{\"prefabName\":\"cloth_hanging_door_double\",\"prefabHash\":-691115746,\"pos\":{\"x\":12.<zahl>,\"y\":-23.5,\"z\":-0.<zahl>},\"rot\":{\"x\":0,\"y\":1.<zahl>,\"z\":0,\"w\":-0.<zahl>}},{\"prefabName\":\"cloth_hanging_door_double\",\"prefabHash\":-691115746,\"pos\":{\"x\":12.<zahl>,\"y\":-23.5,\"z\":11.<zahl>},\"rot\":{\"x\":0,\"y\":-1.<zahl>,\"z\":0,\"w\":0.<zahl>}}],\"props\":[]},\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"verwitterung\":{\"moos\":1},\"kachelM\":2},\"ambientLicht\":1.05}]",
+  "  call dungeonsNeu.destroyInstance [\"cave-2a\"]",
+  "log 50:874725001659ca98:[Dungeon] Instance 'cave-2a' destroyed (1068 ZDO",
+  "> dungeon steinkit cave-2a moos=1 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a: Steinmaterial gesetzt — {\\\"wandTextur\\\":\\\"/assets/models/stein_moos.png\\\",\\\"verwitterung\\\":{\\\"moos\\\":1},\\\"kachelM\\\":2}\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.getDocument [\"cave-2a\"]",
+  "  call dungeonsNeu.saveDocument [{\"version\":6,\"id\":\"cave-2a\",\"name\":\"Cave #2a\",\"base\":\"DG_Cave\",\"mode\":\"generated\",\"seed\":42,\"zoneSize\":64,\"layout\":{\"rooms\":[{\"room\":\"cave_new_entrance02\",\"pos\":{\"x\":0.<zahl>,\"y\":0,\"z\":12.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":1,\"seed\":25608},{\"room\":\"cave_new_sloperoom04\",\"pos\":{\"x\":-18.<zahl>,\"y\":-8.75,\"z\":6.<zahl>},\"rot\":{\"x\":0,\"y\":-1.1920928955078125e-7,\"z\":0,\"w\":-1.<zahl>},\"placeOrder\":2,\"seed\":-137570},{\"room\":\"cave_new_sloperoom04\",\"pos\":{\"x\":18.<zahl>,\"y\":9,\"z\":5.<zahl>},\"rot\":{\"x\":0,\"y\":-1.<zahl>,\"z\":0,\"w\":1.1920928955078125e-7},\"placeOrder\":2,\"seed\":170231},{\"room\":\"cave_new_crossroads01_ice\",\"pos\":{\"x\":-12.<zahl>,\"y\":-17.75,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":3,\"seed\":-243709},{\"room\":\"cave_new_crossroads01_hole_ice\",\"pos\":{\"x\":-24.<zahl>,\"y\":-8.75,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":4,\"seed\":-212278},{\"room\":\"cave_shrine_start02_ice\",\"pos\":{\"x\":4.<zahl>,\"y\":-16.75,\"z\":-18.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":4,\"seed\":-168320},{\"room\":\"cave_shrine_start02\",\"pos\":{\"x\":-7.<zahl>,\"y\":-1.75,\"z\":-18.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":5,\"seed\":-77496},{\"room\":\"cave_shrine_shrine01\",\"pos\":{\"x\":8.<zahl>,\"y\":-4.75,\"z\":-18.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":6,\"seed\":-40992},{\"room\":\"cave_shrine_corridor01\",\"pos\":{\"x\":21.<zahl>,\"y\":-16,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":5,\"seed\":-93579},{\"room\":\"cave_shrine_start02_corridor\",\"pos\":{\"x\":5.<zahl>,\"y\":-19.5,\"z\":-6.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":3,\"seed\":-166002},{\"room\":\"cave_new_sloperoom02\",\"pos\":{\"x\":-12.<zahl>,\"y\":26.75,\"z\":-12.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":3,\"seed\":162002},{\"room\":\"cave_shrine_start02\",\"pos\":{\"x\":0.<zahl>,\"y\":16,\"z\":10.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":1.<zahl>},\"placeOrder\":4,\"seed\":168332},{\"room\":\"cave_shrine_corridor04\",\"pos\":{\"x\":12.<zahl>,\"y\":-21,\"z\":5.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-1.<zahl>},\"placeOrder\":4,\"seed\":-131005},{\"room\":\"cave_shrine_corridor06\",\"pos\":{\"x\":-11.<zahl>,\"y\":14.5,\"z\":15.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":1.<zahl>},\"placeOrder\":5,\"seed\":113647},{\"room\":\"cave_shrine_start02\",\"pos\":{\"x\":-24.<zahl>,\"y\":16,\"z\":10.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":1.<zahl>},\"placeOrder\":4,\"seed\":65828},{\"room\":\"cave_shrine_shrine01\",\"pos\":{\"x\":0.<zahl>,\"y\":-22.5,\"z\":6.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":-189310},{\"room\":\"cave_shrine_start02_ice_corridor\",\"pos\":{\"x\":24.<zahl>,\"y\":-21.75,\"z\":-0.<zahl>},\"rot\":{\"x\":0,\"y\":1.<zahl>,\"z\":0,\"w\":-2.086162567138672e-7},\"placeOrder\":4,\"seed\":-90423},{\"room\":\"cave_shrine_shrine03\",\"pos\":{\"x\":16.<zahl>,\"y\":-22.5,\"z\":17.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":5,\"seed\":-97500},{\"room\":\"cave_new_endcap02\",\"pos\":{\"x\":0.<zahl>,\"y\":0,\"z\":24.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":2,\"seed\":51216},{\"room\":\"cave_shrine_endcap_noshrine02\",\"pos\":{\"x\":-30.<zahl>,\"y\":-16.75,\"z\":-5.<zahl>},\"rot\":{\"x\":0,\"y\":-1.7881393432617188e-7,\"z\":0,\"w\":-1.<zahl>},\"placeOrder\":3,\"seed\":-285792},{\"room\":\"cave_new_endcap_painting01\",\"pos\":{\"x\":12.<zahl>,\"y\":0,\"z\":24.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":3,\"seed\":102468},{\"room\":\"cave_new_endcap02_crystal\",\"pos\":{\"x\":30.<zahl>,\"y\":0,\"z\":17.<zahl>},\"rot\":{\"x\":0,\"y\":1.7881393432617188e-7,\"z\":0,\"w\":1.<zahl>},\"placeOrder\":3,\"seed\":164408},{\"room\":\"cave_new_iceendcap02\",\"pos\":{\"x\":-12.<zahl>,\"y\":-17.75,\"z\":-23.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":4,\"seed\":-256513},{\"room\":\"cave_new_iceendcap02_crystal\",\"pos\":{\"x\":-30.<zahl>,\"y\":-17.75,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":-1.<zahl>,\"z\":0,\"w\":3.5762786865234375e-7},\"placeOrder\":5,\"seed\":-320587},{\"room\":\"cave_new_iceendcap02\",\"pos\":{\"x\":-24.<zahl>,\"y\":-17.75,\"z\":-11.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":-282157},{\"room\":\"cave_shrine_endcap_noshrine\",\"pos\":{\"x\":-30.<zahl>,\"y\":1,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":-3.5762786865234375e-7,\"z\":0,\"w\":-1.<zahl>},\"placeOrder\":5,\"seed\":-155221},{\"room\":\"cave_shrine_endcap_noshrine\",\"pos\":{\"x\":-24.<zahl>,\"y\":1,\"z\":-23.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":-142399},{\"room\":\"cave_shrine_endcap01\",\"pos\":{\"x\":8.<zahl>,\"y\":-16,\"z\":-11.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":-136298},{\"room\":\"cave_shrine_endcap03\",\"pos\":{\"x\":9.<zahl>,\"y\":-16,\"z\":-24.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":5,\"seed\":-159769},{\"room\":\"cave_shrine_endcap04\",\"pos\":{\"x\":-2.<zahl>,\"y\":-3.25,\"z\":-12.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":6,\"seed\":-61711},{\"room\":\"cave_shrine_endcap03\",\"pos\":{\"x\":-3.<zahl>,\"y\":-3.25,\"z\":-24.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":6,\"seed\":-91590},{\"room\":\"cave_shrine_endcap02\",\"pos\":{\"x\":27.<zahl>,\"y\":-16,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":1.<zahl>,\"z\":0,\"w\":9.834766387939453e-7},\"placeOrder\":6,\"seed\":-67953},{\"room\":\"cave_shrine_endcap\",\"pos\":{\"x\":21.<zahl>,\"y\":-16,\"z\":-23.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":6,\"seed\":-106383},{\"room\":\"cave_shrine_endcap05\",\"pos\":{\"x\":20.<zahl>,\"y\":-16,\"z\":-11.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":6,\"seed\":-85046},{\"room\":\"cave_shrine_endcap01\",\"pos\":{\"x\":11.<zahl>,\"y\":-21,\"z\":-12.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":4,\"seed\":-171554},{\"room\":\"cave_shrine_endcap_noshrine\",\"pos\":{\"x\":-0.<zahl>,\"y\":36.5,\"z\":-24.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":4,\"seed\":279516},{\"room\":\"cave_new_endcap_painting01\",\"pos\":{\"x\":-30.<zahl>,\"y\":17.75,\"z\":-18.<zahl>},\"rot\":{\"x\":0,\"y\":1.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":4,\"seed\":-10363},{\"room\":\"cave_new_endcap02\",\"pos\":{\"x\":-24.<zahl>,\"y\":17.75,\"z\":-24.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":4,\"seed\":2459},{\"room\":\"cave_shrine_endcap_noshrine02\",\"pos\":{\"x\":5.<zahl>,\"y\":18.75,\"z\":-18.<zahl>},\"rot\":{\"x\":0,\"y\":1.<zahl>,\"z\":0,\"w\":-2.682209014892578e-7},\"placeOrder\":4,\"seed\":148309},{\"room\":\"cave_new_endcap02\",\"pos\":{\"x\":-0.<zahl>,\"y\":17.75,\"z\":-24.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":4,\"seed\":104963},{\"room\":\"cave_shrine_endcap05\",\"pos\":{\"x\":0.<zahl>,\"y\":14.5,\"z\":20.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":171298},{\"room\":\"cave_shrine_endcap04\",\"pos\":{\"x\":6.<zahl>,\"y\":14.5,\"z\":14.<zahl>},\"rot\":{\"x\":0,\"y\":1.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":5,\"seed\":184120},{\"room\":\"cave_shrine_endcap03\",\"pos\":{\"x\":18.<zahl>,\"y\":-21,\"z\":5.<zahl>},\"rot\":{\"x\":0,\"y\":-1.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":-105379},{\"room\":\"cave_shrine_endcap01\",\"pos\":{\"x\":-11.<zahl>,\"y\":14.5,\"z\":21.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":6,\"seed\":126451},{\"room\":\"cave_shrine_endcap01\",\"pos\":{\"x\":-12.<zahl>,\"y\":14.5,\"z\":9.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":6,\"seed\":96572},{\"room\":\"cave_shrine_endcap02\",\"pos\":{\"x\":-23.<zahl>,\"y\":14.5,\"z\":21.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":75199},{\"room\":\"cave_shrine_endcap04\",\"pos\":{\"x\":-29.<zahl>,\"y\":14.5,\"z\":15.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":1.<zahl>},\"placeOrder\":5,\"seed\":36769},{\"room\":\"cave_new_iceendcap02\",\"pos\":{\"x\":24.<zahl>,\"y\":-22.75,\"z\":11.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":5,\"seed\":-76136},{\"room\":\"cave_shrine_endcap04\",\"pos\":{\"x\":24.<zahl>,\"y\":-21,\"z\":-12.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":5,\"seed\":-116031},{\"room\":\"cave_shrine_endcap05\",\"pos\":{\"x\":30.<zahl>,\"y\":-21,\"z\":-6.<zahl>},\"rot\":{\"x\":0,\"y\":-1.<zahl>,\"z\":0,\"w\":0.<zahl>},\"placeOrder\":5,\"seed\":-77601},{\"room\":\"cave_shrine_endcap04\",\"pos\":{\"x\":12.<zahl>,\"y\":-21,\"z\":23.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>},\"placeOrder\":6,\"seed\":-92593},{\"room\":\"cave_shrine_endcap05\",\"pos\":{\"x\":6.<zahl>,\"y\":-21,\"z\":18.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-1.<zahl>},\"placeOrder\":6,\"seed\":-128889}],\"doors\":[{\"prefabName\":\"caverock_ice_pillar_wall\",\"prefabHash\":-150393364,\"pos\":{\"x\":-5.<zahl>,\"y\":-3,\"z\":18.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":-0.<zahl>}},{\"prefabName\":\"caverock_ice_pillar_wall\",\"prefabHash\":-150393364,\"pos\":{\"x\":6.<zahl>,\"y\":-3,\"z\":18.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>}},{\"prefabName\":\"caverock_ice_pillar_wall\",\"prefabHash\":-150393364,\"pos\":{\"x\":-6.<zahl>,\"y\":-20.75,\"z\":-18.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>}},{\"prefabName\":\"caverock_ice_pillar_wall\",\"prefabHash\":-150393364,\"pos\":{\"x\":-18.<zahl>,\"y\":-3,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>}},{\"prefabName\":\"cloth_hanging_door_double\",\"prefabHash\":-691115746,\"pos\":{\"x\":2.<zahl>,\"y\":-5.75,\"z\":-18.<zahl>},\"rot\":{\"x\":0,\"y\":-0.<zahl>,\"z\":0,\"w\":0.<zahl>}},{\"prefabName\":\"cloth_hanging_door_double\",\"prefabHash\":-691115746,\"pos\":{\"x\":15.<zahl>,\"y\":-18.5,\"z\":-17.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":-0.<zahl>}},{\"prefabName\":\"caverock_ice_pillar_wall\",\"prefabHash\":-150393364,\"pos\":{\"x\":5.<zahl>,\"y\":14.75,\"z\":-6.<zahl>},\"rot\":{\"x\":0,\"y\":0.<zahl>,\"z\":0,\"w\":0.<zahl>}},{\"prefabName\":\"cloth_hanging_door_double\",\"prefabHash\":-691115746,\"pos\":{\"x\":12.<zahl>,\"y\":-23.5,\"z\":-0.<zahl>},\"rot\":{\"x\":0,\"y\":1.<zahl>,\"z\":0,\"w\":-0.<zahl>}},{\"prefabName\":\"cloth_hanging_door_double\",\"prefabHash\":-691115746,\"pos\":{\"x\":12.<zahl>,\"y\":-23.5,\"z\":11.<zahl>},\"rot\":{\"x\":0,\"y\":-1.<zahl>,\"z\":0,\"w\":0.<zahl>}}],\"props\":[]},\"steinKit\":{\"wandTextur\":\"/assets/models/stein_moos.png\",\"verwitterung\":{\"moos\":1},\"kachelM\":2},\"ambientLicht\":0.5}]",
+  "  call dungeonsNeu.destroyInstance [\"cave-2a\"]",
+  "> dungeon licht cave-2a 0.5 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a: Grundbeleuchtung 0.50 gesetzt (dunkler als die Umgebung)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.listEntrances []",
+  "> dungeon entrances (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@(193,193) → cave-2a [fest] | Vault2@(320,320) → stonevault-5x5 [fest]\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.eingangZuDungeon [\"cave-2a\"]",
+  "  call dungeonsNeu.setzeEingangsModus [\"cave-2a\",\"fixed\"]",
+  "> dungeon entrance-mode cave-2a fixed (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Vault1@3,3 → cave-2a: fest\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.getDocument [\"cave-2a\"]",
+  "  call dungeonsNeu.createGenerated [\"DG_Cave\",7,\"cave-2a\"]",
+  "  call dungeonsNeu.destroyInstance [\"cave-2a\"]",
+  "> dungeon regen cave-2a 7 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a neu generiert (Seed 7, 36 Räume)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.erzeugeDungeon2 [\"steingrab\",{\"architektur\":7,\"material\":<zahl>,\"deko\":879019654},\"k1dn1-id\",null]",
+  "> dungeon create2 steingrab 7 k1dn1-id (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon 2.0 erzeugt: k1dn1-id (Thema steingrab, Seed 7, Prüfsumme ed59f169, Grundhelligkeit 1.00 aus dem Thema)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.listDocuments []",
+  "  call dungeonsNeu.listDokumente2 []",
+  "  call dungeonsNeu.getInstance [\"cave-2a\"]",
+  "  call dungeonsNeu.getInstance [\"forestcrypt-2b\"]",
+  "  call dungeonsNeu.getInstance [\"cave-80000000\"]",
+  "  call dungeonsNeu.getInstance [\"cave-5\"]",
+  "  call dungeonsNeu.getInstance [\"steingrab-7\"]",
+  "  call dungeonsNeu.getInstance [\"k1d-gross\"]",
+  "  call dungeonsNeu.getInstance [\"steingrab-80000000\"]",
+  "  call dungeonsNeu.getInstance [\"steingrab-5\"]",
+  "  call dungeonsNeu.getInstance [\"k1dn1-id\"]",
+  "> dungeon list (Ich) = {\"ok\":true,\"active\":false,\"message\":\"cave-2a (DG_Cave, generated, 36 Räume) | forestcrypt-2b (DG_ForestCrypt, generated, 46 Räume) | cave-80000000 (DG_Cave, generated, 27 Räume) | cave-5 (DG_Cave, generated, 46 Räume) | steingrab-7 (2.0, steingrab, erzeugt, Seeds 7/<zahl>/879019654, Prüfsumme caf13fad) | k1d-gross (2.0, steingrab, erzeugt, Seeds 8/851520757/<zahl>, Prüfsumme 9438974a) | steingrab-80000000 (2.0, steingrab, erzeugt, Seeds <zahl>/<zahl>/<zahl>, Prüfsumme 9432207e) | steingrab-5 (2.0, steingrab, erzeugt, Seeds 5/784992901/<zahl>, Prüfsumme 6e06097a) | k1dn1-id (2.0, steingrab, erzeugt, Seeds 7/<zahl>/879019654, Prüfsumme ed59f169)\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.destroyInstance [\"cave-2a\"]",
+  "> dungeon reset cave-2a (Ich) = {\"ok\":false,\"active\":false,\"message\":\"Keine aktive Instanz: cave-2a\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.hatDokument [\"cave-2a\"]",
+  "  call dungeonsNeu.findEntranceNear [{\"x\":190,\"y\":10,\"z\":195},16]",
+  "  call dungeonsNeu.assignEntrance [\"3,3\",\"cave-2a\"]",
+  "> dungeon assign cave-2a (Nah) = {\"ok\":true,\"active\":false,\"message\":\"Eingang Vault1@3,3 → cave-2a\"}",
+  "peer Nah dungeonId=null dungeonReturn=null position={\"x\":190,\"y\":10,\"z\":195} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.findEntranceNear [{\"x\":190,\"y\":10,\"z\":195},16]",
+  "  call dungeonsNeu.vorBetreten [\"cave-2a\"]",
+  "  call dungeonsNeu.getOrCreateInstance [\"cave-2a\"]",
+  "log 88:43cd8edda7d27167:[Dungeon] Instance 'cave-2a' materialized in wor",
+  "  call dungeonsNeu.getDocument [\"cave-2a\"]",
+  "  call dungeonsNeu.getDokument2 [\"cave-2a\"]",
+  "  call dungeonsNeu.getSpawnPoint [{\"dungeonId\":\"cave-2a\",\"welt\":\"<Welt>\",\"slot\":0,\"origin\":{\"x\":0,\"y\":0,\"z\":0},\"zdoids\":[{\"userId\":\"1\",\"id\":1},{\"userId\":\"1\",\"id\":2},{\"userId\":\"1\",\"id\":3},{\"userId\":\"1\",\"id\":4},{\"userId\":\"1\",\"id\":5},{\"userId\":\"1\",\"id\":6},{\"userId\":\"1\",\"id\":7},{\"userId\":\"1\",\"id\":8},{\"userId\":\"1\",\"id\":9},{\"userId\":\"1\",\"id\":10},{\"userId\":\"1\",\"id\":11},{\"userId\":\"1\",\"id\":12},{\"userId\":\"1\",\"id\":13},{\"userId\":\"1\",\"id\":14},{\"userId\":\"1\",\"id\":15},{\"userId\":\"1\",\"id\":16},{\"userId\":\"1\",\"id\":17},{\"userId\":\"1\",\"id\":18},{\"userId\":\"1\",\"id\":19},{\"userId\":\"1\",\"id\":20},{\"userId\":\"1\",\"id\":21},{\"userId\":\"1\",\"id\":22},{\"userId\":\"1\",\"id\":23},{\"userId\":\"1\",\"id\":24},{\"userId\":\"1\",\"id\":25},{\"userId\":\"1\",\"id\":26},{\"userId\":\"1\",\"id\":27},{\"userId\":\"1\",\"id\":28},{\"userId\":\"1\",\"id\":29},{\"userId\":\"1\",\"id\":30},{\"userId\":\"1\",\"id\":31},{\"userId\":\"1\",\"id\":32},{\"userId\":\"1\",\"id\":33},{\"userId\":\"1\",\"id\":34},{\"userId\":\"1\",\"id\":35},{\"userId\":\"1\",\"id\":36},{\"userId\":\"1\",\"id\":37},{\"userId\":\"1\",\"id\":38},{\"userId\":\"1\",\"id\":39},{\"userId\":\"1\",\"id\":40},{\"userId\":\"1\",\"id\":41},{\"userId\":\"1\",\"id\":42},{\"userId\":\"1\",\"id\":43},{\"userId\":\"1\",\"id\":44},{\"userId\":\"1\",\"id\":45},{\"userId\":\"1\",\"id\":46},{\"userId\":\"1\",\"id\":47},{\"userId\":\"1\",\"id\":48},{\"userId\":\"1\",\"id\":49},{\"userId\":\"1\",\"id\":50},{\"userId\":\"1\",\"id\":51},{\"userId\":\"1\",\"id\":52},{\"userId\":\"1\",\"id\":53},{\"userId\":\"1\",\"id\":54},{\"userId\":\"1\",\"id\":55},{\"userId\":\"1\",\"id\":56},{\"userId\":\"1\",\"id\":57},{\"userId\":\"1\",\"id\":58},{\"userId\":\"1\",\"id\":59},{\"userId\":\"1\",\"id\":60},{\"userId\":\"1\",\"id\":61},{\"userId\":\"1\",\"id\":62},{\"userId\":\"1\",\"id\":63},{\"userId\":\"1\",\"id\":64},{\"userId\":\"1\",\"id\":65},{\"userId\":\"1\",\"id\":66},{\"userId\":\"1\",\"id\":67},{\"userId\":\"1\",\"id\":68},{\"userId\":\"1\",\"id\":69},{\"userId\":\"1\",\"id\":70},{\"userId\":\"1\",\"id\":71},{\"userId\":\"1\",\"id\":72},{\"userId\":\"1\",\"id\":73},{\"userId\":\"1\",\"id\":74},{\"userId\":\"1\",\"id\":75},{\"userId\":\"1\",\"id\":76},{\"userId\":\"1\",\"id\":77},{\"userId\":\"1\",\"id\":78},{\"userId\":\"1\",\"id\":79},{\"userId\":\"1\",\"id\":80},{\"userId\":\"1\",\"id\":81},{\"userId\":\"1\",\"id\":82},{\"userId\":\"1\",\"id\":83},{\"userId\":\"1\",\"id\":84},{\"userId\":\"1\",\"id\":85},{\"userId\":\"1\",\"id\":86},{\"userId\":\"1\",\"id\":87},{\"userId\":\"1\",\"id\":88},{\"userId\":\"1\",\"id\":89},{\"userId\":\"1\",\"id\":90},{\"userId\":\"1\",\"id\":91},{\"userId\":\"1\",\"id\":92},{\"userId\":\"1\",\"id\":93},{\"userId\":\"1\",\"id\":94},{\"userId\":\"1\",\"id\":95},{\"userId\":\"1\",\"id\":96},{\"userId\":\"1\",\"id\":97},{\"userId\":\"1\",\"id\":98},{\"userId\":\"1\",\"id\":99},{\"userId\":\"1\",\"id\":100},{\"userId\":\"1\",\"id\":101},{\"userId\":\"1\",\"id\":102},{\"userId\":\"1\",\"id\":103},{\"userId\":\"1\",\"id\":104},{\"userId\":\"1\",\"id\":105},{\"userId\":\"1\",\"id\":106},{\"userId\":\"1\",\"id\":107},{\"userId\":\"1\",\"id\":108},{\"userId\":\"1\",\"id\":109},{\"userId\":\"1\",\"id\":110},{\"userId\":\"1\",\"id\":111},{\"userId\":\"1\",\"id\":112},{\"userId\":\"1\",\"id\":113},{\"userId\":\"1\",\"id\":114},{\"userId\":\"1\",\"id\":115},{\"userId\":\"1\",\"id\":116},{\"userId\":\"1\",\"id\":117},{\"userId\":\"1\",\"id\":118},{\"userId\":\"1\",\"id\":119},{\"userId\":\"1\",\"id\":120},{\"userId\":\"1\",\"id\":121},{\"userId\":\"1\",\"id\":122},{\"userId\":\"1\",\"id\":123},{\"userId\":\"1\",\"id\":124},{\"userId\":\"1\",\"id\":125},{\"userId\":\"1\",\"id\":126},{\"userId\":\"1\",\"id\":127},{\"userId\":\"1\",\"id\":128},{\"userId\":\"1\",\"id\":129},{\"userId\":\"1\",\"id\":130},{\"userId\":\"1\",\"id\":131},{\"userId\":\"1\",\"id\":132},{\"userId\":\"1\",\"id\":133},{\"userId\":\"1\",\"id\":134},{\"userId\":\"1\",\"id\":135},{\"userId\":\"1\",\"id\":136},{\"userId\":\"1\",\"id\":137},{\"userId\":\"1\",\"id\":138},{\"userId\":\"1\",\"id\":139},{\"userId\":\"1\",\"id\":140},{\"userId\":\"1\",\"id\":141},{\"userId\":\"1\",\"id\":142},{\"userId\":\"1\",\"id\":143},{\"userId\":\"1\",\"id\":144},{\"userId\":\"1\",\"id\":145},{\"userId\":\"1\",\"id\":146},{\"userId\":\"1\",\"id\":147},{\"userId\":\"1\",\"id\":148},{\"userId\":\"1\",\"id\":149},{\"userId\":\"1\",\"id\":150},{\"userId\":\"1\",\"id\":151},{\"userId\":\"1\",\"id\":152},{\"userId\":\"1\",\"id\":153},{\"userId\":\"1\",\"id\":154},{\"userId\":\"1\",\"id\":155},{\"userId\":\"1\",\"id\":156},{\"userId\":\"1\",\"id\":157},{\"userId\":\"1\",\"id\":158},{\"userId\":\"1\",\"id\":159},{\"userId\":\"1\",\"id\":160},{\"userId\":\"1\",\"id\":161},{\"userId\":\"1\",\"id\":162},{\"userId\":\"1\",\"id\":163},{\"userId\":\"1\",\"id\":164},{\"userId\":\"1\",\"id\":165},{\"userId\":\"1\",\"id\":166},{\"userId\":\"1\",\"id\":167},{\"userId\":\"1\",\"id\":168},{\"userId\":\"1\",\"id\":169},{\"userId\":\"1\",\"id\":170},{\"userId\":\"1\",\"id\":171},{\"userId\":\"1\",\"id\":172},{\"userId\":\"1\",\"id\":173},{\"userId\":\"1\",\"id\":174},{\"userId\":\"1\",\"id\":175},{\"userId\":\"1\",\"id\":176},{\"userId\":\"1\",\"id\":177},{\"userId\":\"1\",\"id\":178},{\"userId\":\"1\",\"id\":179},{\"userId\":\"1\",\"id\":180},{\"userId\":\"1\",\"id\":181},{\"userId\":\"1\",\"id\":182},{\"userId\":\"1\",\"id\":183},{\"userId\":\"1\",\"id\":184},{\"userId\":\"1\",\"id\":185},{\"userId\":\"1\",\"id\":186},{\"userId\":\"1\",\"id\":187},{\"userId\":\"1\",\"id\":188},{\"userId\":\"1\",\"id\":189},{\"userId\":\"1\",\"id\":190},{\"userId\":\"1\",\"id\":191},{\"userId\":\"1\",\"id\":192},{\"userId\":\"1\",\"id\":193},{\"userId\":\"1\",\"id\":194},{\"userId\":\"1\",\"id\":195},{\"userId\":\"1\",\"id\":196},{\"userId\":\"1\",\"id\":197},{\"userId\":\"1\",\"id\":198},{\"userId\":\"1\",\"id\":199},{\"userId\":\"1\",\"id\":200},{\"userId\":\"1\",\"id\":201},{\"userId\":\"1\",\"id\":202},{\"userId\":\"1\",\"id\":203},{\"userId\":\"1\",\"id\":204},{\"userId\":\"1\",\"id\":205},{\"userId\":\"1\",\"id\":206},{\"userId\":\"1\",\"id\":207},{\"userId\":\"1\",\"id\":208},{\"userId\":\"1\",\"id\":209},{\"userId\":\"1\",\"id\":210},{\"userId\":\"1\",\"id\":211},{\"userId\":\"1\",\"id\":212},{\"userId\":\"1\",\"id\":213},{\"userId\":\"1\",\"id\":214},{\"userId\":\"1\",\"id\":215},{\"userId\":\"1\",\"id\":216},{\"userId\":\"1\",\"id\":217},{\"userId\":\"1\",\"id\":218},{\"userId\":\"1\",\"id\":219},{\"userId\":\"1\",\"id\":220},{\"userId\":\"1\",\"id\":221},{\"userId\":\"1\",\"id\":222},{\"userId\":\"1\",\"id\":223},{\"userId\":\"1\",\"id\":224},{\"userId\":\"1\",\"id\":225},{\"userId\":\"1\",\"id\":226},{\"userId\":\"1\",\"id\":227},{\"userId\":\"1\",\"id\":228},{\"userId\":\"1\",\"id\":229},{\"userId\":\"1\",\"id\":230},{\"userId\":\"1\",\"id\":231},{\"userId\":\"1\",\"id\":232},{\"userId\":\"1\",\"id\":233},{\"userId\":\"1\",\"id\":234},{\"userId\":\"1\",\"id\":235},{\"userId\":\"1\",\"id\":236},{\"userId\":\"1\",\"id\":237},{\"userId\":\"1\",\"id\":238},{\"userId\":\"1\",\"id\":239},{\"userId\":\"1\",\"id\":240},{\"userId\":\"1\",\"id\":241},{\"userId\":\"1\",\"id\":242},{\"userId\":\"1\",\"id\":243},{\"userId\":\"1\",\"id\":244},{\"userId\":\"1\",\"id\":245},{\"userId\":\"1\",\"id\":246},{\"userId\":\"1\",\"id\":247},{\"userId\":\"1\",\"id\":248},{\"userId\":\"1\",\"id\":249},{\"userId\":\"1\",\"id\":250},{\"userId\":\"1\",\"id\":251},{\"userId\":\"1\",\"id\":252},{\"userId\":\"1\",\"id\":253},{\"userId\":\"1\",\"id\":254},{\"userId\":\"1\",\"id\":255},{\"userId\":\"1\",\"id\":256},{\"userId\":\"1\",\"id\":257},{\"userId\":\"1\",\"id\":258},{\"userId\":\"1\",\"id\":259},{\"userId\":\"1\",\"id\":260},{\"userId\":\"1\",\"id\":261},{\"userId\":\"1\",\"id\":262},{\"userId\":\"1\",\"id\":263},{\"userId\":\"1\",\"id\":264},{\"userId\":\"1\",\"id\":265},{\"userId\":\"1\",\"id\":266},{\"userId\":\"1\",\"id\":267},{\"userId\":\"1\",\"id\":268},{\"userId\":\"1\",\"id\":269},{\"userId\":\"1\",\"id\":270},{\"userId\":\"1\",\"id\":271},{\"userId\":\"1\",\"id\":272},{\"userId\":\"1\",\"id\":273},{\"userId\":\"1\",\"id\":274},{\"userId\":\"1\",\"id\":275},{\"userId\":\"1\",\"id\":276},{\"userId\":\"1\",\"id\":277},{\"userId\":\"1\",\"id\":278},{\"userId\":\"1\",\"id\":279},{\"userId\":\"1\",\"id\":280},{\"userId\":\"1\",\"id\":281},{\"userId\":\"1\",\"id\":282},{\"userId\":\"1\",\"id\":283},{\"userId\":\"1\",\"id\":284},{\"userId\":\"1\",\"id\":285},{\"userId\":\"1\",\"id\":286},{\"userId\":\"1\",\"id\":287},{\"userId\":\"1\",\"id\":288},{\"userId\":\"1\",\"id\":289},{\"userId\":\"1\",\"id\":290},{\"userId\":\"1\",\"id\":291},{\"userId\":\"1\",\"id\":292},{\"userId\":\"1\",\"id\":293},{\"userId\":\"1\",\"id\":294},{\"userId\":\"1\",\"id\":295},{\"userId\":\"1\",\"id\":296},{\"userId\":\"1\",\"id\":297},{\"userId\":\"1\",\"id\":298},{\"userId\":\"1\",\"id\":299},{\"userId\":\"1\",\"id\":300},{\"userId\":\"1\",\"id\":301},{\"userId\":\"1\",\"id\":302},{\"userId\":\"1\",\"id\":303},{\"userId\":\"1\",\"id\":304},{\"userId\":\"1\",\"id\":305},{\"userId\":\"1\",\"id\":306},{\"userId\":\"1\",\"id\":307},{\"userId\":\"1\",\"id\":308},{\"userId\":\"1\",\"id\":309},{\"userId\":\"1\",\"id\":310},{\"userId\":\"1\",\"id\":311},{\"userId\":\"1\",\"id\":312},{\"userId\":\"1\",\"id\":313},{\"userId\":\"1\",\"id\":314},{\"userId\":\"1\",\"id\":315},{\"userId\":\"1\",\"id\":316},{\"userId\":\"1\",\"id\":317},{\"userId\":\"1\",\"id\":318},{\"userId\":\"1\",\"id\":319},{\"userId\":\"1\",\"id\":320},{\"userId\":\"1\",\"id\":321},{\"userId\":\"1\",\"id\":322},{\"userId\":\"1\",\"id\":323},{\"userId\":\"1\",\"id\":324},{\"userId\":\"1\",\"id\":325},{\"userId\":\"1\",\"id\":326},{\"userId\":\"1\",\"id\":327},{\"userId\":\"1\",\"id\":328},{\"userId\":\"1\",\"id\":329},{\"userId\":\"1\",\"id\":330},{\"userId\":\"1\",\"id\":331},{\"userId\":\"1\",\"id\":332},{\"userId\":\"1\",\"id\":333},{\"userId\":\"1\",\"id\":334},{\"userId\":\"1\",\"id\":335},{\"userId\":\"1\",\"id\":336},{\"userId\":\"1\",\"id\":337},{\"userId\":\"1\",\"id\":338},{\"userId\":\"1\",\"id\":339},{\"userId\":\"1\",\"id\":340},{\"userId\":\"1\",\"id\":341},{\"userId\":\"1\",\"id\":342},{\"userId\":\"1\",\"id\":343},{\"userId\":\"1\",\"id\":344},{\"userId\":\"1\",\"id\":345},{\"userId\":\"1\",\"id\":346},{\"userId\":\"1\",\"id\":347},{\"userId\":\"1\",\"id\":348},{\"userId\":\"1\",\"id\":349},{\"userId\":\"1\",\"id\":350},{\"userId\":\"1\",\"id\":351},{\"userId\":\"1\",\"id\":352},{\"userId\":\"1\",\"id\":353},{\"userId\":\"1\",\"id\":354},{\"userId\":\"1\",\"id\":355},{\"userId\":\"1\",\"id\":356},{\"userId\":\"1\",\"id\":357},{\"userId\":\"1\",\"id\":358},{\"userId\":\"1\",\"id\":359},{\"userId\":\"1\",\"id\":360},{\"userId\":\"1\",\"id\":361},{\"userId\":\"1\",\"id\":362},{\"userId\":\"1\",\"id\":363},{\"userId\":\"1\",\"id\":364},{\"userId\":\"1\",\"id\":365},{\"userId\":\"1\",\"id\":366},{\"userId\":\"1\",\"id\":367},{\"userId\":\"1\",\"id\":368},{\"userId\":\"1\",\"id\":369},{\"userId\":\"1\",\"id\":370},{\"userId\":\"1\",\"id\":371},{\"userId\":\"1\",\"id\":372},{\"userId\":\"1\",\"id\":373},{\"userId\":\"1\",\"id\":374},{\"userId\":\"1\",\"id\":375},{\"userId\":\"1\",\"id\":376},{\"userId\":\"1\",\"id\":377},{\"userId\":\"1\",\"id\":378},{\"userId\":\"1\",\"id\":379},{\"userId\":\"1\",\"id\":380},{\"userId\":\"1\",\"id\":381},{\"userId\":\"1\",\"id\":382},{\"userId\":\"1\",\"id\":383},{\"userId\":\"1\",\"id\":384},{\"userId\":\"1\",\"id\":385},{\"userId\":\"1\",\"id\":386},{\"userId\":\"1\",\"id\":387},{\"userId\":\"1\",\"id\":388},{\"userId\":\"1\",\"id\":389},{\"userId\":\"1\",\"id\":390},{\"userId\":\"1\",\"id\":391},{\"userId\":\"1\",\"id\":392},{\"userId\":\"1\",\"id\":393},{\"userId\":\"1\",\"id\":394},{\"userId\":\"1\",\"id\":395},{\"userId\":\"1\",\"id\":396},{\"userId\":\"1\",\"id\":397},{\"userId\":\"1\",\"id\":398},{\"userId\":\"1\",\"id\":399},{\"userId\":\"1\",\"id\":400},{\"userId\":\"1\",\"id\":401},{\"userId\":\"1\",\"id\":402},{\"userId\":\"1\",\"id\":403},{\"userId\":\"1\",\"id\":404},{\"userId\":\"1\",\"id\":405},{\"userId\":\"1\",\"id\":406},{\"userId\":\"1\",\"id\":407},{\"userId\":\"1\",\"id\":408},{\"userId\":\"1\",\"id\":409},{\"userId\":\"1\",\"id\":410},{\"userId\":\"1\",\"id\":411},{\"userId\":\"1\",\"id\":412},{\"userId\":\"1\",\"id\":413},{\"userId\":\"1\",\"id\":414},{\"userId\":\"1\",\"id\":415},{\"userId\":\"1\",\"id\":416},{\"userId\":\"1\",\"id\":417},{\"userId\":\"1\",\"id\":418},{\"userId\":\"1\",\"id\":419},{\"userId\":\"1\",\"id\":420},{\"userId\":\"1\",\"id\":421},{\"userId\":\"1\",\"id\":422},{\"userId\":\"1\",\"id\":423},{\"userId\":\"1\",\"id\":424},{\"userId\":\"1\",\"id\":425},{\"userId\":\"1\",\"id\":426},{\"userId\":\"1\",\"id\":427},{\"userId\":\"1\",\"id\":428},{\"userId\":\"1\",\"id\":429},{\"userId\":\"1\",\"id\":430},{\"userId\":\"1\",\"id\":431},{\"userId\":\"1\",\"id\":432},{\"userId\":\"1\",\"id\":433},{\"userId\":\"1\",\"id\":434},{\"userId\":\"1\",\"id\":435},{\"userId\":\"1\",\"id\":436},{\"userId\":\"1\",\"id\":437},{\"userId\":\"1\",\"id\":438},{\"userId\":\"1\",\"id\":439},{\"userId\":\"1\",\"id\":440},{\"userId\":\"1\",\"id\":441},{\"userId\":\"1\",\"id\":442},{\"userId\":\"1\",\"id\":443},{\"userId\":\"1\",\"id\":444},{\"userId\":\"1\",\"id\":445},{\"userId\":\"1\",\"id\":446},{\"userId\":\"1\",\"id\":447},{\"userId\":\"1\",\"id\":448},{\"userId\":\"1\",\"id\":449},{\"userId\":\"1\",\"id\":450},{\"userId\":\"1\",\"id\":451},{\"userId\":\"1\",\"id\":452},{\"userId\":\"1\",\"id\":453},{\"userId\":\"1\",\"id\":454},{\"userId\":\"1\",\"id\":455},{\"userId\":\"1\",\"id\":456},{\"userId\":\"1\",\"id\":457},{\"userId\":\"1\",\"id\":458},{\"userId\":\"1\",\"id\":459},{\"userId\":\"1\",\"id\":460},{\"userId\":\"1\",\"id\":461},{\"userId\":\"1\",\"id\":462},{\"userId\":\"1\",\"id\":463},{\"userId\":\"1\",\"id\":464},{\"userId\":\"1\",\"id\":465},{\"userId\":\"1\",\"id\":466},{\"userId\":\"1\",\"id\":467},{\"userId\":\"1\",\"id\":468},{\"userId\":\"1\",\"id\":469},{\"userId\":\"1\",\"id\":470},{\"userId\":\"1\",\"id\":471},{\"userId\":\"1\",\"id\":472},{\"userId\":\"1\",\"id\":473},{\"userId\":\"1\",\"id\":474},{\"userId\":\"1\",\"id\":475},{\"userId\":\"1\",\"id\":476},{\"userId\":\"1\",\"id\":477},{\"userId\":\"1\",\"id\":478},{\"userId\":\"1\",\"id\":479},{\"userId\":\"1\",\"id\":480},{\"userId\":\"1\",\"id\":481},{\"userId\":\"1\",\"id\":482},{\"userId\":\"1\",\"id\":483},{\"userId\":\"1\",\"id\":484},{\"userId\":\"1\",\"id\":485},{\"userId\":\"1\",\"id\":486},{\"userId\":\"1\",\"id\":487},{\"userId\":\"1\",\"id\":488},{\"userId\":\"1\",\"id\":489},{\"userId\":\"1\",\"id\":490},{\"userId\":\"1\",\"id\":491},{\"userId\":\"1\",\"id\":492},{\"userId\":\"1\",\"id\":493},{\"userId\":\"1\",\"id\":494},{\"userId\":\"1\",\"id\":495},{\"userId\":\"1\",\"id\":496},{\"userId\":\"1\",\"id\":497},{\"userId\":\"1\",\"id\":498},{\"userId\":\"1\",\"id\":499},{\"userId\":\"1\",\"id\":500},{\"userId\":\"1\",\"id\":501},{\"userId\":\"1\",\"id\":502},{\"userId\":\"1\",\"id\":503},{\"userId\":\"1\",\"id\":504},{\"userId\":\"1\",\"id\":505},{\"userId\":\"1\",\"id\":506},{\"userId\":\"1\",\"id\":507},{\"userId\":\"1\",\"id\":508},{\"userId\":\"1\",\"id\":509},{\"userId\":\"1\",\"id\":510},{\"userId\":\"1\",\"id\":511},{\"userId\":\"1\",\"id\":512},{\"userId\":\"1\",\"id\":513},{\"userId\":\"1\",\"id\":514},{\"userId\":\"1\",\"id\":515},{\"userId\":\"1\",\"id\":516},{\"userId\":\"1\",\"id\":517},{\"userId\":\"1\",\"id\":518},{\"userId\":\"1\",\"id\":519},{\"userId\":\"1\",\"id\":520},{\"userId\":\"1\",\"id\":521},{\"userId\":\"1\",\"id\":522},{\"userId\":\"1\",\"id\":523},{\"userId\":\"1\",\"id\":524},{\"userId\":\"1\",\"id\":525},{\"userId\":\"1\",\"id\":526},{\"userId\":\"1\",\"id\":527},{\"userId\":\"1\",\"id\":528},{\"userId\":\"1\",\"id\":529},{\"userId\":\"1\",\"id\":530},{\"userId\":\"1\",\"id\":531},{\"userId\":\"1\",\"id\":532},{\"userId\":\"1\",\"id\":533},{\"userId\":\"1\",\"id\":534},{\"userId\":\"1\",\"id\":535},{\"userId\":\"1\",\"id\":536},{\"userId\":\"1\",\"id\":537},{\"userId\":\"1\",\"id\":538},{\"userId\":\"1\",\"id\":539},{\"userId\":\"1\",\"id\":540},{\"userId\":\"1\",\"id\":541},{\"userId\":\"1\",\"id\":542},{\"userId\":\"1\",\"id\":543},{\"userId\":\"1\",\"id\":544},{\"userId\":\"1\",\"id\":545},{\"userId\":\"1\",\"id\":546},{\"userId\":\"1\",\"id\":547},{\"userId\":\"1\",\"id\":548},{\"userId\":\"1\",\"id\":549},{\"userId\":\"1\",\"id\":550},{\"userId\":\"1\",\"id\":551},{\"userId\":\"1\",\"id\":552},{\"userId\":\"1\",\"id\":553},{\"userId\":\"1\",\"id\":554},{\"userId\":\"1\",\"id\":555},{\"userId\":\"1\",\"id\":556},{\"userId\":\"1\",\"id\":557},{\"userId\":\"1\",\"id\":558},{\"userId\":\"1\",\"id\":559},{\"userId\":\"1\",\"id\":560},{\"userId\":\"1\",\"id\":561},{\"userId\":\"1\",\"id\":562},{\"userId\":\"1\",\"id\":563},{\"userId\":\"1\",\"id\":564},{\"userId\":\"1\",\"id\":565},{\"userId\":\"1\",\"id\":566},{\"userId\":\"1\",\"id\":567},{\"userId\":\"1\",\"id\":568},{\"userId\":\"1\",\"id\":569},{\"userId\":\"1\",\"id\":570},{\"userId\":\"1\",\"id\":571},{\"userId\":\"1\",\"id\":572},{\"userId\":\"1\",\"id\":573},{\"userId\":\"1\",\"id\":574},{\"userId\":\"1\",\"id\":575},{\"userId\":\"1\",\"id\":576},{\"userId\":\"1\",\"id\":577},{\"userId\":\"1\",\"id\":578},{\"userId\":\"1\",\"id\":579},{\"userId\":\"1\",\"id\":580},{\"userId\":\"1\",\"id\":581},{\"userId\":\"1\",\"id\":582},{\"userId\":\"1\",\"id\":583},{\"userId\":\"1\",\"id\":584},{\"userId\":\"1\",\"id\":585},{\"userId\":\"1\",\"id\":586},{\"userId\":\"1\",\"id\":587},{\"userId\":\"1\",\"id\":588},{\"userId\":\"1\",\"id\":589},{\"userId\":\"1\",\"id\":590},{\"userId\":\"1\",\"id\":591},{\"userId\":\"1\",\"id\":592},{\"userId\":\"1\",\"id\":593},{\"userId\":\"1\",\"id\":594},{\"userId\":\"1\",\"id\":595},{\"userId\":\"1\",\"id\":596},{\"userId\":\"1\",\"id\":597},{\"userId\":\"1\",\"id\":598},{\"userId\":\"1\",\"id\":599},{\"userId\":\"1\",\"id\":600},{\"userId\":\"1\",\"id\":601},{\"userId\":\"1\",\"id\":602},{\"userId\":\"1\",\"id\":603},{\"userId\":\"1\",\"id\":604},{\"userId\":\"1\",\"id\":605},{\"userId\":\"1\",\"id\":606},{\"userId\":\"1\",\"id\":607},{\"userId\":\"1\",\"id\":608},{\"userId\":\"1\",\"id\":609},{\"userId\":\"1\",\"id\":610},{\"userId\":\"1\",\"id\":611},{\"userId\":\"1\",\"id\":612},{\"userId\":\"1\",\"id\":613},{\"userId\":\"1\",\"id\":614},{\"userId\":\"1\",\"id\":615},{\"userId\":\"1\",\"id\":616},{\"userId\":\"1\",\"id\":617},{\"userId\":\"1\",\"id\":618},{\"userId\":\"1\",\"id\":619},{\"userId\":\"1\",\"id\":620},{\"userId\":\"1\",\"id\":621},{\"userId\":\"1\",\"id\":622},{\"userId\":\"1\",\"id\":623},{\"userId\":\"1\",\"id\":624},{\"userId\":\"1\",\"id\":625},{\"userId\":\"1\",\"id\":626},{\"userId\":\"1\",\"id\":627},{\"userId\":\"1\",\"id\":628},{\"userId\":\"1\",\"id\":629},{\"userId\":\"1\",\"id\":630},{\"userId\":\"1\",\"id\":631},{\"userId\":\"1\",\"id\":632},{\"userId\":\"1\",\"id\":633},{\"userId\":\"1\",\"id\":634},{\"userId\":\"1\",\"id\":635},{\"userId\":\"1\",\"id\":636},{\"userId\":\"1\",\"id\":637},{\"userId\":\"1\",\"id\":638},{\"userId\":\"1\",\"id\":639},{\"userId\":\"1\",\"id\":640},{\"userId\":\"1\",\"id\":641},{\"userId\":\"1\",\"id\":642},{\"userId\":\"1\",\"id\":643},{\"userId\":\"1\",\"id\":644},{\"userId\":\"1\",\"id\":645},{\"userId\":\"1\",\"id\":646},{\"userId\":\"1\",\"id\":647},{\"userId\":\"1\",\"id\":648},{\"userId\":\"1\",\"id\":649},{\"userId\":\"1\",\"id\":650},{\"userId\":\"1\",\"id\":651},{\"userId\":\"1\",\"id\":652},{\"userId\":\"1\",\"id\":653},{\"userId\":\"1\",\"id\":654},{\"userId\":\"1\",\"id\":655},{\"userId\":\"1\",\"id\":656},{\"userId\":\"1\",\"id\":657},{\"userId\":\"1\",\"id\":658},{\"userId\":\"1\",\"id\":659},{\"userId\":\"1\",\"id\":660},{\"userId\":\"1\",\"id\":661},{\"userId\":\"1\",\"id\":662},{\"userId\":\"1\",\"id\":663},{\"userId\":\"1\",\"id\":664},{\"userId\":\"1\",\"id\":665},{\"userId\":\"1\",\"id\":666},{\"userId\":\"1\",\"id\":667},{\"userId\":\"1\",\"id\":668},{\"userId\":\"1\",\"id\":669},{\"userId\":\"1\",\"id\":670},{\"userId\":\"1\",\"id\":671},{\"userId\":\"1\",\"id\":672},{\"userId\":\"1\",\"id\":673},{\"userId\":\"1\",\"id\":674},{\"userId\":\"1\",\"id\":675},{\"userId\":\"1\",\"id\":676},{\"userId\":\"1\",\"id\":677},{\"userId\":\"1\",\"id\":678},{\"userId\":\"1\",\"id\":679},{\"userId\":\"1\",\"id\":680},{\"userId\":\"1\",\"id\":681},{\"userId\":\"1\",\"id\":682},{\"userId\":\"1\",\"id\":683},{\"userId\":\"1\",\"id\":684},{\"userId\":\"1\",\"id\":685},{\"userId\":\"1\",\"id\":686},{\"userId\":\"1\",\"id\":687},{\"userId\":\"1\",\"id\":688},{\"userId\":\"1\",\"id\":689},{\"userId\":\"1\",\"id\":690},{\"userId\":\"1\",\"id\":691},{\"userId\":\"1\",\"id\":692},{\"userId\":\"1\",\"id\":693},{\"userId\":\"1\",\"id\":694},{\"userId\":\"1\",\"id\":695},{\"userId\":\"1\",\"id\":696},{\"userId\":\"1\",\"id\":697},{\"userId\":\"1\",\"id\":698},{\"userId\":\"1\",\"id\":699},{\"userId\":\"1\",\"id\":700},{\"userId\":\"1\",\"id\":701},{\"userId\":\"1\",\"id\":702},{\"userId\":\"1\",\"id\":703},{\"userId\":\"1\",\"id\":704},{\"userId\":\"1\",\"id\":705},{\"userId\":\"1\",\"id\":706},{\"userId\":\"1\",\"id\":707},{\"userId\":\"1\",\"id\":708},{\"userId\":\"1\",\"id\":709},{\"userId\":\"1\",\"id\":710},{\"userId\":\"1\",\"id\":711},{\"userId\":\"1\",\"id\":712},{\"userId\":\"1\",\"id\":713},{\"userId\":\"1\",\"id\":714},{\"userId\":\"1\",\"id\":715},{\"userId\":\"1\",\"id\":716},{\"userId\":\"1\",\"id\":717},{\"userId\":\"1\",\"id\":718},{\"userId\":\"1\",\"id\":719},{\"userId\":\"1\",\"id\":720},{\"userId\":\"1\",\"id\":721},{\"userId\":\"1\",\"id\":722},{\"userId\":\"1\",\"id\":723},{\"userId\":\"1\",\"id\":724},{\"userId\":\"1\",\"id\":725},{\"userId\":\"1\",\"id\":726},{\"userId\":\"1\",\"id\":727},{\"userId\":\"1\",\"id\":728},{\"userId\":\"1\",\"id\":729},{\"userId\":\"1\",\"id\":730},{\"userId\":\"1\",\"id\":731},{\"userId\":\"1\",\"id\":732},{\"userId\":\"1\",\"id\":733},{\"userId\":\"1\",\"id\":734},{\"userId\":\"1\",\"id\":735},{\"userId\":\"1\",\"id\":736},{\"userId\":\"1\",\"id\":737},{\"userId\":\"1\",\"id\":738},{\"userId\":\"1\",\"id\":739},{\"userId\":\"1\",\"id\":740},{\"userId\":\"1\",\"id\":741},{\"userId\":\"1\",\"id\":742},{\"userId\":\"1\",\"id\":743},{\"userId\":\"1\",\"id\":744},{\"userId\":\"1\",\"id\":745},{\"userId\":\"1\",\"id\":746},{\"userId\":\"1\",\"id\":747},{\"userId\":\"1\",\"id\":748},{\"userId\":\"1\",\"id\":749},{\"userId\":\"1\",\"id\":750},{\"userId\":\"1\",\"id\":751},{\"userId\":\"1\",\"id\":752},{\"userId\":\"1\",\"id\":753},{\"userId\":\"1\",\"id\":754},{\"userId\":\"1\",\"id\":755},{\"userId\":\"1\",\"id\":756},{\"userId\":\"1\",\"id\":757},{\"userId\":\"1\",\"id\":758},{\"userId\":\"1\",\"id\":759},{\"userId\":\"1\",\"id\":760},{\"userId\":\"1\",\"id\":761},{\"userId\":\"1\",\"id\":762},{\"userId\":\"1\",\"id\":763},{\"userId\":\"1\",\"id\":764},{\"userId\":\"1\",\"id\":765},{\"userId\":\"1\",\"id\":766},{\"userId\":\"1\",\"id\":767},{\"userId\":\"1\",\"id\":768},{\"userId\":\"1\",\"id\":769},{\"userId\":\"1\",\"id\":770},{\"userId\":\"1\",\"id\":771},{\"userId\":\"1\",\"id\":772},{\"userId\":\"1\",\"id\":773},{\"userId\":\"1\",\"id\":774},{\"userId\":\"1\",\"id\":775},{\"userId\":\"1\",\"id\":776},{\"userId\":\"1\",\"id\":777},{\"userId\":\"1\",\"id\":778},{\"userId\":\"1\",\"id\":779},{\"userId\":\"1\",\"id\":780},{\"userId\":\"1\",\"id\":781},{\"userId\":\"1\",\"id\":782},{\"userId\":\"1\",\"id\":783},{\"userId\":\"1\",\"id\":784},{\"userId\":\"1\",\"id\":785},{\"userId\":\"1\",\"id\":786},{\"userId\":\"1\",\"id\":787},{\"userId\":\"1\",\"id\":788},{\"userId\":\"1\",\"id\":789},{\"userId\":\"1\",\"id\":790},{\"userId\":\"1\",\"id\":791},{\"userId\":\"1\",\"id\":792},{\"userId\":\"1\",\"id\":793},{\"userId\":\"1\",\"id\":794},{\"userId\":\"1\",\"id\":795},{\"userId\":\"1\",\"id\":796},{\"userId\":\"1\",\"id\":797},{\"userId\":\"1\",\"id\":798},{\"userId\":\"1\",\"id\":799},{\"userId\":\"1\",\"id\":800},{\"userId\":\"1\",\"id\":801},{\"userId\":\"1\",\"id\":802},{\"userId\":\"1\",\"id\":803},{\"userId\":\"1\",\"id\":804},{\"userId\":\"1\",\"id\":805},{\"userId\":\"1\",\"id\":806},{\"userId\":\"1\",\"id\":807},{\"userId\":\"1\",\"id\":808},{\"userId\":\"1\",\"id\":809},{\"userId\":\"1\",\"id\":810},{\"userId\":\"1\",\"id\":811},{\"userId\":\"1\",\"id\":812},{\"userId\":\"1\",\"id\":813},{\"userId\":\"1\",\"id\":814},{\"userId\":\"1\",\"id\":815},{\"userId\":\"1\",\"id\":816},{\"userId\":\"1\",\"id\":817},{\"userId\":\"1\",\"id\":818},{\"userId\":\"1\",\"id\":819},{\"userId\":\"1\",\"id\":820},{\"userId\":\"1\",\"id\":821},{\"userId\":\"1\",\"id\":822},{\"userId\":\"1\",\"id\":823},{\"userId\":\"1\",\"id\":824},{\"userId\":\"1\",\"id\":825},{\"userId\":\"1\",\"id\":826},{\"userId\":\"1\",\"id\":827},{\"userId\":\"1\",\"id\":828},{\"userId\":\"1\",\"id\":829},{\"userId\":\"1\",\"id\":830},{\"userId\":\"1\",\"id\":831},{\"userId\":\"1\",\"id\":832},{\"userId\":\"1\",\"id\":833},{\"userId\":\"1\",\"id\":834},{\"userId\":\"1\",\"id\":835},{\"userId\":\"1\",\"id\":836},{\"userId\":\"1\",\"id\":837},{\"userId\":\"1\",\"id\":838},{\"userId\":\"1\",\"id\":839},{\"userId\":\"1\",\"id\":840},{\"userId\":\"1\",\"id\":841},{\"userId\":\"1\",\"id\":842},{\"userId\":\"1\",\"id\":843},{\"userId\":\"1\",\"id\":844},{\"userId\":\"1\",\"id\":845},{\"userId\":\"1\",\"id\":846},{\"userId\":\"1\",\"id\":847},{\"userId\":\"1\",\"id\":848},{\"userId\":\"1\",\"id\":849},{\"userId\":\"1\",\"id\":850},{\"userId\":\"1\",\"id\":851},{\"userId\":\"1\",\"id\":852},{\"userId\":\"1\",\"id\":853},{\"userId\":\"1\",\"id\":854},{\"userId\":\"1\",\"id\":855},{\"userId\":\"1\",\"id\":856},{\"userId\":\"1\",\"id\":857},{\"userId\":\"1\",\"id\":858},{\"userId\":\"1\",\"id\":859},{\"userId\":\"1\",\"id\":860},{\"userId\":\"1\",\"id\":861},{\"userId\":\"1\",\"id\":862},{\"userId\":\"1\",\"id\":863},{\"userId\":\"1\",\"id\":864},{\"userId\":\"1\",\"id\":865},{\"userId\":\"1\",\"id\":866},{\"userId\":\"1\",\"id\":867},{\"userId\":\"1\",\"id\":868},{\"userId\":\"1\",\"id\":869},{\"userId\":\"1\",\"id\":870},{\"userId\":\"1\",\"id\":871},{\"userId\":\"1\",\"id\":872},{\"userId\":\"1\",\"id\":873},{\"userId\":\"1\",\"id\":874},{\"userId\":\"1\",\"id\":875},{\"userId\":\"1\",\"id\":876},{\"userId\":\"1\",\"id\":877},{\"userId\":\"1\",\"id\":878},{\"userId\":\"1\",\"id\":879},{\"userId\":\"1\",\"id\":880},{\"userId\":\"1\",\"id\":881},{\"userId\":\"1\",\"id\":882}],\"propZdoids\":[],\"players\":\"<Set>\"}]",
+  "> dungeon enter (Nah) = {\"ok\":true,\"active\":true,\"message\":\"Dungeon betreten: Cave #7\"}",
+  "peer Nah dungeonId=\"cave-2a\" dungeonReturn={\"x\":190,\"y\":10,\"z\":195} position={\"x\":2.3841854120595425e-7,\"y\":0.5,\"z\":1.<zahl>} worldId=\"dungeon:cave-2a\" char=0:0",
+  "  call dungeonsNeu.getInstance [\"cave-2a\"]",
+  "> dungeon leave (Nah) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon verlassen\"}",
+  "peer Nah dungeonId=null dungeonReturn=null position={\"x\":190,\"y\":10,\"z\":195} worldId=\"haupt\" char=0:0",
+  "  call dungeonsNeu.deleteDocument [\"steingrab-7\"]",
+  "> dungeon delete steingrab-7 (Ich) = {\"ok\":true,\"active\":false,\"message\":\"Dungeon steingrab-7 gelöscht\"}",
+  "peer Ich dungeonId=null dungeonReturn=null position={\"x\":1,\"y\":2,\"z\":3} worldId=\"haupt\" char=0:0",
+  "  disk i1-form-k1dn1/cave-2a.json=10119:9d8c00ac6477069a i1-form-k1dn1/cave-5.json=13145:57c9a837e73021e7 i1-form-k1dn1/cave-80000000.json=7547:b5a1658d33878cc2 i1-form-k1dn1/entrances.json=370:8b65d371ee790b3a i1-form-k1dn1/forestcrypt-2b.json=14181:e510664b77b82ad7 i1-form-k1dn1/k1d-gross.json=255:abbfce898e1e2f7e i1-form-k1dn1/k1dn1-id.json=232:15b4c398840c578d i1-form-k1dn1/steingrab-5.json=235:afe0978cff0847a7 i1-form-k1dn1/steingrab-80000000.json=251:0b02fea00894e874"
+ ]
+};
+
 if (MESSEN_BASIS) {
   const attrappe = messeAttrappe();
   const echt = messeEcht();
@@ -5166,7 +7259,11 @@ if (MESSEN_BASIS) {
   const spielerEcht = messeSpielerEcht();
   const spielerAttrappeN1 = messeSpielerAttrappeN1();
   const spielerEchtN1 = messeSpielerEchtN1();
-  process.stdout.write(`${JSON.stringify({ attrappe, echt, interAttrappe, interEcht, chatAttrappe, chatEcht, befehleAttrappe, befehleEcht, befehleN1Attrappe, befehleN1Echt, takt1A, befehle1BAttrappe, befehle1BEcht, spielerAttrappe, spielerEcht, spielerAttrappeN1, spielerEchtN1 }, null, 1)}\n`);
+  const dungeonAttrappe = messeDungeonAttrappe();
+  const dungeonEcht = messeDungeonEcht();
+  const dungeonAttrappeN1 = messeDungeonAttrappeN1();
+  const dungeonEchtN1 = messeDungeonEchtN1();
+  process.stdout.write(`${JSON.stringify({ attrappe, echt, interAttrappe, interEcht, chatAttrappe, chatEcht, befehleAttrappe, befehleEcht, befehleN1Attrappe, befehleN1Echt, takt1A, befehle1BAttrappe, befehle1BEcht, spielerAttrappe, spielerEcht, spielerAttrappeN1, spielerEchtN1, dungeonAttrappe, dungeonEcht, dungeonAttrappeN1, dungeonEchtN1 }, null, 1)}\n`);
   process.exit(0);
 }
 
@@ -5271,6 +7368,42 @@ console.log('\n[4e] Behaviour of step 1, package C, after the attack (N1): Unico
   ] as const) {
     check(`${titel}: the messages, the calls with their arguments and receivers, the peer after every command`, same(gemessen.notizen, soll.notizen), `${gemessen.notizen.length} notes, expected ${soll.notizen.length}; first difference: ${gemessen.notizen.find((x, i) => x !== soll.notizen[i])}`);
     check(`${titel}: packets, calls, state numbers, console, exceptions`, gleich(gemessen, soll), JSON.stringify([gemessen.aufrufe, gemessen.zustand, gemessen.ausnahmen]));
+  }
+}
+console.log('\n[4f] Behaviour of step 1, package D: dungeon with its 13 sub-commands and resolveDungeonBase give the numbers measured before the move');
+{
+  for (const [titel, gemessen, soll] of [
+    ['dungeon on a stand-in', messeDungeonAttrappe(), SOLL_DUNGEON_ATTRAPPE],
+    ['dungeon on a real instance (registry of the constructor, then the forwardings)', messeDungeonEcht(), SOLL_DUNGEON_ECHT],
+  ] as const) {
+    const i = gemessen.notizen.findIndex((x, j) => x !== soll.notizen[j]);
+    check(`${titel}: the messages, the calls with their arguments and receivers, the documents and the peer after every command, in order`, same(gemessen.notizen, soll.notizen), `${gemessen.notizen.length} notes, expected ${soll.notizen.length}; first difference at ${i}: ${gemessen.notizen[i]} (expected ${soll.notizen[i]})`);
+    check(`${titel}: the reads of the context members and the calls, counted`, JSON.stringify(gemessen.aufrufe) === JSON.stringify(soll.aufrufe), JSON.stringify(gemessen.aufrufe));
+    check(`${titel}: packets, state numbers, console, exceptions`, JSON.stringify([gemessen.paket, gemessen.zustand, gemessen.konsole, gemessen.ausnahmen]) === JSON.stringify([soll.paket, soll.zustand, soll.konsole, soll.ausnahmen]), JSON.stringify([gemessen.konsole, gemessen.ausnahmen]));
+    check(`${titel}: all of it`, JSON.stringify(gemessen) === JSON.stringify(soll));
+  }
+  // the sequences reach every sub-command: without an argument, with an unknown id, refused for no rights and for a guest (attack lesson: complete sequences)
+  for (const s of DUNGEON_UNTERBEFEHLE) {
+    for (const [titel, soll] of [['stand-in', SOLL_DUNGEON_ATTRAPPE], ['real instance', SOLL_DUNGEON_ECHT]] as const) {
+      const hat = (p: string): boolean => soll.notizen.some((x) => x.startsWith(p));
+      check(`[4f] ${titel}: dungeon ${s} runs without an argument, with an unknown id, for no admin and for a guest`, hat(`> dungeon ${s} (Ich) = `) && hat(`> dungeon ${s} nix (Ich) = `) && soll.notizen.some((x) => new RegExp(`^> dungeon ${s}( d1)? \\(Kein\\) = .*Admin commands are not allowed`).test(x)) && soll.notizen.some((x) => new RegExp(`^> dungeon ${s}( d1)? \\(Gast\\) = .*Admin commands are not allowed`).test(x)));
+    }
+  }
+}
+console.log('\n[4g] Behaviour of step 1, package D, after the attack (N1): spellings, boundaries, empty ids, dungeons replaced after its first use');
+{
+  for (const [titel, gemessen, soll] of [
+    ['N1 dungeon on a stand-in', messeDungeonAttrappeN1(), SOLL_DUNGEON_ATTRAPPE_N1],
+    ['N1 dungeon on a real instance', messeDungeonEchtN1(), SOLL_DUNGEON_ECHT_N1],
+  ] as const) {
+    const i = gemessen.notizen.findIndex((x, j) => x !== soll.notizen[j]);
+    check(`${titel}: the messages, the calls with their arguments and receivers, the documents and the peer after every command, in order`, same(gemessen.notizen, soll.notizen), `${gemessen.notizen.length} notes, expected ${soll.notizen.length}; first difference at ${i}: ${gemessen.notizen[i]} (expected ${soll.notizen[i]})`);
+    check(`${titel}: packets, calls, state numbers, console, exceptions`, JSON.stringify(gemessen) === JSON.stringify(soll), JSON.stringify([gemessen.aufrufe, gemessen.konsole, gemessen.ausnahmen]));
+  }
+  // the replacement of D-9 was reached by every branch after it was set (the sequence proves nothing if the replacement is never called)
+  for (const [titel, soll, label] of [['stand-in', SOLL_DUNGEON_ATTRAPPE_N1, 'dungeonsNeu.'], ['real instance', SOLL_DUNGEON_ECHT_N1, 'dungeonsNeu.']] as const) {
+    const neuGerufen = Object.keys(soll.aufrufe).filter((x) => x.startsWith(label)).sort();
+    check(`[4g] ${titel}: the replacement of dungeons is called after it was set (${neuGerufen.length} methods)`, neuGerufen.length >= 8, neuGerufen.join(','));
   }
 }
 console.log(failures === 0 ? `\n=== I1 form k: ALL PASSED (${total}) ===` : `\n=== I1 form k: ${failures} of ${total} FAILED ===`);

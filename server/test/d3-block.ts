@@ -23,7 +23,7 @@ import { portVon } from '../../scripts/testport.mjs';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import type { Peer } from '../src/net/Peer.js';
-import { beendeBlock, beendeBlockDurchSchlag, blockHalteTakt, blockPaket, blockTrifft, blockZuruecksetzen, darfBlocken, type BlockPeer } from '../src/spiel/Block.js';
+import { blockTakt, beendeBlock, beendeBlockDurchSchlag, blockHalteTakt, blockPaket, blockTrifft, blockZuruecksetzen, darfBlocken, type BlockPeer } from '../src/spiel/Block.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WORLDS_DIR = resolve(__dirname, 'tmp-d3-block');
@@ -44,7 +44,7 @@ interface Gesendet { typ: number; inhalt: string }
 function attrappe(waffe = 'SwordNorth'): BlockPeer & { gesendet: Gesendet[] } {
   const gesendet: Gesendet[] = [];
   return {
-    blockSeit: 0, blockSperreBis: 0, blockOhneParade: false, stamina: 100, staminaZuletztVerbraucht: 0,
+    blockSeit: 0, blockTaktZeit: 0, blockSperreBis: 0, blockOhneParade: false, stamina: 100, staminaZuletztVerbraucht: 0,
     waffe, flying: false, totBis: 0, blickYaw: 0, position: { x: 0, y: 0, z: 0 },
     gesendet,
     sendPacketWith(typ: PacketType, schreibe: (w: Writer) => void): void {
@@ -105,24 +105,61 @@ console.log('\n[1] Spiel/Block.ts on a stand-in peer (fixed clock)');
   blockPaket(h, true, 10_000);
   let jetzt = 10_000;
   let blockt = true;
-  for (let i = 0; i < 100; i++) { jetzt += 50; blockt = blockHalteTakt(h, 0.05, jetzt); }
+  for (let i = 0; i < 100; i++) { jetzt += 50; blockt = blockHalteTakt(h, jetzt); }
   check('5 s of holding (100 ticks of 50 ms): stamina 90 +- 0.1, still blocking', nah(h.stamina, 90, 0.1) && blockt && h.blockSeit === 10_000, `${h.stamina}`);
   check('every tick sets the stamp of the last drain (no regeneration while held)', h.staminaZuletztVerbraucht === jetzt);
   const g = attrappe();
   blockPaket(g, true, 20_000);
-  const erster = blockHalteTakt(g, 0.5, 20_020);
+  const erster = blockHalteTakt(g, 20_020);
   check('the first tick pays only the time the block was really held (20 ms, not the 0.5 s since the last packet)', nah(100 - g.stamina, 2 * 0.02, 1e-9) && erster, `${100 - g.stamina}`);
 
   // Ends at stamina 0.
   const e = attrappe();
   e.stamina = 0.04;
   blockPaket(e, true, 30_000);
-  const nochBlockt = blockHalteTakt(e, 0.05, 30_050);
+  const nochBlockt = blockHalteTakt(e, 30_050);
   check('stamina runs out while held: the block ends, stamina 0, the lock starts, the client is told Block false', !nochBlockt && e.blockSeit === 0 && e.stamina === 0 && e.blockSperreBis === 30_050 + BLOCK_SPERRE_MS && e.gesendet.some((x) => x.typ === PacketType.Block && x.inhalt === 'false'), JSON.stringify(e.gesendet));
-  check('no block held: the tick costs nothing and answers false', (() => { const n = attrappe(); return !blockHalteTakt(n, 0.05, 1000) && n.stamina === 100; })());
+  check('no block held: the tick costs nothing and answers false', (() => { const n = attrappe(); return !blockHalteTakt(n, 1000) && n.stamina === 100; })());
   const fl = attrappe();
   blockPaket(fl, true, 1000); fl.flying = true;
-  check('flight mode switched on while held: the tick ends the block', !blockHalteTakt(fl, 0.05, 1050) && fl.blockSeit === 0);
+  check('flight mode switched on while held: the tick ends the block', !blockHalteTakt(fl, 1050) && fl.blockSeit === 0);
+
+  // B1: the time is billed by the SERVER clock, no cap: a silent client pays too.
+  const stumm = attrappe();
+  blockPaket(stumm, true, 50_000);
+  blockHalteTakt(stumm, 50_050);
+  const nachStumm = blockHalteTakt(stumm, 56_050); // 6 s without a packet
+  check('B1: 6 s without an input packet cost 12 stamina (not a capped slice): 100 - 0.1 - 12', nah(stumm.stamina, 100 - 0.1 - 12, 1e-9) && nachStumm, `${stumm.stamina}`);
+  const lang = attrappe();
+  blockPaket(lang, true, 60_000);
+  blockHalteTakt(lang, 60_010);
+  blockHalteTakt(lang, 90_010); // 30 s of silence
+  check('B1: 30 s of silence cost 60 stamina', nah(lang.stamina, 100 - 0.02 - 60, 1e-9), `${lang.stamina}`);
+  const treffer = attrappe();
+  blockPaket(treffer, true, 70_000);
+  const tr1 = blockTrifft(treffer, vorn, 30, 70_000 + 10_000); // nothing sent for 10 s, then a blow
+  check('B1: a blow bills the time held first (10 s = 20), then the 4 of the blow: 100 - 24', tr1.art === 'geblockt' && nah(treffer.stamina, 76, 1e-9), `${treffer.stamina}`);
+  const leer = attrappe();
+  blockPaket(leer, true, 80_000);
+  const tr2 = blockTrifft(leer, vorn, 30, 80_000 + 60_000); // 60 s silent: the stamina is gone before the blow
+  check('B1: a silent client that held 60 s holds nothing: stamina 0, block ended, the FULL blow', tr2.art === 'keiner' && tr2.schaden === 30 && leer.blockSeit === 0 && leer.stamina === 0, JSON.stringify(tr2));
+  const takt = attrappe();
+  blockPaket(takt, true, 90_000);
+  blockTakt([takt], 90_000 + 4000);
+  check('B1: the server tick bills a client that sends nothing (4 s = 8)', nah(takt.stamina, 92, 1e-9) && takt.blockSeit > 0, `${takt.stamina}`);
+  blockTakt([takt], 90_000 + 200_000);
+  check('B1: ... and ends the block when the stamina is gone, the client is told', takt.blockSeit === 0 && takt.gesendet.some((x) => x.typ === PacketType.Block && x.inhalt === 'false'));
+
+  // B3: the item condition holds for the whole block.
+  const hand = attrappe();
+  blockPaket(hand, true, 100_000);
+  hand.waffe = '';
+  check('B3: item put away while held: the tick ends the block', !blockHalteTakt(hand, 100_050) && hand.blockSeit === 0 && hand.gesendet.some((x) => x.typ === PacketType.Block && x.inhalt === 'false'));
+  const hand2 = attrappe();
+  blockPaket(hand2, true, 110_000);
+  hand2.waffe = '';
+  const tr3 = blockTrifft(hand2, vorn, 30, 110_500);
+  check('B3: item put away while held: the next blow is NOT blocked (full damage, no stamina cost for it) and the block is over', tr3.art === 'keiner' && tr3.schaden === 30 && hand2.blockSeit === 0 && hand2.stamina > 98, JSON.stringify(tr3));
 
   // An accepted swing of her own ends the block.
   const s = attrappe();
@@ -143,11 +180,11 @@ console.log('\n[1] Spiel/Block.ts on a stand-in peer (fixed clock)');
   const b = attrappe();
   blockPaket(b, true, 1000);
   const hit = blockTrifft(b, vorn, 10, 1500);
-  check('a blow: stamp of the last drain set, stamina 96, message "@kampf.geblockt"', b.stamina === 96 && b.staminaZuletztVerbraucht === 1500 && b.gesendet.some((x) => x.inhalt === '@kampf.geblockt') && hit.art === 'geblockt');
+  check('a blow: stamp of the last drain set, stamina 100 - 1 (held 0.5 s, billed first) - 4 = 95, message "@kampf.geblockt"', nah(b.stamina, 95, 1e-9) && b.staminaZuletztVerbraucht === 1500 && b.gesendet.some((x) => x.inhalt === '@kampf.geblockt') && hit.art === 'geblockt');
   const pa = attrappe();
   blockPaket(pa, true, 1000);
   blockTrifft(pa, vorn, 10, 1100);
-  check('a parry: message "@kampf.pariert", stamina 96', pa.stamina === 96 && pa.gesendet.some((x) => x.inhalt === '@kampf.pariert'));
+  check('a parry: message "@kampf.pariert", stamina 100 - 0.2 - 4', nah(pa.stamina, 95.8, 1e-9) && pa.gesendet.some((x) => x.inhalt === '@kampf.pariert'));
   const br = attrappe();
   br.stamina = 3.9; blockPaket(br, true, 1000);
   const bruch = blockTrifft(br, vorn, 10, 1500);
@@ -155,7 +192,7 @@ console.log('\n[1] Spiel/Block.ts on a stand-in peer (fixed clock)');
   // A stand-in peer of another test has none of the block fields (undefined): that is "no block", not a block.
   const ohneFelder = { stamina: 100, staminaZuletztVerbraucht: 0, waffe: '', flying: false, totBis: 0, blickYaw: 0, position: { x: 0, y: 0, z: 0 }, sendPacketWith: (): void => undefined } as unknown as BlockPeer;
   check('a peer without the block fields: the tick answers false and costs nothing; a blow is untouched',
-    !blockHalteTakt(ohneFelder, 0.05, 1000) && ohneFelder.stamina === 100 && blockTrifft(ohneFelder, vorn, 10, 1000).art === 'keiner' && !beendeBlock(ohneFelder as never, 1000));
+    !blockHalteTakt(ohneFelder, 1000) && ohneFelder.stamina === 100 && blockTrifft(ohneFelder, vorn, 10, 1000).art === 'keiner' && !beendeBlock(ohneFelder as never, 1000));
   const kein = attrappe();
   const unber = blockTrifft(kein, vorn, 10, 1500);
   check('no block held: the blow is not touched, no message', unber.art === 'keiner' && unber.schaden === 10 && kein.gesendet.length === 0);
@@ -283,8 +320,8 @@ async function main(): Promise<void> {
     anna.health = 100; anna.stamina = 100;
     zugriff.applyCreatureAttack(von(0, -2), wolf, 2.4, anna.worldId, anna.position);
     const verlust = 100 - anna.health;
-    check(`WOLF FROM THE FRONT: life -30 % of the blow (${wolf} -> ${(wolf * 0.3).toFixed(2)}), stamina -4, the block goes on`,
-      nah(verlust, eingehenderSchaden(wolf * 0.3, ruest), 1e-9) && nah(verlust, wolf * 0.3, 1e-9) && nah(anna.stamina, 96, 1e-9) && anna.blockSeit > 0, `life ${anna.health}, stamina ${anna.stamina}`);
+    check(`WOLF FROM THE FRONT: life -30 % of the blow (${wolf} -> ${(wolf * 0.3).toFixed(2)}), stamina -4 (plus the time held), the block goes on`,
+      nah(verlust, eingehenderSchaden(wolf * 0.3, ruest), 1e-9) && nah(verlust, wolf * 0.3, 1e-9) && anna.stamina < 96 && anna.stamina > 94 && anna.blockSeit > 0, `life ${anna.health}, stamina ${anna.stamina}`);
     await warte(150);
     check('... and the message "@kampf.geblockt" reached the client', ws.meldungen.includes('@kampf.geblockt'), JSON.stringify(ws.meldungen));
     check('... with ONE spark effect (art 2), no blood', ws.effekte.length === 1 && ws.effekte[0] === 2, JSON.stringify(ws.effekte));
@@ -293,7 +330,7 @@ async function main(): Promise<void> {
     // From behind: full.
     anna.health = 100; anna.stamina = 100;
     zugriff.applyCreatureAttack(von(0, 2), wolf, 2.4, anna.worldId, anna.position);
-    check('WOLF FROM BEHIND: the full blow, stamina untouched', nah(100 - anna.health, eingehenderSchaden(wolf, ruest), 1e-9) && anna.stamina === 100, `life ${anna.health}, stamina ${anna.stamina}`);
+    check('WOLF FROM BEHIND: the full blow, only the time held is billed (no 4 for the blow)', nah(100 - anna.health, eingehenderSchaden(wolf, ruest), 1e-9) && anna.stamina > 98 && anna.stamina <= 100, `life ${anna.health}, stamina ${anna.stamina}`);
     await warte(100);
     check('... with the blood effect (art 1)', ws.effekte.length === 1 && ws.effekte[0] === 1, JSON.stringify(ws.effekte));
     ws.effekte.length = 0;
@@ -326,7 +363,7 @@ async function main(): Promise<void> {
     ws.effekte.length = 0; const flinchVor = ws.treffer;
     zugriff.applyCreatureAttack(von(0, -2), wolf, 2.4, anna.worldId, anna.position);
     const seit = Date.now() - anna.blockSeit;
-    check(`PARRY WINDOW (${seit} ms after the begin): life unchanged, the 4 stamina paid, the block goes on`, anna.health === 100 && anna.stamina === 96 && anna.blockSeit > 0 && seit < 200, `life ${anna.health}, stamina ${anna.stamina}`);
+    check(`PARRY WINDOW (${seit} ms after the begin): life unchanged, the 4 stamina paid, the block goes on`, anna.health === 100 && nah(anna.stamina, 96, 0.2) && anna.blockSeit > 0 && seit < 200, `life ${anna.health}, stamina ${anna.stamina}`);
     await warte(150);
     check('... message "@kampf.pariert"', ws.meldungen.includes('@kampf.pariert'), JSON.stringify(ws.meldungen));
     check('... a parry shows ONE spark (art 2), no blood and no flinch (no PlayerTreffer)', ws.effekte.length === 1 && ws.effekte[0] === 2 && ws.treffer === flinchVor, `${JSON.stringify(ws.effekte)}, flinches ${ws.treffer - flinchVor}`);
@@ -357,6 +394,22 @@ async function main(): Promise<void> {
     sendAttack(ws, anna.position, '', 0);
     await warte(250);
     check('OWN SWING ends the block (server side), and the client is told', anna.blockSeit === 0 && ws.bloecke.includes(false), JSON.stringify(ws.bloecke));
+
+    // B1 / B3 over the wire: no input packets at all, the server tick bills; the item put away ends the block.
+    console.log('\n[2a] Silent client and the item condition');
+    anna.stamina = 100; anna.health = 100; anna.waffe = 'SwordNorth';
+    await warte(BLOCK_SPERRE_MS + 100);
+    ws.bloecke.length = 0;
+    sendBlock(ws, true);
+    await warte(100);
+    const s0 = anna.stamina;
+    await warte(3000); // not one PlayerInput in these 3 s
+    check('B1: 3 s of holding with no input packet cost about 6 stamina (server tick)', nah(s0 - anna.stamina, 6, 1.0) && anna.blockSeit > 0, `${(s0 - anna.stamina).toFixed(2)}`);
+    anna.waffe = '';
+    await warte(400);
+    check('B3: the item put away (fist) ends the block by itself, the client is told', anna.blockSeit === 0 && ws.bloecke.includes(false), JSON.stringify(ws.bloecke));
+    anna.waffe = 'SwordNorth';
+    anna.stamina = 100;
 
     // Movement while blocking.
     console.log('\n[2b] Block speed, no running, stamina 2 per second');

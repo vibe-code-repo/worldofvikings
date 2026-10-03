@@ -1,5 +1,5 @@
 /**
- * GET/PUT /api/gegenstaende and GET /api/gegenstaende/quittung: the save path of the item data
+ * GET/PUT /api/gegenstaende, POST /api/gegenstaende/zuruecksetzen and GET /api/gegenstaende/quittung: the save path of the item data
  * (Editor card EG1, on top of Game card G1 / PR #152). The mask (EG2) sits on these routes.
  * Speicherweg der Gegenstandsdaten im Betriebsdienst (Editor-Karte EG1).
  *
@@ -38,6 +38,26 @@
  * A list of tags applies if ONE entry matches the current hash. `*` (anywhere in the value) is refused with 428
  * `basis-unbestimmt`: it would switch the protection off ("any state exists").
  *
+ * ── Base items (card GD2) ────────────────────────────────────────────
+ * The working copy holds only DEVIATIONS (own items; base items whose `ernte` somebody changed on purpose). Until card GD3
+ * `ernte` is the ONLY field of a base item that can be changed: any other deviating field is replaced by the base value when
+ * reading (named in `grundErsetzt`), and a PUT that carries one is refused. A base item without an entry follows the repo.
+ * A missing working copy is created EMPTY, and the reconciliation (`gegenstaendeAbgleichen`, the same as the game server's
+ * start) takes out entries that equal the repo or their entry in the basis (the repo state of the last reconciliation, kept
+ * in `gegenstaende.basis`), under the lock before every read and save, so the first save in the mask never builds on a stale
+ * file.
+ * The 29 base items are not deletable (Mike, F1): a PUT that leaves the entry of a base id out of the old working copy is
+ * refused, with or without `?bestaetigt=1`, and nothing is written: 422 `grundgegenstand-nicht-loeschbar` for an entry in
+ * effect, 422 `grundkopie-nur-zuruecksetzen` (`grundgegenstaende: [ids]`) for a copy the reader REPLACES (invalid, or deviating
+ * in a locked field; its own `ernte` is in effect, and an invalid one needs a deliberate act as well). The one way back to the
+ * base is `POST /api/gegenstaende/zuruecksetzen` (body `{"id": "<base id>"}`, `If-Match` like a PUT): it takes THAT entry out
+ * of the working copy, valid or not. A separate route and not a flag of the PUT: a PUT writes a whole document, and "this entry
+ * goes back to the base" must never be a side effect of a form that merely lacks it. The other entries keep their content; the
+ * file is rewritten as JSON with 2-space indentation (hand-made formatting is normalised, nothing else changes). A body that
+ * is no JSON object with a string `id` is 400 `anfrage-ungueltig`; a string that is no base id is 422 `kein-grundgegenstand`.
+ * The answer carries `grundErsetzt` of the new file. A PUT with an invalid base copy names the real reason (`zahl-ungueltig`,
+ * not `grundwert-gesperrt`).
+ *
  * Every answer carries a stable `fehler` code (404 `unbekannter-endpunkt`, 405 `methode`, 500 `intern`); raw error texts
  * (paths, `EISDIR`, stacks) go to the log only. How many players hold
  * the item is counted later by the server watch (Game card G2), which holds back its own application in the receipt
@@ -54,10 +74,11 @@ import {
   MAX_DATEI_BYTES,
   istGrundItem,
   leseGegenstandsDatei,
+  pruefeEintrag,
   schreibeGegenstandsDatei,
   type GegenstandsLesung,
 } from '@wov/shared/src/items/gegenstandsDaten.js';
-import { gegenstandsArbeitsDatei, gegenstandsBasisDatei, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
+import { gegenstaendeAbgleichenOhneSperre, gegenstandsArbeitsDatei, gegenstandsHinweiseLesen, gegenstandsHinweiseIdsEntfernen, gegenstandsBasisStand, nurAbweichungen, gegenstandsBasisNebenDatei as basisNeben, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 
 /**
  * The receipt written by the server watch (Game card G2), next to the working copy. The path rule lives here
@@ -280,23 +301,30 @@ async function rumpfLesen(req: IncomingMessage, grenze: number): Promise<string 
 
 type Stand = { bytes: Buffer; hash: string; quelle: 'arbeit' | 'repo' } | { fehler: 'repo-fehlt' | 'repo-kaputt' };
 
-/**
- * The current bytes of the working copy. If it is missing, create it from the repo state (with the basis file),
- * under the lock. Must run inside the lock section or take it itself (`layoutUnterSperre` is not re-entrant).
- */
-function arbeitsstandOhneSperre(arbeit: string, basis: string, repo: string): Stand {
+/** The working copy as it lies on disk. `quelle`: 'repo' = still exactly the accepted repo state, 'arbeit' = it has been edited. */
+function standLesen(arbeit: string, repo: string): Stand {
+  const bytes = dateiBytes(arbeit);
   const repoBytes = dateiBytes(repo);
-  let bytes = dateiBytes(arbeit);
-  if (bytes === null) {
-    if (repoBytes === null) return { fehler: 'repo-fehlt' };
-    if (leseGegenstandsDatei(repoBytes.toString('utf-8')).dateiFehler !== null) return { fehler: 'repo-kaputt' };
-    atomarSchreiben(arbeit, repoBytes);
-    atomarSchreiben(basis, `${layoutHash(repoBytes)}\n`);
-    bytes = repoBytes;
-  }
+  if (bytes === null) return { fehler: repoBytes === null ? 'repo-fehlt' : 'repo-kaputt' };
   const hash = layoutHash(bytes);
-  // 'repo': the working copy is still exactly the accepted repo state; 'arbeit': it has been edited.
   return { bytes, hash, quelle: repoBytes !== null && layoutHash(repoBytes) === hash ? 'repo' : 'arbeit' };
+}
+
+/**
+ * The current bytes of the working copy after the reconciliation with the repo state (`gegenstaende.basis`): a missing
+ * copy is created (empty), entries that equal the repo are taken out, a conflict keeps the working copy (logged).
+ * Must run inside the lock section (`layoutUnterSperre` is not re-entrant).
+ */
+function arbeitsstandOhneSperre(arbeit: string, repo: string): Stand {
+  const abgleich = gegenstaendeAbgleichenOhneSperre(repo, arbeit, 'voll');
+  if (abgleich.arbeitHash === null) {
+    // No working copy was or could be created: the repo state is missing or broken.
+    if (abgleich.fall === 'repo-fehlt') return { fehler: 'repo-fehlt' };
+    if (abgleich.fall === 'repo-kaputt') return { fehler: 'repo-kaputt' };
+  }
+  if (abgleich.fall === 'konflikt' || abgleich.fall === 'arbeit-kaputt') console.warn(`[Admin] ${abgleich.meldung}`);
+  else if (abgleich.fall === 'bereinigt' || abgleich.fall === 'angelegt') console.log(`[Admin] ${abgleich.meldung}`);
+  return standLesen(arbeit, repo);
 }
 
 function standAntwort(res: ServerResponse, stand: Stand): stand is { bytes: Buffer; hash: string; quelle: 'arbeit' | 'repo' } {
@@ -320,12 +348,20 @@ function standAntwort(res: ServerResponse, stand: Stand): stand is { bytes: Buff
 
 async function lesen(res: ServerResponse, wurzel: string): Promise<void> {
   const arbeit = gegenstandsArbeitsDatei(wurzel);
+  const repo = gegenstandsRepoDatei(wurzel);
   const anlegen = (): Stand => {
-    tmpAufraeumen([arbeit, gegenstandsBasisDatei(wurzel)]);
-    return arbeitsstandOhneSperre(arbeit, gegenstandsBasisDatei(wurzel), gegenstandsRepoDatei(wurzel));
+    tmpAufraeumen([arbeit, basisNeben(arbeit)]);
+    return arbeitsstandOhneSperre(arbeit, repo);
   };
-  // An existing working copy is read without the lock: writers replace it by `rename`, so a reader sees a whole file.
-  const stand = existsSync(arbeit) ? arbeitsstandOhneSperre(arbeit, gegenstandsBasisDatei(wurzel), gegenstandsRepoDatei(wurzel)) : await unterSperre(arbeit, anlegen);
+  // An existing working copy is read without the lock (writers replace it by `rename`, so a reader sees a whole file),
+  // unless the reconciliation has something to write (entries to take out, a conflict to report once, a stale basis).
+  const repoBytes = dateiBytes(repo);
+  const basisStand = gegenstandsBasisStand(arbeit);
+  const nurLesen =
+    existsSync(arbeit) &&
+    !['bereinigt', 'konflikt'].includes(gegenstaendeAbgleichenOhneSperre(repo, arbeit, 'pruefen').fall) &&
+    (repoBytes === null || (basisStand?.text != null && basisStand.hash === layoutHash(repoBytes)));
+  const stand = nurLesen ? standLesen(arbeit, repo) : await unterSperre(arbeit, anlegen);
   if (!standAntwort(res, stand)) return;
   const text = stand.bytes.toString('utf-8');
   const lesung = leseGegenstandsDatei(text);
@@ -340,11 +376,40 @@ async function lesen(res: ServerResponse, wurzel: string): Promise<void> {
       dateiFehler: lesung.dateiFehler,
       // base entries that differ from the base: reading replaced them (shown by the editor from GD4 on)
       grundErsetzt: lesung.grundErsetzt,
+      // notes of the last reconciliation for the mask (GD4): `ernteUnklar` (entries without `ernte` whose old state was unknown) and `basisKaputt`
+      hinweise: gegenstandsHinweiseLesen(arbeit),
       hash: stand.hash,
       quelle: stand.quelle,
     },
     etag(stand.hash)
   );
+}
+
+/** The hashes of the mandatory `If-Match`, or `null` after the 428 was sent. */
+function ifMatchLesen(req: IncomingMessage, res: ServerResponse): string[] | null {
+  const ifMatch = req.headers['if-match'];
+  const basisRoh = Array.isArray(ifMatch) ? ifMatch[0] : ifMatch;
+  if (basisRoh === undefined || basisRoh.trim() === '') {
+    json(res, 428, {
+      ok: false,
+      fehler: 'basis-fehlt',
+      message: 'Speichern ohne Basis: If-Match mit dem Hash aus GET /api/gegenstaende fehlt — nichts geschrieben.',
+    });
+    return null;
+  }
+  const basen = basisHashes(basisRoh);
+  if (basen === null || basen.length === 0) {
+    json(res, 428, {
+      ok: false,
+      fehler: basen === null ? 'basis-unbestimmt' : 'basis-fehlt',
+      message:
+        basen === null
+          ? 'If-Match: * gilt nicht — der Hash aus GET /api/gegenstaende ist nötig. Nichts geschrieben.'
+          : 'Speichern ohne Basis: If-Match ohne Hash — nichts geschrieben.',
+    });
+    return null;
+  }
+  return basen;
 }
 
 async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: string, bestaetigt: boolean): Promise<void> {
@@ -358,28 +423,8 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     );
     return;
   }
-  const ifMatch = req.headers['if-match'];
-  const basisRoh = Array.isArray(ifMatch) ? ifMatch[0] : ifMatch;
-  if (basisRoh === undefined || basisRoh.trim() === '') {
-    json(res, 428, {
-      ok: false,
-      fehler: 'basis-fehlt',
-      message: 'Speichern ohne Basis: If-Match mit dem Hash aus GET /api/gegenstaende fehlt — nichts geschrieben.',
-    });
-    return;
-  }
-  const basen = basisHashes(basisRoh);
-  if (basen === null || basen.length === 0) {
-    json(res, 428, {
-      ok: false,
-      fehler: basen === null ? 'basis-unbestimmt' : 'basis-fehlt',
-      message:
-        basen === null
-          ? 'If-Match: * gilt nicht — der Hash aus GET /api/gegenstaende ist nötig. Nichts geschrieben.'
-          : 'Speichern ohne Basis: If-Match ohne Hash — nichts geschrieben.',
-    });
-    return;
-  }
+  const basen = ifMatchLesen(req, res);
+  if (basen === null) return;
 
   // Sanitise BEFORE the lock (pure): a broken file or any discarded entry is refused as a whole.
   const neu: GegenstandsLesung = leseGegenstandsDatei(text);
@@ -398,14 +443,21 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
   }
   if (neu.grundErsetzt.length > 0) {
     // Reading replaces such an entry by the base entry (nothing is lost there); SAVING refuses it, so the author notices.
+    // The reason is the real one: the strict check of ONE entry says `grundwert-gesperrt` for a locked field and the
+    // field's own reason (`zahl-ungueltig`, ...) for an invalid copy.
     let roh: unknown[] = [];
     try { roh = (JSON.parse(text) as { gegenstaende: unknown[] }).gegenstaende; } catch { /* the reader accepted it */ }
     const indexVon = (id: string): number => roh.findIndex((e) => typeof e === 'object' && e !== null && (e as { id?: unknown }).id === id);
+    const grundVon = (id: string): string => {
+      const i = indexVon(id);
+      const andere = neu.eintraege.filter((e) => e.id !== id);
+      return (i < 0 ? undefined : pruefeEintrag(roh[i], andere)[0]) ?? 'grundwert-gesperrt';
+    };
     json(res, 422, {
       ok: false,
       fehler: 'eintraege-verworfen',
-      verworfen: neu.grundErsetzt.map((id) => ({ index: indexVon(id), id, grund: 'grundwert-gesperrt' })),
-      message: `${neu.grundErsetzt.length} Grundgegenstand/Grundgegenstände weichen vom Grundstand ab — nichts geschrieben.`,
+      verworfen: neu.grundErsetzt.map((id) => ({ index: indexVon(id), id, grund: grundVon(id) })),
+      message: `${neu.grundErsetzt.length} Grundgegenstand/Grundgegenstände sind ungültig oder weichen vom Grundstand ab — nichts geschrieben.`,
     });
     return;
   }
@@ -426,31 +478,51 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     | { art: 'veraltet'; hash: string }
     | { art: 'bestaetigung'; hash: string; entfernt: string[]; entferntOhneId: string[] }
     | { art: 'altKaputt'; hash: string; dateiFehler: string }
-    | { art: 'geschrieben'; hash: string; entfernt: string[]; entferntOhneId: string[] };
+    | { art: 'grundEntfernt'; hash: string; ids: string[]; kopie: boolean; kopien: string[] }
+    | { art: 'geschrieben'; hash: string; entfernt: string[]; entferntOhneId: string[]; anzahl: number };
   // ONE synchronous section: read, compare, check removals, rename. No `await` in here (the wait for the lock is
   // asynchronous and happens BEFORE it).
   const ausgang = await unterSperre(arbeit, (): Ausgang => {
-    tmpAufraeumen([arbeit, gegenstandsBasisDatei(wurzel)]);
-    const stand = arbeitsstandOhneSperre(arbeit, gegenstandsBasisDatei(wurzel), gegenstandsRepoDatei(wurzel));
+    tmpAufraeumen([arbeit, basisNeben(arbeit)]);
+    const stand = arbeitsstandOhneSperre(arbeit, gegenstandsRepoDatei(wurzel));
     if ('fehler' in stand) return { art: 'stand', stand };
     if (!basen.includes(stand.hash)) return { art: 'veraltet', hash: stand.hash };
     const altText = stand.bytes.toString('utf-8');
     const alt = leseGegenstandsDatei(altText);
+    // The file holds only deviations: base entries that equal the repo are not written (the reconciliation would take
+    // them out at the next read and the hash the mask holds would be stale at once).
+    const repoBytes = dateiBytes(gegenstandsRepoDatei(wurzel));
+    const repoEintraege = repoBytes === null ? [] : leseGegenstandsDatei(repoBytes.toString('utf-8')).eintraege;
+    const abweichungen = nurAbweichungen(neu.eintraege, repoEintraege);
+    kanonisch = schreibeGegenstandsDatei(abweichungen);
     if (alt.dateiFehler !== null) {
       // The old state is broken: nothing of it can be compared, so overwriting needs the confirmation (and a copy).
       if (!bestaetigt) return { art: 'altKaputt', hash: stand.hash, dateiFehler: alt.dateiFehler };
       kaputtSichern(arbeit);
       atomarSchreiben(arbeit, kanonisch);
-      return { art: 'geschrieben', hash: layoutHash(kanonisch), entfernt: [], entferntOhneId: [] };
+      gegenstandsHinweiseIdsEntfernen(arbeit, abweichungen.map((e) => e.id));
+      return { art: 'geschrieben', hash: layoutHash(kanonisch), entfernt: [], entferntOhneId: [], anzahl: abweichungen.length };
     }
     const neueIds = new Set(neu.eintraege.map((e) => e.id));
     const verworfen = verworfeneIds(altText, alt);
-    // A base id that leaves the file falls back to the base entry: it is no removal and needs no confirmation.
-    const entfernt = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id) && !istGrundItem(id));
+    // A base item is not deletable (F1): taking its entry out of the file is refused, with or without `?bestaetigt=1`.
+    // The way back to the base is the explicit reset (`zuruecksetzen`), never a form that merely lacks the entry.
+    // A copy the reader REPLACES (invalid, or deviating in a locked field) is refused as well, with its own code: its own `ernte`
+    // is in effect, and an invalid copy is healed by the explicit reset, never by a form that lacks it.
+    const kopien = alt.grundErsetzt.filter((id) => !neueIds.has(id) && istGrundItem(id));
+    const wirksam = [...new Set([...alt.eintraege.map((e) => e.id).filter((id) => !alt.grundErsetzt.includes(id)), ...verworfen.ids])];
+    const grundWeg = wirksam.filter((id) => !neueIds.has(id) && istGrundItem(id));
+    // Both kinds can be missing at once: the answer carries both lists (`grundgegenstaende` for the code's own kind, `grundkopien`
+    // for the replaced copies), so nobody learns the second reason only from the next attempt.
+    if (grundWeg.length > 0) return { art: 'grundEntfernt', hash: stand.hash, ids: grundWeg, kopie: false, kopien };
+    if (kopien.length > 0) return { art: 'grundEntfernt', hash: stand.hash, ids: kopien, kopie: true, kopien };
+    // (a base id cannot get here: an entry in effect or a replaced copy that is left out was refused above)
+    const entfernt = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id));
     const entferntOhneId = verworfen.ohneId;
     if ((entfernt.length > 0 || entferntOhneId.length > 0) && !bestaetigt) return { art: 'bestaetigung', hash: stand.hash, entfernt, entferntOhneId };
     atomarSchreiben(arbeit, kanonisch);
-    return { art: 'geschrieben', hash: layoutHash(kanonisch), entfernt, entferntOhneId };
+    gegenstandsHinweiseIdsEntfernen(arbeit, abweichungen.map((e) => e.id)); // a saved deviation is dealt with: its note goes
+    return { art: 'geschrieben', hash: layoutHash(kanonisch), entfernt, entferntOhneId, anzahl: abweichungen.length };
   });
 
   switch (ausgang.art) {
@@ -466,6 +538,23 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
           fehler: 'veraltet',
           hash: ausgang.hash,
           message: 'Die Gegenstandsdatei hat sich seit dem Lesen geändert — neu laden. Nichts geschrieben.',
+        },
+        etag(ausgang.hash)
+      );
+      return;
+    case 'grundEntfernt':
+      json(
+        res,
+        422,
+        {
+          ok: false,
+          fehler: ausgang.kopie ? 'grundkopie-nur-zuruecksetzen' : 'grundgegenstand-nicht-loeschbar',
+          grundgegenstaende: ausgang.ids,
+          grundkopien: ausgang.kopien,
+          hash: ausgang.hash,
+          message: ausgang.kopie
+            ? `Die Kopie von ${ausgang.ids.join(', ')} ist ungültig oder weicht vom Grundstand ab; sie lässt sich nur über „Auf Grundstand zurücksetzen“ entfernen. Nichts geschrieben.`
+            : `Grundgegenstände lassen sich nicht löschen (${ausgang.ids.join(', ')}); sie lassen sich nur auf den Grundstand zurücksetzen.${ausgang.kopien.length > 0 ? ` Ausserdem fehlen ersetzte Kopien (${ausgang.kopien.join(', ')}), die nur über „Auf Grundstand zurücksetzen“ entfernt werden.` : ''} Nichts geschrieben.`,
         },
         etag(ausgang.hash)
       );
@@ -504,16 +593,108 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
       return;
     }
     case 'geschrieben':
-      console.log(`[Admin] Gegenstandsdatei geschrieben: ${neu.eintraege.length} Eintrag/Einträge, ${ausgang.entfernt.length + ausgang.entferntOhneId.length} entfernt (${basename(arbeit)})`);
-      json(res, 200, { ok: true, hash: ausgang.hash, eintraege: neu.eintraege.length, entfernt: ausgang.entfernt, entferntOhneId: ausgang.entferntOhneId }, etag(ausgang.hash));
+      console.log(`[Admin] Gegenstandsdatei geschrieben: ${ausgang.anzahl} Eintrag/Einträge, ${ausgang.entfernt.length + ausgang.entferntOhneId.length} entfernt (${basename(arbeit)})`);
+      json(res, 200, { ok: true, hash: ausgang.hash, eintraege: ausgang.anzahl, entfernt: ausgang.entfernt, entferntOhneId: ausgang.entferntOhneId }, etag(ausgang.hash));
       return;
+  }
+}
+
+/**
+ * `POST /api/gegenstaende/zuruecksetzen` `{"id": "<base id>"}`: takes the entry with that id out of the working copy, so
+ * the base entry applies again. The raw list is filtered (nothing is read and written back through the sanitiser), so the
+ * other entries keep their content; the file is rewritten with 2-space indentation. A file with entries the reader
+ * DISCARDS is refused: a reset must not turn into a quiet clean-up of them (an invalid copy of a BASE item is not
+ * discarded but replaced, so it can be reset).
+ */
+async function zuruecksetzen(req: IncomingMessage, res: ServerResponse, wurzel: string): Promise<void> {
+  const rumpf = await rumpfLesen(req, 4096);
+  if (rumpf === null) {
+    json(res, 413, { ok: false, fehler: 'anfrage-zu-gross', grenze: 4096, message: 'Die Anfrage ist größer als 4096 Bytes — nichts geschrieben.' }, { Connection: 'close' });
+    return;
+  }
+  const basen = ifMatchLesen(req, res);
+  if (basen === null) return;
+  let id: unknown = null;
+  try {
+    const roh: unknown = JSON.parse(rumpf);
+    if (typeof roh === 'object' && roh !== null) id = (roh as { id?: unknown }).id; // an array has no `id`: 400 as well
+  } catch {
+    /* no JSON: no id */
+  }
+  if (typeof id !== 'string') {
+    json(res, 400, { ok: false, fehler: 'anfrage-ungueltig', message: 'Erwartet wird ein JSON-Objekt {"id": "<Kennung>"} — nichts geschrieben.' });
+    return;
+  }
+  if (!istGrundItem(id)) {
+    json(res, 422, { ok: false, fehler: 'kein-grundgegenstand', message: 'Nur ein Grundgegenstand lässt sich auf den Grundstand zurücksetzen — nichts geschrieben.' });
+    return;
+  }
+  const arbeit = gegenstandsArbeitsDatei(wurzel);
+  type Ausgang =
+    | { art: 'stand'; stand: Stand }
+    | { art: 'veraltet'; hash: string }
+    | { art: 'unlesbar'; hash: string; fehler: string; verworfen?: Array<{ index: number; id: string | null; grund: string }> }
+    | { art: 'fertig'; hash: string; zurueckgesetzt: boolean; text: string };
+  const gewaehlt = id;
+  const ausgang = await unterSperre(arbeit, (): Ausgang => {
+    tmpAufraeumen([arbeit, basisNeben(arbeit)]);
+    const stand = arbeitsstandOhneSperre(arbeit, gegenstandsRepoDatei(wurzel));
+    if ('fehler' in stand) return { art: 'stand', stand };
+    if (!basen.includes(stand.hash)) return { art: 'veraltet', hash: stand.hash };
+    const altText = stand.bytes.toString('utf-8');
+    const alt = leseGegenstandsDatei(altText);
+    if (alt.dateiFehler !== null) return { art: 'unlesbar', hash: stand.hash, fehler: alt.dateiFehler };
+    if (alt.verworfen.length > 0) {
+      return { art: 'unlesbar', hash: stand.hash, fehler: 'eintraege-verworfen', verworfen: alt.verworfen.map((v) => ({ index: v.index, id: v.id, grund: v.grund })) };
+    }
+    const dokument = JSON.parse(altText) as { gegenstaende: unknown[] };
+    const rest = dokument.gegenstaende.filter((e) => !(typeof e === 'object' && e !== null && (e as { id?: unknown }).id === gewaehlt));
+    if (rest.length === dokument.gegenstaende.length) return { art: 'fertig', hash: stand.hash, zurueckgesetzt: false, text: altText };
+    // The other entries keep their content; the file is written with 2-space indentation (formatting is normalised).
+    const neuText = `${JSON.stringify({ ...dokument, gegenstaende: rest }, null, 2)}\n`;
+    atomarSchreiben(arbeit, neuText);
+    gegenstandsHinweiseIdsEntfernen(arbeit, [gewaehlt]); // dealt with: its note goes (a reset that changed nothing leaves it)
+    return { art: 'fertig', hash: layoutHash(neuText), zurueckgesetzt: true, text: neuText };
+  });
+  switch (ausgang.art) {
+    case 'stand':
+      standAntwort(res, ausgang.stand);
+      return;
+    case 'veraltet':
+      json(res, 412, { ok: false, fehler: 'veraltet', hash: ausgang.hash, message: 'Die Gegenstandsdatei hat sich seit dem Lesen geändert — neu laden. Nichts geschrieben.' }, etag(ausgang.hash));
+      return;
+    case 'unlesbar':
+      json(
+        res,
+        422,
+        {
+          ok: false,
+          fehler: ausgang.fehler,
+          ...(ausgang.verworfen ? { verworfen: ausgang.verworfen } : {}),
+          hash: ausgang.hash,
+          message: `Die Arbeitsdatei ist nicht vollständig lesbar (${ausgang.fehler}) — das Zurücksetzen ändert nichts, nichts geschrieben.`,
+        },
+        etag(ausgang.hash)
+      );
+      return;
+    case 'fertig': {
+      const lesung = leseGegenstandsDatei(ausgang.text);
+      if (ausgang.zurueckgesetzt) console.log(`[Admin] Gegenstand ${gewaehlt} auf den Grundstand zurueckgesetzt (${basename(arbeit)})`);
+      json(
+        res,
+        200,
+        { ok: true, hash: ausgang.hash, id: gewaehlt, zurueckgesetzt: ausgang.zurueckgesetzt, eintraege: lesung.eintraege.length, grundErsetzt: lesung.grundErsetzt },
+        etag(ausgang.hash)
+      );
+      return;
+    }
   }
 }
 
 function quittungLesen(res: ServerResponse, wurzel: string): void {
   const pfad = gegenstandsQuittungDatei(wurzel);
   if (!existsSync(pfad)) {
-    json(res, 200, { ok: true, status: 'keine' });
+    json(res, 200, { ok: true, status: 'keine', hinweise: gegenstandsHinweiseLesen(gegenstandsArbeitsDatei(wurzel)) });
     return;
   }
   const bytes = dateiBytes(pfad);
@@ -526,10 +707,12 @@ function quittungLesen(res: ServerResponse, wurzel: string): void {
     }
   }
   if (typeof quittung !== 'object' || quittung === null || Array.isArray(quittung) || typeof (quittung as { status?: unknown }).status !== 'string') {
-    json(res, 200, { ok: true, status: 'unlesbar' });
+    json(res, 200, { ok: true, status: 'unlesbar', hinweise: gegenstandsHinweiseLesen(gegenstandsArbeitsDatei(wurzel)) });
     return;
   }
-  json(res, 200, { ok: true, ...(quittung as Record<string, unknown>) });
+  // `ersetzt` of the watch's receipt, under the name the read answer uses (`grundErsetzt`), for the mask (GD4).
+  const q = quittung as Record<string, unknown>;
+  json(res, 200, { ok: true, ...q, grundErsetzt: Array.isArray(q.ersetzt) ? q.ersetzt : [], hinweise: gegenstandsHinweiseLesen(gegenstandsArbeitsDatei(wurzel)) });
 }
 
 /**
@@ -560,6 +743,9 @@ async function verteilen(req: IncomingMessage, res: ServerResponse, pfad: string
     if (methode === 'GET') await lesen(res, wurzel);
     else if (methode === 'PUT') await schreiben(req, res, wurzel, parameter.get('bestaetigt') === '1');
     else json(res, 405, { ok: false, fehler: 'methode', message: 'GET oder PUT erwartet' }, { Allow: 'GET, PUT' });
+  } else if (pfad === '/api/gegenstaende/zuruecksetzen') {
+    if (methode === 'POST') await zuruecksetzen(req, res, wurzel);
+    else json(res, 405, { ok: false, fehler: 'methode', message: 'POST erwartet' }, { Allow: 'POST' });
   } else if (pfad === '/api/gegenstaende/quittung') {
     if (methode === 'GET') quittungLesen(res, wurzel);
     else json(res, 405, { ok: false, fehler: 'methode', message: 'GET erwartet' }, { Allow: 'GET' });

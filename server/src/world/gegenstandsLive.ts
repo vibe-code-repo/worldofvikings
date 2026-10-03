@@ -45,7 +45,7 @@ import {
   type VerworfenerEintrag,
 } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { LayoutGesperrt, layoutHash, layoutUnterSperre } from '@wov/shared/src/worldlayout/layoutDatei.js';
-import { gegenstandsLetzterGuterDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
+import { gegenstaendeAbgleichen, gegenstandsLetzterGuterDatei, gegenstandsRepoDatei, type GegenstandsAbgleich } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 import { bestaetigenAnfrageNehmen } from '@wov/shared/src/worldlayout/bestaetigenAnfrage.js';
 
 /** Status of a receipt (the form the editor already expects). */
@@ -158,6 +158,27 @@ function letzterGuterLesen(arbeitsDatei: string, log: GegenstandsLog): Gegenstan
     log.error(`[Gegenstaende] ${pfad}: letzter guter Stand nicht lesbar (${(fehler as Error).message}), leerer Stand`);
     return null;
   }
+}
+
+/**
+ * Start, BEFORE `ladeGegenstandsDatei` (main.ts, one line): reconcile the repo state with the working copy and the
+ * basis file (`gegenstaendeAbgleichen`). Repo changed only: pulled (old state backed up); working copy changed only:
+ * kept; both changed: the working copy wins and the conflict is reported loudly, nothing is overwritten. A failure
+ * (rights, disk, lock) is loud and does NOT stop the start: the working copy as it is gets loaded, and the admin
+ * route runs the same reconciliation before the first save in the mask.
+ */
+export function gegenstaendeAbgleichenBeimStart(wurzel: string, arbeitsDatei: string, log: GegenstandsLog = console): GegenstandsAbgleich | null {
+  let abgleich: GegenstandsAbgleich;
+  try {
+    abgleich = gegenstaendeAbgleichen({ repoDatei: gegenstandsRepoDatei(wurzel), arbeitsDatei });
+  } catch (fehler) {
+    log.error(`[Gegenstaende] Abgleich gescheitert: ${(fehler as Error).message}; die Arbeitskopie wird so geladen, wie sie ist`);
+    return null;
+  }
+  if (abgleich.fall === 'konflikt') log.warn(abgleich.meldung);
+  else if (abgleich.fall === 'arbeit-kaputt' || abgleich.fall === 'repo-kaputt') log.error(abgleich.meldung);
+  else log.log(abgleich.meldung);
+  return abgleich;
 }
 
 export interface LadeErgebnis {

@@ -230,6 +230,8 @@ export default [
   ['shared', 'test/flora-verdrahtung.ts'],
   // GD1: Grundbestand der 29 Gegenstaende in der Datei (Felder, Rezepte, Format, immer da, alter Spielstand).
   ['shared', 'test/gd1-grundbestand.ts'],
+  // GD2 N3: die Historie der Repo-Datei (shared/data/gegenstaende-historie/<sha256>.json) waechst mit: jeder Stand seit GD1, der aktuelle eingeschlossen. Ohne Assets, ~1 s.
+  ['shared', 'test/gd2-historie.ts'],
   ['shared', 'test/gegenstands-daten.ts'],
   ['shared', 'test/geo-smoke.ts'],
   /*

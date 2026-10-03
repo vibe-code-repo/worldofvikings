@@ -281,8 +281,10 @@ const kollision = lese(schlicht('LederBH'), schlicht('Neu1'));
 // The base items are NOT code: the same id in a working copy replaces the base entry, only another spelling is refused.
 const ueberschreibt = lese(grundRoh('Wood', { ernte: { baum: 2 } }));
 pruefe(ueberschreibt.eintraege.length === 1 && ueberschreibt.verworfen.length === 0, 'Wood (Grundbestand) darf in der Arbeitskopie stehen (nur ernte weicht ab) und ersetzt den Grundeintrag');
-const gesperrt = lese(grundRoh('Wood', { stapel: 7 }));
-pruefe(gesperrt.eintraege.length === 0 && grundVon(gesperrt) === 'grundwert-gesperrt', 'Wood mit anderer Stapelgroesse: grundwert-gesperrt (der Client kennt bis GD3 nur den eingebackenen Stand)');
+const gesperrt = lese(grundRoh('Wood', { stapel: 7, ernte: { baum: 2 } }));
+pruefe(gesperrt.eintraege.length === 1 && gesperrt.verworfen.length === 0 && gesperrt.grundErsetzt.join() === 'Wood' && gesperrt.eintraege[0].stapel === 50 && gesperrt.eintraege[0].ernte.baum === 2,
+  'Wood mit anderer Stapelgroesse: beim Lesen ersetzt der Grundeintrag (nur ernte bleibt), nichts verworfen, grundErsetzt nennt Wood');
+pruefe(pruefeEintrag(grundRoh('Wood', { stapel: 7 }), []).join() === 'grundwert-gesperrt', 'pruefeEintrag (Editor, streng) meldet grundwert-gesperrt');
 pruefe(kollision.eintraege.length === 1 && kollision.eintraege[0].id === 'Neu1', 'nur der kollidierende Eintrag faellt weg');
 wendeGegenstandsDatenAn(lese(holzaxt()).eintraege);
 pruefe(findItem('LederBH') === codeTeilVorher, 'LederBH bleibt dasselbe Objekt (Code-Item unangetastet)');
@@ -511,7 +513,7 @@ try {
 }
 pruefe(!wurf && ausGetter.join() === 'eintrag-ungueltig' && ausProxy.join() === 'eintrag-ungueltig', 'werfender Getter und werfender Proxy: eintrag-ungueltig statt Ausnahme');
 gesehen.add('eintrag-ungueltig');
-gesehen.add('grundwert-gesperrt');
+gesehen.add('grundwert-gesperrt'); // reached through pruefeEintrag (strict); the reader replaces instead
 // More than 500 entries.
 const fuenfhundert = viele(MAX_EINTRAEGE).map((r) => lese(r).eintraege[0]);
 pruefe(pruefeEintrag(schlicht('Extra'), fuenfhundert).join() === 'zu-viele-eintraege', 'der 501. Eintrag: zu-viele-eintraege');

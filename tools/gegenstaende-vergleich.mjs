@@ -22,8 +22,7 @@ const TOOLTIER_AUSNAHMEN = new Set(['AxeFlint', 'SwordNorth', 'Staff', 'Spear'])
 const VERWEISDATEIEN = [
   'server/src/spiel/Beute.ts',
   'server/src/konto/StarterSet.ts',
-  // built from parts: the I1 scan (server/test/i1-oberflaeche.ts) wants every file that names this path in a list
-  ['server', 'src', 'WovServer' + '.ts'].join('/'),
+  'server/src/WovServer.ts',
   'client/src/main.ts',
   'shared/src/items/PieceTable.ts',
   'shared/src/equipmentSets.ts',

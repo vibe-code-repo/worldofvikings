@@ -394,6 +394,19 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     });
     return;
   }
+  if (neu.grundErsetzt.length > 0) {
+    // Reading replaces such an entry by the base entry (nothing is lost there); SAVING refuses it, so the author notices.
+    let roh: unknown[] = [];
+    try { roh = (JSON.parse(text) as { gegenstaende: unknown[] }).gegenstaende; } catch { /* the reader accepted it */ }
+    const indexVon = (id: string): number => roh.findIndex((e) => typeof e === 'object' && e !== null && (e as { id?: unknown }).id === id);
+    json(res, 422, {
+      ok: false,
+      fehler: 'eintraege-verworfen',
+      verworfen: neu.grundErsetzt.map((id) => ({ index: indexVon(id), id, grund: 'grundwert-gesperrt' })),
+      message: `${neu.grundErsetzt.length} Grundgegenstand/Grundgegenstände weichen vom Grundstand ab — nichts geschrieben.`,
+    });
+    return;
+  }
   let kanonisch: string;
   try {
     kanonisch = schreibeGegenstandsDatei(neu.eintraege);

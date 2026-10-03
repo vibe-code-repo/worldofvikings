@@ -166,6 +166,7 @@ const grundRoh = (id: string, ueberschreibe: Record<string, unknown> = {}): Reco
 });
 const ueber = lies(grundRoh('Wood', { ernte: { baum: 3 } })).eintraege;
 const mitUeber = mitGrundbestand(ueber);
+pruefe(json(mitUeber.map((e) => e.id)) === json(IDS), 'ein Override behaelt den Platz des Grundeintrags (Reihenfolge von Herstellliste und ITEMS_BY_NAME gleich)');
 pruefe(mitUeber.length === 29 && mitUeber.filter((e) => e.id === 'Wood').length === 1 && mitUeber.find((e) => e.id === 'Wood')?.ernte.baum === 3, 'ein Eintrag mit Grundkennung ersetzt den Grundeintrag (kein Doppel)');
 wendeGegenstandsDatenAn(ueber);
 pruefe(findItem('Wood')?.ernte?.baum === 3 && IDS.filter((n) => n !== 'Wood').every((n) => findItem(n) !== undefined) && ITEMS_BY_NAME.size === 118, 'angewendet: Wood hat die eigenen Werte, die anderen 28 bleiben');
@@ -179,11 +180,23 @@ const sperrFaelle: Array<[string, Record<string, unknown>]> = [
   ['texte', { texte: { 'inhalt.gegenstand.Wood.name': { de: 'Brennholz', en: 'Firewood' } } }],
 ];
 for (const [feld, ueberschreibe] of sperrFaelle) {
-  const r = lies(grundRoh('Wood', ueberschreibe));
-  pruefe(r.eintraege.length === 0 && grund(r) === 'grundwert-gesperrt', `Grundgegenstand Wood, Feld ${feld} geaendert: grundwert-gesperrt`, grund(r));
+  const r = lies(grundRoh('Wood', ueberschreibe), roh('Dabei', {}));
+  pruefe(r.verworfen.length === 0 && r.grundErsetzt.join() === 'Wood' && r.eintraege.map((e) => e.id).join() === 'Wood,Dabei' && json(r.eintraege[0]) === json(GRUNDBESTAND.find((g) => g.id === 'Wood')),
+    `Grundgegenstand Wood, Feld ${feld} geaendert: beim Lesen ersetzt der Grundeintrag, der Rest der Datei bleibt`, json(r.grundErsetzt));
+  pruefe(pruefeEintrag(grundRoh('Wood', ueberschreibe), []).join() === 'grundwert-gesperrt', `Feld ${feld}: pruefeEintrag (streng) meldet grundwert-gesperrt`);
 }
 pruefe(lies(grundRoh('Wood', {})).eintraege.length === 1 && lies(grundRoh('Hoe', { ernte: { fels: 2 } })).eintraege.length === 1, 'unveraendert oder nur ernte: angenommen');
-pruefe(pruefeEintrag(grundRoh('Wood', { stapel: 7 }), []).join() === 'grundwert-gesperrt', 'pruefeEintrag meldet dasselbe');
+// N1-1: a stale copy of a base entry (here the name text of before N1) never costs the rest of the file.
+const alteKopie = lies(grundRoh('NeckTail', { texte: { 'inhalt.gegenstand.NeckTail.name': { de: 'Neck-Schwanz', en: 'Neck Tail' } } }), roh('Holzaxt', {}));
+pruefe(alteKopie.ok && alteKopie.verworfen.length === 0 && alteKopie.grundErsetzt.join() === 'NeckTail' && alteKopie.eintraege.map((e) => e.id).join() === 'NeckTail,Holzaxt', 'alte Repo-Kopie (en-Name vor N1): ersetzt, Holzaxt bleibt');
+pruefe(alteKopie.eintraege[0].texte['inhalt.gegenstand.NeckTail.name'].en === 'Marsh Beast Tail', 'der Grundeintrag gilt (en Marsh Beast Tail)');
+// N1-4: confusable spelling next to a base item, also at the last line of defence
+{
+  let geworfen = false;
+  try { replaceDataItems([{ ...(findItem('Wood') as object), name: 'wood' } as never]); } catch { geworfen = true; }
+  pruefe(geworfen, 'replaceDataItems lehnt wood neben Wood ab (Schreibweise)');
+  pruefe(findItem('wood') === undefined && findItem('Wood') !== undefined, 'nach der Ablehnung nur Wood');
+}
 for (const n of ['WOOD', 'WOod', 'AXEFLINT', 'Axeflint', 'MESSER']) {
   pruefe(grund(lies(roh(n, {}))) === 'id-schreibung-code', `${n} neben einem Grundgegenstand: id-schreibung-code`, grund(lies(roh(n, {}))));
 }

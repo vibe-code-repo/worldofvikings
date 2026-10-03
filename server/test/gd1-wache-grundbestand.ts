@@ -75,6 +75,64 @@ async function lauf(name: string, angewendet: GegenstandsEintrag[], halt: Record
     check('result is angewendet, not letzter-guter', r.art === 'angewendet', r.art);
     check('Wood is the base entry (no harvest level)', findItem('Wood')?.ernte?.baum === undefined);
   }
+
+  // ── N1-1: a deviating copy of a base entry never costs the rest of the file ──
+  const abweichend = { ...holzRoh, stapel: 77, ernte: { baum: 3 } };
+  const holzaxt = roh('Holzaxt', 7);
+  const dateiMit = (...e: unknown[]): string => JSON.stringify({ version: 1, gegenstaende: e });
+  const warnungen: string[] = [];
+  const laut = { log: () => undefined, warn: (m: string) => { warnungen.push(m); }, error: () => undefined };
+  const nur = (m: string): boolean => warnungen.some((w) => w.includes('Wood') && w.includes('weichen vom Grundstand ab')) && m.length > 0;
+
+  console.log('\n[N1-1a] start: file with Holzaxt and Wood stack 77');
+  {
+    warnungen.length = 0;
+    const dir = resolve(DIR, 'n1-start'); mkdirSync(dir, { recursive: true });
+    const pfad = resolve(dir, 'gegenstaende.json');
+    writeFileSync(pfad, dateiMit(abweichend, holzaxt));
+    const r = ladeGegenstandsDatei(pfad, laut);
+    check('applied, not rejected', r.art === 'angewendet' || r.ohneGutenStand === true, r.art);
+    check('Holzaxt is known, Wood is the base entry (stack 50), the harvest level of the copy is kept', findItem('Holzaxt') !== undefined && findItem('Wood')?.maxStackSize === 50 && findItem('Wood')?.ernte?.baum === 3);
+    check('a loud warning names Wood', nur('start'), warnungen.join(' | '));
+  }
+  console.log('\n[N1-1b] last good state holds a stale base copy (en name of before N1) and Holzaxt, working copy broken');
+  {
+    warnungen.length = 0;
+    wendeGegenstandsDatenAn([]);
+    const dir = resolve(DIR, 'n1-guter'); mkdirSync(dir, { recursive: true });
+    const pfad = resolve(dir, 'gegenstaende.json');
+    const alt = { ...holzRoh, texte: { 'inhalt.gegenstand.Wood.name': { de: 'Holz', en: 'Timber' } }, ernte: {} };
+    writeFileSync(gegenstandsLetzterGuterDatei(pfad), dateiMit(alt, holzaxt));
+    writeFileSync(pfad, '{kaputt');
+    const r = ladeGegenstandsDatei(pfad, laut);
+    check('last good state loads (not "unusable")', r.art === 'letzter-guter', r.art);
+    check('Holzaxt stays known, Wood is the base entry', findItem('Holzaxt') !== undefined && findItem('Wood')?.label === 'Holz');
+    check('warning names Wood', nur('guter'), warnungen.join(' | '));
+    check('N1-2: the start receipt carries the reason code of the broken working copy', r.startQuittung?.grund === 'datei-kein-json', JSON.stringify(r.startQuittung));
+  }
+  console.log('\n[N1-1c] watch: file with a deviating Wood copy and Holzaxt is applied');
+  {
+    warnungen.length = 0;
+    const dir = resolve(DIR, 'n1-wache'); mkdirSync(dir, { recursive: true });
+    const pfad = resolve(dir, 'gegenstaende.json');
+    wendeGegenstandsDatenAn([]);
+    const wache = new GegenstandsWache({
+      pfad, quittungsPfad: gegenstandsQuittungsDatei(pfad), bestaetigenPfad: gegenstandsBestaetigenDatei(pfad), angewendet: [],
+      gehalten: () => ({}), entfernen: () => undefined, neuBinden: () => undefined, log: laut,
+    });
+    writeFileSync(pfad, dateiMit(abweichend, holzaxt));
+    await warte(30);
+    wache.tick();
+    const q = JSON.parse(readFileSync(gegenstandsQuittungsDatei(pfad), 'utf-8')) as GegenstandsQuittung;
+    check('receipt angewendet', q.status === 'angewendet', JSON.stringify(q));
+    check('Holzaxt known, Wood base entry with the own harvest level', findItem('Holzaxt') !== undefined && findItem('Wood')?.maxStackSize === 50 && findItem('Wood')?.ernte?.baum === 3);
+    check('warning names Wood', nur('wache'), warnungen.join(' | '));
+    writeFileSync(pfad, '{kaputt');
+    await warte(30);
+    wache.tick();
+    const q2 = JSON.parse(readFileSync(gegenstandsQuittungsDatei(pfad), 'utf-8')) as GegenstandsQuittung;
+    check('N1-2: a broken file gives receipt abgelehnt with the reason code datei-kein-json', q2.status === 'abgelehnt' && q2.grund === 'datei-kein-json', JSON.stringify(q2));
+  }
   wendeGegenstandsDatenAn([]);
   console.log(failures === 0 ? '\nALL PASSED' : `\n${failures} FAIL`);
   rmSync(DIR, { recursive: true, force: true });

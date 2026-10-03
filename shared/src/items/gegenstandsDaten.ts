@@ -208,6 +208,12 @@ export interface GegenstandsLesung {
   verworfen: VerworfenerEintrag[];
   /** Number of fields that were dropped because they are not on the whitelist. */
   unbekannteFelder: number;
+  /**
+   * Ids of entries with a base id whose values differ from the base entry (beyond `ernte`): reading REPLACED them by the
+   * base entry (keeping only their `ernte`), the file is not discarded and no other entry is lost. Callers warn loudly;
+   * the admin route still refuses to SAVE such a file (422), so the author notices.
+   */
+  grundErsetzt: string[];
 }
 
 // ── Sanitiser ──────────────────────────────────────────────────────────
@@ -271,7 +277,10 @@ function text(v: unknown): string {
   return v;
 }
 
-function saubereEintrag(roh: unknown, z: { n: number }): GegenstandsEintrag {
+/** Counter of one read: unknown fields; `streng` = a deviating base entry is discarded; else replaced and listed in `ersetzt`. */
+interface Zaehler { n: number; streng?: boolean; ersetzt?: string[] }
+
+function saubereEintrag(roh: unknown, z: Zaehler): GegenstandsEintrag {
   if (!istObjekt(roh)) throw new Verwerfen('eintrag-kein-objekt');
   zaehleUnbekannte(
     roh,
@@ -452,7 +461,12 @@ function saubereEintrag(roh: unknown, z: { n: number }): GegenstandsEintrag {
   if (GRUNDWERTE_GESPERRT && grundIds.has(id)) {
     const grundEintrag = grundEintraege.find((g) => g.id === id);
     const ohneErnte = (e: GegenstandsEintrag): string => JSON.stringify({ ...e, ernte: null });
-    if (grundEintrag && ohneErnte(grundEintrag) !== ohneErnte(eintrag)) throw new Verwerfen('grundwert-gesperrt');
+    if (grundEintrag && ohneErnte(grundEintrag) !== ohneErnte(eintrag)) {
+      if (z.streng || !z.ersetzt) throw new Verwerfen('grundwert-gesperrt');
+      // Reading never loses anything: the base entry stands in (own `ernte` kept), the caller warns.
+      z.ersetzt.push(id);
+      return { ...grundEintrag, ernte: { ...eintrag.ernte } };
+    }
   }
   return eintrag;
 }
@@ -473,7 +487,7 @@ function liegtImZyklus(start: string, karte: ReadonlyMap<string, GegenstandsEint
 }
 
 /** The shared core of reading: sanitises every entry, then the cross-entry checks. `z` counts unknown fields. */
-function verarbeiteListe(liste: readonly unknown[], z: { n: number }): { eintraege: GegenstandsEintrag[]; verworfen: VerworfenerEintrag[] } {
+function verarbeiteListe(liste: readonly unknown[], z: Zaehler): { eintraege: GegenstandsEintrag[]; verworfen: VerworfenerEintrag[] } {
   const verworfen: VerworfenerEintrag[] = [];
   const karte = new Map<string, GegenstandsEintrag>();
   const kleinIds = new Set<string>();
@@ -528,7 +542,7 @@ function verarbeiteListe(liste: readonly unknown[], z: { n: number }): { eintrae
  */
 export function leseGegenstandsDatei(text: string): GegenstandsLesung {
   const kaputt = (dateiFehler: DateiFehler): GegenstandsLesung =>
-    ({ ok: false, dateiFehler, eintraege: [], verworfen: [], unbekannteFelder: 0 });
+    ({ ok: false, dateiFehler, eintraege: [], verworfen: [], unbekannteFelder: 0, grundErsetzt: [] });
   if (typeof text !== 'string') return kaputt('datei-kein-json');
   if (text.length > MAX_DATEI_BYTES || new TextEncoder().encode(text).length > MAX_DATEI_BYTES) return kaputt('datei-zu-gross');
   let wurzel: unknown;
@@ -544,10 +558,10 @@ export function leseGegenstandsDatei(text: string): GegenstandsLesung {
   if (version !== GEGENSTAENDE_VERSION) return kaputt('datei-version-unbekannt');
   if (liste.length > MAX_EINTRAEGE) return kaputt('datei-zu-viele-eintraege');
 
-  const z = { n: 0 };
+  const z: Zaehler = { n: 0, ersetzt: [] };
   zaehleUnbekannte(wurzel, ['version', 'gegenstaende'], z);
   const { eintraege, verworfen } = verarbeiteListe(liste, z);
-  return { ok: true, dateiFehler: null, eintraege, verworfen, unbekannteFelder: z.n };
+  return { ok: true, dateiFehler: null, eintraege, verworfen, unbekannteFelder: z.n, grundErsetzt: z.ersetzt ?? [] };
 }
 
 /**
@@ -558,7 +572,8 @@ export function leseGegenstandsDatei(text: string): GegenstandsLesung {
  */
 export function pruefeEintrag(eintrag: unknown, andere: readonly GegenstandsEintrag[]): VerwerfGrund[] {
   if (andere.length + 1 > MAX_EINTRAEGE) return ['zu-viele-eintraege'];
-  const { verworfen } = verarbeiteListe([...andere, eintrag], { n: 0 });
+  // Strict: the live check of the editor reports a deviating base entry (the reader would replace it silently).
+  const { verworfen } = verarbeiteListe([...andere, eintrag], { n: 0, streng: true });
   return verworfen.filter((v) => v.index === andere.length).map((v) => v.grund);
 }
 
@@ -715,11 +730,12 @@ export function istGrundItem(id: string): boolean {
 
 /**
  * The entries plus every base entry they do not replace: a base id can never be missing. A working-copy entry
- * with a base id wins over the base entry (same id, own values). Base entries come first, in file order.
+ * with a base id wins over the base entry (same id, own values). Base entries come first, in file order (an override keeps the place of its base entry).
  */
 export function mitGrundbestand(eintraege: readonly GegenstandsEintrag[]): GegenstandsEintrag[] {
-  const eigene = new Set(eintraege.map((e) => e.id));
-  return [...grundEintraege.filter((g) => !eigene.has(g.id)), ...eintraege];
+  const eigene = new Map(eintraege.map((e) => [e.id, e] as const));
+  // An own entry with a base id takes the place of the base entry: the order (craft list, `ITEMS_BY_NAME`) never changes.
+  return [...grundEintraege.map((g) => eigene.get(g.id) ?? g), ...eintraege.filter((e) => !grundIds.has(e.id))];
 }
 
 /**

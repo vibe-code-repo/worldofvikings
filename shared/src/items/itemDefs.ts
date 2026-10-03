@@ -172,8 +172,12 @@ export function replaceDataItems(liste: readonly ItemShared[]): void {
   // The base stock is never part of what is replaced: it stands unless an entry of `liste` has the same name.
   for (const g of grundItems) neu.set(g.name, g);
   const daten = new Set<string>();
+  const grundKlein = new Map(grundItems.map((g) => [g.name.toLowerCase(), g.name]));
   for (const item of liste) {
     const name = item.name;
+    // `wood` next to the base item `Wood` is confusable, like a code name in another case.
+    const grundName = grundKlein.get(name.toLowerCase());
+    if (grundName !== undefined && grundName !== name) throw new Error(`[items] data item "${name}" collides with the base item "${grundName}" (ignoring case)`);
     if (CODE_NAMEN_KLEIN.has(name.toLowerCase())) throw new Error(`[items] data item "${name}" collides with a code item (ignoring case)`);
     if (daten.has(name.toLowerCase())) throw new Error(`[items] data item "${name}" appears twice (ignoring case)`);
     daten.add(name.toLowerCase());

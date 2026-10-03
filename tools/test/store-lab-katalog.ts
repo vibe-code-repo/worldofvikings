@@ -211,17 +211,20 @@ const roh = (name: string, dateien: Record<string, Buffer>): string => {
   for (const [n, b] of Object.entries(dateien)) writeFileSync(join(d, n), b);
   return d;
 };
-interface Lauf { n: number | null; warn: string; fehler: string; ziel: string; katalog: string }
+interface Lauf { n: number | null; warn: string; log: string; fehler: string; ziel: string; katalog: string }
 function holen(name: string, quelle: string, opt: { schreiben?: boolean; katalog?: string } = {}): Lauf {
   const ziel = join(tmp, `ziel-${name}`);
   const katalog = opt.katalog ?? join(tmp, `katalog-${name}.json`);
   const warnAlt = console.warn;
   const logAlt = console.log;
   let warn = '';
+  let log = '';
   console.warn = (m: string) => {
     warn += `${m}\n`;
   };
-  console.log = () => undefined;
+  console.log = (m: string) => {
+    log += `${m}\n`;
+  };
   let n: number | null = null;
   let fehlerText = '';
   try {
@@ -232,7 +235,7 @@ function holen(name: string, quelle: string, opt: { schreiben?: boolean; katalog
     console.warn = warnAlt;
     console.log = logAlt;
   }
-  return { n, warn, fehler: fehlerText, ziel, katalog };
+  return { n, warn, log, fehler: fehlerText, ziel, katalog };
 }
 const gebaut = (l: Lauf): string[] => (existsSync(l.ziel) ? readdirSync(l.ziel).filter((f) => f.endsWith('.glb')).sort() : []);
 const hashDatei = (p: string): string => createHash('sha256').update(readFileSync(p)).digest('hex');
@@ -246,6 +249,9 @@ try {
   check('Ordner fehlt: nichts geschrieben', !existsSync(keine.katalog) && !existsSync(keine.ziel));
   const leer = holen('leer', roh('leer', {}));
   check('Ordner leer: Warnung statt Abbruch, nichts gebaut', leer.n === 0 && leer.warn.includes('fehlt') && leer.fehler === '' && !existsSync(leer.katalog), leer.warn + leer.fehler);
+
+  check('Zusammenfassung bei fehlendem Ordner: 0 von 3 mit Grund je Modell', keine.log.includes('0 von 3 Pflanzen gebaut') && keine.log.includes('nicht gebaut: fern-1a1 — Quellordner fehlt'), keine.log);
+  check('Zusammenfassung bei leerem Ordner: 0 von 3, Grund "Datei fehlt"', leer.log.includes('0 von 3 Pflanzen gebaut') && leer.log.includes('nicht gebaut: flower-1a4 — Datei fehlt'), leer.log);
 
   // Liste schreiben (nur mit Schalter)
   const erst = holen('erst', ganz, { schreiben: true });
@@ -271,10 +277,12 @@ try {
   }
   check('Geschriebene Messliste: Hash, Bytes und Texturname stimmen mit den gebauten Dateien', werteOk, detail.join(','));
 
+  check('Schalter: keine Zusammenfassung (es wird nichts verglichen)', !erst.log.includes('Zusammenfassung'), erst.log);
   // Normallauf: nur vergleichen, nie schreiben
   const listeText = readFileSync(erst.katalog, 'utf8');
   const wieder = holen('wieder', ganz, { katalog: erst.katalog });
   check('Normallauf mit passender Liste: drei Modelle, keine Warnung', wieder.n === 3 && wieder.warn === '', wieder.warn);
+  check('Zusammenfassung: 3 von 3 gebaut, kein "nicht gebaut"', wieder.log.includes('3 von 3 Pflanzen gebaut') && !wieder.log.includes('nicht gebaut'), wieder.log);
   check('Normallauf schreibt die Liste nie (Bytes gleich)', readFileSync(erst.katalog, 'utf8') === listeText);
   check('zweiter Lauf: Modelle byteidentisch', gebaut(wieder).every((f) => hashDatei(join(wieder.ziel, f)) === hashDatei(join(erst.ziel, f))) && gebaut(wieder).length === 3);
 
@@ -285,6 +293,7 @@ try {
     const l = holen(`kurz${name}`, q, { katalog: erst.katalog });
     check(`Farn auf ${name} % gekürzt: Warnung, die zwei Blumen gebaut, kein Farn, kein Fehler`, l.fehler === '' && l.n === 2 && !gebaut(l).includes('fern-1a1.glb') && l.warn.includes('fern-1a1.glb'), l.warn + l.fehler);
     check(`  … Liste unverändert (${name} %)`, readFileSync(erst.katalog, 'utf8') === listeText);
+    check(`  … Zusammenfassung: 2 von 3, Farn ungültig (${name} %)`, l.log.includes('2 von 3 Pflanzen gebaut') && l.log.includes('nicht gebaut: fern-1a1 — Datei ungültig'), l.log);
   }
   const gekippt = Buffer.from(gut[2]);
   gekippt[gekippt.length - 100] ^= 0xff; // Byte im Bildteil
@@ -298,11 +307,13 @@ try {
   const le = holen('ersatz', ersatz, { katalog: erst.katalog });
   check('Gültiger Ersatz: laute Warnung mit Hinweis auf PR, ersetzte Datei nicht gebaut, Rest gebaut', le.fehler === '' && le.n === 2 && le.warn.includes('Messliste weicht ab') && le.warn.includes('per PR') && !gebaut(le).includes('flower-1a4.glb'), le.warn + le.fehler);
   check('  … Liste unverändert', readFileSync(erst.katalog, 'utf8') === listeText);
+  check('Gültiger Ersatz: Zusammenfassung nennt "Messliste weicht ab" und den Weg per PR', le.log.includes('2 von 3 Pflanzen gebaut') && le.log.includes('nicht gebaut: flower-1a4 — gültig, aber die Messliste weicht ab') && le.log.includes('per PR'), le.log);
   const ohneListe = holen('ohneliste', ganz);
   check('Ohne Liste (Datei fehlt): nichts gebaut, Warnung, Liste nicht angelegt', ohneListe.n === 0 && ohneListe.warn.includes('Messliste weicht ab') && !existsSync(ohneListe.katalog), ohneListe.warn);
 
   // B2: teilweise, Grossschreibung, Fremdes
   const teil = holen('teil', roh('teil', { [modelle[0].quelle]: gut[0] }), { katalog: erst.katalog });
+  check('Teilweise gefüllt: Zusammenfassung 1 von 3 mit Grund je fehlendem Modell', teil.log.includes('1 von 3 Pflanzen gebaut') && teil.log.includes('nicht gebaut: flower-1a12 — Datei fehlt') && teil.log.includes('nicht gebaut: fern-1a1 — Datei fehlt'), teil.log);
   check('Teilweise gefüllt: Warnung nennt die fehlenden, das Vorhandene wird gebaut, kein Fehler', teil.fehler === '' && teil.n === 1 && teil.warn.includes('flower-1a12.glb fehlt') && teil.warn.includes('fern-1a1.glb fehlt'), teil.warn + teil.fehler);
   const gross = holen('gross', roh('gross', Object.fromEntries(modelle.map((m, i) => [m.quelle.toUpperCase().replace('.GLB', '.glb'), gut[i]]))), { katalog: erst.katalog });
   check('Grossschreibung (FLOWER-1A4.glb) wird akzeptiert', gross.n === 3 && gross.warn === '', gross.warn);
@@ -353,10 +364,29 @@ try {
   const cli = (args: string[], liste: string, quelle: string): { status: number | null; ausgabe: string } => {
     const r = spawnSync(join(WURZEL, 'node_modules/.bin/tsx'), [join(WURZEL, 'tools/store-pflanzen-quellen.mjs'), ...args], {
       encoding: 'utf8',
-      env: { ...process.env, WOV_PFLANZEN_QUELLE: quelle, WOV_PFLANZEN_ZIEL: join(tmp, 'cli-ziel'), WOV_PFLANZEN_MESSLISTE: liste },
+      env: { ...process.env, WOV_PFLANZEN_TEST: '1', WOV_PFLANZEN_QUELLE: quelle, WOV_PFLANZEN_ZIEL: join(tmp, 'cli-ziel'), WOV_PFLANZEN_MESSLISTE: liste },
     });
     return { status: r.status, ausgabe: `${r.stdout}${r.stderr}` };
   };
+  // Fingerabdruck des ARBEITSBAUMS (Labor und Messliste): Das Kommando darf ihn nie verändern.
+  const labor = join(WURZEL, 'assets/store-lab/vegetation');
+  const baumStand = (): string =>
+    [
+      existsSync(labor)
+        ? (readdirSync(labor, { recursive: true }) as string[])
+            .sort()
+            .map((f) => {
+              try {
+                return `${f}:${hashDatei(join(labor, f))}`;
+              } catch {
+                return `${f}:dir`;
+              }
+            })
+            .join('|')
+        : 'kein-labor',
+      hashDatei(join(WURZEL, 'tools/store-lab-katalog.json')),
+    ].join('#');
+  const baumVorher = baumStand();
   const cliListe = join(tmp, 'cli-liste.json');
   writeFileSync(cliListe, '{"schemaVersion":1,"eintraege":[]}\n');
   const c1 = cli([], cliListe, ganz);
@@ -369,6 +399,26 @@ try {
   check('Kommando danach ohne Schalter: Exit 0, Liste unverändert, keine Abweichung', c3.status === 0 && JSON.stringify(JSON.parse(readFileSync(cliListe, 'utf8'))) === JSON.stringify(geschrieben) && !c3.ausgabe.includes('weicht ab'), c3.ausgabe.slice(-300));
   const c4 = cli(['--messliste-schreiben'], join(tmp, 'cli-liste4.json'), roh('cli-teil', { [modelle[0].quelle]: gut[0] }));
   check('Kommando mit Schalter bei unvollständigem Ordner: Exit 2, nichts geschrieben', c4.status === 2 && !existsSync(join(tmp, 'cli-liste4.json')), c4.ausgabe.slice(-300));
+  check('Kommando-Läufe lassen den Arbeitsbaum unberührt (Labor und Messliste, Hash vorher = nachher)', baumStand() === baumVorher);
+
+  // Umlenkung nur mit Testschalter: sonst laute Warnung und ignoriert
+  const pfade = (env: Record<string, string>): { json: { ziel: string; katalog: string }; err: string } => {
+    const skript = join(tmp, 'pfade.mjs');
+    writeFileSync(skript, `import { PFADE } from ${JSON.stringify(join(WURZEL, 'tools/store-pflanzen-quellen.mjs'))};\nconsole.log(JSON.stringify(PFADE));\n`);
+    const e = { ...process.env, ...env };
+    delete e.WOV_PFLANZEN_TEST;
+    const r = spawnSync(process.execPath, [skript], { encoding: 'utf8', env: { ...e, ...env } });
+    return { json: JSON.parse(r.stdout.trim().split('\n').pop() ?? '{}'), err: r.stderr };
+  };
+  const standardZiel = join(WURZEL, 'assets/store-lab/vegetation');
+  const standardListe = join(WURZEL, 'tools/store-lab-katalog.json');
+  const ohneSchalter = pfade({ WOV_PFLANZEN_ZIEL: join(tmp, 'x-ziel'), WOV_PFLANZEN_MESSLISTE: join(tmp, 'x-liste.json') });
+  check('Variablen ohne Testschalter: ignoriert, es gelten die festen Pfade', ohneSchalter.json.ziel === standardZiel && ohneSchalter.json.katalog === standardListe, JSON.stringify(ohneSchalter.json));
+  check('Variablen ohne Testschalter: laute Warnung je Variable', ohneSchalter.err.includes('WOV_PFLANZEN_ZIEL ist gesetzt') && ohneSchalter.err.includes('WOV_PFLANZEN_MESSLISTE ist gesetzt') && ohneSchalter.err.includes('ignoriert'), ohneSchalter.err);
+  const mitSchalter = pfade({ WOV_PFLANZEN_TEST: '1', WOV_PFLANZEN_ZIEL: join(tmp, 'x-ziel'), WOV_PFLANZEN_MESSLISTE: join(tmp, 'x-liste.json') });
+  check('Variablen mit Testschalter: wirken, keine Warnung', mitSchalter.json.ziel === join(tmp, 'x-ziel') && mitSchalter.json.katalog === join(tmp, 'x-liste.json') && mitSchalter.err === '', JSON.stringify(mitSchalter));
+  const nur = pfade({});
+  check('Ohne Variablen: feste Pfade, keine Warnung', nur.json.ziel === standardZiel && nur.err === '', nur.err);
 } finally {
   rmSync(tmp, { recursive: true, force: true });
 }

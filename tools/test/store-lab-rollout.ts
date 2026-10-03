@@ -100,6 +100,7 @@ try {
     check(`(${kennung}) Pflanzen im Labor: ${erwartet.join(',') || 'keine'}`, JSON.stringify(pflanzen(baum)) === JSON.stringify(erwartet), pflanzen(baum).join(','));
     check(`(${kennung}) Messliste unverändert`, sha(liste(baum)) === vorher);
     check(`(${kennung}) Warnung ${warnung ? 'steht in der Ausgabe' : 'fehlt (keine nötig)'}`, warnung ? warnung.test(l.ausgabe) : !/pflanzen-quellen\] WARNUNG/.test(l.ausgabe), l.ausgabe.slice(-300));
+    check(`(${kennung}) Zusammenfassung im Log: ${erwartet.length} von 3 gebaut`, l.ausgabe.includes(`Zusammenfassung: ${erwartet.length} von 3 Pflanzen gebaut`), l.ausgabe.slice(-400));
     check(`(${kennung}) Store-Vegetation daneben steht`, existsSync(join(lab(baum), 'bush-1a2-small.glb')) && existsSync(join(lab(baum), 'BERICHT.json')));
     return baum;
   }

@@ -50,7 +50,9 @@
   ── Woher die Ausgangsdateien kommen, und wer dieses Werkzeug ruft ──
   Die rohen GLBs liegen im Asset-Speicher: `assets/store/
   vegetation-roh/<id>.glb` (Mike kopiert sie dorthin, Liste im Bericht
-  Grauklamm K1). Der Ort lässt sich mit `WOV_PFLANZEN_QUELLE` überstimmen.
+  Grauklamm K1). Der Ort lässt sich mit `WOV_PFLANZEN_QUELLE` überstimmen. Ziel und Messliste (`WOV_PFLANZEN_ZIEL`,
+  `WOV_PFLANZEN_MESSLISTE`) wirken nur mit `WOV_PFLANZEN_TEST=1` (Tests); sonst
+  Warnung und ignoriert.
   Gross- und Kleinschreibung des Dateinamens ist egal; eine Datei mit
   anderem Namen (etwa Unterstrich statt Bindestrich) wird mit einem
   Hinweis auf den erwarteten Namen übersprungen.
@@ -80,10 +82,26 @@ import { fileURLToPath } from 'node:url';
 
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const QUELLE = process.env.WOV_PFLANZEN_QUELLE ?? join(WURZEL, 'assets/store/vegetation-roh');
-// Ziel und Messliste lassen sich umlenken, damit Tests das Kommando fahren können,
-// ohne den Arbeitsbaum zu berühren (im Betrieb nie gesetzt).
-const ZIEL = process.env.WOV_PFLANZEN_ZIEL ?? join(WURZEL, 'assets/store-lab/vegetation');
-const KATALOG = process.env.WOV_PFLANZEN_MESSLISTE ?? join(WURZEL, 'tools/store-lab-katalog.json');
+const WARNUNG = '[pflanzen-quellen] WARNUNG:';
+
+/**
+ * Ziel und Messliste lassen sich nur mit dem Testschalter `WOV_PFLANZEN_TEST=1`
+ * umlenken (Tests fahren das Kommando so, ohne den Arbeitsbaum zu berühren). Ist
+ * eine der Variablen ohne den Schalter gesetzt, wird sie LAUT ignoriert: Eine
+ * vergessene Variable in der Umgebung darf weder den Rollout umlenken noch
+ * Tests unbemerkt gegen eine fremde Liste laufen lassen.
+ */
+function umlenkung(name, standard) {
+  const wert = process.env[name];
+  if (!wert) return standard;
+  if (process.env.WOV_PFLANZEN_TEST === '1') return wert;
+  console.warn(`${WARNUNG} ${name} ist gesetzt, wirkt aber nur zusammen mit WOV_PFLANZEN_TEST=1 — ignoriert, es gilt ${standard}`);
+  return standard;
+}
+const ZIEL = umlenkung('WOV_PFLANZEN_ZIEL', join(WURZEL, 'assets/store-lab/vegetation'));
+const KATALOG = umlenkung('WOV_PFLANZEN_MESSLISTE', join(WURZEL, 'tools/store-lab-katalog.json'));
+/** Die wirksamen Pfade (für Tests). */
+export const PFADE = { quelle: QUELLE, ziel: ZIEL, katalog: KATALOG };
 
 /** Quelldatei im Speicher (`vegetation-roh/`) → Kennung im Labor und Prefab. */
 export const MODELLE = [
@@ -358,7 +376,6 @@ export function umbauen(buf, id, dateiname) {
 
 // ── Hauptlauf ────────────────────────────────────────────────────────
 
-const WARNUNG = '[pflanzen-quellen] WARNUNG:';
 const HINWEIS_LISTE =
   'Messliste neu erzeugen per PR: node tools/store-pflanzen-quellen.mjs --messliste-schreiben (Bauer, nicht im Rollout)';
 
@@ -429,6 +446,13 @@ export function quelleStatus(m, { quelle = QUELLE, katalog = KATALOG } = {}) {
  */
 export function pflanzenHolen({ quelle = QUELLE, ziel = ZIEL, katalog = KATALOG, messlisteSchreiben = false } = {}) {
   const warn = (text) => console.warn(`${WARNUNG} ${text}`);
+  /** Grund je nicht gebautem Modell, für die Zusammenfassung am Ende. */
+  const grund = new Map();
+  const zusammenfassung = (gebaut) => {
+    if (messlisteSchreiben) return;
+    console.log(`[pflanzen-quellen] Zusammenfassung: ${gebaut} von ${MODELLE.length} Pflanzen gebaut`);
+    for (const m of MODELLE) if (grund.has(m.id)) console.log(`[pflanzen-quellen]   nicht gebaut: ${m.id} — ${grund.get(m.id)}`);
+  };
   if (!existsSync(quelle)) {
     warn(
       `${quelle} fehlt — Blumen und Farn werden nicht gebaut.\n` +
@@ -436,6 +460,8 @@ export function pflanzenHolen({ quelle = QUELLE, ziel = ZIEL, katalog = KATALOG,
         '                   Dateien fehlen im Labor, bis die Ausgangs-GLBs im Speicher liegen.'
     );
     if (messlisteSchreiben) throw new Error('Messliste nicht geschrieben: Quellordner fehlt');
+    for (const m of MODELLE) grund.set(m.id, 'Quellordner fehlt');
+    zusammenfassung(0);
     return 0;
   }
   const verzeichnis = readdirSync(quelle);
@@ -447,6 +473,7 @@ export function pflanzenHolen({ quelle = QUELLE, ziel = ZIEL, katalog = KATALOG,
     if (!echt) {
       const aehnlich = verzeichnis.find((n) => n.toLowerCase().replace(/[^a-z0-9]/g, '') === m.quelle.replace(/[^a-z0-9]/g, ''));
       probleme.push(`${m.quelle} fehlt${aehnlich ? ` (gefunden: ${aehnlich} — bitte als ${m.quelle} benennen)` : ''}`);
+      grund.set(m.id, `Datei fehlt${aehnlich ? ` (gefunden: ${aehnlich})` : ''}`);
       continue;
     }
     try {
@@ -454,6 +481,7 @@ export function pflanzenHolen({ quelle = QUELLE, ziel = ZIEL, katalog = KATALOG,
       gueltig.push({ m, r, eintrag: eintragVon(m, r) });
     } catch (e) {
       probleme.push(`${e.message} — übersprungen`);
+      grund.set(m.id, `Datei ungültig (${e.message.replace(`${echt}: `, '')})`);
     }
   }
   for (const p of probleme) warn(p);
@@ -476,6 +504,7 @@ export function pflanzenHolen({ quelle = QUELLE, ziel = ZIEL, katalog = KATALOG,
         const soll = alt?.get(eintrag.id);
         if (soll && JSON.stringify(soll) === JSON.stringify(eintrag)) return true;
         warn(`Messliste weicht ab für ${eintrag.id}${soll ? '' : ' (kein Eintrag)'} — Modell NICHT gebaut. ${HINWEIS_LISTE}`);
+        grund.set(eintrag.id.replace(/^vegetation\//, ''), `gültig, aber die Messliste weicht ab (${soll ? 'andere Werte' : 'kein Eintrag'}): bewusste Ersetzung ⇒ Messliste per PR erneuern`);
         return false;
       });
 
@@ -492,6 +521,7 @@ export function pflanzenHolen({ quelle = QUELLE, ziel = ZIEL, katalog = KATALOG,
     const neu = `${JSON.stringify({ schemaVersion: 1, eintraege }, null, 2)}\n`;
     if (!existsSync(katalog) || readFileSync(katalog, 'utf8') !== neu) writeFileSync(katalog, neu);
   }
+  zusammenfassung(zuBauen.length);
   return zuBauen.length;
 }
 

@@ -278,7 +278,7 @@ function text(v: unknown): string {
 }
 
 /** Counter of one read: unknown fields; `streng` = a deviating base entry is discarded; else replaced and listed in `ersetzt`. */
-interface Zaehler { n: number; streng?: boolean; ersetzt?: string[] }
+interface Zaehler { n: number; streng?: boolean; ersetzt?: string[]; ohneGrund?: boolean }
 
 function saubereEintrag(roh: unknown, z: Zaehler): GegenstandsEintrag {
   if (!istObjekt(roh)) throw new Verwerfen('eintrag-kein-objekt');
@@ -458,7 +458,7 @@ function saubereEintrag(roh: unknown, z: Zaehler): GegenstandsEintrag {
     id, nameSchluessel, beschreibungSchluessel, typ: typ as GegenstandsTyp, slot: 'hand', modell,
     bautafel, terrain, symbol, stapel, gewicht, werte, ernte, haltbarkeit, itemLevel, rarity, rezept, texte,
   };
-  if (GRUNDWERTE_GESPERRT && grundIds.has(id)) {
+  if (GRUNDWERTE_GESPERRT && grundIds.has(id) && !z.ohneGrund) {
     const grundEintrag = grundEintraege.find((g) => g.id === id);
     const ohneErnte = (e: GegenstandsEintrag): string => JSON.stringify({ ...e, ernte: null });
     if (grundEintrag && ohneErnte(grundEintrag) !== ohneErnte(eintrag)) {
@@ -467,7 +467,9 @@ function saubereEintrag(roh: unknown, z: Zaehler): GegenstandsEintrag {
       z.ersetzt.push(id);
       // A deep copy: changing the replaced entry never touches the base stock. A copy without its own `ernte` inherits the
       // harvest of the base entry (an axe must keep felling trees); a copy WITH one keeps it (the one field a copy may change).
-      const eigeneErnte = Object.keys(eintrag.ernte).length > 0;
+      // "Has its own ernte" means the field is THERE (an explicit empty `ernte: {}` is a deliberate "this item harvests nothing"
+      // and is kept); only a missing (or null) field inherits.
+      const eigeneErnte = ernteRoh !== undefined && ernteRoh !== null;
       return { ...structuredClone(grundEintrag), ernte: { ...(eigeneErnte ? eintrag.ernte : grundEintrag.ernte) } };
     }
   }
@@ -515,7 +517,7 @@ function verarbeiteListe(liste: readonly unknown[], z: Zaehler): { eintraege: Ge
   // A base entry that is INVALID in the file (any reason; a second entry of an id that is already there stays discarded) is replaced by the base entry and reported in
   // `ersetzt`, like a deviating one: a broken base copy never costs the whole file, and the editor can heal it (a PUT
   // without it, or the reset). Not in strict mode (`pruefeEintrag` asks about ONE entry and wants the real reason).
-  if (z.ersetzt && !z.streng) {
+  if (z.ersetzt && !z.streng && !z.ohneGrund) {
     const uebrig: VerworfenerEintrag[] = [];
     for (const v of verworfen) {
       const grund = v.id === null || karte.has(v.id) ? undefined : grundEintraege.find((g) => g.id === v.id);
@@ -558,10 +560,12 @@ function verarbeiteListe(liste: readonly unknown[], z: Zaehler): { eintraege: Ge
 }
 
 /**
- * Reads and sanitises the text of a data file. Never throws.
+ * Reads and sanitises the text of a data file. Never throws. `ohneGrundsperre` reads a FILE AS IT IS, without comparing base
+ * entries with the base stock baked into this build and without replacing invalid ones: used for older repo states (the basis of
+ * the working copy, the history) and for the repo file itself, which are compared as written.
  * Liest und saeubert den Text einer Gegenstandsdatei. Wirft nie.
  */
-export function leseGegenstandsDatei(text: string): GegenstandsLesung {
+export function leseGegenstandsDatei(text: string, optionen: { ohneGrundsperre?: boolean } = {}): GegenstandsLesung {
   const kaputt = (dateiFehler: DateiFehler): GegenstandsLesung =>
     ({ ok: false, dateiFehler, eintraege: [], verworfen: [], unbekannteFelder: 0, grundErsetzt: [] });
   if (typeof text !== 'string') return kaputt('datei-kein-json');
@@ -579,7 +583,7 @@ export function leseGegenstandsDatei(text: string): GegenstandsLesung {
   if (version !== GEGENSTAENDE_VERSION) return kaputt('datei-version-unbekannt');
   if (liste.length > MAX_EINTRAEGE) return kaputt('datei-zu-viele-eintraege');
 
-  const z: Zaehler = { n: 0, ersetzt: [] };
+  const z: Zaehler = { n: 0, ersetzt: [], ...(optionen.ohneGrundsperre ? { ohneGrund: true } : {}) };
   zaehleUnbekannte(wurzel, ['version', 'gegenstaende'], z);
   const { eintraege, verworfen } = verarbeiteListe(liste, z);
   return { ok: true, dateiFehler: null, eintraege, verworfen, unbekannteFelder: z.n, grundErsetzt: z.ersetzt ?? [] };
@@ -639,7 +643,11 @@ export function schreibeGegenstandsDatei(eintraege: readonly GegenstandsEintrag[
     const ernte: Roh = {};
     if (e.ernte.baum !== undefined) ernte.baum = e.ernte.baum;
     if (e.ernte.fels !== undefined) ernte.fels = e.ernte.fels;
-    if (Object.keys(ernte).length > 0) o.ernte = ernte;
+    // An empty `ernte` is written only where it DIFFERS from the base entry's (a deliberate "harvests nothing" on an item that
+    // harvests in the base): reading must not mistake it for a missing field and inherit the base harvest.
+    const grundErnte = grundEintraege.find((g) => g.id === e.id)?.ernte;
+    const grundHatErnte = grundErnte !== undefined && Object.keys(grundErnte).length > 0;
+    if (Object.keys(ernte).length > 0 || grundHatErnte) o.ernte = ernte;
     const haltbarkeit: Roh = {};
     if (e.haltbarkeit.max !== undefined) haltbarkeit.max = e.haltbarkeit.max;
     if (e.haltbarkeit.verbrauch !== undefined) haltbarkeit.verbrauch = e.haltbarkeit.verbrauch;

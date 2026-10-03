@@ -82,10 +82,13 @@ export function gegenstandsLetzterGuterDatei(arbeitsDatei: string): string {
  *                                                  → the working copy WINS, nothing is overwritten, loud (konflikt)
  *   otherwise                                                                                          (unveraendert)
  *
- * Old basis (hash only): a file that equals it byte for byte is an untouched copy: every entry goes. Otherwise the basis state
- * is rebuilt from the file if that is possible to verify: the base-id entries of the file, written canonically, must hash to
- * the basis hash (the typical state of an instance that got the copy of an older build and saved own items, without touching
- * a base entry). If the hash does not match (a base entry was edited), only "equals the repo entry" counts.
+ * Old basis (hash only, written by GD1, so always an earlier state of `shared/data/gegenstaende.json`): (1) the state is looked
+ * up in the baked-in HISTORY `shared/data/gegenstaende-historie/<hash>.json` (every state the repo file has had since GD1; a
+ * test makes sure the current one is in it) and used like a full basis, also when the file holds edited base entries and
+ * the repo changed locked fields at the same time; (2) a file that equals the basis byte for byte is an untouched copy:
+ * every entry goes; (3) otherwise the state is rebuilt from the file if that can be verified: its base-id entries, written
+ * canonically, must hash to the basis hash; (4) else only "equals the repo entry" counts, and the message says the basis
+ * is unknown. States are read AS WRITTEN (`ohneGrundsperre`), never against the base stock baked into this build.
  *
  * Afterwards the basis is a copy of the repo file. Order of writing: working copy first (atomic), basis second, so an abort
  * between the two leaves a file that is cleaned and a basis that is still old; the next start only repeats the (harmless)
@@ -111,6 +114,8 @@ export interface GegenstandsAbgleich {
   entfallen?: string[];
   /** The base ids that are still deviations in the file. */
   abweichend?: string[];
+  /** An old hash-only basis that matches no known repo state and cannot be rebuilt: only "equals the repo entry" counted. */
+  basisUnbekannt?: boolean;
 }
 
 export interface GegenstandsAbgleichOptionen {
@@ -176,13 +181,13 @@ function atomarSchreiben(ziel: string, inhalt: Buffer | string): void {
 }
 
 /**
- * The canonical text of ONE raw entry (the writer's text of what the reader makes of it), or `null` if the reader replaced it
- * (invalid, or deviating in a locked field). An entry the reader refuses for another reason leaves an empty list, whose text
- * never equals the text of a repo entry, so it counts as a deviation as well.
+ * The canonical text of ONE raw entry as WRITTEN (the writer's text of what the reader makes of it, without comparing it with
+ * the base stock baked into this build: an old copy of an item whose locked field the repo changed since is still the old
+ * copy). An entry the reader refuses leaves an empty list, whose text never equals the text of a repo entry, so it counts as
+ * a deviation.
  */
 function kanonVonRoh(roh: unknown): string | null {
-  const lesung = leseGegenstandsDatei(JSON.stringify({ version: 1, gegenstaende: [roh] }));
-  if (lesung.grundErsetzt.length > 0) return null;
+  const lesung = leseGegenstandsDatei(JSON.stringify({ version: 1, gegenstaende: [roh] }), { ohneGrundsperre: true });
   try {
     return schreibeGegenstandsDatei(lesung.eintraege);
   } catch {
@@ -192,7 +197,21 @@ function kanonVonRoh(roh: unknown): string | null {
 
 /** id → canonical text per entry of a document text (the reader's entries, written one by one). */
 function kanonKarte(text: string): Map<string, string> {
-  return new Map(leseGegenstandsDatei(text).eintraege.map((e) => [e.id, schreibeGegenstandsDatei([e])] as const));
+  return new Map(leseGegenstandsDatei(text, { ohneGrundsperre: true }).eintraege.map((e) => [e.id, schreibeGegenstandsDatei([e])] as const));
+}
+
+/** Where the baked-in history keeps the repo state with this hash (next to the repo file). */
+export function gegenstandsHistorieDatei(repoPfad: string, hash: string): string {
+  return resolve(dirname(repoPfad), 'gegenstaende-historie', `${hash}.json`);
+}
+
+/** The text of an earlier repo state from the history, if it is there and really has this hash and is an item file. */
+function historieText(repoPfad: string, hash: string): string | null {
+  // (`hash` is a 64-digit hex string here: the old-basis branch only gets that far for such a value)
+  const bytes = dateiBytes(gegenstandsHistorieDatei(repoPfad, hash));
+  if (bytes === null || layoutHash(bytes) !== hash) return null;
+  const text = bytes.toString('utf-8');
+  return leseGegenstandsDatei(text, { ohneGrundsperre: true }).dateiFehler === null ? text : null;
 }
 
 const kurz = (h: string | null): string => (h === null ? '-' : h.slice(0, 8));
@@ -238,7 +257,9 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   if (repoBytes === null || repoHash === null) {
     return ergebnis('repo-fehlt', `[Gegenstaende] Repo-Datei fehlt (${repoPfad}); Arbeitskopie ${arbeitHash === null ? 'fehlt ebenfalls' : `gelesen (${kurz(arbeitHash)})`}`);
   }
-  const repoLesung = leseGegenstandsDatei(repoBytes.toString('utf-8'));
+  // The repo file is read AS WRITTEN (the base stock baked into this build is the same file in a running system; in a test or
+  // right after a pull it may not be yet, and the comparison must follow the file).
+  const repoLesung = leseGegenstandsDatei(repoBytes.toString('utf-8'), { ohneGrundsperre: true });
   if (repoLesung.dateiFehler !== null) {
     return ergebnis(
       'repo-kaputt',
@@ -261,18 +282,23 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   // basis, else the base-id entries of the file if they hash to the basis hash.
   let basisKanon: Map<string, string> | null = null;
   let dateiIstBasis = false;
+  let basisUnbekannt = false;
   if (basis !== null && basis.text !== null) basisKanon = kanonKarte(basis.text);
   else if (basis !== null) {
-    if (arbeitHash === basis.hash) dateiIstBasis = true;
+    const historie = historieText(repoPfad, basis.hash);
+    if (basis.hash === repoHash) basisKanon = repoKanon;
+    else if (historie !== null) basisKanon = kanonKarte(historie);
+    else if (arbeitHash === basis.hash) dateiIstBasis = true;
     else {
-      const kandidat = leseGegenstandsDatei(JSON.stringify({ version: 1, gegenstaende: dokument.gegenstaende.filter((r) => { const id = idVon(r); return id !== null && repoKanon.has(id); }) }));
-      if (kandidat.dateiFehler === null && kandidat.verworfen.length === 0 && kandidat.grundErsetzt.length === 0 && kandidat.eintraege.length > 0) {
+      const kandidat = leseGegenstandsDatei(JSON.stringify({ version: 1, gegenstaende: dokument.gegenstaende.filter((r) => { const id = idVon(r); return id !== null && repoKanon.has(id); }) }), { ohneGrundsperre: true });
+      if (kandidat.dateiFehler === null && kandidat.verworfen.length === 0 && kandidat.eintraege.length > 0) {
         try {
           if (layoutHash(schreibeGegenstandsDatei(kandidat.eintraege)) === basis.hash) basisKanon = new Map(kandidat.eintraege.map((e) => [e.id, schreibeGegenstandsDatei([e])] as const));
         } catch {
           /* cannot be written: no reconstruction */
         }
       }
+      basisUnbekannt = basisKanon === null;
     }
   }
 
@@ -310,25 +336,26 @@ export function gegenstaendeAbgleichenOhneSperre(repoPfad: string, arbeitsPfad: 
   zwischenschritt?.();
   if (basisNachtragen && modus === 'voll') atomarSchreiben(basisPfad, repoBytes);
 
-  const mehr = { bereinigt, entfallen, abweichend, ...(sicherung === undefined ? {} : { sicherung }) };
+  const mehr = { bereinigt, entfallen, abweichend, ...(basisUnbekannt ? { basisUnbekannt } : {}), ...(sicherung === undefined ? {} : { sicherung }) };
+  const unbekanntText = basisUnbekannt ? ` Die alte Basis (Hash ${kurz(basisHash)}) ist keine bekannte Repo-Fassung und laesst sich nicht aus der Datei aufbauen: nur Gleichheit mit dem Repo-Stand zaehlt.` : '';
   const entfallenText = entfallen.length > 0 ? ` Nicht mehr im Repo (Eintrag unberuehrt, entfernt): ${entfallen.join(', ')}.` : '';
   if (konfliktIds.length > 0) {
     return ergebnis(
       'konflikt',
       `[Gegenstaende] WARNUNG Konflikt: das Repo hat sich geaendert (Basis ${kurz(basisHash)} → Repo ${kurz(repoHash)}), die Arbeitskopie hat abweichende Grundgegenstaende (${konfliktIds.join(', ')}). ` +
         `Es wird NICHTS ueberschrieben; die Arbeitskopie gilt (${arbeitsPfad}). Bis GD3 ist nur \`ernte\` aenderbar: alle anderen Felder folgen dem Repo, eine geaenderte \`ernte\` des Repos kommt fuer diese Gegenstaende erst an, wenn der Eintrag im Editor auf den Grundstand zurueckgesetzt wird.` +
-        (bereinigt.length > 0 ? ` Ohne Abweichung herausgenommen: ${bereinigt.join(', ')} (Sicherung: ${sicherung ?? '(keine)'}).${entfallenText}` : ''),
+        (bereinigt.length > 0 ? ` Ohne Abweichung herausgenommen: ${bereinigt.join(', ')} (Sicherung: ${sicherung ?? '(keine)'}).${entfallenText}` : '') + unbekanntText,
       { ...mehr, abweichend }
     );
   }
   if (bereinigt.length > 0) {
     return ergebnis(
       'bereinigt',
-      `[Gegenstaende] Arbeitskopie bereinigt: ${bereinigt.length} Eintrag/Eintraege ohne Abweichung ${modus === 'voll' ? 'herausgenommen' : 'wuerden herausgenommen'} (${bereinigt.join(', ')}); alter Stand gesichert: ${sicherung ?? '(keiner)'}.${entfallenText}${abweichungen}`,
+      `[Gegenstaende] Arbeitskopie bereinigt: ${bereinigt.length} Eintrag/Eintraege ohne Abweichung ${modus === 'voll' ? 'herausgenommen' : 'wuerden herausgenommen'} (${bereinigt.join(', ')}); alter Stand gesichert: ${sicherung ?? '(keiner)'}.${entfallenText}${abweichungen}${unbekanntText}`,
       mehr
     );
   }
-  return ergebnis('unveraendert', `[Gegenstaende] Arbeitskopie gelesen: ${arbeitsPfad} (Hash ${kurz(arbeitHash)}, Repo ${kurz(repoHash)}).${abweichungen}`, mehr);
+  return ergebnis('unveraendert', `[Gegenstaende] Arbeitskopie gelesen: ${arbeitsPfad} (Hash ${kurz(arbeitHash)}, Repo ${kurz(repoHash)}).${abweichungen}${unbekanntText}`, mehr);
 }
 
 /**

@@ -19,7 +19,7 @@ import { createServer } from 'node:http';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GRUNDBESTAND, GRUNDBESTAND_IDS, leseGegenstandsDatei } from '@wov/shared/src/items/gegenstandsDaten.js';
+import { GRUNDBESTAND, GRUNDBESTAND_IDS, leseGegenstandsDatei, schreibeGegenstandsDatei, setzeGrundbestand, type GegenstandsEintrag } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { gegenstandsArbeitsDatei, gegenstandsBasisLesen, gegenstandsBasisStand, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 import { layoutHash } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { gegenstaendeBehandeln } from '../src/routen/gegenstaende.js';
@@ -130,6 +130,34 @@ try {
     check('1 a PUT with the hash from BEFORE the clean-out is 412 (the first save never builds on the stale file)', stale.status === 412, `${stale.status}`);
   }
   {
+    // GD1 hash basis + a repo change of a locked field (Wood.gewicht) AND AxeFlint.ernte at the same time: the history carries it
+    const r0 = REPO_ECHT.toString('utf-8');
+    const doc = JSON.parse(r0) as { version: number; gegenstaende: Array<Record<string, unknown>> };
+    doc.gegenstaende.find((e) => e.id === 'Wood')!.gewicht = 9.5;
+    doc.gegenstaende.find((e) => e.id === 'AxeFlint')!.ernte = { baum: 2 };
+    const r1 = `${JSON.stringify(doc, null, 2)}\n`;
+    const historie = resolve(dirname(REPO), 'gegenstaende-historie', `${sha(REPO_ECHT)}.json`);
+    mkdirSync(dirname(historie), { recursive: true });
+    writeFileSync(historie, REPO_ECHT);
+    const holzEintrag = leseGegenstandsDatei(dokument([holzaxt])).eintraege[0]!;
+    zustand(schreibeGegenstandsDatei([...leseGegenstandsDatei(r0).eintraege, holzEintrag]), sha(REPO_ECHT));
+    writeFileSync(REPO, r1);
+    warnungen.length = 0;
+    // the route of the NEW build: the base stock baked in is R1
+    setzeGrundbestand([]);
+    setzeGrundbestand(leseGegenstandsDatei(r1).eintraege);
+    let g: Awaited<ReturnType<typeof get>>;
+    try {
+      g = await get();
+    } finally {
+      setzeGrundbestand(GRUNDBESTAND);
+    }
+    check('1 hash basis R0 + repo R1 (Wood.gewicht and AxeFlint.ernte changed), history there: GET shows only the Holzaxt, grundErsetzt [] (AxeFlint follows the repo)', g.status === 200 && (g.daten.eintraege as Array<{ id: string }>).map((e) => e.id).join() === 'Holzaxt' && (g.daten.grundErsetzt as unknown[]).length === 0 && (g.daten.verworfen as unknown[]).length === 0, JSON.stringify(g.daten.eintraege).slice(0, 100));
+    check('1 ... no conflict warning, the basis is the full copy of R1', warnungen.length === 0 && gegenstandsBasisStand(ARBEIT)?.text === r1, JSON.stringify(warnungen));
+    writeFileSync(REPO, REPO_ECHT);
+    rmSync(resolve(dirname(REPO), 'gegenstaende-historie'), { recursive: true, force: true });
+  }
+  {
     // the repo moved on while the copy deviates: a conflict, reported ONCE, the copy wins
     const eigen = dokument([mitWerten('AxeFlint', { ernte: { baum: 3 } }), holzaxt]);
     zustand(eigen, sha(REPO_ECHT));
@@ -207,6 +235,19 @@ try {
     check('2 a replaced copy with its own ernte (baum 5, stack 77): a PUT without it is 422 grundkopie-nur-zuruecksetzen, the file is byte-equal (the harvest value is not lost)', heil2.status === 422 && heil2.daten.fehler === 'grundkopie-nur-zuruecksetzen' && readFileSync(ARBEIT, 'utf-8') === text2, `${heil2.status} ${JSON.stringify(heil2.daten)}`);
     const g4 = await get();
     check('2 ... the replaced copy still carries its harvest (baum 5) in what the mask reads', (g4.daten.eintraege as Array<{ id: string; ernte: { baum?: number } }>).find((e) => e.id === 'AxeFlint')?.ernte.baum === 5);
+    // the mask sends the replaced copy along (it reads it from GET): that is NO omission, the PUT goes through and the ernte stays
+    zustand(text2, sha(REPO_ECHT));
+    const gm = await get();
+    const maskeEintraege = (gm.daten.eintraege as GegenstandsEintrag[]).map((e) => (e.id === 'Holzaxt' ? { ...e, stapel: 3 } : e));
+    const maskePut = await put(schreibeGegenstandsDatei(maskeEintraege), String(gm.daten.hash));
+    check('2 a mask PUT that carries the replaced AxeFlint copy (as GET delivered it) is 200 (the mask is not locked out); the copy keeps its harvest (baum 5)', maskePut.status === 200 && (JSON.parse(readFileSync(ARBEIT, 'utf-8')) as { gegenstaende: Array<{ id: string; ernte?: { baum?: number } }> }).gegenstaende.find((e) => e.id === 'AxeFlint')?.ernte?.baum === 5, `${maskePut.status} ${JSON.stringify(maskePut.daten)}`);
+    // BOTH kinds missing at once: the code is the one of the copy in effect, the answer names both lists
+    zustand(dokument([mitWerten('PickaxeAntler', { ernte: { fels: 5 } }), mitWerten('Wood', { stapel: 77 }), holzaxt]), sha(REPO_ECHT));
+    const gb = await get();
+    const beides = await put(dokument([holzaxt]), String(gb.daten.hash));
+    check('2 a copy in effect AND a replaced copy missing: 422 grundgegenstand-nicht-loeschbar naming PickaxeAntler, and the answer names the replaced Wood as well (grundkopien, message)', beides.status === 422 && beides.daten.fehler === 'grundgegenstand-nicht-loeschbar' && JSON.stringify(beides.daten.grundgegenstaende) === '["PickaxeAntler"]' && JSON.stringify(beides.daten.grundkopien) === '["Wood"]' && String(beides.daten.message).includes('Wood'), `${beides.status} ${JSON.stringify(beides.daten)}`);
+    const nurKopie = await put(dokument([mitWerten('PickaxeAntler', { ernte: { fels: 5 } }), holzaxt]), String(gb.daten.hash));
+    check('2 only the replaced copy missing: 422 grundkopie-nur-zuruecksetzen, grundkopien the same list', nurKopie.status === 422 && nurKopie.daten.fehler === 'grundkopie-nur-zuruecksetzen' && JSON.stringify(nurKopie.daten.grundkopien) === '["Wood"]' && JSON.stringify(nurKopie.daten.grundgegenstaende) === '["Wood"]', `${nurKopie.status} ${JSON.stringify(nurKopie.daten)}`);
     // a valid override (nothing replaced) keeps its own code
     zustand(dokument([mitWerten('AxeFlint', { ernte: { baum: 5 } }), holzaxt]), sha(REPO_ECHT));
     const g5 = await get();

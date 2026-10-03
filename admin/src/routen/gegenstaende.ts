@@ -476,7 +476,7 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     | { art: 'veraltet'; hash: string }
     | { art: 'bestaetigung'; hash: string; entfernt: string[]; entferntOhneId: string[] }
     | { art: 'altKaputt'; hash: string; dateiFehler: string }
-    | { art: 'grundEntfernt'; hash: string; ids: string[]; kopie: boolean }
+    | { art: 'grundEntfernt'; hash: string; ids: string[]; kopie: boolean; kopien: string[] }
     | { art: 'geschrieben'; hash: string; entfernt: string[]; entferntOhneId: string[]; anzahl: number };
   // ONE synchronous section: read, compare, check removals, rename. No `await` in here (the wait for the lock is
   // asynchronous and happens BEFORE it).
@@ -509,8 +509,10 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     const kopien = alt.grundErsetzt.filter((id) => !neueIds.has(id) && istGrundItem(id));
     const wirksam = [...new Set([...alt.eintraege.map((e) => e.id).filter((id) => !alt.grundErsetzt.includes(id)), ...verworfen.ids])];
     const grundWeg = wirksam.filter((id) => !neueIds.has(id) && istGrundItem(id));
-    if (grundWeg.length > 0) return { art: 'grundEntfernt', hash: stand.hash, ids: grundWeg, kopie: false };
-    if (kopien.length > 0) return { art: 'grundEntfernt', hash: stand.hash, ids: kopien, kopie: true };
+    // Both kinds can be missing at once: the answer carries both lists (`grundgegenstaende` for the code's own kind, `grundkopien`
+    // for the replaced copies), so nobody learns the second reason only from the next attempt.
+    if (grundWeg.length > 0) return { art: 'grundEntfernt', hash: stand.hash, ids: grundWeg, kopie: false, kopien };
+    if (kopien.length > 0) return { art: 'grundEntfernt', hash: stand.hash, ids: kopien, kopie: true, kopien };
     // (a base id cannot get here: an entry in effect or a replaced copy that is left out was refused above)
     const entfernt = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id));
     const entferntOhneId = verworfen.ohneId;
@@ -544,10 +546,11 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
           ok: false,
           fehler: ausgang.kopie ? 'grundkopie-nur-zuruecksetzen' : 'grundgegenstand-nicht-loeschbar',
           grundgegenstaende: ausgang.ids,
+          grundkopien: ausgang.kopien,
           hash: ausgang.hash,
           message: ausgang.kopie
             ? `Die Kopie von ${ausgang.ids.join(', ')} ist ungültig oder weicht vom Grundstand ab; sie lässt sich nur über „Auf Grundstand zurücksetzen“ entfernen. Nichts geschrieben.`
-            : `Grundgegenstände lassen sich nicht löschen (${ausgang.ids.join(', ')}); sie lassen sich nur auf den Grundstand zurücksetzen. Nichts geschrieben.`,
+            : `Grundgegenstände lassen sich nicht löschen (${ausgang.ids.join(', ')}); sie lassen sich nur auf den Grundstand zurücksetzen.${ausgang.kopien.length > 0 ? ` Ausserdem fehlen ersetzte Kopien (${ausgang.kopien.join(', ')}), die nur über „Auf Grundstand zurücksetzen“ entfernt werden.` : ''} Nichts geschrieben.`,
         },
         etag(ausgang.hash)
       );

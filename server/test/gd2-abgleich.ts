@@ -34,6 +34,7 @@ import {
 import {
   gegenstaendeAbgleichen,
   gegenstandsBasisLesen,
+  gegenstandsHistorieDatei,
   gegenstandsBasisStand,
   gegenstandsRepoDatei,
 } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
@@ -244,7 +245,10 @@ console.log('\n[3b] The basis holds the full repo state (N2)');
   /** What `main` (GD1) wrote for a missing copy and the mask saved afterwards: the 29 repo entries + an own item, written canonically. */
   const main29PlusX = (repoText: string | Buffer): string => schreibeGegenstandsDatei([...leseGegenstandsDatei(repoText.toString()).eintraege, holzEintrag]);
   const neuerBau = (repoText: string): (() => void) => {
-    setzeGrundbestand(leseGegenstandsDatei(repoText).eintraege);
+    // like `grundbestand.ts` at module start: read the new file against an EMPTY base stock (else the changed locked fields would be replaced)
+    setzeGrundbestand([]);
+    const neu = leseGegenstandsDatei(repoText).eintraege;
+    setzeGrundbestand(neu);
     return () => { setzeGrundbestand(GRUNDBESTAND); wendeGegenstandsDatenAn([]); };
   };
   {
@@ -342,6 +346,125 @@ console.log('\n[3b] The basis holds the full repo state (N2)');
     gegenstaendeAbgleichen({ repoDatei: g.repo, arbeitsDatei: g.arbeit });
     check('a created copy gets the full basis too', gegenstandsBasisStand(g.arbeit)?.text === REPO_ECHT.toString());
   }
+}
+
+console.log('\n[3b2] Hash basis from GD1 + a repo change of a LOCKED field at the same time (N3)');
+{
+  const holzEintrag = leseGegenstandsDatei(dokument([holzaxt])).eintraege[0]!;
+  const main29PlusX = (repoText: string | Buffer): string => schreibeGegenstandsDatei([...leseGegenstandsDatei(repoText.toString(), { ohneGrundsperre: true }).eintraege, holzEintrag]);
+  /** R1': the repo changed Wood.gewicht (a locked field) AND AxeFlint.ernte 1 → 2 in one go: the probe of the attack of 03.10. */
+  const r1 = ((): string => {
+    const doc = JSON.parse(REPO_ECHT.toString()) as { version: number; gegenstaende: Roh[] };
+    doc.gegenstaende.find((e) => e.id === 'Wood')!.gewicht = 9.5;
+    doc.gegenstaende.find((e) => e.id === 'AxeFlint')!.ernte = { baum: 2 };
+    return `${JSON.stringify(doc, null, 2)}\n`;
+  })();
+  const neuerBau = (text: string): (() => void) => {
+    setzeGrundbestand([]);
+    setzeGrundbestand(leseGegenstandsDatei(text).eintraege);
+    return () => { setzeGrundbestand(GRUNDBESTAND); wendeGegenstandsDatenAn([]); };
+  };
+  /** The history folder next to the repo file of this case (as `shared/data/gegenstaende-historie/` in the repo). */
+  const historie = (f: Fall, text: string | Buffer): void => {
+    const ziel = gegenstandsHistorieDatei(f.repo, sha(Buffer.from(text)));
+    mkdirSync(dirname(ziel), { recursive: true });
+    writeFileSync(ziel, text);
+  };
+  for (const mitHistorie of [true, false]) {
+    const wie = mitHistorie ? 'with the history' : 'without a history file (rebuilt from the file, verified by the hash)';
+    const f = neuerFall(r1);
+    if (mitHistorie) historie(f, REPO_ECHT);
+    writeFileSync(f.arbeit, main29PlusX(REPO_ECHT));
+    writeFileSync(f.basis, `${sha(REPO_ECHT)}\n`);
+    // the reconciliation runs in the NEW build (the base stock baked in is R1'), as at the start after a rollout
+    const zurueck = neuerBau(r1);
+    try {
+      const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+      check(`Wood.gewicht AND AxeFlint.ernte changed, 29 copies of R0 + Holzaxt, hash basis, ${wie}: bereinigt all 29, no conflict`, a.fall === 'bereinigt' && a.bereinigt?.length === 29 && (a.abweichend ?? []).length === 0 && !a.basisUnbekannt, `${a.fall} ${a.bereinigt?.length} ${a.abweichend?.join()}`);
+      check(`... only the Holzaxt is left, the basis is the full copy of R1'`, ids(f.arbeit) === 'Holzaxt' && gegenstandsBasisStand(f.arbeit)?.text === r1);
+      const l = laden(f);
+      check(`... the game: AxeFlint harvests 2 (follows the repo), Wood has the new weight, nothing is named in grundErsetzt`, findItem('AxeFlint')?.ernte?.baum === 2 && findItem('Wood')?.weight === 9.5 && l.grundErsetzt === 0 && l.extra.join() === 'Holzaxt', `${JSON.stringify(findItem('AxeFlint')?.ernte)} ${findItem('Wood')?.weight}`);
+    } finally {
+      zurueck();
+    }
+  }
+  {
+    // the history also carries a file with an EDITED base entry: every entry against its own state of then
+    const f = neuerFall(r1);
+    historie(f, REPO_ECHT);
+    const alt = leseGegenstandsDatei(main29PlusX(REPO_ECHT), { ohneGrundsperre: true }).eintraege.map((e) => (e.id === 'Wood' ? { ...e, ernte: { baum: 3 } } : e));
+    writeFileSync(f.arbeit, schreibeGegenstandsDatei(alt));
+    writeFileSync(f.basis, `${sha(REPO_ECHT)}\n`);
+    const zurueck = neuerBau(r1);
+    const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    zurueck();
+    check('an EDITED Wood (ernte) whose repo entry changed (gewicht): the 28 others go with the history, Wood stays and is the ONLY conflict', a.fall === 'konflikt' && a.bereinigt?.length === 28 && a.abweichend?.join() === 'Wood' && a.meldung.includes('(Wood)') && ids(f.arbeit) === 'Wood,Holzaxt', `${a.fall} ${a.bereinigt?.length} ${a.abweichend?.join()}`);
+  }
+  {
+    // a FULL basis (R0) read in the new build: its entries are compared as written, not against the new base stock
+    const f = neuerFall(r1);
+    writeFileSync(f.arbeit, main29PlusX(REPO_ECHT));
+    writeFileSync(f.basis, REPO_ECHT);
+    const zurueck = neuerBau(r1);
+    try {
+      const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+      check('full basis R0, repo R1\' (Wood.gewicht + AxeFlint.ernte), run in the new build: bereinigt all 29, no conflict', a.fall === 'bereinigt' && a.bereinigt?.length === 29 && (a.abweichend ?? []).length === 0, `${a.fall} ${a.bereinigt?.length} ${a.abweichend?.join()}`);
+    } finally {
+      zurueck();
+    }
+  }
+  {
+    // an unknown hash: today's behaviour, and the message says so
+    const f = neuerFall(r1);
+    const alt = leseGegenstandsDatei(main29PlusX(REPO_ECHT), { ohneGrundsperre: true }).eintraege.map((e) => (e.id === 'Wood' ? { ...e, ernte: { baum: 3 } } : e));
+    writeFileSync(f.arbeit, schreibeGegenstandsDatei(alt));
+    writeFileSync(f.basis, `${sha(REPO_ECHT)}\n`);
+    const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+    check('hash basis that matches no history file and cannot be rebuilt (a base entry was edited): basisUnbekannt, the message says the basis is unknown', a.basisUnbekannt === true && a.meldung.includes('keine bekannte Repo-Fassung'), a.meldung.slice(-160));
+    const g = neuerFall(r1);
+    historie(g, REPO_ECHT);
+    writeFileSync(resolve(dirname(g.repo), 'gegenstaende-historie', `${sha(REPO_ECHT)}.json`), r1); // a VALID item file, but not the state the name says
+    writeFileSync(g.arbeit, schreibeGegenstandsDatei(alt));
+    writeFileSync(g.basis, `${sha(REPO_ECHT)}\n`);
+    const b = gegenstaendeAbgleichen({ repoDatei: g.repo, arbeitsDatei: g.arbeit });
+    check('a history file whose bytes do not have the name hash is NOT used (basisUnbekannt)', b.basisUnbekannt === true);
+  }
+}
+
+console.log('\n[3d] A deliberately empty ernte survives (N3)');
+{
+  const axeRoh = repoRoh().find((e) => e.id === 'AxeFlint')!;
+  const leerErnte = leseGegenstandsDatei(dokument([{ ...axeRoh, ernte: {} }])).eintraege;
+  const text = schreibeGegenstandsDatei(leerErnte);
+  check('the writer keeps an explicit empty `ernte: {}` on an item that harvests in the base', JSON.parse(text).gegenstaende[0].ernte !== undefined && Object.keys(JSON.parse(text).gegenstaende[0].ernte).length === 0, text.slice(0, 40));
+  check('... and not on an item whose base entry has no harvest (the repo file stays canonical)', !('ernte' in JSON.parse(schreibeGegenstandsDatei(leseGegenstandsDatei(dokument([repoRoh().find((e) => e.id === 'Wood')!])).eintraege)).gegenstaende[0]) && schreibeGegenstandsDatei(leseGegenstandsDatei(REPO_ECHT.toString()).eintraege) === REPO_ECHT.toString());
+  check('... the round trip is stable and keeps `{}` (read again: ernte {})', schreibeGegenstandsDatei(leseGegenstandsDatei(text).eintraege) === text && leseGegenstandsDatei(text).eintraege[0]?.ernte.baum === undefined);
+  // the repo changes a LOCKED field of the same item (gewicht): the copy is replaced, its explicit `{}` stays
+  const r1 = ((): string => {
+    const doc = JSON.parse(REPO_ECHT.toString()) as { version: number; gegenstaende: Roh[] };
+    doc.gegenstaende.find((e) => e.id === 'AxeFlint')!.gewicht = 7.5;
+    return `${JSON.stringify(doc, null, 2)}\n`;
+  })();
+  const f = neuerFall(r1);
+  writeFileSync(f.arbeit, text);
+  writeFileSync(f.basis, REPO_ECHT);
+  const a = gegenstaendeAbgleichen({ repoDatei: f.repo, arbeitsDatei: f.arbeit });
+  check('the repo changed AxeFlint.gewicht while the copy has `ernte: {}`: konflikt naming AxeFlint (the edit is not lost silently)', a.fall === 'konflikt' && a.abweichend?.join() === 'AxeFlint' && ids(f.arbeit) === 'AxeFlint', `${a.fall} ${a.abweichend?.join()}`);
+  setzeGrundbestand([]);
+  setzeGrundbestand(leseGegenstandsDatei(r1).eintraege);
+  try {
+    const l = laden(f);
+    check('a game built from the new repo: the axe harvests NOTHING (`{}` kept), the weight is the new one, AxeFlint is named in grundErsetzt', l.grundErsetzt === 1 && findItem('AxeFlint')?.ernte?.baum === undefined && findItem('AxeFlint')?.weight === 7.5, JSON.stringify(findItem('AxeFlint')?.ernte));
+  } finally {
+    setzeGrundbestand(GRUNDBESTAND);
+    wendeGegenstandsDatenAn([]);
+  }
+  // absent field: inherits (unchanged from N2), also after the writer
+  const ohne = { ...axeRoh, gewicht: 99 } as Roh;
+  delete ohne.ernte;
+  check('a copy with the field MISSING inherits the base harvest', leseGegenstandsDatei(dokument([ohne])).eintraege[0]?.ernte.baum === 1);
+  check('a copy with `ernte: null` inherits too (no value)', leseGegenstandsDatei(dokument([{ ...ohne, ernte: null }])).eintraege[0]?.ernte.baum === 1);
+  check('a copy with `ernte: {}` and a locked change keeps `{}`', leseGegenstandsDatei(dokument([{ ...ohne, ernte: {} }])).eintraege[0]?.ernte.baum === undefined);
 }
 
 console.log('\n[3c] Replaced copies: ernte inherited, deep copy (N2)');

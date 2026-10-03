@@ -320,12 +320,14 @@ export class GameSocket {
     this.handlers.get(type)!.push(handler);
   }
 
-  sendPacket(type: PacketType, payload: Uint8Array): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+  /** @returns false if the line is not open and the packet was dropped. */
+  sendPacket(type: PacketType, payload: Uint8Array): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
     const packet = new Uint8Array(1 + payload.length);
     packet[0] = type;
     packet.set(payload, 1);
     this.ws.send(packet.buffer);
+    return true;
   }
 
   /**
@@ -447,9 +449,15 @@ export class GameSocket {
     this.sendPacket(PacketType.Equip, w.toUint8Array());
   }
 
-  /** Parade (Rechtsklick mit Waffe): kein Payload, der Server oeffnet das Fenster. */
-  sendParry(): void {
-    this.sendPacket(PacketType.Parry, new Uint8Array(0));
+  /**
+   * D3: Block gehalten (`an`) oder losgelassen. Ein eigenes Paket statt eines Feldes im Eingabepaket: Es
+   * kommt sofort an, das Paradefenster des Servers ist nur 200 ms lang. Der Server antwortet mit
+   * Block=false, wenn ER den Block beendet oder ablehnt.
+   */
+  sendBlock(an: boolean): boolean {
+    const w = new BinaryWriter();
+    w.writeBool(an);
+    return this.sendPacket(PacketType.Block, w.toUint8Array());
   }
 
   /** Interaktion (E): Position + Prefab-Hash des Ziels. */

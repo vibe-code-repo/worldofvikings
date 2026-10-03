@@ -255,8 +255,8 @@ export enum PacketType {
   /** Client → Server: Essen (Taste F). Payload: String itemName. */
   Eat = 57,
   /**
-   * Client → Server: Parade (Rechtsklick mit Waffe). Kein Payload. Der
-   * Server oeffnet ein kurzes Fenster, in dem Treffer abgewehrt werden.
+   * Client → Server: Parade (Rechtsklick mit Waffe). Kein Payload. Seit D3
+   * vom Server verworfen; an seine Stelle tritt `Block` (89).
    */
   Parry = 58,
   /**
@@ -488,6 +488,15 @@ export enum PacketType {
    * Float32 spitzeMs. An old client sends none and gets no ack; an old server ignores the tail.
    */
   AttackAck = 88,
+  /**
+   * Client → Server: Block halten (Bool an) bzw. loslassen (Bool aus). Der Server fuehrt den Zustand
+   * (`blockSeit`), rechnet Halten, Paradefenster und Frontkegel und lehnt ab, wenn kein Gegenstand in der
+   * Hand ist, die Ausdauer unter 5 liegt (Kosten eines Beginns) oder der Spieler tot ist.
+   * Server → Client: Bool aus, wenn der SERVER den Block beendet hat (Ausdauer aufgebraucht, Blockbruch, eigener Schlag)
+   * oder einen Beginn ablehnt; ein vom Client selbst beendeter Block wird nicht zurueckgemeldet.
+   * `Parry` (58) wird nicht mehr ausgewertet.
+   */
+  Block = 89,
 }
 
 /**

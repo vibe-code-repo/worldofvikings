@@ -20,6 +20,7 @@ import { Writer } from '../io/Writer.js';
 import { Reader } from '../io/Reader.js';
 import { neuerSchlagZustand, type SchlagZustand } from '../spiel/Treffer.js';
 import { Spielwerte } from '../spiel/Spielwerte.js';
+import { blockZuruecksetzen } from '../spiel/Block.js';
 import { PacketType } from '@wov/shared';
 import type { WebSocket } from 'ws';
 import { randomBytes } from 'node:crypto';
@@ -138,14 +139,20 @@ export class Peer {
   /** Akku fuer den 10-Hz-PlayerState-Versand (s), s. WovServer.handlePlayerInput. */
   staminaSyncAkku?: number;
   /**
-   * Parade: Zeitstempel (ms), bis zu dem Treffer abgewehrt werden. 0 =
-   * keine Parade. Gesetzt von handleParry, gelesen in applyCreatureAttack.
+   * Block (D3): Zeitstempel (ms) des Beginns eines gehaltenen Blocks, 0 = kein Block.
+   * Gesetzt von spiel/Block.ts, gelesen in applyCreatureAttack und handlePlayerInput.
    */
-  paradeBis: number;
+  blockSeit: number;
+  /** Block: Serverzeit (ms) der letzten Abbuchung des Haltens, 0 = kein Block. */
+  blockTaktZeit: number;
+  /** Block: bis zu diesem Zeitstempel (ms) bekommt ein neuer Block kein Paradefenster (Klickserien). */
+  blockSperreBis: number;
+  /** Block: der laufende Block begann innerhalb der Sperre, also ohne Paradefenster. */
+  blockOhneParade: boolean;
   /**
    * Tod: Zeitstempel (ms), bis zu dem der Spieler tot am Boden liegt. 0 = lebt.
    * Solange er laeuft, nimmt der Spieler keinen Schaden, gilt Kreaturen nicht als
-   * Ziel und seine Eingaben (Bewegung, Schlag, Parade, Interaktion) werden
+   * Ziel und seine Eingaben (Bewegung, Schlag, Block, Interaktion) werden
    * ignoriert; danach belebt ihn der Server (WovServer.belebeFaellige).
    */
   totBis = 0;
@@ -288,7 +295,10 @@ export class Peer {
     this.health = 100;
     this.stamina = 100;
     this.staminaZuletztVerbraucht = 0;
-    this.paradeBis = 0;
+    this.blockSeit = 0;
+    this.blockTaktZeit = 0;
+    this.blockSperreBis = 0;
+    this.blockOhneParade = false;
     this.spawnPoint = null;
     this.spawnBettId = '';
     this.spawnBettBesitzer = null;
@@ -349,6 +359,7 @@ export class Peer {
    * Nummern, die drüben etwas anderes bedeuten.
    */
   weltWechselVorbereiten(): void {
+    blockZuruecksetzen(this); // a held block ends with the world; the client is told
     this.knownZDOs.clear();
     this.fenster.zuruecksetzen();
     this.quittiereZerstoerungen();

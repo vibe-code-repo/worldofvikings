@@ -129,7 +129,7 @@ async function main(): Promise<void> {
     const spawns = server.hauptwelt.spawns;
     if (!spawns) throw new Error('no SpawnSystem');
     const toeten = (): void => {
-      anna.health = 5; anna.paradeBis = 0;
+      anna.health = 5; anna.blockSeit = 0;
       zugriff.applyCreatureAttack({ ...anna.position, x: anna.position.x + 2 }, 500, 2.4, anna.worldId, anna.position);
     };
 
@@ -148,7 +148,7 @@ async function main(): Promise<void> {
     let bisse = 0;
     const echt = spawns.onCreatureAttack;
     spawns.onCreatureAttack = (pos, dmg, r, target) => { if (target === anna.position) bisse++; echt?.(pos, dmg, r, target); };
-    anna.health = 100; anna.paradeBis = 0;
+    anna.health = 100; anna.blockSeit = 0;
     await warte(3500);
     check('control (alive): the wolves bite her', bisse >= 1, `${bisse} bites`);
     const vorher = vorhanden();
@@ -172,7 +172,7 @@ async function main(): Promise<void> {
       woelfe.push(z);
     }
     spawns.adoptPersisted();
-    anna.health = 100; anna.paradeBis = 0;
+    anna.health = 100; anna.blockSeit = 0;
     bisse = 0;
     await warte(3500);
     check('after the revival the wolves bite her again', bisse >= 1, `${bisse} bites`);
@@ -184,7 +184,7 @@ async function main(): Promise<void> {
     console.log('\n[3] A dead player sends every locked packet: none reaches its handler; alive it does');
     const gesperrt: Array<[string, number, string]> = [
       ['Interact', PacketType.Interact, 'handleInteract'], ['Attack', PacketType.Attack, 'handleAttack'],
-      ['Parry', PacketType.Parry, 'handleParry'], ['TerrainOp', PacketType.TerrainOp, 'handleTerrainOp'],
+      ['Block', PacketType.Block, 'handleBlock'], ['TerrainOp', PacketType.TerrainOp, 'handleTerrainOp'],
       ['PlacePiece', PacketType.PlacePiece, 'handlePlacePiece'], ['RemovePiece', PacketType.RemovePiece, 'handleRemovePiece'],
       ['Craft', PacketType.Craft, 'handleCraft'], ['Eat', PacketType.Eat, 'handleEat'],
       ['ContainerAction', PacketType.ContainerAction, 'handleContainerAction'], ['AdminCommand', PacketType.AdminCommand, 'handleAdminCommand'],
@@ -249,7 +249,7 @@ async function main(): Promise<void> {
     const jaeger = server.zdos.createZDO(WOLF, { x: anna.position.x + 10, y: anna.position.y, z: anna.position.z });
     jaeger.setInt(HEALTH_MEMBER, maxLeben('Wolf'));
     spawns.adoptPersisted();
-    anna.health = 100; anna.paradeBis = 0;
+    anna.health = 100; anna.blockSeit = 0;
     await warte(1500);
     const animLebend = jaeger.getString(ANIM_MEMBER);
     const lebend = ticks;

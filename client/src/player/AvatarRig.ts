@@ -57,6 +57,7 @@ import { canWearArmor } from '@wov/shared';
 import { TOD_CLIPS, TREFFER_CLIPS, TREFFER_MINDESTABSTAND_S, type TodClip } from '@wov/shared';
 import { messeUndEntferneWurzelbewegung } from './wurzelbewegung';
 import { istKernClip } from './kernClips';
+import type { BlockRichtung } from './BlockSteuerung';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Matrix, Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector';
@@ -285,6 +286,18 @@ const UEBERBLEND_EINSTIEG = 0.08;
 const UEBERBLEND_AUSSTIEG = 0.25;
 /** Ein-/Ausblenden der Waffenschichten (Arm, Finger). */
 const SCHICHT_BLENDE = 0.15;
+/**
+ * D3: Wo in `parade_unten` die gehaltene Armpose des Blocks liegt (Anteil der Clipdauer). Die Parade ist ein
+ * Hub: Schwert hoch, Abwehr, zurueck; gehalten wird die Mitte. Gemessen (Wikinger): Rumpf und Kopf weichen dort
+ * 13 Grad von `block_halten` ab (am Anfang des Hubs 2,7), die Arme liegen in der Abwehr statt am Koerper
+ * (ueber 56 Grad). Mit den neuen Clips gilt deshalb nur der Arm-Teil (Rumpf und Kopf kommen aus den Block-Clips),
+ * ohne sie die ganze Pose.
+ */
+const BLOCK_POSE_ANTEIL = 0.5;
+/** D3: Knochen von Rumpf und Kopf; gehoeren im Block den Ganzkoerper-Clips (bzw. der Haltepose, s. `blockRumpf`). */
+const BLOCK_RUMPF = new Set(['Spine_01', 'Spine_02', 'Spine_03', 'Neck', 'Head']);
+/** D3: Name der gehaltenen Pose, wenn die Koerperdatei die neuen Block-Clips nicht mitbringt. */
+const BLOCK_POSE_AKTION = 'parade_unten';
 /**
  * Knochen der Armschicht (Original: „Right Arm Layer", Clip
  * SwordIdleMovement — der Arm haelt die Waffe, waehrend der Koerper den
@@ -541,6 +554,24 @@ export class AvatarRig {
   /** Einmal-Schichten nach Name (ausruesten, ablegen, parade_links, …). */
   private aktionen = new Map<string, Schicht>();
   private aktion: Aktion | null = null;
+  /**
+   * D3: die Block-Clips der Koerperdatei (56 Clips); jeder ist null, wo die Datei ihn nicht mitbringt (alte
+   * Datei mit 48 Clips). Sie sind keine Zustaende der Bewegung (kernClips) und laufen nur im Block.
+   */
+  private clipsBlock: { start: Clip | null; halten: Clip | null; vor: Clip | null; rueck: Clip | null } = {
+    start: null, halten: null, vor: null, rueck: null,
+  };
+  /** D3: Block an (vom PlayerController gesetzt) und Gehrichtung relativ zum Blick. */
+  private blockAn = false;
+  private blockRichtung: BlockRichtung = 'steht';
+  /** Sekunden seit Blockbeginn (waehlt zwischen `block_start` und `block_halten`). */
+  private blockZeit = 0;
+  /** Gewicht der gehaltenen Armpose (0..1), blendet mit AKTION_BLENDE ein und aus. */
+  private blockGewicht = 0;
+  /** Rumpf und Kopf der Haltepose (aus `block_halten`), fuer das Gehen seitwaerts; null ohne die neuen Clips. */
+  private blockRumpf: Schicht | null = null;
+  /** Gewicht von `blockRumpf`: 1 nur beim Block mit Seitwaertsgang, sonst tragen die Block-Clips den Rumpf. */
+  private blockRumpfGewicht = 0;
   private schichtBeobachter: Nullable<Observer<Scene>> = null;
   /**
    * Restlaufzeit des Schlags in Sekunden; > 0 heisst „schlaegt gerade".
@@ -907,6 +938,14 @@ export class AvatarRig {
       }
       // Death clips play only on demand: never as a state.
       for (const c of this.clipsTod.values()) c.grp.stop();
+      // D3: Block-Clips by name. They play only while blocking, never as a state (the loader leaves all but `idle` stopped).
+      const blockClip = (n: string): Clip | null => clips.find((k) => k.grp.name === n) ?? null;
+      this.clipsBlock = {
+        start: blockClip('block_start'), halten: blockClip('block_halten'), vor: blockClip('block_vor'), rueck: blockClip('block_rueck'),
+      };
+      this.blockRumpf = this.clipsBlock.halten ? this.baueMaskenSchicht(this.clipsBlock.halten, BLOCK_RUMPF) : null;
+      this.blockRumpfGewicht = 0;
+      this.blockGewicht = 0;
       const wandernd = rest.filter((c) => c.tempo > 0.1);
       this.clipsRuhe = rest.filter((c) => c.tempo <= 0.1);
       // Sprechende Namen schlagen die Messung. Der Tripo-Export vergibt
@@ -1673,6 +1712,7 @@ export class AvatarRig {
   update(dt: number, speed: number, maxSpeed: number, rennt = false, inDerLuft = false): void {
     this.inDerLuftMerker = inDerLuft;
     this.trefferUhr += dt;
+    if (this.blockAn) this.blockZeit += dt;
     // Lying: the death clip runs on its own and stays at its last pose; nothing else may move the figure.
     if (this.liegend && this.nutzeClip) {
       this.passeAnBodenAn(dt, true);
@@ -1726,11 +1766,15 @@ export class AvatarRig {
       const schlaegt = this.angriffRest > 0 && this.clipAngriff !== null;
 
       const springt = !schlaegt && inDerLuft && this.clipSprung !== null;
+      // Schlag und Sprung stehen in der Kette darunter VOR dem Block-Clip: Sie gehen vor.
+      const blockZiel = this.blockAn ? this.waehleBlockClip(bewegt) : null;
       const ziel = schlaegt
         ? this.clipAngriff
         : springt
           ? this.clipSprung
-          : !bewegt
+          : blockZiel
+            ? blockZiel
+            : !bewegt
             ? this.clipRuhe
             : (rennt ? this.clipRennen : this.clipGehen) ?? this.clipGehen ?? this.clipRuhe;
 
@@ -1741,7 +1785,9 @@ export class AvatarRig {
         // abgelaufen ist.
         if (ziel) {
           const ausHieb = this.istHieb(this.aktiv);
-          this.wechsleZu(ziel, !springt, springt, ausHieb ? UEBERBLEND_AUSSTIEG : UEBERBLENDUNG);
+          // `block_start` wie der Sprung: einmal von vorn, dann uebernimmt `block_halten`.
+          const einmal = springt || ziel === this.clipsBlock.start;
+          this.wechsleZu(ziel, !einmal, einmal, ausHieb ? UEBERBLEND_AUSSTIEG : UEBERBLENDUNG);
         }
         // Kein Ruheclip vorhanden: Gehzyklus einfrieren statt mitten im
         // Schritt stehenzubleiben.
@@ -1822,6 +1868,58 @@ export class AvatarRig {
     this.torso.rotation.y = -swing * 0.09 * amount;
     this.hips.position.y = HIP_Y + Math.abs(Math.sin(this.phase)) * 0.045 * amount + breath * idle;
     this.head.rotation.x = -0.05 - 0.16 * amount; // Blick bleibt waagerecht
+  }
+
+  /**
+   * D3: Block ein-/ausschalten. `richtung` ist die Gehrichtung relativ zum Blick (die Figur schaut beim
+   * Blocken zur Kamera): bei vorwaerts/rueckwaerts spielt der passende Block-Clip, seitwaerts den normalen
+   * Gehzyklus (es gibt keinen echten Seitschritt-Clip), im Stand `block_start` und dann `block_halten`. Der
+   * Oberkoerper (Rumpf, Arme) haelt in allen Faellen die Blockpose als Schicht.
+   */
+  setzeBlock(an: boolean, richtung: BlockRichtung = 'steht'): void {
+    if (an && !this.blockAn) this.blockZeit = 0;
+    this.blockAn = an;
+    this.blockRichtung = richtung;
+  }
+
+  /** Blockt die Figur (Zustand, den der PlayerController gesetzt hat)? */
+  get blockt(): boolean {
+    return this.blockAn;
+  }
+
+  /**
+   * Welcher Ganzkoerper-Clip traegt die Beine im Block, oder null (dann gilt die normale Wahl: Ruhe bzw.
+   * Gehzyklus). Ohne die neuen Clips ist es immer null: Der Oberkoerper haelt `parade_unten`.
+   */
+  private waehleBlockClip(bewegt: boolean): Clip | null {
+    const c = this.clipsBlock;
+    if (!bewegt) {
+      if (c.start && this.blockZeit < this.clipLaenge(c.start)) return c.start;
+      return c.halten;
+    }
+    if (this.blockRichtung === 'vor') return c.vor;
+    if (this.blockRichtung === 'rueck') return c.rueck;
+    return null;
+  }
+
+  /** Die gehaltene Oberkoerper-Pose des Blocks: `parade_unten` (Stab: `stab_parade_unten`), falls vorhanden. */
+  private blockPose(): Schicht | null {
+    const praefix = this.waffensatz === 'stab' ? 'stab_' : '';
+    return this.aktionen.get(praefix + BLOCK_POSE_AKTION) ?? this.aktionen.get(BLOCK_POSE_AKTION) ?? null;
+  }
+
+  /** Eine Schicht aus den Rotationskanaelen eines Clips, beschraenkt auf die Knochen in `maske` (null: keine). */
+  private baueMaskenSchicht(clip: Clip, maske: ReadonlySet<string>): Schicht | null {
+    const kanaele: Schicht['kanaele'] = [];
+    let fps = 60;
+    for (const ta of clip.grp.targetedAnimations) {
+      const ziel = ta.target as TransformNode;
+      if (ta.animation.targetProperty !== 'rotationQuaternion' || !maske.has(ziel.name)) continue;
+      kanaele.push({ knoten: ziel, anim: ta.animation });
+      fps = ta.animation.framePerSecond;
+    }
+    if (!kanaele.length) return null;
+    return { name: clip.grp.name, kanaele, von: clip.grp.from, bis: clip.grp.to, fps, schleife: false, tempo: 1, satz: 'schwert' };
   }
 
   /**
@@ -1994,6 +2092,26 @@ export class AvatarRig {
   private wendeSchichtenAn(): void {
     const dt = this.root.getScene().getEngine().getDeltaTime() / 1000;
 
+    // ── Blockpose (Oberkoerper, gehalten) ────────────────────────────
+    // Zuerst geschrieben: Eine Treffer-Zuckung (Einmal-Aktion unten) legt sich darueber und gibt sie wieder frei.
+    // Ein Hieb nimmt sie weg (der Server beendet den Block mit dem Schlag).
+    const blockZiel = this.blockAn && this.nutzeClip && !this.liegend && this.angriffRest <= 0 ? 1 : 0;
+    const blockSchritt = dt / AKTION_BLENDE;
+    this.blockGewicht += Math.max(-blockSchritt, Math.min(blockSchritt, blockZiel - this.blockGewicht));
+    // Rumpf und Kopf der Haltepose nur beim Seitwaertsgang: Dort laeuft der normale Gehzyklus mit aufrechtem
+    // Rumpf, in den anderen Faellen tragen die Block-Clips den Rumpf selbst.
+    const rumpfZiel = blockZiel > 0 && this.blockRumpf !== null && this.blockRichtung === 'seit' ? 1 : 0;
+    this.blockRumpfGewicht += Math.max(-blockSchritt, Math.min(blockSchritt, rumpfZiel - this.blockRumpfGewicht));
+    if (this.blockRumpfGewicht > 0 && this.blockRumpf) {
+      this.schreibeSchicht(this.blockRumpf, this.blockRumpf.von, this.blockRumpfGewicht * this.blockGewicht);
+    }
+    if (this.blockGewicht > 0) {
+      const pose = this.blockPose();
+      if (pose) {
+        this.schreibeSchicht(pose, pose.von + (pose.bis - pose.von) * BLOCK_POSE_ANTEIL, this.blockGewicht, this.blockRumpf ? BLOCK_RUMPF : undefined);
+      }
+    }
+
     // ── Einmal-Aktion (Oberkoerper) ──────────────────────────────────
     // Ihr Gewicht: Einblenden am Anfang, Ausblenden am Ende, dazwischen 1.
     let aktionGewicht = 0;
@@ -2057,7 +2175,7 @@ export class AvatarRig {
 
     // Waehrend einer Aktion tritt die Dauerschicht zurueck (Upperbody
     // Layer liegt im Original ueber dem Right Arm Layer).
-    ziel *= 1 - aktionGewicht;
+    ziel *= (1 - aktionGewicht) * (1 - this.blockGewicht);
     // Ohne Ueberblendung (z. B. Waffe weg) weich nachziehen.
     const schritt = dt / SCHICHT_BLENDE;
     this.schichtGewicht = this.blende
@@ -2075,9 +2193,10 @@ export class AvatarRig {
   }
 
   /** Schicht bei `frame` abtasten und mit `gewicht` auf ihre Knoten legen. */
-  private schreibeSchicht(s: Schicht, frame: number, gewicht: number): void {
+  private schreibeSchicht(s: Schicht, frame: number, gewicht: number, ohne?: ReadonlySet<string>): void {
     if (gewicht <= 0) return;
     for (const k of s.kanaele) {
+      if (ohne?.has(k.knoten.name)) continue;
       const q = k.anim.evaluate(frame) as Quaternion;
       if (!k.knoten.rotationQuaternion) k.knoten.rotationQuaternion = q.clone();
       else if (gewicht >= 1) k.knoten.rotationQuaternion.copyFrom(q);

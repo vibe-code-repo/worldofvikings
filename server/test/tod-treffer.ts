@@ -166,7 +166,7 @@ async function main(): Promise<void> {
 
     // ── [1] hit reaction ───────────────────────────────────────
     console.log('\n[1] A blow that does not kill: the flinch, for the victim and for the bystander');
-    anna.health = 100; anna.paradeBis = 0;
+    anna.health = 100; anna.blockSeit = 0;
     schlag(2, -2, 8); // front left
     await warte(400);
     check('Anna got PlayerTreffer with the front-left clip', wsA.treffer.length === 1 && TREFFER_CLIPS[wsA.treffer[0]!] === 'treffer_vorn_links', `${wsA.treffer.map((i) => TREFFER_CLIPS[i])}`);
@@ -235,13 +235,13 @@ async function main(): Promise<void> {
     check('full health and stamina, a Teleport packet came', anna.health === 100 && anna.stamina === 100 && wsA.teleports.length >= 1 && wsA.prozent === 100, `${anna.health}, teleports ${wsA.teleports.length}, ${wsA.prozent} %`);
     check('back at the start point (no bed): not where she died', Math.hypot(anna.position.x - start.x, anna.position.z - start.z) > 5, `died at ${start.x},${start.z}; now ${anna.position.x.toFixed(1)},${anna.position.z.toFixed(1)}`);
     check('the lying pose is gone for everybody: anim = idle', charZdo().getString('anim') === 'idle');
-    check('she can be hurt again', (() => { anna.paradeBis = 0; const h = anna.health; zugriff.applyCreatureAttack({ ...anna.position }, 8, 2.4, anna.worldId, anna.position); return anna.health === h - 8; })());
+    check('she can be hurt again', (() => { anna.blockSeit = 0; const h = anna.health; zugriff.applyCreatureAttack({ ...anna.position }, 8, 2.4, anna.worldId, anna.position); return anna.health === h - 8; })());
 
     // ── [4] from behind, and the switch to the old behaviour ───
     console.log('\n[4] From behind: tod_vorn; lying time 0 = get up at once (old behaviour)');
     await platz(wsA, anna, 200, 200);
     await blicke(wsA, 0);
-    anna.health = 5; anna.paradeBis = 0;
+    anna.health = 5; anna.blockSeit = 0;
     schlag(-1, 2, 8);
     await warte(300);
     check('struck from behind: tod_vorn (falls forward)', wsA.tod.length === 2 && TOD_CLIPS[wsA.tod[1]!.clip] === 'tod_vorn', JSON.stringify(wsA.tod[1]));
@@ -249,7 +249,7 @@ async function main(): Promise<void> {
     anna.totBis = Date.now() + 10; // revive on the next tick, without waiting 5 s
     await warte(400);
     check('revived', anna.totBis === 0 && anna.health === 100);
-    anna.health = 5; anna.paradeBis = 0;
+    anna.health = 5; anna.blockSeit = 0;
     const tod0 = wsA.tod.length;
     schlag(0, -2, 8);
     check('liegezeitMs = 0: alive again at once, no PlayerTod packet', anna.health === 100 && anna.totBis === 0 && wsA.tod.length === tod0, `${anna.health}`);
@@ -269,13 +269,13 @@ async function main(): Promise<void> {
       npc.setInt(HEALTH_MEMBER, maxLeben('FurlocKrieger'));
       return npc;
     };
-    anna.health = 100; anna.paradeBis = 0;
+    anna.health = 100; anna.blockSeit = 0;
     const npc1 = npcNeben();
     await warte(4800);
     server.zdos.destroyZDO(npc1.zdoid);
     check('control (alive): the NPC struck her at least once and she lost health', schlaege.length >= 1 && anna.health < 100, `${schlaege.length} strikes, health ${anna.health}`);
     server.liegezeitMs = 10_000; // long enough to watch the NPC for a while
-    anna.health = 5; anna.paradeBis = 0;
+    anna.health = 5; anna.blockSeit = 0;
     schlag(0, -2, 8);
     await warte(250); // the blood packet of the killing blow is still on its way
     check('she lies dead now', anna.totBis > 0 && anna.health === 0);

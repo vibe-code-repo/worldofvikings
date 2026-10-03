@@ -137,7 +137,7 @@ async function main(): Promise<void> {
     check('no row of Anna in the account database', zeile() === undefined);
 
     console.log('\n[2] The lethal blow: she lies dead');
-    anna.health = 5; anna.paradeBis = 0;
+    anna.health = 5; anna.blockSeit = 0;
     server.liegezeitMs = 1500;
     zugriff.applyCreatureAttack({ x: anna.position.x + 1, y: anna.position.y, z: anna.position.z - 2 }, 8, 2.4, anna.worldId, anna.position);
     await warte(300);
@@ -162,7 +162,7 @@ async function main(): Promise<void> {
     sendAdmin(ws, 'teleport 260 200');
     await warte(400);
     server.liegezeitMs = 0;
-    anna.health = 5; anna.paradeBis = 0;
+    anna.health = 5; anna.blockSeit = 0;
     zugriff.applyCreatureAttack({ x: anna.position.x + 1, y: anna.position.y, z: anna.position.z - 2 }, 8, 2.4, anna.worldId, anna.position);
     await warte(300);
     check('alive again at once and a second "tod" save', anna.totBis === 0 && anna.health > 0 && anzahl('tod') === 2, `${anzahl('tod')} saves, ${gruende.join(',')}`);
@@ -172,7 +172,7 @@ async function main(): Promise<void> {
     await warte(400);
     anna.spawnPoint = { x: 10, y: 0, z: 10 }; // no bed there
     const n5 = anzahl('tod');
-    anna.health = 5; anna.paradeBis = 0;
+    anna.health = 5; anna.blockSeit = 0;
     zugriff.applyCreatureAttack({ x: anna.position.x + 1, y: anna.position.y, z: anna.position.z - 2 }, 8, 2.4, anna.worldId, anna.position);
     await warte(300);
     const b5 = bei[bei.length - 1];
@@ -195,7 +195,7 @@ async function main(): Promise<void> {
     const innen = { ...anna.position };
     check('Anna is inside the dungeon (her dungeon id is set)', !!anna.dungeonId && anna.worldId !== server.hauptwelt.id, `${anna.dungeonId}, world ${anna.worldId}, y ${innen.y.toFixed(1)}`);
     const n6 = anzahl('tod');
-    anna.health = 5; anna.paradeBis = 0;
+    anna.health = 5; anna.blockSeit = 0;
     zugriff.applyCreatureAttack({ x: anna.position.x + 1, y: anna.position.y, z: anna.position.z - 2 }, 8, 2.4, anna.worldId, anna.position);
     await warte(500);
     const b6 = bei[bei.length - 1];
@@ -217,7 +217,7 @@ async function main(): Promise<void> {
     };
     server.liegezeitMs = 800;
     for (const [p, w] of [[anna, ws], [bernd, zweite]] as const) {
-      p.health = 5; p.paradeBis = 0;
+      p.health = 5; p.blockSeit = 0;
       zugriff.applyCreatureAttack({ x: p.position.x + 1, y: p.position.y, z: p.position.z - 2 }, 8, 2.4, p.worldId, p.position);
       void w;
     }

@@ -23,6 +23,20 @@ export const GEH_TEMPO = 4.5;
 /** Lauftempo in m/s — nur mit Ausdauer. Run speed. */
 export const LAUF_TEMPO = 7.5;
 
+/** Faktor auf das Gehtempo, solange die Figur blockt (D3). Walk speed factor while blocking. */
+export const BLOCK_TEMPO_FAKTOR = 0.5;
+
+/**
+ * Das Tempo eines Schritts in m/s — die EINE Stelle, an der Gehen, Rennen und Blocken
+ * entschieden werden. Beim Blocken gilt Gehtempo mal `BLOCK_TEMPO_FAKTOR`, Rennen
+ * wird ignoriert; Client und Server rufen diese Funktion mit denselben Argumenten auf.
+ * The one place where walking, running and blocking pick the speed.
+ */
+export function bewegungsTempo(rennt: boolean, blockt: boolean): number {
+  if (blockt) return GEH_TEMPO * BLOCK_TEMPO_FAKTOR;
+  return rennt ? LAUF_TEMPO : GEH_TEMPO;
+}
+
 /**
  * Halbe Breite der Spielerkapsel in m. Capsule radius.
  * Original (Vermessung der Spieldaten): ebenfalls 0,4 — die eine Zahl,

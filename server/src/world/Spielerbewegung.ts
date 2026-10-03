@@ -28,10 +28,9 @@ import {
 import { bewegungsSchritt, type BewegungsZustand } from '@wov/shared/src/bewegung/schritt.js';
 import { neuerHangSpeicher } from '@wov/shared/src/bewegung/gelaendeHang.js';
 import {
-  GEH_TEMPO,
-  LAUF_TEMPO,
   SCHRITT_LAENGE,
   SERVER_MAX_SCHRITTE,
+  bewegungsTempo,
 } from '@wov/shared/src/bewegung/masse.js';
 import type { Kollisionswelt } from './Kollisionswelt.js';
 
@@ -64,20 +63,21 @@ export class Spielerbewegung {
     moveX: number,
     moveZ: number,
     rennt: boolean,
-    deltaSec: number
+    deltaSec: number,
+    blockt = false
   ): Vector3 {
     const akku = this.akkus.get(wesen) ?? neuerAkkumulator(SCHRITT_LAENGE, SERVER_MAX_SCHRITTE);
     const ergebnis = weiter(akku, deltaSec);
     this.akkus.set(wesen, ergebnis.akku);
     if (ergebnis.schritte === 0) return wesen.position;
 
-    const tempo = rennt ? LAUF_TEMPO : GEH_TEMPO;
+    const tempo = bewegungsTempo(rennt, blockt);
     // Reichweite = was dieses Paket hoechstens zurueckliegt. Der Zuschlag
     // fuer die Ausdehnung der Koerper sitzt in `nahfeld` selbst.
     const weg = tempo * ergebnis.schritte * ergebnis.akku.schrittLaenge;
     const nah = this.kollision.nahfeld(wesen.position, weg);
 
-    const eingabe = { x: moveX, z: moveZ, rennt };
+    const eingabe = { x: moveX, z: moveZ, rennt, blockt };
     // EIN Hangspeicher je Eingabepaket, nicht je Schritt: Die vier
     // Gelaendeabfragen der Steigungsgrenze fallen damit einmal an statt
     // bis zu dreissigmal. Frisch je Paket und nicht am Spieler gehalten,

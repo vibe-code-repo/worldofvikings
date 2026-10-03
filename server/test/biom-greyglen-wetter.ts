@@ -22,6 +22,7 @@ import { Writer } from '../src/io/Writer.js';
 import { WetterAnnahme, type WetterLeser } from '../../client/src/net/wetterAnnahme.js';
 import { lerpEnvState } from '../../client/src/engine/Lighting.js';
 
+const nah = (a: number, b: number, eps: number): boolean => Math.abs(a - b) <= eps;
 let fehler = 0;
 const check = (name: string, ok: boolean, detail = ''): void => {
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
@@ -121,6 +122,9 @@ for (let i = 1; i <= 40; i++) {
   vorher = s;
 }
 check('over 40 steps no step is bigger than 1/20 of the whole change (density and direction)', schritt <= 0.05, schritt.toFixed(4));
+const mitte = lerpEnvState(von, nach, 0.5);
+check('mid-fade sun direction is a unit vector (blend is renormalised)', nah(Math.hypot(mitte.sunDir.x, mitte.sunDir.y, mitte.sunDir.z), 1, 1e-9),
+  String(Math.hypot(mitte.sunDir.x, mitte.sunDir.y, mitte.sunDir.z)));
 const lighting = readFileSync(new URL('../../client/src/engine/Lighting.ts', import.meta.url), 'utf-8');
 check('Lighting: the biome change cross-fades over a positive time', /const ENV_BLEND_SECONDS = [1-9]/.test(lighting) && /this\.blend = Math\.min\(1, this\.blend \+ dtSeconds \/ ENV_BLEND_SECONDS\)/.test(lighting));
 

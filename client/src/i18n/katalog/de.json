@@ -134,6 +134,7 @@
   "editor.gegenstand.grund.id_doppelt": "Diese Kennung gibt es schon.",
   "editor.gegenstand.grund.id_schreibung_code": "Diese Kennung unterscheidet sich von einem eingebauten Gegenstand nur durch die Groß- und Kleinschreibung.",
   "editor.gegenstand.grund.id_schreibung_doppelt": "Diese Kennung unterscheidet sich von einer anderen nur durch die Groß- und Kleinschreibung.",
+  "editor.gegenstand.grund.grundwert_gesperrt": "Dieser Grundgegenstand wird erst mit dem Client-Update änderbar (bis dahin nur das Feld Ernte).",
   "editor.gegenstand.grund.id_ungueltig": "Die Kennung ist ungültig: Großbuchstabe am Anfang, nur Buchstaben und Ziffern, 2 bis 32 Zeichen.",
   "editor.gegenstand.grund.modell_ungueltig": "Die Modellangaben sind ungültig (Modell, Position, Rotation oder Animationssatz).",
   "editor.gegenstand.grund.rezept_selbstbezug": "Der Gegenstand kann nicht seine eigene Zutat sein.",

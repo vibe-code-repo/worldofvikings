@@ -29,7 +29,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { hostname } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MAX_DATEI_BYTES, leseGegenstandsDatei, schreibeGegenstandsDatei } from '@wov/shared/src/items/gegenstandsDaten.js';
+import { GRUNDBESTAND, MAX_DATEI_BYTES, leseGegenstandsDatei, schreibeGegenstandsDatei } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { layoutUnterSperre } from '@wov/shared/src/worldlayout/layoutDatei.js';
 import { gegenstandsArbeitsDatei, gegenstandsBasisDatei, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 
@@ -222,6 +222,13 @@ function eintrag(id: string, ueberschreibe: Record<string, unknown> = {}): Recor
 }
 const holzaxt = eintrag('Holzaxt', { typ: 'zweihaendigWaffe', werte: { damage: 10 }, ernte: { baum: 1 }, rarity: 'common', itemLevel: 1 });
 const erz = eintrag('Erz');
+/** The raw file entry of a base item (as the writer emits it), with overrides: a base id may only differ in `ernte`. */
+const grundRoh = (id: string, ueberschreibe: Record<string, unknown> = {}): Record<string, unknown> => {
+  const e = GRUNDBESTAND.find((g) => g.id === id);
+  if (!e) throw new Error(`kein Grundgegenstand ${id}`);
+  return { ...(JSON.parse(schreibeGegenstandsDatei([e])).gegenstaende[0] as Record<string, unknown>), ...ueberschreibe };
+};
+
 const datei = (liste: unknown[], kopf: Record<string, unknown> = {}): string => JSON.stringify({ version: 1, gegenstaende: liste, ...kopf });
 const kanon = (liste: unknown[]): string => {
   const l = leseGegenstandsDatei(datei(liste));
@@ -325,6 +332,15 @@ let hash = sha(arbeitBytes());
   const geaendert = await put(datei([{ ...holzaxt, werte: { damage: 12 } }]), hash);
   check('4 Werte aendern ohne Entfernen: 200 ohne Bestaetigung', geaendert.status === 200 && Array.isArray(geaendert.daten.entfernt) && (geaendert.daten.entfernt as unknown[]).length === 0);
   hash = String(geaendert.daten.hash);
+  // GD1 N1/F1: a base id (Wood) that leaves the file is no removal: the base entry stands in, no confirmation.
+  const mitWood = await put(datei([{ ...holzaxt, werte: { damage: 12 } }, { ...grundRoh('Wood'), ernte: { baum: 3 } }]), hash);
+  check('4 Grundkennung (Wood) als eigener Eintrag: 200', mitWood.status === 200, `${mitWood.status}`);
+  hash = String(mitWood.daten.hash);
+  const ohneWood = await put(datei([{ ...holzaxt, werte: { damage: 12 } }]), hash);
+  check('4 Grundkennung (Wood) aus der Datei nehmen ist kein Entfernen: 200 ohne Bestaetigung, entfernt leer', ohneWood.status === 200 && (ohneWood.daten.entfernt as unknown[]).length === 0, `${ohneWood.status} ${JSON.stringify(ohneWood.daten)}`);
+  hash = String(ohneWood.daten.hash);
+  const gesperrt = await put(datei([{ ...holzaxt, werte: { damage: 12 } }, grundRoh('Wood', { stapel: 7 })]), hash);
+  check('4 Grundgegenstand mit anderer Stapelgroesse: 422 (bis GD3 gesperrt), nichts geschrieben', gesperrt.status === 422 && JSON.stringify(gesperrt.daten).includes('grundwert-gesperrt'), `${gesperrt.status} ${JSON.stringify(gesperrt.daten).slice(0, 200)}`);
 }
 
 // ── 5. Two PUTs with the same If-Match: exactly one wins ──

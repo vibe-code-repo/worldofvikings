@@ -34,6 +34,7 @@
  * (reason `eintrag-ungueltig`, which no JSON input can produce) plus the errors of the watch itself.
  */
 import { findItem } from '@wov/shared';
+import { istGrundItem } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import {
   MAX_DATEI_BYTES,
@@ -190,7 +191,8 @@ export function ladeGegenstandsDatei(pfad: string, log: GegenstandsLog = console
     const guter = letzterGuterLesen(pfad, log);
     if (guter !== null) {
       const neueIds = new Set(r.eintraege.map((e) => e.id));
-      const fehlend = guter.map((e) => e.id).filter((id) => !neueIds.has(id));
+      // A base id missing from the file is no removal: the base stock stands in for it (nobody can lose Wood).
+      const fehlend = guter.map((e) => e.id).filter((id) => !neueIds.has(id) && !istGrundItem(id));
       if (fehlend.length > 0) {
         try {
           wendeGegenstandsDatenAn(guter);
@@ -435,7 +437,9 @@ export class GegenstandsWache {
     }
 
     const neueIds = new Set(lesung.eintraege.map((e) => e.id));
-    const entfernt = new Set(this.angewendet.map((e) => e.id).filter((id) => !neueIds.has(id)));
+    // Removed is only what is really gone after `mitGrundbestand`: a base id that leaves the file falls back to the base
+    // entry (its held stacks stay, no confirmation, nothing deleted).
+    const entfernt = new Set(this.angewendet.map((e) => e.id).filter((id) => !neueIds.has(id) && !istGrundItem(id)));
     let gehalten: Record<string, number> = {};
     if (entfernt.size > 0) {
       gehalten = this.d.gehalten(entfernt);

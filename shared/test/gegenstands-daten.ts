@@ -31,6 +31,7 @@ import {
   datenRezepte,
   gegenstaendeMitUpload,
   istGrundItem,
+  GRUNDBESTAND,
   GegenstandsSchreibFehler,
   gegenstandZuItem,
   VERWERF_GRUENDE,
@@ -105,6 +106,12 @@ function schlicht(id: string, ueberschreibe: Roh = {}): Roh {
   };
 }
 
+/** The raw file entry of a base item (as the writer emits it), with overrides: a base id may only differ in `ernte`. */
+const grundRoh = (id: string, ueberschreibe: Record<string, unknown> = {}): Record<string, unknown> => {
+  const e = GRUNDBESTAND.find((g) => g.id === id);
+  if (!e) throw new Error(`kein Grundgegenstand ${id}`);
+  return { ...(JSON.parse(schreibeGegenstandsDatei([e])).gegenstaende[0] as Record<string, unknown>), ...ueberschreibe };
+};
 const datei = (eintraege: unknown[], kopf: Roh = {}): string => JSON.stringify({ version: 1, gegenstaende: eintraege, ...kopf });
 const lese = (...eintraege: unknown[]) => leseGegenstandsDatei(datei(eintraege));
 const grundVon = (r: ReturnType<typeof leseGegenstandsDatei>, i = 0): string | undefined => r.verworfen[i]?.grund;
@@ -272,8 +279,10 @@ for (const n of ['LederBH', 'LederShorts']) {
 pruefe(istCodeItem(setTeil) && lese(schlicht('Xx', { id: setTeil })).verworfen[0]?.grund !== undefined && lese(schlicht('Xx', { id: setTeil })).eintraege.length === 0, `Set-Teil ${setTeil} kann nicht als Datenitem angelegt werden`);
 const kollision = lese(schlicht('LederBH'), schlicht('Neu1'));
 // The base items are NOT code: the same id in a working copy replaces the base entry, only another spelling is refused.
-const ueberschreibt = lese(schlicht('Wood', { stapel: 7 }));
-pruefe(ueberschreibt.eintraege.length === 1 && ueberschreibt.verworfen.length === 0, 'Wood (Grundbestand) darf in der Arbeitskopie stehen und ersetzt den Grundeintrag');
+const ueberschreibt = lese(grundRoh('Wood', { ernte: { baum: 2 } }));
+pruefe(ueberschreibt.eintraege.length === 1 && ueberschreibt.verworfen.length === 0, 'Wood (Grundbestand) darf in der Arbeitskopie stehen (nur ernte weicht ab) und ersetzt den Grundeintrag');
+const gesperrt = lese(grundRoh('Wood', { stapel: 7 }));
+pruefe(gesperrt.eintraege.length === 0 && grundVon(gesperrt) === 'grundwert-gesperrt', 'Wood mit anderer Stapelgroesse: grundwert-gesperrt (der Client kennt bis GD3 nur den eingebackenen Stand)');
 pruefe(kollision.eintraege.length === 1 && kollision.eintraege[0].id === 'Neu1', 'nur der kollidierende Eintrag faellt weg');
 wendeGegenstandsDatenAn(lese(holzaxt()).eintraege);
 pruefe(findItem('LederBH') === codeTeilVorher, 'LederBH bleibt dasselbe Objekt (Code-Item unangetastet)');
@@ -502,6 +511,7 @@ try {
 }
 pruefe(!wurf && ausGetter.join() === 'eintrag-ungueltig' && ausProxy.join() === 'eintrag-ungueltig', 'werfender Getter und werfender Proxy: eintrag-ungueltig statt Ausnahme');
 gesehen.add('eintrag-ungueltig');
+gesehen.add('grundwert-gesperrt');
 // More than 500 entries.
 const fuenfhundert = viele(MAX_EINTRAEGE).map((r) => lese(r).eintraege[0]);
 pruefe(pruefeEintrag(schlicht('Extra'), fuenfhundert).join() === 'zu-viele-eintraege', 'der 501. Eintrag: zu-viele-eintraege');

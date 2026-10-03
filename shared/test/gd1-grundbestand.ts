@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  GRUNDBESTAND, GRUNDBESTAND_IDS, ITEMS_BY_NAME, ITEM_DEFS, ITEM_STUFEN, Inventory, REZEPTE, findItem,
+  GRUNDBESTAND, GRUNDBESTAND_IDS, ITEMS_BY_NAME, ITEM_DEFS, ITEM_STUFEN, Inventory, replaceDataItems, REZEPTE, findItem,
   datenRezepte, mitGrundbestand, packContainer, setzeUnbekannteVerwahren, unpackContainer, type SavedItemStack,
 } from '../src/index.js';
 import {
@@ -64,11 +64,11 @@ const SOLL: Record<string, Soll> = {
   Entrails: {"de": "Gedärme", "en": "Entrails", "typ": 1, "modell": null, "bautafel": null, "terrain": null, "stapel": 50, "gewicht": 0.5, "werte": null, "ernte": null, "stufe": "1/common", "halt": [null, null, null], "griff": [null, null, null, null], "symbol": "entrails", "rezept": null},
   Coins: {"de": "Münzen", "en": "Coins", "typ": 1, "modell": null, "bautafel": null, "terrain": null, "stapel": 50, "gewicht": 0.5, "werte": null, "ernte": null, "stufe": "1/common", "halt": [null, null, null], "griff": [null, null, null, null], "symbol": "coins", "rezept": null},
   Amber: {"de": "Bernstein", "en": "Amber", "typ": 1, "modell": null, "bautafel": null, "terrain": null, "stapel": 50, "gewicht": 0.5, "werte": null, "ernte": null, "stufe": "1/common", "halt": [null, null, null], "griff": [null, null, null, null], "symbol": "amber", "rezept": null},
-  NeckTail: {"de": "Neck-Schwanz", "en": "Neck Tail", "typ": 1, "modell": null, "bautafel": null, "terrain": null, "stapel": 50, "gewicht": 0.5, "werte": null, "ernte": null, "stufe": "1/common", "halt": [null, null, null], "griff": [null, null, null, null], "symbol": "necktail", "rezept": null},
+  NeckTail: {"de": "Neck-Schwanz", "en": "Marsh Beast Tail", "typ": 1, "modell": null, "bautafel": null, "terrain": null, "stapel": 50, "gewicht": 0.5, "werte": null, "ernte": null, "stufe": "1/common", "halt": [null, null, null], "griff": [null, null, null, null], "symbol": "necktail", "rezept": null},
   TrophyDeer: {"de": "Hirschtrophäe", "en": "Deer Trophy", "typ": 1, "modell": null, "bautafel": null, "terrain": null, "stapel": 10, "gewicht": 1.5, "werte": null, "ernte": null, "stufe": "1/common", "halt": [null, null, null], "griff": [null, null, null, null], "symbol": "TrophyDeer", "rezept": null},
   CookedMeat: {"de": "Gebratenes Fleisch", "en": "Cooked Meat", "typ": 1, "modell": null, "bautafel": null, "terrain": null, "stapel": 20, "gewicht": 1, "werte": null, "ernte": null, "stufe": "1/common", "halt": [null, null, null], "griff": [null, null, null, null], "symbol": "necktailgrilled", "rezept": null},
   HardAntler: {"de": "Hartes Geweih", "en": "Hard Antler", "typ": 1, "modell": null, "bautafel": null, "terrain": null, "stapel": 20, "gewicht": 2, "werte": null, "ernte": null, "stufe": "1/common", "halt": [null, null, null], "griff": [null, null, null, null], "symbol": "HardAntler", "rezept": null},
-  TrophyEikthyr: {"de": "Eikthyr-Trophäe", "en": "Eikthyr Trophy", "typ": 1, "modell": null, "bautafel": null, "terrain": null, "stapel": 5, "gewicht": 2, "werte": null, "ernte": null, "stufe": "10/uncommon", "halt": [null, null, null], "griff": [null, null, null, null], "symbol": "TrophyEikthyr", "rezept": null},
+  TrophyEikthyr: {"de": "Eikthyr-Trophäe", "en": "Great Stag Trophy", "typ": 1, "modell": null, "bautafel": null, "terrain": null, "stapel": 5, "gewicht": 2, "werte": null, "ernte": null, "stufe": "10/uncommon", "halt": [null, null, null], "griff": [null, null, null, null], "symbol": "TrophyEikthyr", "rezept": null},
   SwordNorth: {"de": "Nordschwert", "en": "Northern Sword", "typ": 14, "modell": "SwordNorth", "bautafel": null, "terrain": null, "stapel": 1, "gewicht": 2, "werte": {"damage": 12}, "ernte": null, "stufe": "5/common", "halt": [200, 1, 10], "griff": [[0.08, 0.08, 0.035], [0, 3.141592653589793, 1.5707963267948966], null, null], "symbol": "sword_north", "rezept": null},
   Staff: {"de": "Kampfstab", "en": "Battle Staff", "typ": 14, "modell": "Staff", "bautafel": null, "terrain": null, "stapel": 1, "gewicht": 2, "werte": {"damage": 10}, "ernte": null, "stufe": "5/common", "halt": [200, 1, 10], "griff": [[0, 0.08, 0.035], [0, 3.141592653589793, 1.5707963267948966], 0.9, "spear"], "symbol": "staff", "rezept": null},
   Spear: {"de": "Speer", "en": "Spear", "typ": 14, "modell": "Spear", "bautafel": null, "terrain": null, "stapel": 1, "gewicht": 2, "werte": {"damage": 11}, "ernte": null, "stufe": "5/common", "halt": [200, 1, 10], "griff": [[0, 0.08, 0.035], [0, 3.141592653589793, 1.5707963267948966], 0.9, "spear"], "symbol": "spear", "rezept": null},
@@ -161,13 +161,29 @@ wendeGegenstandsDatenAn(lies(roh('Nur1', {})).eintraege);
 pruefe(fuenf().length === 0 && findItem('Nur1') !== undefined && ITEMS_BY_NAME.size === 119 && datenRezepte().length === 6, 'Arbeitskopie ohne Grundkennungen: 29 + 1 bekannt');
 const mit = mitGrundbestand(lies(roh('Nur1', {})).eintraege);
 pruefe(mit.length === 30 && json(mit.slice(0, 29).map((e) => e.id)) === json(IDS) && mit[29].id === 'Nur1', 'mitGrundbestand: Grundeintraege zuerst, dann die eigenen');
-const ueber = lies(roh('Wood', { typ: 'material', stapel: 7 })).eintraege;
+const grundRoh = (id: string, ueberschreibe: Record<string, unknown> = {}): Record<string, unknown> => ({
+  ...(JSON.parse(schreibeGegenstandsDatei([GRUNDBESTAND.find((g) => g.id === id)!])).gegenstaende[0] as Record<string, unknown>), ...ueberschreibe,
+});
+const ueber = lies(grundRoh('Wood', { ernte: { baum: 3 } })).eintraege;
 const mitUeber = mitGrundbestand(ueber);
-pruefe(mitUeber.length === 29 && mitUeber.filter((e) => e.id === 'Wood').length === 1 && mitUeber.find((e) => e.id === 'Wood')?.stapel === 7, 'ein Eintrag mit Grundkennung ersetzt den Grundeintrag (kein Doppel)');
+pruefe(mitUeber.length === 29 && mitUeber.filter((e) => e.id === 'Wood').length === 1 && mitUeber.find((e) => e.id === 'Wood')?.ernte.baum === 3, 'ein Eintrag mit Grundkennung ersetzt den Grundeintrag (kein Doppel)');
 wendeGegenstandsDatenAn(ueber);
-pruefe(findItem('Wood')?.maxStackSize === 7 && IDS.filter((n) => n !== 'Wood').every((n) => findItem(n) !== undefined) && ITEMS_BY_NAME.size === 118, 'angewendet: Wood hat die eigenen Werte, die anderen 28 bleiben');
+pruefe(findItem('Wood')?.ernte?.baum === 3 && IDS.filter((n) => n !== 'Wood').every((n) => findItem(n) !== undefined) && ITEMS_BY_NAME.size === 118, 'angewendet: Wood hat die eigenen Werte, die anderen 28 bleiben');
 wendeGegenstandsDatenAn([]);
-pruefe(findItem('Wood')?.maxStackSize === 50, 'danach wieder der Grundstand (Wood 50)');
+pruefe(findItem('Wood')?.maxStackSize === 50 && json(findItem('Wood')?.ernte) === '{}', 'danach wieder der Grundstand (Wood 50, keine Ernte)');
+// Z2: until GD3 the client knows only the baked-in state: every client-relevant field of a base entry is locked.
+const sperrFaelle: Array<[string, Record<string, unknown>]> = [
+  ['stapel', { stapel: 7 }], ['gewicht', { gewicht: 9 }], ['haltbarkeit', { haltbarkeit: { max: 5 } }], ['symbol', { symbol: 'stone' }],
+  ['typ', { typ: 'zweihaendigWaffe' }], ['werte', { werte: { damage: 99 } }], ['itemLevel', { itemLevel: 9 }], ['rarity', { rarity: 'epic' }],
+  ['modell', { modell: { skala: 2 } }], ['rezept', { rezept: { menge: 1, zutaten: [{ item: 'Stone', menge: 1 }] } }],
+  ['texte', { texte: { 'inhalt.gegenstand.Wood.name': { de: 'Brennholz', en: 'Firewood' } } }],
+];
+for (const [feld, ueberschreibe] of sperrFaelle) {
+  const r = lies(grundRoh('Wood', ueberschreibe));
+  pruefe(r.eintraege.length === 0 && grund(r) === 'grundwert-gesperrt', `Grundgegenstand Wood, Feld ${feld} geaendert: grundwert-gesperrt`, grund(r));
+}
+pruefe(lies(grundRoh('Wood', {})).eintraege.length === 1 && lies(grundRoh('Hoe', { ernte: { fels: 2 } })).eintraege.length === 1, 'unveraendert oder nur ernte: angenommen');
+pruefe(pruefeEintrag(grundRoh('Wood', { stapel: 7 }), []).join() === 'grundwert-gesperrt', 'pruefeEintrag meldet dasselbe');
 for (const n of ['WOOD', 'WOod', 'AXEFLINT', 'Axeflint', 'MESSER']) {
   pruefe(grund(lies(roh(n, {}))) === 'id-schreibung-code', `${n} neben einem Grundgegenstand: id-schreibung-code`, grund(lies(roh(n, {}))));
 }
@@ -215,6 +231,17 @@ const panel = ohneKommentare('client/src/ui/CraftingPanel.ts');
 pruefe(/for \(const r of datenRezepte\(\)\)/.test(panel) && !/\bREZEPTE\b/.test(panel), 'CraftingPanel liest datenRezepte(), nicht REZEPTE');
 const spawn = ohneKommentare('server/src/spiel/befehle/Spawn.ts');
 pruefe(/\[\.\.\.ITEMS_BY_NAME\.values\(\)\]\.find\(/.test(spawn) && !/\bITEM_DEFS\b/.test(spawn), 'item give faellt auf alle Gegenstaende zurueck (ITEMS_BY_NAME), nicht auf ITEM_DEFS');
+
+// ── 8. replaceDataItems keeps the base stock (attack F2) ──────────────
+console.log('GD1 — replaceDataItems laesst den Grundbestand stehen');
+replaceDataItems([]);
+pruefe(IDS.every((n) => findItem(n) !== undefined) && ITEMS_BY_NAME.size === 118, 'replaceDataItems([]): alle 29 bleiben (118 Gegenstaende)');
+const holz = gegenstandZuItem(lies(grundRoh('Wood', { ernte: { baum: 4 } })).eintraege[0]);
+replaceDataItems([holz]);
+pruefe(findItem('Wood') === holz && ITEMS_BY_NAME.size === 118, 'ein Item mit Grundnamen ersetzt das Grunditem, die anderen 28 bleiben');
+replaceDataItems([]);
+pruefe(findItem('Wood')?.maxStackSize === 50, 'danach wieder der Grundstand');
+wendeGegenstandsDatenAn([]);
 
 console.log(`\n${fehler === 0 ? 'alle' : `${fehler} von`} ${geprueft} Pruefungen ${fehler === 0 ? 'bestanden' : 'FEHLGESCHLAGEN'}`);
 process.exit(fehler === 0 ? 0 : 1);

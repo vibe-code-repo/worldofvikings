@@ -20,7 +20,7 @@
  */
 
 import { ItemType, type ItemShared } from './ItemData.js';
-import { istCodeItem, istCodeItemOhneSchreibung, replaceDataItems } from './itemDefs.js';
+import { istCodeItem, istCodeItemOhneSchreibung, replaceDataItems, setzeGrundItems } from './itemDefs.js';
 import { STAT_IDS, type ItemStats } from './stats.js';
 import type { Rezept } from './recipes.js';
 import { NAME_MUSTER, UPLOAD_MODEL_PREFIX } from '../uploadedModelRegistry.js';
@@ -44,6 +44,15 @@ export const MAX_STAPEL = 999;
 export const BAUTAFELN: readonly string[] = Object.keys(PIECE_TABLES);
 /** Terrain operations a hit may trigger (keys of `TERRAIN_HIT_OPS`). */
 export const TERRAIN_OPS: readonly string[] = Object.keys(TERRAIN_HIT_OPS);
+
+/**
+ * Until the client receives the data state (GD3) it only knows the baked-in base stock. An entry with a base id may
+ * therefore differ from the base entry only in `ernte` (the server decides harvesting alone); everything else the
+ * client reads (stack size, weight, durability, model, grip, symbol, values, recipe, names ...) would drift apart
+ * from the server. GD3 sets this to `false`: that is the one line that lifts the lock.
+ * Bis der Client den Datenstand bekommt (GD3), darf ein Grundgegenstand nur in `ernte` vom Grundstand abweichen.
+ */
+export const GRUNDWERTE_GESPERRT = true;
 
 export const ID_MUSTER = /^[A-Z][A-Za-z0-9]{1,31}$/;
 const SCHLUESSEL_MUSTER = /^inhalt\.[A-Za-z0-9._-]{1,80}$/;
@@ -137,6 +146,7 @@ export const VERWERF_GRUENDE = [
   'texte-ungueltig',
   'texte-schluessel-fremd',
   'texte-name-fehlt',
+  'grundwert-gesperrt',
   'eintrag-ungueltig',
   'zu-viele-eintraege',
 ] as const;
@@ -435,10 +445,16 @@ function saubereEintrag(roh: unknown, z: { n: number }): GegenstandsEintrag {
   if (!nameText || !nameText.de?.trim() || !nameText.en?.trim()) throw new Verwerfen('texte-name-fehlt');
   if (!SICHTBAR.test(nameText.de) || !SICHTBAR.test(nameText.en)) throw new Verwerfen('texte-ungueltig');
 
-  return {
+  const eintrag: GegenstandsEintrag = {
     id, nameSchluessel, beschreibungSchluessel, typ: typ as GegenstandsTyp, slot: 'hand', modell,
     bautafel, terrain, symbol, stapel, gewicht, werte, ernte, haltbarkeit, itemLevel, rarity, rezept, texte,
   };
+  if (GRUNDWERTE_GESPERRT && grundIds.has(id)) {
+    const grundEintrag = grundEintraege.find((g) => g.id === id);
+    const ohneErnte = (e: GegenstandsEintrag): string => JSON.stringify({ ...e, ernte: null });
+    if (grundEintrag && ohneErnte(grundEintrag) !== ohneErnte(eintrag)) throw new Verwerfen('grundwert-gesperrt');
+  }
+  return eintrag;
 }
 
 /** True if `start` can reach itself through recipe ingredients that are data items. */
@@ -684,6 +700,7 @@ export function setzeGrundbestand(eintraege: readonly GegenstandsEintrag[]): voi
   grundEintraege = eintraege;
   grundIds = new Set(eintraege.map((e) => e.id));
   grundKlein = new Set(eintraege.map((e) => e.id.toLowerCase()));
+  setzeGrundItems(eintraege.map(gegenstandZuItem));
 }
 
 /** The base stock entries (file order). */

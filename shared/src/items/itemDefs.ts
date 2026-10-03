@@ -154,14 +154,23 @@ export function istCodeItemOhneSchreibung(name: string): boolean {
   return CODE_NAMEN_KLEIN.has(name.toLowerCase());
 }
 
+let grundItems: readonly ItemShared[] = [];
+
+/** Registers the base items (called by `gegenstandsDaten.ts` once); `replaceDataItems` keeps them in every state. */
+export function setzeGrundItems(liste: readonly ItemShared[]): void {
+  grundItems = liste;
+}
+
 /**
- * Replaces the WHOLE data-item state (entries left out are gone afterwards). Atomic: the new map is built
+ * Replaces the WHOLE data-item state (entries left out are gone afterwards, the base stock excepted). Atomic: the new map is built
  * and checked first, the reference is swapped last, so a throw halfway leaves the old state untouched.
  * Throws on a name that is already a code item or appears twice; the caller sanitises first
  * (gegenstandsDaten.ts), this is the last line of defence.
  */
 export function replaceDataItems(liste: readonly ItemShared[]): void {
   const neu = new Map<string, ItemShared>(CODE_ITEMS_BY_NAME);
+  // The base stock is never part of what is replaced: it stands unless an entry of `liste` has the same name.
+  for (const g of grundItems) neu.set(g.name, g);
   const daten = new Set<string>();
   for (const item of liste) {
     const name = item.name;

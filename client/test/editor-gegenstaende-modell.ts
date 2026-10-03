@@ -302,7 +302,7 @@ console.log('\n[5] Gleiche Grund-Codes wie der Server:');
     const maske = pruefeFormular(f, andere);
     check(`${name}: Server = texte-ungueltig, Maske = ${code} am Feld ${feld}`, gleich(serverGruende(f, andere), ['texte-ungueltig']) && gleich(maske.map((x) => [x.feld, x.code]), [[feld, code]]), JSON.stringify(maske));
   }
-  check('VERWERF_GRUENDE hat 23 Codes (Aenderung bricht die Tabellen in texte.ts am Typ)', VERWERF_GRUENDE.length === 23, String(VERWERF_GRUENDE.length));
+  check('VERWERF_GRUENDE hat 24 Codes (Aenderung bricht die Tabellen in texte.ts am Typ)', VERWERF_GRUENDE.length === 24, String(VERWERF_GRUENDE.length));
 }
 
 // ── [6] ranges = the reader's ranges ───────────────────────────────────

@@ -52,6 +52,7 @@ import { LayoutGesperrt, layoutHash, layoutUnterSperre } from '@wov/shared/src/w
 import {
   GegenstandsSchreibFehler,
   MAX_DATEI_BYTES,
+  istGrundItem,
   leseGegenstandsDatei,
   schreibeGegenstandsDatei,
   type GegenstandsLesung,
@@ -429,7 +430,8 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     }
     const neueIds = new Set(neu.eintraege.map((e) => e.id));
     const verworfen = verworfeneIds(altText, alt);
-    const entfernt = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id));
+    // A base id that leaves the file falls back to the base entry: it is no removal and needs no confirmation.
+    const entfernt = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id) && !istGrundItem(id));
     const entferntOhneId = verworfen.ohneId;
     if ((entfernt.length > 0 || entferntOhneId.length > 0) && !bestaetigt) return { art: 'bestaetigung', hash: stand.hash, entfernt, entferntOhneId };
     atomarSchreiben(arbeit, kanonisch);

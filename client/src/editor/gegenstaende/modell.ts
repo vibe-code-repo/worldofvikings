@@ -378,6 +378,7 @@ const GRUND_FELD: Record<VerwerfGrund, string> = {
   'id-code-kollision': 'id',
   'id-schreibung-code': 'id',
   'id-schreibung-doppelt': 'id',
+  'grundwert-gesperrt': 'allgemein',
   'schluessel-ungueltig': 'id',
   'typ-unbekannt': 'typ',
   'slot-unbekannt': 'allgemein',

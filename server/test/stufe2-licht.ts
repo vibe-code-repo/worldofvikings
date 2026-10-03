@@ -44,6 +44,7 @@ import { parse as parseYaml } from 'yaml';
 import {
   ENVIRONMENTS,
   ENV_CLEAR,
+  ENV_GLEN_CLEAR,
   ENV_KLAR_COMIC,
   LOOK_VORGABE,
   dichteFuerSichtweite,
@@ -411,6 +412,8 @@ function abendStuetzpunkt(): void {
   let wo = '';
   for (const env of ENVIRONMENTS) {
     if (env.ambColorEvening !== undefined || env.lightIntensityEvening !== undefined) continue;
+    // 'Glen clear' is Clear below the horizon and fades in above it (shared/test/biom-greyglen-licht.ts checks it)
+    if (env.name === ENV_GLEN_CLEAR) continue;
     for (let i = 0; i < 96; i++) {
       const t = i / 96;
       const st = evaluateEnv(env, t);

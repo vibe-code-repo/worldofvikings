@@ -157,6 +157,9 @@ check('SwampRain to DeepNorth_dark at half: direction is the target\'s, not blen
 const lichtQuelle = readFileSync(new URL('../../client/src/engine/Lighting.ts', import.meta.url), 'utf-8');
 check('Lighting.apply blends the direction only when Glen clear is one end of the fade',
   /this\.prevEnv\.name === ENV_GLEN_CLEAR \|\| this\.env\.name === ENV_GLEN_CLEAR/.test(lichtQuelle));
+const gegen = { ...von, lightDir: { x: -nach.lightDir.x, y: -nach.lightDir.y, z: -nach.lightDir.z }, sunDir: { x: -nach.sunDir.x, y: -nach.sunDir.y, z: -nach.sunDir.z } };
+const heb = lerpEnvState(gegen, nach, 0.5, true);
+check('blend of exactly opposite directions falls back to the target\'s', JSON.stringify(heb.lightDir) === JSON.stringify(nach.lightDir) && JSON.stringify(heb.sunDir) === JSON.stringify(nach.sunDir));
 const lighting = readFileSync(new URL('../../client/src/engine/Lighting.ts', import.meta.url), 'utf-8');
 check('Lighting: the biome change cross-fades over a positive time', /const ENV_BLEND_SECONDS = [1-9]/.test(lighting) && /this\.blend = Math\.min\(1, this\.blend \+ dtSeconds \/ ENV_BLEND_SECONDS\)/.test(lighting));
 

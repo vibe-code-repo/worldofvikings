@@ -109,7 +109,28 @@ const groesterSchritt = (env: typeof glen): number => {
 };
 const sprungGlen = groesterSchritt(glen);
 const sprungKlar = groesterSchritt(klar);
+const dichteSchritt = (env: typeof glen): number => {
+  let m = 0;
+  let vor = evaluateEnv(env, 0).fogDensity;
+  for (let i = 1; i <= 20000; i++) {
+    const d = evaluateEnv(env, i / 20000).fogDensity;
+    m = Math.max(m, Math.abs(d - vor));
+    vor = d;
+  }
+  return m;
+};
+check('fog density alone: no step bigger than twice grassland\'s biggest', dichteSchritt(glen) <= dichteSchritt(klar) * 2 + 1e-12, `${dichteSchritt(glen)} vs ${dichteSchritt(klar)}`);
 check('over a whole day no step of 1/20000 is bigger than grassland\'s own biggest step (x1.5)', sprungGlen <= sprungKlar * 1.5 + 1e-9, `${sprungGlen.toFixed(5)} vs ${sprungKlar.toFixed(5)}`);
+// in the fade-in band the blended directions stay unit vectors
+const band: number[] = [];
+for (let i = 0; i < 2000; i++) {
+  const e = evaluateEnv(klar, i / 2000).elevation;
+  if (e > 0.01 && e < 0.24) band.push(i / 2000);
+}
+check('sun direction stays a unit vector in the fade-in band after sunrise and before sunset', band.length > 100 && band.every((t) => {
+  const e = evaluateEnv(glen, t);
+  return nah(Math.hypot(e.sunDir.x, e.sunDir.y, e.sunDir.z), 1, 1e-9);
+}), String(band.length));
 const mittag2 = evaluateEnv(glen, 0.5);
 check('noon is the own state untouched by the blend', mittag2.fogDensity === 0.009);
 const nachtSchluessel = ['fogColorNight', 'fogColorSunNight', 'fogDensityNight', 'sunColorNight', 'ambColorNight', 'lightIntensityNight', 'fogColorMorning', 'fogColorEvening', 'fogDensityMorning', 'fogDensityEvening', 'sunColorMorning', 'sunColorEvening'] as const;

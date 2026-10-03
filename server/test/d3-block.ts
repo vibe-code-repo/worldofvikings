@@ -438,6 +438,22 @@ async function main(): Promise<void> {
     const stillstandKosten = s1 - anna.stamina;
     check('H2: a 5 s stall of the server bills about 2 s + the tick gaps (4.0 - 5.5), not 10 plus', stillstandKosten > 3.5 && stillstandKosten < 6, `${stillstandKosten.toFixed(2)}`);
     check('H2: ... and the block still stands', anna.blockSeit > 0);
+    // The same stall, but the input packet arrives in the SAME poll round as the packet that stalls the server, so it is
+    // handled before the next tick: the input path must forgive the stall itself. A chat handler that waits 6 s stands in
+    // for the stalling packet.
+    const s2 = anna.stamina;
+    const inst = server as unknown as { handleChatMessage: (p: Peer, r: Reader) => void };
+    const chatAlt = inst.handleChatMessage;
+    inst.handleChatMessage = (): void => {
+      const t = Date.now();
+      while (Date.now() - t < 6000) { /* the server cannot run */ }
+    };
+    ws.send(Buffer.concat([Buffer.from([PacketType.ChatMessage]), new Writer().writeString('x').toBuffer()]));
+    sendInput(ws, 0, 0, false);
+    await warte(7000);
+    inst.handleChatMessage = chatAlt;
+    const paketKosten = s2 - anna.stamina;
+    check('H2: a 6 s stall by a packet, the input packet right behind it, bills about 2 s (3.5 - 6.5), not 12', paketKosten > 3.5 && paketKosten < 6.5, `${paketKosten.toFixed(2)}`);
     anna.waffe = '';
     await warte(400);
     check('B3: the item put away (fist) ends the block by itself, the client is told', anna.blockSeit === 0 && ws.bloecke.includes(false), JSON.stringify(ws.bloecke));

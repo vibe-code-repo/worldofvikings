@@ -45,6 +45,7 @@ console.log('\n[1] Parry window');
   check('199 ms: open', paradeOffen(t0, false, t0 + 199));
   check('200 ms: open (the edge belongs to the window)', paradeOffen(t0, false, t0 + 200));
   check('201 ms: closed', !paradeOffen(t0, false, t0 + 201));
+  check('H1: a clock that jumped backwards (jetzt < blockSeit): closed', !paradeOffen(t0, false, t0 - 1) && !paradeOffen(t0, false, t0 - 3_600_000));
   check('no block (blockSeit 0): closed', !paradeOffen(0, false, 100));
   check('a block that began inside the lock (ohneParade): closed even at 0 ms', !paradeOffen(t0, true, t0));
 }

@@ -38,7 +38,8 @@ export const SERVER_MELDUNG_ZU_ERSCHOEPFT = '@kampf.zu_erschoepft';
 
 /** Is the parry window still open `jetzt`? `blockSeit` 0 = no block. */
 export function paradeOffen(blockSeit: number, ohneParade: boolean, jetzt: number): boolean {
-  return blockSeit > 0 && !ohneParade && jetzt - blockSeit <= PARADE_FENSTER_MS;
+  // `jetzt >= blockSeit`: a system clock that jumped backwards must not keep the window open
+  return blockSeit > 0 && !ohneParade && jetzt >= blockSeit && jetzt - blockSeit <= PARADE_FENSTER_MS;
 }
 
 /**

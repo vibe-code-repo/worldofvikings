@@ -40,6 +40,7 @@ import * as TR from '../../shared/src/worldgen/terrainRampen.js';
 import { WATER_LEVEL } from '../../shared/src/worldgen/Heightmap.js';
 import { Biome } from '../../shared/src/types.js';
 import { SCHICHTEN, ZUORDNUNG, tabelle } from '../store-terrain-schichten.mjs';
+import { SCHICHT_OBERFLAECHE } from '../../client/src/engine/TerrainSplat.js';
 
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const GOLDEN = resolve(WURZEL, 'shared/test/golden/boden-mischung-alte-biome.json');
@@ -174,7 +175,7 @@ pruefe('TILE_BODENART: 16/17 Gras, 18/19 Fels',
 {
   const zeile = (i: number) => (ZUORDNUNG as Array<{ name: string; schicht?: string; toenung?: number[] }>)[i]!;
   pruefe('Stapelzeile 16 = Gras-Schicht', zeile(16).schicht === 'grass-a', zeile(16).name);
-  pruefe('Stapelzeile 17 = Moos-Schicht (Dorfmoos)', zeile(17).schicht === 'moss-village');
+  pruefe('Stapelzeile 17 = Moos-Schicht (moss-village)', zeile(17).schicht === 'moss-village');
   pruefe('Stapelzeile 18 = Fels-Schicht (Rockwall)', zeile(18).schicht === 'rock-a');
   pruefe('Stapelzeile 19 = rauer Fels mit eigener Normale', zeile(19).schicht === 'rock-moss-grey');
   pruefe('keine Toenung auf den neuen Zeilen', [16, 17, 18, 19].every((i) => (zeile(i).toenung ?? []).every((f) => f === 1)));
@@ -188,8 +189,22 @@ pruefe('TILE_BODENART: 16/17 Gras, 18/19 Fels',
     s.kachelMeter === 7 && s.normalStaerke === 2 && s.metallic === 0 && s.smoothness === 0);
   const t = (tabelle(256) as { tiles: Array<{ tile: number; normale: string; normaleGewuenscht?: string }> }).tiles;
   pruefe('Tabelle: Zeile 19 nennt die gewuenschte Normale', t[19]?.normaleGewuenscht === 'terrain-rock-moss-normal');
+  pruefe('der Stapel hat 20 Zeilen (Tabelle und ZUORDNUNG)',
+    (tabelle(256) as { zeilen: number }).zeilen === 20 && (ZUORDNUNG as unknown[]).length === 20);
   pruefe('Tabelle: nur Zeile 19 fuehrt eine Ersatz-Normale (die anderen Zeilen unveraendert)',
     t.filter((z) => z.normaleGewuenscht !== undefined).length === 1);
+  // Werkzeug und Shader nennen fuer die neuen Zeilen dieselben vier Zahlen.
+  const voll = (tabelle(256) as { tiles: Array<{ tile: number; kachelMeter: number; normalStaerke: number; metallic: number; smoothness: number }> }).tiles;
+  const soll: Record<number, [number, number, number, number]> = { 16: [2, 2, 0.7, 0], 17: [2, 1.2, 0, 0], 18: [5, 1.5, 0.2, 0.2], 19: [7, 2, 0, 0] };
+  for (const k of [16, 17, 18, 19]) {
+    const o = SCHICHT_OBERFLAECHE[k]!;
+    const w = voll[k]!;
+    pruefe(`Zeile ${k}: Shader und Werkzeug nennen Kachel, Normalstaerke, Metallic, Glaette wie die Quellschicht`,
+      o.kachelMeter === soll[k]![0] && o.normalStaerke === soll[k]![1] && o.metallic === soll[k]![2] && o.smoothness === soll[k]![3]
+        && w.kachelMeter === o.kachelMeter && w.normalStaerke === o.normalStaerke && w.metallic === o.metallic && w.smoothness === o.smoothness,
+      `${o.kachelMeter}/${o.normalStaerke}/${o.metallic}/${o.smoothness}`);
+  }
+  pruefe('SCHICHT_OBERFLAECHE hat 20 Zeilen', SCHICHT_OBERFLAECHE.length === 20);
 }
 
 // ── 2. Rampen je Grundkachel ─────────────────────────────────────────
@@ -312,6 +327,14 @@ console.log('\n[4] Aeltere Biome bitgleich (Golden vor K3):');
   pruefe('gemischte Zone: links (Greyglen dominant) hat die Greyglen-Hangkachel, rechts nicht',
     links[`kachel${BK.TILE.GreyMoss}`] > 0.3 && rechts[`kachel${BK.TILE.GreyMoss}`] === 0
       && rechts[`kachel${BK.TILE.Moss}`] > 0.3 && links[`kachel${BK.TILE.Moss}`] === 0);
+  // Genauer: am 24°-Hang gilt links die Greyglen-Rampe (19°→26°), rechts die globale (15°→30°).
+  const c = (g: number): number => Math.cos((g * Math.PI) / 180);
+  const kGrey = (c(19) - c(24)) / (c(19) - c(26));
+  const kGlobal = (c(15) - c(24)) / (c(15) - c(30));
+  pruefe('gemischte Zone: links gilt die Rampe der dominanten Greyglen-Kachel', Math.abs(links[`kachel${BK.TILE.GreyMoss}`] - kGrey) < 1e-9,
+    `${links[`kachel${BK.TILE.GreyMoss}`].toFixed(6)} gegen ${kGrey.toFixed(6)}`);
+  pruefe('gemischte Zone: rechts gilt die globale Rampe der dominanten Wiesen-Kachel', Math.abs(rechts[`kachel${BK.TILE.Moss}`] - kGlobal) < 1e-9,
+    `${rechts[`kachel${BK.TILE.Moss}`].toFixed(6)} gegen ${kGlobal.toFixed(6)}`);
 }
 
 // ── 5. Shader ────────────────────────────────────────────────────────
@@ -323,6 +346,25 @@ console.log('\n[5] Shader:');
     'VB_HANG_B[i]', 'VB_FELS_B[i]', 'VB_RAU_B[i]', 'VB_FELS_A[i]', 'VB_RAU_A[i]',
     'TILE_ANZAHL',
   ]) pruefe(`Shader nutzt ${s}`, splat.includes(s));
+  for (const zeile of [
+    "'  hangK = clamp((VB_HANG_B[i] - ny) / VB_HANG_W[i], 0.0, 1.0);'",
+    "'  felsK = clamp((VB_FELS_B[i] - ny) / VB_FELS_W[i], 0.0, 1.0) * VB_FELS_A[i];'",
+    "'  rauK = clamp((VB_RAU_B[i] - ny) / VB_RAU_W[i], 0.0, 1.0) * VB_RAU_A[i];'",
+    "glslTabelle('VB_HANG_B', rampenSaetze.map((r) => nyBeiGrad(r.hang.beginn)))",
+    "glslTabelle('VB_HANG_W', rampenSaetze.map((r) => nyBeiGrad(r.hang.beginn) - nyBeiGrad(r.hang.voll)))",
+    "glslTabelle('VB_FELS_B', rampenSaetze.map((r) => nyBeiGrad(r.fels.beginn)))",
+    "glslTabelle('VB_FELS_W', rampenSaetze.map((r) => nyBeiGrad(r.fels.beginn) - nyBeiGrad(r.fels.voll)))",
+    "glslTabelle('VB_FELS_A', rampenSaetze.map((r) => r.fels.anteil))",
+    "glslTabelle('VB_RAU_B', rampenSaetze.map((r) => nyBeiGrad(r.rau.beginn)))",
+    "glslTabelle('VB_RAU_W', rampenSaetze.map((r) => nyBeiGrad(r.rau.beginn) - nyBeiGrad(r.rau.voll)))",
+    "glslTabelle('VB_RAU_A', rampenSaetze.map((r) => r.rau.anteil))",
+    '`const float ${name}[${werte.length}] = float[${werte.length}](`',
+    'cnst(`tile_${name}_atlasHoehe`, 1 / ATLAS_ZEILEN)',
+    'const ATLAS_ZEILEN = STORE_BODEN_AKTIV ? TILE_ANZAHL : 16;',
+    '(felsKAus ?? rockKRoh.output).connectTo(rockK.left)',
+    'const KACHEL_MAX = (ATLAS_ZEILEN - 1).toFixed(1);',
+    '`  int i = int(clamp(t, 0.0, ${KACHEL_MAX}) + 0.5);`',
+  ]) pruefe(`Shader-Zeile: ${zeile.slice(0, 70)}`, splat.includes(zeile));
   pruefe('der Shader fuehrt keine Rampen-Literale 15/30/40/50 mehr in der Tabellenwahl', !/clamp\(\(\$\{HANG_BEGINN/.test(splat));
   pruefe('keine feste 16 mehr im Zeilenindex des Stapels (nur noch ATLAS_ZEILEN)', !/\) \/ 16\.0;/.test(splat));
   pruefe('SCHICHT_OBERFLAECHE hat 20 Zeilen: der Shader-Tabellen-Index klemmt auf KACHEL_MAX', splat.includes('KACHEL_MAX'));

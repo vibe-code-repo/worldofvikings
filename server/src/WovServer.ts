@@ -2948,7 +2948,7 @@ export class WovServer {
       // Stufenregel stehen in shared/src/bewegung/masse.ts — dieselbe
       // Quelle, aus der auch der Client-Controller lesen kann.
       newPos = rolle.rollt
-        ? this.spielerbewegung.rollSchritt(peer, rolle.x, rolle.z, rolle.dt)
+        ? this.spielerbewegung.rollSchritt(peer, rolle.x, rolle.z, rolle.dt, rolle.weg)
         : this.spielerbewegung.schritt(peer, moveX, moveZ, rennt, deltaSec, blockt);
     }
 
@@ -4757,6 +4757,7 @@ export class WovServer {
       }
       this.charakterUmziehen(peer, ziel, pos);
     }
+    rolleZuruecksetzen(peer); // a teleport (portal, return, revival) ends a roll; a world change did already
     peer.position = { ...pos };
     const charZDO = this.zdosVon(peer).getZDO(peer.characterID);
     if (charZDO) {

@@ -31,7 +31,7 @@ import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import type { Peer } from '../src/net/Peer.js';
 import { Kollisionswelt } from '../src/world/Kollisionswelt.js';
-import { Spielerbewegung } from '../src/world/Spielerbewegung.js';
+import { Spielerbewegung, neuerRolleWeg } from '../src/world/Spielerbewegung.js';
 import type { KollisionsForm, Vek3 } from '@wov/shared/src/kollision/form.js';
 import { blockPaket } from '../src/spiel/Block.js';
 import { rolleLaeuft, rollePaket, rolleTakt, rolleUnverwundbar, rolleZuruecksetzen, sprungKosten, type RollePeer } from '../src/spiel/Rolle.js';
@@ -58,7 +58,7 @@ function attrappe(): Attrappe {
   return {
     blockSeit: 0, blockTaktZeit: 0, blockSperreBis: 0, blockOhneParade: false, stamina: 100, staminaZuletztVerbraucht: 0,
     waffe: 'SwordNorth', flying: false, totBis: 0, blickYaw: 0, position: { x: 0, y: 0, z: 0 },
-    rolleStart: 0, rolleBis: 0, rolleZeit: 0, rolleX: 0, rolleZ: 0, rolleSperreBis: 0, sprungSperreBis: 0,
+    rolleStart: 0, rolleBis: 0, rolleZeit: 0, rolleX: 0, rolleZ: 0, rolleSperreBis: 0, sprungSperreBis: 0, rolleWeg: null,
     gesendet,
     sendPacketWith(typ: PacketType, schreibe: (w: Writer) => void): void {
       const w = new Writer();
@@ -84,10 +84,10 @@ console.log('\n[1] spiel/Rolle.ts on a stand-in peer (fixed clock)');
   check('invulnerable the whole clip: 10000, 10100, 10825, 10874 yes; 10875, 10925 no', [10_000, 10_100, 10_825, 10_874].every((t) => rolleUnverwundbar(p, t)) && ![10_875, 10_925].some((t) => rolleUnverwundbar(p, t)));
   const zweite = rollePaket(p, 0, 10_100, frei);
   check('a second roll during the first: refused, nothing changes', !zweite && p.stamina === 90 && p.rolleStart === 10_000 && rolleAus(p) === 1);
-  const sperre = rollePaket(p, 0, 11_374, frei);
-  check('1 ms before the lock ends: refused', !sperre && p.stamina === 90 && rolleAus(p) === 2);
-  const danach = rollePaket(p, 0, 11_375, frei);
-  check('exactly when the lock ends: accepted again (stamina 80)', danach && p.stamina === 80 && p.rolleStart === 11_375);
+  const sperre = rollePaket(p, 0, 11_274, frei);
+  check('101 ms before the lock ends (11375): refused', !sperre && p.stamina === 90 && rolleAus(p) === 2);
+  const danach = rollePaket(p, 0, 11_275, frei);
+  check('100 ms before the lock ends (jitter tolerance): accepted again (stamina 80)', danach && p.stamina === 80 && p.rolleStart === 11_275);
 }
 {
   // Each reason: nothing changes but the message to the client.
@@ -177,6 +177,52 @@ console.log('\n[1] spiel/Rolle.ts on a stand-in peer (fixed clock)');
   check('stamina 4.9: no jump billed, no lock', !sprungKosten(arm, true, 1000) && arm.stamina === 4.9 && arm.sprungSperreBis === 0);
 }
 
+{
+  // F2: the jitter tolerance, and what it does to a chain of rolls (the spam probe of the attack).
+  const rand = attrappe();
+  rollePaket(rand, 0, 50_000, frei);
+  const ende = rand.rolleSperreBis; // 51375
+  const zu = attrappe(); zu.rolleSperreBis = ende; zu.stamina = 100;
+  check('boundary: lock end - 101 ms refused, - 100 ms accepted (one peer each)', !rollePaket(zu, 0, ende - 101, frei) && rollePaket(zu, 0, ende - 100, frei));
+  const spam = attrappe();
+  const starts: number[] = [];
+  let letzteStart = -1;
+  for (let t = 100_000; t < 120_000; t += 5) {
+    spam.stamina = 100; // the stamina is not the limit of the probe
+    if (rollePaket(spam, 0, t, frei) && spam.rolleStart !== letzteStart) { letzteStart = spam.rolleStart; starts.push(t); }
+  }
+  const abstaende = starts.slice(1).map((s, i) => s - starts[i]);
+  const kleinster = Math.min(...abstaende);
+  let unverwundbar = 0;
+  for (let t = starts[0]; t < starts[starts.length - 1]; t += 1) {
+    if (starts.some((s) => t >= s && t < s + ROLLE_DAUER_MS)) unverwundbar++;
+  }
+  const anteil = unverwundbar / (starts[starts.length - 1] - starts[0]);
+  console.log(`      spam every 5 ms over 20 s: ${starts.length} rolls, smallest gap ${kleinster} ms, invulnerable share ${(anteil * 100).toFixed(1)} % (limit 875/1275 = ${(875 / 12.75).toFixed(1)} %)`);
+  check('SPAM: rolls at most every 875 + 400 = 1275 ms (smallest gap >= 1275)', kleinster >= ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS - 100, `${kleinster} ms`);
+  check('SPAM: the invulnerable share stays at 875/1275 (68.6 %) plus one packet rhythm, not more', anteil <= 875 / 1275 + 0.01, `${(anteil * 100).toFixed(2)} %`);
+}
+{
+  // F3: one path state (step grid + slope memory) per roll (set on accept, handed out by the tick, gone with the reset).
+  const p = attrappe();
+  check('(set-up) no path state before a roll', p.rolleWeg === null && rolleTakt(p, 1000).weg === undefined);
+  rollePaket(p, 0, 1000, frei);
+  const weg = p.rolleWeg;
+  check('a roll sets one path state', weg !== null);
+  check('every tick of the roll hands out the SAME path state', rolleTakt(p, 1100).weg === weg && rolleTakt(p, 1200).weg === weg);
+  rolleZuruecksetzen(p);
+  check('the reset drops it', p.rolleWeg === null && rolleTakt(p, 1300).weg === undefined);
+  rollePaket(p, 0, 5000, frei);
+  check('the next roll gets a fresh one', p.rolleWeg !== null && p.rolleWeg !== weg);
+}
+{
+  // F4: a jump flag during a roll is not billed (the client sends none there).
+  const p = attrappe();
+  rollePaket(p, 0, 1000, frei); // stamina 90, rolling until 1875
+  check('jump flag during the roll (at 1000, 1500, 1874): not billed, no lock', !sprungKosten(p, true, 1000) && !sprungKosten(p, true, 1500) && !sprungKosten(p, true, 1874) && p.stamina === 90 && p.sprungSperreBis === 0);
+  check('jump flag when the roll is over (1875): billed again', sprungKosten(p, true, 1875) && p.stamina === 85 && p.sprungSperreBis === 1875 + 800);
+}
+
 // ── [2] the path against the real collision ──────────────────────────────
 console.log('\n[2] The path against the real collision');
 const kiste = (min: Vek3, max: Vek3): KollisionsForm => ({ art: 'kiste', min, max });
@@ -235,6 +281,43 @@ const horizontal = (a: Vek3, b: Vek3): number => Math.hypot(a.x - b.x, a.z - b.z
   check('a wall 1 m in front: the roll driven in packets stops before it (z > -0.7), no tunnelling', vorWand.z > -0.7 && vorWand.z <= 0, `z ${vorWand.z.toFixed(3)}`);
   const dick = gehe(weltMit([{ form: kiste({ x: -50, y: -1, z: -0.1 }, { x: 50, y: 4, z: 0.1 }), position: { x: 0, y: 0, z: -2 } }]), 0, -1, 400);
   check('a 20 cm thin wall in 1.9 m, packets of 400 ms (the slice is 2.3 m long): the slice does not jump over it', dick.z > -1.6, `z ${dick.z.toFixed(3)}`);
+}
+
+{
+  // F3: at the limit of the slope the roll driven in slices with ONE slope memory agrees with the preview.
+  const gradHoehe = (grad: number) => { const k = Math.tan((grad * Math.PI) / 180); return (_x: number, zz: number): number => -zz * k; };
+  const fahreHang = (sb: Spielerbewegung, dx: number, dz: number, takt: number, h: (x: number, z: number) => number, lauf = neuerRolleWeg()): number => {
+    let pos = { x: 0, y: h(0, 0), z: 0 };
+    const w = { position: pos };
+    let rest = ROLLE_BEWEGUNG_MS / 1000;
+    while (rest > 1e-12) {
+      const dt = Math.min(takt / 1000, rest);
+      pos = sb.rollSchritt(w, dx, dz, dt, lauf);
+      w.position = pos;
+      rest -= dt;
+    }
+    return Math.hypot(pos.x, pos.z);
+  };
+  const frei80 = (weg: number): boolean => weg >= ROLLE_WEG_M * 0.8;
+  for (const grad of [58, 60, 62]) {
+    const h = gradHoehe(grad);
+    // a sloped ground needs its own world: the height function replaces the flat one
+    const z2 = createWovServer({ port: 0, worldSeed: 'KxSYuZquuw', worldFeatures: false });
+    z2.init();
+    const kw = new Kollisionswelt(z2.zdos, z2.prefabs, h as never);
+    const nah2 = kw.nahfeldAus([]);
+    (kw as unknown as { nahfeld: () => unknown }).nahfeld = () => nah2;
+    const hang = new Spielerbewegung(kw);
+    const vor = hang.rolleVorschau({ x: 0, y: 0, z: 0 }, 0, -1);
+    const takte = [7, 16, 33, 50, 100, 833];
+    const wege = takte.map((t) => fahreHang(hang, 0, -1, t, h));
+    const alleGleich = wege.every((w) => frei80(w) === frei80(vor));
+    const abweichung = Math.max(...wege.map((w) => Math.abs(w - vor)));
+    console.log(`      ${grad} deg: preview ${vor.toFixed(2)} m, driven ${wege.map((w) => w.toFixed(2)).join(' ')} (max deviation ${abweichung.toFixed(3)} m)`);
+    check(`${grad} deg slope: the decision of the preview (free/refused) holds for every slice length of the driven path`, alleGleich);
+    check(`${grad} deg slope: the driven path equals the preview within one sub-step (0.1 m)`, abweichung <= 0.1, `${abweichung.toFixed(3)} m`);
+    // the old way (a fresh memory per call) is what the attack found: not part of the check, it is the mutant A28
+  }
 }
 
 // ── [3] over the real packet path ────────────────────────────────────────
@@ -485,6 +568,43 @@ async function main(): Promise<void> {
     check('REVIVAL on the immediate path (stirb skipped): the roll is over, no lock', anna.rolleBis === 0 && anna.rolleSperreBis === 0);
     anna.health = 100; anna.stamina = 100;
     await warte(300);
+
+    // ── a teleport ends the roll (F1): the admin command and the portal / return path (teleportPeer) ──
+    for (const [wie, mach, ziel] of [
+      ['ADMIN COMMAND teleport', (): void => sendAdmin(ws, 'teleport 300 300'), { x: 300, z: 300 }],
+      ['PORTAL / teleportPeer', (): void => (server as unknown as { teleportPeer(p: Peer, pos: Vector3, d: string | null): void }).teleportPeer(anna, { x: 250, y: anna.position.y, z: 250 }, null), { x: 250, z: 250 }],
+    ] as const) {
+      anna.health = 100; anna.stamina = 100; anna.totBis = 0; anna.sprungSperreBis = 0;
+      await warte(ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS);
+      sendRolle(ws, 0);
+      await warte(100);
+      check(`(set-up, ${wie}) a roll runs`, rolleLaeuft(anna, Date.now()));
+      ws.rollen.length = 0;
+      mach();
+      await warte(150);
+      check(`${wie} in the middle of a roll: the roll is over at the server, the client got Rolle false`, anna.rolleBis === 0 && ws.rollen.join() === 'false', JSON.stringify(ws.rollen));
+      await eingaben(ws, 0, 700); // the packets would carry the roll on for 0.7 s
+      const dx = anna.position.x - ziel.x; const dz = anna.position.z - ziel.z;
+      check(`${wie}: no movement along the roll direction after it (stays within 0.5 m of the target)`, Math.hypot(dx, dz) < 0.5, `${dx.toFixed(2)}, ${dz.toFixed(2)}`);
+      anna.health = 100;
+      zugriff.applyCreatureAttack({ x: anna.position.x, y: anna.position.y, z: anna.position.z - 2 }, wolf, 2.4, anna.worldId, anna.position);
+      check(`${wie}: no longer invulnerable (the wolf's blow lands)`, anna.health < 100, `life ${anna.health}`);
+    }
+
+    // ── a jump flag in a roll is not billed (F4) ──
+    anna.health = 100; anna.stamina = 100; anna.sprungSperreBis = 0;
+    await warte(ROLLE_DAUER_MS + ROLLE_ABKLINGZEIT_MS);
+    sendRolle(ws, 0);
+    await warte(60);
+    sendInput(ws, 0, 0, 0, false, true);
+    await warte(100);
+    sendInput(ws, 0, 0, 0, false, true);
+    await warte(100);
+    check('JUMP FLAGS during the roll (two packets): not billed (stamina 90, no jump lock)', nah(anna.stamina, 90, 0.5) && anna.sprungSperreBis === 0, `stamina ${anna.stamina}, lock ${anna.sprungSperreBis}`);
+    await warte(ROLLE_DAUER_MS + 50);
+    sendInput(ws, 0, 0, 0, false, true);
+    await warte(100);
+    check('... the same flag after the roll is billed (stamina 85)', nah(anna.stamina, 85, 0.6) && anna.sprungSperreBis > 0, `stamina ${anna.stamina}`);
 
     // ── the jump ──
     anna.stamina = 100; anna.sprungSperreBis = 0; anna.staminaZuletztVerbraucht = 0;

@@ -19,6 +19,7 @@ import {
   ROLLE_DAUER_MS,
   ROLLE_MIN_ANTEIL,
   ROLLE_MIN_WEG_M,
+  ROLLE_SPERRE_TOLERANZ_MS,
   ROLLE_TEMPO,
   ROLLE_WEG_M,
   SPRUNG_AUSDAUER,
@@ -58,7 +59,10 @@ const frei: RolleStand = { tot: false, flug: false, imWasser: false, rolleBis: 0
   check('flight mode', rolleAblehnung({ ...frei, flug: true }, t) === 'flug');
   check('in the water', rolleAblehnung({ ...frei, imWasser: true }, t) === 'wasser');
   check('a roll is running (until rolleBis, exclusive)', rolleAblehnung({ ...frei, rolleBis: t + 1 }, t) === 'laeuft' && rolleAblehnung({ ...frei, rolleBis: t }, t) === null);
-  check('lock: refused 1 ms before rolleSperreBis, allowed at it', rolleAblehnung({ ...frei, rolleSperreBis: t + 1 }, t) === 'abklingzeit' && rolleAblehnung({ ...frei, rolleSperreBis: t }, t) === null);
+  check('lock with the jitter tolerance (100 ms): refused 101 ms before rolleSperreBis, allowed 100 ms before and at it',
+    rolleAblehnung({ ...frei, rolleSperreBis: t + 101 }, t) === 'abklingzeit' && rolleAblehnung({ ...frei, rolleSperreBis: t + 100 }, t) === null && rolleAblehnung({ ...frei, rolleSperreBis: t }, t) === null);
+  check('the tolerance is 100 ms, the client lock stays 500 ms', ROLLE_SPERRE_TOLERANZ_MS === 100 && ROLLE_ABKLINGZEIT_MS === 500);
+  check('a roll that still runs is refused whatever the tolerance (laeuft before the lock)', rolleAblehnung({ ...frei, rolleBis: t + 1, rolleSperreBis: 0 }, t) === 'laeuft');
   check('stamina 9.99 refused, 10 allowed', rolleAblehnung({ ...frei, ausdauer: 9.99 }, t) === 'ausdauer' && rolleAblehnung({ ...frei, ausdauer: 10 }, t) === null);
   check('NaN stamina refused', rolleAblehnung({ ...frei, ausdauer: Number.NaN }, t) === 'ausdauer');
   check('NaN / infinite direction refused', rolleAblehnung({ ...frei, yaw: Number.NaN }, t) === 'richtung' && rolleAblehnung({ ...frei, yaw: Infinity }, t) === 'richtung');

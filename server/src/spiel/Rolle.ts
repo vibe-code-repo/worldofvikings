@@ -26,11 +26,12 @@ import {
   type RolleAblehnung,
 } from '@wov/shared/src/kampf/rolle.js';
 import type { Peer } from '../net/Peer.js';
+import { neuerRolleWeg, type RolleWeg } from '../world/Spielerbewegung.js';
 import { beendeBlockDurchRolle, blockAbrechnen, type BlockPeer } from './Block.js';
 
 /** The part of a `Peer` the roll reads and writes. */
 export type RollePeer = BlockPeer &
-  Pick<Peer, 'rolleStart' | 'rolleBis' | 'rolleZeit' | 'rolleX' | 'rolleZ' | 'rolleSperreBis' | 'sprungSperreBis'>;
+  Pick<Peer, 'rolleStart' | 'rolleBis' | 'rolleZeit' | 'rolleX' | 'rolleZ' | 'rolleSperreBis' | 'sprungSperreBis' | 'rolleWeg'>;
 
 /** What the caller knows and the module does not. */
 export interface RolleUmfeld {
@@ -113,6 +114,7 @@ export function rollePaket(peer: RollePeer, yaw: number, jetzt: number, umfeld: 
   peer.rolleX = richtung.x;
   peer.rolleZ = richtung.z;
   peer.rolleSperreBis = peer.rolleBis + ROLLE_ABKLINGZEIT_MS;
+  peer.rolleWeg = neuerRolleWeg(); // one path state (step grid and slope memory) for the whole roll, like the preview
   return true;
 }
 
@@ -124,6 +126,8 @@ export interface RolleTakt {
   readonly z: number;
   /** Seconds of roll movement to apply in this tick. */
   readonly dt: number;
+  /** The path state of this roll: the same step grid and one slope memory as the preview of the free-room check. */
+  readonly weg?: RolleWeg;
 }
 
 const KEINE_ROLLE: RolleTakt = { rollt: false, x: 0, z: 0, dt: 0 };
@@ -132,31 +136,33 @@ const KEINE_ROLLE: RolleTakt = { rollt: false, x: 0, z: 0, dt: 0 };
  * One input packet: the slice of the roll since the last one. The path is a function of the TIME the roll ran, not
  * of the number of packets: a packet after the end of the movement still gets the remainder, and none after that.
  */
-export function rolleTakt(peer: Pick<Peer, 'rolleStart' | 'rolleBis' | 'rolleZeit' | 'rolleX' | 'rolleZ'>, jetzt: number): RolleTakt {
+export function rolleTakt(peer: Pick<Peer, 'rolleStart' | 'rolleBis' | 'rolleZeit' | 'rolleX' | 'rolleZ' | 'rolleWeg'>, jetzt: number): RolleTakt {
   if (!(peer.rolleBis > 0)) return KEINE_ROLLE;
   const scheibe = rolleScheibe(peer.rolleStart, peer.rolleZeit, jetzt);
   peer.rolleZeit = scheibe.bis;
   if (scheibe.dt <= 0 && !rolleLaeuftRegel(peer.rolleBis, jetzt)) return KEINE_ROLLE;
-  return { rollt: true, x: peer.rolleX, z: peer.rolleZ, dt: scheibe.dt };
+  return { rollt: true, x: peer.rolleX, z: peer.rolleZ, dt: scheibe.dt, weg: peer.rolleWeg ?? undefined };
 }
 
-/** Death, change of world, revival: no roll and no lock. A roll that ran is announced to the client. */
-export function rolleZuruecksetzen(peer: Pick<Peer, 'rolleStart' | 'rolleBis' | 'rolleZeit' | 'rolleSperreBis' | 'sprungSperreBis' | 'sendPacketWith'>): void {
+/** Death, change of world, revival, teleport: no roll and no lock. A roll that ran is announced to the client. */
+export function rolleZuruecksetzen(peer: Pick<Peer, 'rolleStart' | 'rolleBis' | 'rolleZeit' | 'rolleSperreBis' | 'sprungSperreBis' | 'rolleWeg' | 'sendPacketWith'>): void {
   const lief = (peer.rolleBis ?? 0) > 0;
   peer.rolleStart = 0;
   peer.rolleBis = 0;
   peer.rolleZeit = 0;
   peer.rolleSperreBis = 0;
   peer.sprungSperreBis = 0;
+  peer.rolleWeg = null;
   if (lief) meldeRolleAus(peer);
 }
 
 /**
  * The jump flag of one input packet: a billed jump costs stamina and locks the next one. The server has no jump
- * physics (it cannot stop a jump, only bill it), so this counts what the client reports.
+ * physics (it cannot stop a jump, only bill it), so this counts what the client reports. During a roll a jump flag
+ * is not billed: the client sends none there (`SprungMeldung.erlaubt`), so a flag in a roll is no jump.
  */
-export function sprungKosten(peer: Pick<Peer, 'stamina' | 'staminaZuletztVerbraucht' | 'sprungSperreBis'>, jumping: boolean, jetzt: number): boolean {
-  if (!jumping) return false;
+export function sprungKosten(peer: Pick<Peer, 'stamina' | 'staminaZuletztVerbraucht' | 'sprungSperreBis' | 'rolleBis'>, jumping: boolean, jetzt: number): boolean {
+  if (!jumping || rolleLaeuft(peer, jetzt)) return false;
   const nach = sprungAbrechnen(peer.stamina, peer.sprungSperreBis ?? 0, jetzt);
   if (!nach.bezahlt) return false;
   peer.stamina = nach.ausdauer;

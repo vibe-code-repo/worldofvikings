@@ -30,6 +30,13 @@ export const ROLLE_AUSDAUER = 10;
 /** Gap after a roll before the next one may begin (ms). */
 export const ROLLE_ABKLINGZEIT_MS = 500;
 /**
+ * The server takes a new roll this long BEFORE its own lock ends (ms). The client counts the gap from its own
+ * clock, the server from the arrival of the first packet: with network jitter a legitimate second roll can arrive
+ * earlier than the first one's lock. The client lock stays 0.5 s; invulnerable share of a chain of rolls at the
+ * server: 875 / (875 + 400) ms.
+ */
+export const ROLLE_SPERRE_TOLERANZ_MS = 100;
+/**
  * Share of the full path the free-room check demands. 0.8 lets a roll slide along a wall at up to ~37 degrees to
  * it (cos 37 = 0.8) and still counts a roll into a wall, a rock or a slope above the limit as blocked. Lower
  * would let the clip run its 4.85 m while the figure stops after half of it; higher would refuse rolls that
@@ -71,7 +78,7 @@ export function rolleAblehnung(stand: RolleStand, jetzt: number): RolleAblehnung
   if (stand.flug) return 'flug';
   if (!Number.isFinite(stand.yaw)) return 'richtung';
   if (rolleLaeuft(stand.rolleBis, jetzt)) return 'laeuft';
-  if (jetzt < stand.rolleSperreBis) return 'abklingzeit';
+  if (jetzt < stand.rolleSperreBis - ROLLE_SPERRE_TOLERANZ_MS) return 'abklingzeit';
   if (stand.imWasser) return 'wasser';
   if (!(stand.ausdauer >= ROLLE_AUSDAUER)) return 'ausdauer';
   return null;

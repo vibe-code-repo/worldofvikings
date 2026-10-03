@@ -22,6 +22,7 @@ import { neuerSchlagZustand, type SchlagZustand } from '../spiel/Treffer.js';
 import { Spielwerte } from '../spiel/Spielwerte.js';
 import { blockZuruecksetzen } from '../spiel/Block.js';
 import { rolleZuruecksetzen } from '../spiel/Rolle.js';
+import type { RolleWeg } from '../world/Spielerbewegung.js';
 import { PacketType } from '@wov/shared';
 import type { WebSocket } from 'ws';
 import { randomBytes } from 'node:crypto';
@@ -161,6 +162,8 @@ export class Peer {
   rolleZ: number;
   /** Rolle: bis hierhin (ms) darf keine neue Rolle beginnen (Abklingzeit). */
   rolleSperreBis: number;
+  /** Rolle: der Weg der laufenden Rolle (Raster und Hangspeicher wie in der Vorschau), null = keine. */
+  rolleWeg: RolleWeg | null;
   /** Sprung (D3-K4): bis hierhin (ms) wird kein weiterer gemeldeter Sprung abgerechnet. */
   sprungSperreBis: number;
   /**
@@ -319,6 +322,7 @@ export class Peer {
     this.rolleX = 0;
     this.rolleZ = 0;
     this.rolleSperreBis = 0;
+    this.rolleWeg = null;
     this.sprungSperreBis = 0;
     this.spawnPoint = null;
     this.spawnBettId = '';

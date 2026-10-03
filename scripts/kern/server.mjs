@@ -138,6 +138,8 @@ export default [
   ['server', 'test/beute-daten.ts'],
   ['server', 'test/bewuchs-freiraum-huellen.ts'],
   ['server', 'test/bewuchs-freiraum.ts'],
+  // greyglen weather on the wire and at the border: server sends the new state in 128 only, the client accepts it, the cross-fade has no jump. <3 s.
+  ['server', 'test/biom-greyglen-wetter.ts'],
   // D2: server decides hits from geometry and time (hit sphere, swing window, combo ack, cooldown).
   ['server', 'test/d2-treffer.ts'],
   // D3-K1: gehaltener Block am Server (Paket 89): Standin-Peer mit fester Uhr, dann echter WebSocket-Spieler und Wolf. ~20 s.

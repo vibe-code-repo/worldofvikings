@@ -39,6 +39,8 @@ export default [
     regression and the per-packet cost measurement.
   */
   ['shared', 'test/bewegung-schritt.ts'],
+  // greyglen light and fog: its own clear-weather state (sun, ground light, fog) for biome 128 only, other biomes and the night unchanged. <1 s.
+  ['shared', 'test/biom-greyglen-licht.ts'],
   // New biome bit 128 (greyglen): bit, names, region, sanitizer, ground tile, weather as a copy of grassland. <1 s.
   ['shared', 'test/biom-greyglen.ts'],
   // D3-K1: die reine Blockregel (Paradefenster, Kegel, Halten, Blockbruch) und das Blocktempo im gemeinsamen Schritt. Sekunden.

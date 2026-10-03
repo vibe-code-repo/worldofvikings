@@ -119,7 +119,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
-import { ITEM_DEFS, PREFABS_BY_NAME, PREFAB_DEFS, isRenderable, istEigenesModell, uploadedModelRegistry } from '@wov/shared';
+import { GRUNDBESTAND_IDS, ITEM_DEFS, PREFABS_BY_NAME, PREFAB_DEFS, isRenderable, istEigenesModell, uploadedModelRegistry } from '@wov/shared';
 import { SPEICHER_WURZEL, STORE_ARTEN } from '../src/editor/StoreKatalogDaten';
 import { t } from '../src/editor/i18n';
 import { modelUrl } from '../src/engine/AssetManager';
@@ -781,7 +781,7 @@ if (kategorien) {
   );
   check(
     'ITEMS_NACH_NAME has one entry per item name',
-    ITEMS_NACH_NAME.size === new Set(ITEM_DEFS.map((i) => i.name)).size && ITEMS_NACH_NAME.size > 0,
+    ITEMS_NACH_NAME.size === new Set([...ITEM_DEFS.map((i) => i.name), ...GRUNDBESTAND_IDS]).size && ITEMS_NACH_NAME.size === 118,
     `${ITEMS_NACH_NAME.size} names`,
   );
   // Texts are left free on purpose (translation changes them); pinned is the structure.

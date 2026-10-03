@@ -49,7 +49,7 @@
   "freigaben": [
     {
       "schluessel": "laden:ITEMS_NACH_NAME",
-      "begruendung": "Derived from the registry ITEM_DEFS (@wov/shared) while the module loads, as before: no statement of the rest that acts while loading ran before it in the old state, and kategorien.ts is evaluated directly before GegenstandsKatalog.ts (rule B10), after everything it imports. GegenstandsKatalog.ts is the only importer of the module and is loaded dynamically by the editor after the registrations; client/test/katalog-module-grenze.ts guards that (attack report of G1)."
+      "begruendung": "Derived from the registries ITEM_DEFS and GRUNDBESTAND_IDS (@wov/shared) while the module loads, as before: no statement of the rest that acts while loading ran before it in the old state, and kategorien.ts is evaluated directly before GegenstandsKatalog.ts (rule B10), after everything it imports. GegenstandsKatalog.ts is the only importer of the module and is loaded dynamically by the editor after the registrations; client/test/katalog-module-grenze.ts guards that (attack report of G1)."
     },
     {
       "schluessel": "laden:MIT_MODELL",

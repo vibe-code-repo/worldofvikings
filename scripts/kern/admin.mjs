@@ -103,6 +103,8 @@ export default [
   // ... and PATCH /api/worldlayout/ops plus the 428 on a POST without a base,
   // against the real operations service on a copy of the world.
   ['admin', 'test/welt-ops.ts'],
+  // GET /api/worldlayout: a document with a greyglen region is refused (426) to a caller with an older or no protocol version header. ~6 s.
+  ['admin', 'test/welt-protokoll-kopf.ts'],
   // Baeume entfernen V1: ein beschaedigtes oder zu grosses vegetationEntfernt gibt 422 (nichts geschrieben), gueltige Kreise gehen durch.
   ['admin', 'test/welt-vegetation-422.ts'],
   // Reset the world to zero (K4.0): POST /api/welt-zuruecksetzen against the real operations service with a

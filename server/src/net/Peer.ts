@@ -47,6 +47,8 @@ export class Peer {
   }
 
   // ── Mutable state ──────────────────────────────────────────────
+  /** Protocol version the client sent in the handshake (0 until the VersionCheck is answered). */
+  protokollVersion = 0;
   position: Vector3;
   characterID: ZDOID;
   /** Altlast-ID fuer ZDO-Besitz (BigInt, siehe WovServer.ts). Kommt seit

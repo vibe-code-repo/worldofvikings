@@ -37,6 +37,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// @ts-expect-error — .mjs ohne Typen
+import { MODELLE, quelleStatus } from '../store-pflanzen-quellen.mjs';
 import { STORE_PREFAB_DEFS } from '@wov/shared';
 // Der Katalog kommt ueber seinen Pfad — er steht mit Absicht nicht im
 // Barrel, damit er nicht im Spiel-Bundle landet.
@@ -144,6 +146,23 @@ try {
   rmSync(tmp, { recursive: true, force: true });
 }
 
+// Labor-Modelle liegen unter `assets/store-lab/` (Messliste eingecheckt), nicht im Speicher.
+/**
+ * Labor-Modell ohne Datei: TOT nur, wenn der Rollout es hätte bauen MÜSSEN, also
+ * wenn seine Ausgangsdatei im Speicher (`vegetation-roh/`) gültig ist und zur
+ * Messliste passt. Fehlt sie, ist sie beschädigt oder weicht sie von der Liste ab,
+ * hat `store:aufbereiten` es bewusst nicht gebaut (Warnung): hier nur Warnung.
+ */
+function labDateiTot(pfad: string): boolean {
+  const m = (MODELLE as { quelle: string; id: string }[]).find((x) => pfad === `vegetation/${x.id}.glb`);
+  const status: string = m ? quelleStatus(m, { quelle: join(STORE, 'vegetation-roh') }) : 'passt';
+  if (status !== 'passt') console.warn(`WARN ${pfad}: nicht im Labor, Ausgangsdatei ${status} (vegetation-roh/) — vom Rollout bewusst nicht gebaut`);
+  return status === 'passt';
+}
+const labPfade = new Set(
+  (JSON.parse(readFileSync(join(WURZEL, 'tools/store-lab-katalog.json'), 'utf8')) as { eintraege: { pfad: string }[] }).eintraege.map((l) => l.pfad)
+);
+
 // ── 3. Jeder Modellpfad zeigt auf eine echte Datei ────────────────────
 /*
   Der Pfad wird ZURÜCKGERECHNET, nicht neu gebaut: `model` ist
@@ -160,7 +179,9 @@ for (const def of STORE_PREFAB_DEFS) {
   }
   const basis = def.model.startsWith('store-lab/') ? STORE_LAB : STORE;
   const rest = def.model.replace(/^store(-lab)?\//, '');
-  if (!existsSync(join(basis, `${rest}.glb`))) totePfade.push(`${def.name} → ${def.model}.glb`);
+  if (!existsSync(join(basis, `${rest}.glb`)) && !(basis === STORE_LAB && labPfade.has(`${rest}.glb`) && !labDateiTot(`${rest}.glb`))) {
+    totePfade.push(`${def.name} → ${def.model}.glb`);
+  }
 }
 check(
   `alle ${STORE_PREFAB_DEFS.length} model-Pfade zeigen auf eine vorhandene Datei`,
@@ -169,7 +190,10 @@ check(
 );
 
 // ── 4. Auch der Katalog beschreibt nur Vorhandenes ────────────────────
-const toteKatalogPfade = STORE_KATALOG.filter((e) => !existsSync(join(STORE, e.pfad)));
+const toteKatalogPfade = STORE_KATALOG.filter((e) => {
+  if (!labPfade.has(e.pfad)) return !existsSync(join(STORE, e.pfad));
+  return !existsSync(join(STORE_LAB, e.pfad)) && labDateiTot(e.pfad);
+});
 check(
   `alle ${STORE_KATALOG.length} Katalogpfade zeigen auf eine vorhandene Datei`,
   toteKatalogPfade.length === 0,

@@ -29,6 +29,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ausgehenderNahkampfSchaden, findItem, lebensmaximum, replaceDataItems } from '@wov/shared';
+import { wendeGegenstandsDatenAn } from '@wov/shared/src/items/gegenstandsDaten.js';
 import { KontoApi, rohPfadUnzulaessig } from '../src/konto/KontoApi.js';
 import { herkunftErmitteln } from '../src/net/Herkunft.js';
 import { Kontendatenbank } from '../src/konto/Kontendatenbank.js';
@@ -484,7 +485,7 @@ try {
     const b = (await profil(boese.id)).daten.ausruestung.schuhe;
     assert.equal(b.symbol, null, 'Symbol mit Pfadteilen wird verworfen');
     assert.equal(b.name, '<script>x</script>');
-  } finally { replaceDataItems([]); }
+  } finally { wendeGegenstandsDatenAn([]); } // back to the base stock (SwordNorth etc. are data items now; replaceDataItems([]) would drop them)
 
   // ── 12b. Der Profil-Puffer ueberlebt keinen Neubau des Speicherstands (O8) ─
   {

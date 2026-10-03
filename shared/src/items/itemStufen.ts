@@ -2,7 +2,7 @@
  * Item level and rarity of every item, in ONE table (Mike 27.09.2026, concept table B2).
  * Itemlevel und Seltenheit aller Gegenstände in EINER Tabelle.
  *
- * The raw items are keyed by item name, the armor parts by set family (like `setWerte.ts`, and for the
+ * The two leather starter pieces are keyed by item name, the armor parts by set family (like `setWerte.ts`, and for the
  * same reason: the set files belong to the armor pipeline and stay untouched). `itemDefs.ts` merges
  * both into `ItemShared.itemLevel` / `ItemShared.rarity`. An item without an entry does NOT stop the build: it
  * gets the fallback 1 / common (`STUFE_RUECKFALL`, see `loeseStufe`) and `itemDefs.ts` warns once with the names.
@@ -26,42 +26,11 @@ export interface ItemStufe {
 
 const gewoehnlich = (itemLevel: number): ItemStufe => ({ itemLevel, rarity: 'common' });
 
-/** Raw items by item name (`ItemShared.name`), including the two leather starter pieces. */
+/**
+ * Level and rarity of the code items that are not part of a set family: the two leather starter pieces. The 29
+ * raw items carry `itemLevel` / `rarity` in shared/data/gegenstaende.json and are resolved as data items.
+ */
 export const ITEM_STUFEN: Readonly<Record<string, ItemStufe>> = {
-  // Simple tools
-  Messer: gewoehnlich(1),
-  Hoe: gewoehnlich(1),
-  Cultivator: gewoehnlich(1),
-  Hammer: gewoehnlich(1),
-  // First weapons
-  Club: gewoehnlich(2),
-  PickaxeAntler: gewoehnlich(2),
-  // Crafted weapons
-  AxeFlint: gewoehnlich(5),
-  SwordNorth: gewoehnlich(5),
-  Staff: gewoehnlich(5),
-  Spear: gewoehnlich(5),
-  // Materials, food, trophies
-  Wood: gewoehnlich(1),
-  Stone: gewoehnlich(1),
-  Flint: gewoehnlich(1),
-  Resin: gewoehnlich(1),
-  Raspberry: gewoehnlich(1),
-  Blueberries: gewoehnlich(1),
-  Mushroom: gewoehnlich(1),
-  Thistle: gewoehnlich(1),
-  Dandelion: gewoehnlich(1),
-  Carrot: gewoehnlich(1),
-  RawMeat: gewoehnlich(1),
-  Entrails: gewoehnlich(1),
-  Coins: gewoehnlich(1),
-  Amber: gewoehnlich(1),
-  NeckTail: gewoehnlich(1),
-  CookedMeat: gewoehnlich(1),
-  HardAntler: gewoehnlich(1),
-  TrophyDeer: gewoehnlich(1),
-  TrophyEikthyr: { itemLevel: 10, rarity: 'uncommon' },
-  // Leather starter pieces (no set family)
   LederBH: gewoehnlich(1),
   LederShorts: gewoehnlich(1),
 };

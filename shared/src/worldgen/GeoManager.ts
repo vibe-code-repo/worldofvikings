@@ -1328,6 +1328,9 @@ export class GeoManager {
     switch (biome) {
       case Biome.Meadows:
         return { height: f32(this.getMeadowsHeight(wx, wy) * HEIGHT_SCALE), mask: 0 };
+      case Biome.Greyglen:
+        // Same formula as grassland for now; own values follow with the biome content.
+        return { height: f32(this.getMeadowsHeight(wx, wy) * HEIGHT_SCALE), mask: 0 };
       case Biome.Swamp:
         return { height: f32(this.getMarshHeight(wx, wy) * HEIGHT_SCALE), mask: 0 };
       case Biome.Mountain:

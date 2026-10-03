@@ -38,6 +38,7 @@
  * bleiben, nicht in einer Klick-Behandlung stecken.
  */
 import { sanitizeWorldLayout, sanitizeWorldLayoutMitBericht, type WorldLayout } from '@wov/shared';
+import { PROTOCOL_VERSION, PROTOKOLL_KOPF } from '@wov/shared/src/protokollVersion.js';
 import { platzierungenFehler, platzierungenFehlerText, type PlatzierungsFehler } from '@wov/shared/src/worldlayout/sanitize.js';
 import { frischePlatzierungsId } from '@wov/shared/src/worldlayout/platzierungsId.js';
 import { heightResponseMessage } from '@wov/shared/src/worldlayout/heightMessages.js';
@@ -293,7 +294,7 @@ export async function holeWeltdokument(fetchFn: typeof fetch = fetch, locale?: s
   try {
     antwort = await fetchFn('/api/worldlayout', {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', [PROTOKOLL_KOPF]: String(PROTOCOL_VERSION) },
       cache: 'no-store',
     });
   } catch (fehler) {

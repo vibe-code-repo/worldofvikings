@@ -9,7 +9,7 @@
  * `shared/test/geo-map.ts`, damit die Ingame-Karte und das Referenzbild
  * dieselbe Welt gleich einfärben.
  */
-import { Biome, BiomeArea } from '@wov/shared';
+import { Biome, BiomeArea, inhaltText } from '@wov/shared';
 
 export type RGB = readonly [number, number, number];
 
@@ -24,6 +24,7 @@ export const BIOME_COLOR: Record<number, RGB> = {
   [Biome.DeepNorth]: [196, 214, 228],
   [Biome.Ocean]: [44, 84, 130],
   [Biome.Mistlands]: [112, 128, 122],
+  [Biome.Greyglen]: [78, 116, 110],
   [Biome.None]: [255, 0, 255],
 };
 
@@ -38,8 +39,33 @@ export const BIOME_LABEL: Record<number, string> = {
   [Biome.AshLands]: 'Aschelande',
   [Biome.DeepNorth]: 'Tiefer Norden',
   [Biome.Ocean]: 'Ozean',
+  [Biome.Greyglen]: inhaltText('inhalt.biom.greyglen', 'de'),
   [Biome.None]: 'Unbekannt',
 };
+
+/** Biome, deren Anzeigename aus dem Inhaltskatalog kommt (Sprache folgt dem Spiel). */
+export const BIOME_TEXT_KEY: Record<number, string> = {
+  [Biome.Greyglen]: 'inhalt.biom.greyglen',
+};
+
+/** Die Zeilen der Kartenlegende (Reihenfolge `BIOME_ORDER`) mit Farbe und Namen in der Sprache. */
+export function legendenZeilen(sprache: string): { biome: Biome; farbe: RGB; name: string }[] {
+  return BIOME_ORDER.map((b) => ({ biome: b, farbe: BIOME_COLOR[b], name: biomLabel(b, sprache) }));
+}
+
+/** Setzt die Namen der Legendenzeilen neu (Sprachwechsel zur Laufzeit); `felder` in Reihenfolge `BIOME_ORDER`. */
+export function setzeLegendenNamen(felder: readonly { textContent: string | null }[], sprache: string): void {
+  legendenZeilen(sprache).forEach((z, i) => {
+    const feld = felder[i];
+    if (feld) feld.textContent = z.name;
+  });
+}
+
+/** Anzeigename eines Bioms in der gewünschten Sprache. */
+export function biomLabel(biome: number, sprache: string): string {
+  const key = BIOME_TEXT_KEY[biome];
+  return key ? inhaltText(key, sprache) : (BIOME_LABEL[biome] ?? '—');
+}
 
 /** Reihenfolge der Legende (Fortschritt der Weltstufen). */
 export const BIOME_ORDER: readonly Biome[] = [
@@ -51,6 +77,7 @@ export const BIOME_ORDER: readonly Biome[] = [
   Biome.Mistlands,
   Biome.AshLands,
   Biome.DeepNorth,
+  Biome.Greyglen,
   Biome.Ocean,
 ];
 
@@ -152,6 +179,7 @@ export const BIOME_TREES: Record<number, readonly TreeKind[]> = {
   [Biome.Mistlands]: [TreeKind.Nebelwald],
   [Biome.AshLands]: [TreeKind.Aschewald],
   [Biome.DeepNorth]: [TreeKind.Eis],
+  [Biome.Greyglen]: [TreeKind.Laubwald],
   [Biome.Ocean]: [],
   [Biome.None]: [],
 };
@@ -189,6 +217,7 @@ export function forestLabel(forestFactor: number): string {
 export function treeKindAt(biome: Biome, area: BiomeArea, forestFactor: number, height: number): TreeKind | null {
   switch (biome) {
     case Biome.Meadows:
+    case Biome.Greyglen:
       return forestFactor < FOREST_THRESHOLD ? TreeKind.Laubwald : null;
     case Biome.BlackForest:
       return (area & BiomeArea.Median) !== 0 ? TreeKind.Kiefernwald : TreeKind.Fichtenwald;
@@ -229,6 +258,7 @@ export const BIOME_INHALT: Record<number, string> = {
   [Biome.Mistlands]: 'Yggdrasil-Triebe, Riesengebeine, Magecap und Jötunpuffs, Nebel',
   [Biome.AshLands]: 'Aschebäume, Lavagestein, Aschesteine, verfallene Ruinen',
   [Biome.DeepNorth]: 'Eisformationen und Eisfelsen',
+  [Biome.Greyglen]: 'Buchen, Birken, Eichen, Himbeeren, Pilze, Feuerstein',
   [Biome.Ocean]: 'offene See, Leviathane, Küstenfelsen',
   [Biome.None]: '—',
 };
@@ -243,6 +273,7 @@ export const BIOME_TREE_DENSITY: Record<number, number> = {
   [Biome.Mistlands]: 0.9,
   [Biome.AshLands]: 0.7,
   [Biome.DeepNorth]: 0.55,
+  [Biome.Greyglen]: 0.75,
   [Biome.Ocean]: 0,
   [Biome.None]: 0,
 };

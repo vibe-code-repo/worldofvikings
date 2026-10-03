@@ -1,5 +1,6 @@
 export * from './ItemData.js';
 export * from './itemDefs.js';
+export * from './grundbestand.js';
 export * from './Inventory.js';
 export * from './PieceTable.js';
 export * from './recipes.js';
@@ -8,3 +9,4 @@ export * from './stats.js';
 export * from './setWerte.js';
 export * from './itemStufen.js';
 export * from './anzeige.js';
+export { datenRezepte } from './gegenstandsDaten.js';

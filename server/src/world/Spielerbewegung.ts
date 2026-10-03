@@ -28,6 +28,8 @@ import {
 import { bewegungsSchritt, type BewegungsZustand } from '@wov/shared/src/bewegung/schritt.js';
 import { neuerHangSpeicher } from '@wov/shared/src/bewegung/gelaendeHang.js';
 import {
+  ROLLE_BEWEGUNG_S,
+  ROLLE_TEMPO,
   SCHRITT_LAENGE,
   SERVER_MAX_SCHRITTE,
   bewegungsTempo,
@@ -97,6 +99,37 @@ export class Spielerbewegung {
         hangSpeicher
       );
     }
+    return { x: zustand.x, y: zustand.y, z: zustand.z };
+  }
+
+  /**
+   * Die Rolle (D3-K4): `dt` Sekunden Rollweg in Richtung (x, z), ein Einheitsvektor. Eigener Weg neben `schritt`:
+   * die Zeit wird in gleich lange Teilschritte unter 1/60 s geteilt statt in feste Schritte mit getragenem
+   * Rest, damit die Strecke genau `ROLLE_TEMPO * dt` ist (der Rest eines festen Schritts waere bis zu 10 cm).
+   * Dieselbe Kollision und dasselbe Gelaende wie jeder Schritt: kein Durchrollen durch Felsen.
+   */
+  rollSchritt(wesen: BewegtesWesen, x: number, z: number, dt: number): Vector3 {
+    if (!(dt > 0)) return wesen.position;
+    const weg = ROLLE_TEMPO * dt;
+    return this.rolleSimulieren(wesen.position, x, z, dt, this.kollision.nahfeld(wesen.position, weg));
+  }
+
+  /**
+   * Wie weit die volle Rolle von `von` aus in Richtung (x, z) kaeme (m, waagerecht), ohne etwas zu veraendern.
+   * Der Freiraum-Test des Servers: Felsen, Waende und zu steile Haenge verkuerzen den Weg.
+   */
+  rolleVorschau(von: Vector3, x: number, z: number): number {
+    const ende = this.rolleSimulieren(von, x, z, ROLLE_BEWEGUNG_S, this.kollision.nahfeld(von, ROLLE_TEMPO * ROLLE_BEWEGUNG_S));
+    return Math.sqrt((ende.x - von.x) ** 2 + (ende.z - von.z) ** 2);
+  }
+
+  private rolleSimulieren(von: Vector3, x: number, z: number, dt: number, nah: ReturnType<Kollisionswelt['nahfeld']>): Vector3 {
+    const n = Math.max(1, Math.ceil(dt / SCHRITT_LAENGE - 1e-9));
+    const teil = dt / n;
+    const eingabe = { x, z, rennt: false, blockt: false, rollt: true };
+    const hangSpeicher = neuerHangSpeicher();
+    let zustand: BewegungsZustand = von;
+    for (let i = 0; i < n; i += 1) zustand = bewegungsSchritt(zustand, eingabe, teil, nah, nah, hangSpeicher);
     return { x: zustand.x, y: zustand.y, z: zustand.z };
   }
 }

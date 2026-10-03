@@ -997,6 +997,7 @@ async function main() {
   // D3: rechte Maustaste halten = Block (Regeln in BlockSteuerung, Verdrahtung in BlockVerdrahtung).
   const block = new BlockVerdrahtung({
     sendBlock: (an) => socket?.sendBlock(an) ?? false, input, player: () => player, equipment: () => equipment, placement: () => placement,
+    sendRolle: (yaw) => socket?.sendRolle(yaw) ?? false, meldung: (t) => hud.meldung(t), serverText: (k) => i18n.serverMeldung(k),
     fensterOffen: () => cursorNoetig(), dekorAktiv: () => dekoPlatzierung.aktiv,
   });
   /**
@@ -3433,7 +3434,7 @@ async function main() {
       input.wasMousePressed(0) &&
       socket?.connected &&
       angriffCooldown === 0 &&
-      document.pointerLockElement &&
+      document.pointerLockElement && !player.rollt &&
       !placement?.selectedPiece &&
       !cursorNoetig()
     ) {
@@ -3509,7 +3510,7 @@ async function main() {
           player.pitch,
           imDungeon ? player.position.y : 0,
           mv.running,
-          false
+          player.nimmSprung()
         );
         // Wo standen wir, als diese Eingabe abging? Genau das braucht der
         // Abgleich, wenn der Server sie bestätigt.

@@ -43,6 +43,8 @@ export interface BewegungsEingabe {
   readonly rennt: boolean;
   /** Die Figur blockt: halbes Gehtempo, `rennt` gilt dann nicht (`bewegungsTempo`). Fehlt es, gilt false. */
   readonly blockt?: boolean;
+  /** Die Figur rollt (D3-K4): `ROLLE_TEMPO` vor allem anderen (`bewegungsTempo`). Fehlt es, gilt false. */
+  readonly rollt?: boolean;
 }
 
 /**
@@ -71,7 +73,7 @@ export function bewegungsSchritt(
    */
   hangSpeicher?: HangSpeicher
 ): BewegungsZustand {
-  const tempo = bewegungsTempo(eingabe.rennt, eingabe.blockt ?? false);
+  const tempo = bewegungsTempo(eingabe.rennt, eingabe.blockt ?? false, eingabe.rollt ?? false);
   // Erst der HANG, dann die Formen. Die Steigungsgrenze gilt seit dem
   // 11.09.2026 auch am Gelaende (s. `gelaendeHang.ts`): Was bergauf in
   // eine zu steile Flaeche laeuft, faellt hier weg, und was uebrig
@@ -136,7 +138,7 @@ export function flaechenDesSchritts(
   boden: BodenAbfrage,
   hindernis: HindernisAbfrage
 ): { readonly normalen: readonly Vek3[]; readonly blockiert: boolean } {
-  const tempo = bewegungsTempo(eingabe.rennt, eingabe.blockt ?? false);
+  const tempo = bewegungsTempo(eingabe.rennt, eingabe.blockt ?? false, eingabe.rollt ?? false);
   const hang = hangBremse(
     boden,
     zustand.x,

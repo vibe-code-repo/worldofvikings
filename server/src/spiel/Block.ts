@@ -10,6 +10,7 @@
  */
 import { BLOCK_SPERRE_MS, SERVER_MELDUNG_GEBLOCKT, SERVER_MELDUNG_PARIERT, SERVER_MELDUNG_ZU_ERSCHOEPFT, blockHalten, blockTreffer as blockTrefferRegel, type BlockErgebnis } from '@wov/shared/src/kampf/block.js';
 import { PacketType } from '@wov/shared';
+import { rolleLaeuft } from '@wov/shared/src/kampf/rolle.js';
 import type { Peer } from '../net/Peer.js';
 
 /** A server stall longer than this (ms since its last tick) is not billed to a blocking player beyond it. */
@@ -20,7 +21,7 @@ export type BlockPeer = Pick<
   Peer,
   | 'blockSeit' | 'blockSperreBis' | 'blockOhneParade' | 'blockTaktZeit' | 'stamina' | 'staminaZuletztVerbraucht'
   | 'waffe' | 'flying' | 'totBis' | 'blickYaw' | 'position' | 'sendPacketWith'
->;
+> & Partial<Pick<Peer, 'rolleBis'>>;
 
 /**
  * May this player block at all? PROVISIONAL (open question: block with bare hands?): only with
@@ -75,6 +76,11 @@ function beendeDurchServer(peer: BlockPeer, jetzt: number): void {
   if (beendeBlock(peer, jetzt)) meldeBlockAus(peer);
 }
 
+/** An accepted roll ends his block (D3-K4); the client is told like for a swing. */
+export function beendeBlockDurchRolle(peer: BlockPeer, jetzt: number): void {
+  beendeDurchServer(peer, jetzt);
+}
+
 /** An accepted swing of the player ends his block. */
 export function beendeBlockDurchSchlag(peer: BlockPeer, jetzt: number): void {
   beendeDurchServer(peer, jetzt);
@@ -87,6 +93,7 @@ export function blockPaket(peer: BlockPeer, an: boolean, jetzt: number): void {
     return;
   }
   if (peer.blockSeit > 0) return; // already held: no restart, no new window
+  if (rolleLaeuft(peer.rolleBis ?? 0, jetzt)) return meldeBlockAus(peer); // D3-K4: no block during a roll
   if (peer.totBis > 0 || peer.flying || !darfBlocken(peer)) return meldeBlockAus(peer);
   if (peer.stamina <= 0) {
     meldung(peer, SERVER_MELDUNG_ZU_ERSCHOEPFT);

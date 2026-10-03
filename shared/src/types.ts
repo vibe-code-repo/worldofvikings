@@ -497,6 +497,13 @@ export enum PacketType {
    * `Parry` (58) wird nicht mehr ausgewertet.
    */
   Block = 89,
+  /**
+   * Client → Server: Ausweichrolle (Float32 yaw = Richtung der Rolle, Konvention wie die Blickrichtung:
+   * (-sin yaw, -cos yaw)). Der Server prueft (lebt, nicht im Wasser, keine Rolle laeuft, Abklingzeit, Ausdauer 10,
+   * Freiraum), zieht die Ausdauer ab, beendet einen Block und fuehrt den Weg selbst; WASD gilt waehrend der Rolle nicht.
+   * Server → Client: Bool aus = die Rolle wurde abgelehnt (kostenlos, mit Meldung).
+   */
+  Rolle = 90,
 }
 
 /**

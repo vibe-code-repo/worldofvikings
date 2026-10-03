@@ -48,6 +48,8 @@ export interface BlockUmfeld {
   readonly gegenstandInHand: boolean;
   readonly tot: boolean;
   readonly imWasser: boolean;
+  /** D3-K4: a roll is running (no block during it); absent = false. */
+  readonly rollt?: boolean;
 }
 
 /** One row of the conflict table: why a block is not allowed. */
@@ -71,6 +73,7 @@ export const BLOCK_SPERREN: readonly BlockSperre[] = [
   { id: 'leere-hand', grund: 'nothing in the hand', gilt: (u) => !u.gegenstandInHand },
   { id: 'bauwerkzeug', grund: 'building tool in the hand', gilt: (u) => u.bauwerkzeug },
   { id: 'wasser', grund: 'in the water', gilt: (u) => u.imWasser },
+  { id: 'rolle', grund: 'a roll is running', gilt: (u) => u.rollt === true },
 ];
 
 /** The id of the first row that forbids a block, or null when it is allowed. */

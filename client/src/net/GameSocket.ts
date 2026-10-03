@@ -460,6 +460,16 @@ export class GameSocket {
     return this.sendPacket(PacketType.Block, w.toUint8Array());
   }
 
+  /**
+   * Ausweichrolle (D3-K4, Taste Q): Richtung als Yaw (Konvention der Blickrichtung). Der Server prueft und fuehrt den
+   * Weg; er antwortet mit Rolle=false, wenn er ablehnt oder beendet. false = keine Verbindung, die Rolle beginnt nicht.
+   */
+  sendRolle(yaw: number): boolean {
+    const w = new BinaryWriter();
+    w.writeFloat32(yaw);
+    return this.sendPacket(PacketType.Rolle, w.toUint8Array());
+  }
+
   /** Interaktion (E): Position + Prefab-Hash des Ziels. */
   sendInteract(x: number, y: number, z: number, prefabHash: number): void {
     const w = new BinaryWriter();

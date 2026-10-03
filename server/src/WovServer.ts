@@ -121,6 +121,7 @@ import { Kollisionswelt } from './world/Kollisionswelt.js';
 import { Spielerbewegung } from './world/Spielerbewegung.js';
 import { bewegungsTempo } from '@wov/shared/src/bewegung/masse.js';
 import { beendeBlockDurchSchlag, blockHalteTakt, blockPaket, blockTakt, blockTrifft, blockZuruecksetzen } from './spiel/Block.js';
+import { rolleLaeuft, rollePaket, rolleTakt, rolleUnverwundbar, rolleWeicheAus, rolleZuruecksetzen, sprungKosten } from './spiel/Rolle.js';
 // Ueber den expliziten Pfad, nicht ueber den Barrel: eine Geo ohne
 // Landmasse braucht nur der Server, und der Client-Bundle-Schnitt soll
 // nicht daran wachsen.
@@ -2727,7 +2728,7 @@ export class WovServer {
 
   /** Packets a dead player may not send (nothing that acts in the world); the rest still passes. */
   private static readonly TOT_GESPERRT: ReadonlySet<PacketType> = new Set([
-    PacketType.Interact, PacketType.Attack, PacketType.Block, PacketType.TerrainOp, PacketType.PlacePiece,
+    PacketType.Interact, PacketType.Attack, PacketType.Block, PacketType.Rolle, PacketType.TerrainOp, PacketType.PlacePiece,
     PacketType.RemovePiece, PacketType.Craft, PacketType.Eat, PacketType.ContainerAction,
     // Admin commands move or heal (teleport, spawn): the client would read a teleport as the revival.
     PacketType.AdminCommand,
@@ -2761,6 +2762,9 @@ export class WovServer {
         break;
       case PacketType.Block:
         this.handleBlock(peer, reader);
+        break;
+      case PacketType.Rolle:
+        this.handleRolle(peer, reader);
         break;
       case PacketType.TerrainOp:
         this.handleTerrainOp(peer, reader);
@@ -2849,15 +2853,14 @@ export class WovServer {
     // peer.position → Zonen-Schlüssel "NaN,NaN" → Save (Review-Punkt 4).
     const klemm1 = (v: number): number =>
       Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0;
-    const moveX = klemm1(reader.readFloat32());
-    const moveZ = klemm1(reader.readFloat32());
+    let moveX = klemm1(reader.readFloat32());
+    let moveZ = klemm1(reader.readFloat32());
     const lookYaw = reader.readFloat32();
     const lookPitch = reader.readFloat32();
     const moveY = reader.readFloat32();
     const running = reader.readBool();
     const jumping = reader.readBool();
-    // lookPitch/jumping are read for protocol completeness but not used
-    // server-side yet (jump physics — later).
+    // lookPitch is read for protocol completeness; `jumping` is billed (sprungKosten), not simulated (no jump physics here).
 
     peer.lastInputSeq = seq;
 
@@ -2893,6 +2896,10 @@ export class WovServer {
     // Funktion rechnet der Client je Bild mit. Die Zahlen und die Reihenfolge
     // sind unveraendert; hier bleibt nur die Frage stehen, ob sie ueberhaupt
     // gilt (im Admin-Flug gilt sie nicht).
+    // D3-K4: a roll drives the figure itself, WASD does not count while it runs; a reported jump is billed.
+    const rolle = rolleTakt(peer, now);
+    if (rolle.rollt) { moveX = rolle.x; moveZ = rolle.z; }
+    sprungKosten(peer, jumping, now);
     const bewegt = moveX !== 0 || moveZ !== 0;
     const blockt = blockHalteTakt(peer, now, now - this.prevUpdateTime);
     const aus = ausdauerSchritt(
@@ -2926,9 +2933,10 @@ export class WovServer {
       // (EntityManager/Havok). The client reports its physics-resolved
       // absolute height via the moveY field; clamp it to the instance
       // volume so a rogue client cannot leave the band vertically.
-      const speed = bewegungsTempo(rennt, blockt);
-      const newX = peer.position.x + moveX * speed * deltaSec;
-      const newZ = peer.position.z + moveZ * speed * deltaSec;
+      const speed = bewegungsTempo(rennt, blockt, rolle.rollt);
+      const dtBewegung = rolle.rollt ? rolle.dt : deltaSec;
+      const newX = peer.position.x + moveX * speed * dtBewegung;
+      const newZ = peer.position.z + moveZ * speed * dtBewegung;
       const y =
         Number.isFinite(moveY) && moveY !== 0
           ? Math.min(300, Math.max(-100, moveY))
@@ -2939,7 +2947,9 @@ export class WovServer {
       // (server/src/world/Spielerbewegung.ts). Tempi, Schwerkraft und
       // Stufenregel stehen in shared/src/bewegung/masse.ts — dieselbe
       // Quelle, aus der auch der Client-Controller lesen kann.
-      newPos = this.spielerbewegung.schritt(peer, moveX, moveZ, rennt, deltaSec, blockt);
+      newPos = rolle.rollt
+        ? this.spielerbewegung.rollSchritt(peer, rolle.x, rolle.z, rolle.dt)
+        : this.spielerbewegung.schritt(peer, moveX, moveZ, rennt, deltaSec, blockt);
     }
 
     peer.position = newPos;
@@ -3818,6 +3828,7 @@ export class WovServer {
   private handleAttack(peer: Peer, reader: Reader): void {
     // A packet shorter than position + yaw (16 bytes) is dropped silently; reading it would throw and cut the peer off.
     if (reader.remaining() < 16) return;
+    if (rolleLaeuft(peer, Date.now())) return; // D3-K4: no swing during a roll
     const pos = reader.readVector3();
     if (!this.schlagErlaubt(peer, pos)) return;
     /*
@@ -4153,6 +4164,17 @@ export class WovServer {
     blockPaket(peer, reader.readBool(), Date.now());
   }
 
+  /** `PacketType.Rolle` (D3-K4): the rule and the state are in `spiel/Rolle.ts`; here only what the server knows. */
+  private handleRolle(peer: Peer, reader: Reader): void {
+    if (reader.remaining() < 4) return;
+    const yaw = reader.readFloat32();
+    const oberwelt = peer.worldId === HAUPTWELT_ID && !peer.flying;
+    rollePaket(peer, yaw, Date.now(), {
+      imWasser: oberwelt && peer.position.y < WATER_LEVEL,
+      freiraum: oberwelt ? (x, z) => this.spielerbewegung.rolleVorschau(peer.position, x, z) : null,
+    });
+  }
+
   /**
    * Eine Kreatur oder ein NPC schlaegt zu — trifft nur Spieler in DERSELBEN
    * Welt (`weltId`, die des Schlaegers). Der Radius ist reine XZ-Rechnung,
@@ -4178,8 +4200,14 @@ export class WovServer {
       if (target && peer.position !== target) continue;
       const d = (peer.position.x - pos.x) ** 2 + (peer.position.z - pos.z) ** 2;
       if (!target && d > r2) continue;
+      // Rolle (spiel/Rolle.ts): waehrend des ganzen Clips unverwundbar.
+      const jetzt = Date.now();
+      if (rolleUnverwundbar(peer, jetzt)) {
+        rolleWeicheAus(peer);
+        continue;
+      }
       // Block (spiel/Block.ts): im Paradefenster 0 Schaden, sonst 30 % und Ausdauer, bei leerer Ausdauer voll.
-      const block = blockTrifft(peer, pos, damage, Date.now());
+      const block = blockTrifft(peer, pos, damage, jetzt);
       if (block.art === 'pariert') {
         this.sendeTrefferEffekt({ x: peer.position.x, y: peer.position.y + 1.1, z: peer.position.z }, 2, weltId);
         this.sendPlayerState(peer);
@@ -4235,6 +4263,7 @@ export class WovServer {
     peer.spielwerte.zaehleTod(); // every death passes here or `belebeNeu(.., true)`; BEFORE the 'tod' save of the revival, so the counter lands in the same row
     peer.totBis = Date.now() + this.liegezeitMs;
     blockZuruecksetzen(peer);
+    rolleZuruecksetzen(peer);
     peer.health = 0;
     peer.sendPacketWith(PacketType.PlayerTod, (w) => {
       w.writeInt32(todClipIndex(clip));
@@ -4268,6 +4297,7 @@ export class WovServer {
     if (sofort) peer.spielwerte.zaehleTod(); // immediate revival = a death without lying time (`stirb` was skipped)
     peer.totBis = 0;
     blockZuruecksetzen(peer); // `stirb` was skipped on the immediate path
+    rolleZuruecksetzen(peer);
     // Tod: zurück zum Weltspawn, volle HP — Betten/Gräber später.
     peer.health = lebensmaximum(this.werteVon(peer).vitality, 0);
     peer.stamina = AUSDAUER_REGEL.max;

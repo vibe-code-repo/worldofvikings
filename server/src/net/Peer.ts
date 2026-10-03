@@ -21,6 +21,7 @@ import { Reader } from '../io/Reader.js';
 import { neuerSchlagZustand, type SchlagZustand } from '../spiel/Treffer.js';
 import { Spielwerte } from '../spiel/Spielwerte.js';
 import { blockZuruecksetzen } from '../spiel/Block.js';
+import { rolleZuruecksetzen } from '../spiel/Rolle.js';
 import { PacketType } from '@wov/shared';
 import type { WebSocket } from 'ws';
 import { randomBytes } from 'node:crypto';
@@ -149,6 +150,19 @@ export class Peer {
   blockSperreBis: number;
   /** Block: der laufende Block begann innerhalb der Sperre, also ohne Paradefenster. */
   blockOhneParade: boolean;
+  /** Rolle (D3-K4): Beginn (ms) der laufenden Rolle, 0 = keine. Gesetzt von spiel/Rolle.ts. */
+  rolleStart: number;
+  /** Rolle: Ende (ms, exklusiv) der laufenden Rolle: bis dahin unverwundbar, kein Schlag, kein Block. 0 = keine. */
+  rolleBis: number;
+  /** Rolle: Ende (ms) der bisher bewegten Zeitscheibe; die naechste beginnt hier. */
+  rolleZeit: number;
+  /** Rolle: Richtung des Wegs (Einheitsvektor am Boden). */
+  rolleX: number;
+  rolleZ: number;
+  /** Rolle: bis hierhin (ms) darf keine neue Rolle beginnen (Abklingzeit). */
+  rolleSperreBis: number;
+  /** Sprung (D3-K4): bis hierhin (ms) wird kein weiterer gemeldeter Sprung abgerechnet. */
+  sprungSperreBis: number;
   /**
    * Tod: Zeitstempel (ms), bis zu dem der Spieler tot am Boden liegt. 0 = lebt.
    * Solange er laeuft, nimmt der Spieler keinen Schaden, gilt Kreaturen nicht als
@@ -299,6 +313,13 @@ export class Peer {
     this.blockTaktZeit = 0;
     this.blockSperreBis = 0;
     this.blockOhneParade = false;
+    this.rolleStart = 0;
+    this.rolleBis = 0;
+    this.rolleZeit = 0;
+    this.rolleX = 0;
+    this.rolleZ = 0;
+    this.rolleSperreBis = 0;
+    this.sprungSperreBis = 0;
     this.spawnPoint = null;
     this.spawnBettId = '';
     this.spawnBettBesitzer = null;
@@ -360,6 +381,7 @@ export class Peer {
    */
   weltWechselVorbereiten(): void {
     blockZuruecksetzen(this); // a held block ends with the world; the client is told
+    rolleZuruecksetzen(this); // a roll ends with the world
     this.knownZDOs.clear();
     this.fenster.zuruecksetzen();
     this.quittiereZerstoerungen();

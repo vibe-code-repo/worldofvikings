@@ -25,6 +25,9 @@ import {
   STEIGUNGS_GRENZE_GRAD as STEIGUNGS_GRENZE_GRAD_GETEILT,
 } from '@wov/shared/src/bewegung/masse.js';
 import { BLOCK_TURN_SPEED, blockRichtung, blockSchrittTempo, dreheZu } from './BlockSteuerung';
+import { RolleLauf } from './RolleSteuerung';
+import { ROLLE_TEMPO } from '@wov/shared/src/bewegung/masse.js';
+import { ROLLE_AUSDAUER, SPRUNG_AUSDAUER, SPRUNG_SPERRE_MS } from '@wov/shared/src/kampf/rolle.js';
 import type { Scene } from '@babylonjs/core/scene';
 import type { InputManager } from '../engine/InputManager';
 import type { ClientWorld } from '../world/World';
@@ -280,6 +283,12 @@ export class PlayerController {
    * While blocking the figure turns to the camera, walks at block speed and does not run.
    */
   private _blockt = false;
+  /** D3-K4: the clock of the roll (the client predicts the path of the server). */
+  private readonly rolle = new RolleLauf();
+  /** D3-K4: a jump happened since the last input packet (reported once, see `nimmSprung`). */
+  private sprungMerk = false;
+  /** D3-K4: seconds until the next jump is billed again (the server's lock, 0.8 s). */
+  private sprungKostenSperre = 0;
   /**
    * Mitgerechnete Ausdauer — dieselbe Regel wie im Server.
    *
@@ -760,9 +769,19 @@ export class PlayerController {
     // nachträglich bei der Landung aus.
     const aufBoden = !this.inDerLuft;
     this.sprungSperre = Math.max(0, this.sprungSperre - dt);
-    const springt = this.sprungWunsch && aufBoden && this.sprungSperre === 0;
+    this.sprungKostenSperre = Math.max(0, this.sprungKostenSperre - dt);
+    // D3-K4: a jump costs 5 stamina and the server locks the next billed one for 0.8 s: the client jumps only
+    // with the predicted stamina, not in a roll, and reports the jump once (`nimmSprung`).
+    const springt = this.sprungWunsch && aufBoden && this.sprungSperre === 0 && !this.rolle.rollt
+      && this.sprungKostenSperre === 0 && this.ausdauer >= SPRUNG_AUSDAUER;
     this.sprungWunsch = false;
-    if (springt) this.sprungSperre = SPRUNG_SPERRE;
+    if (springt) {
+      this.sprungSperre = SPRUNG_SPERRE;
+      this.sprungKostenSperre = SPRUNG_SPERRE_MS / 1000;
+      this.ausdauer -= SPRUNG_AUSDAUER;
+      this.ausdauerZuletztVerbraucht = Date.now();
+      this.sprungMerk = true;
+    }
     // Der Nullsetz-Zweig bleibt an `supported` gebunden — er soll das
     // bisherige Verhalten an Hängen nicht verändern, sondern nur einen
     // laufenden Absprung nicht abwürgen.
@@ -936,6 +955,33 @@ export class PlayerController {
   get figurYaw(): number { return this._figurYaw; }
   /** D3: blocking on or off (set by `main.ts` from `BlockSteuerung`). */
   setzeBlock(an: boolean): void { this._blockt = an; }
+  /** D3-K4: a roll is running (no swing, no block, WASD ignored). */
+  get rollt(): boolean { return this.rolle.rollt; }
+  /** D3-K4: seconds left of the lock after the last roll. */
+  get rolleAbklingRest(): number { return this.rolle.abklingRest; }
+  /** D3-K4: the controller can move the figure by a roll (physics up, not frozen, not in build mode). */
+  get rolleBereit(): boolean { return !!this.controller && !this.frozen && !this._bauModus; }
+  /**
+   * D3-K4: begin a roll along `yaw` (the key was accepted: the predicted stamina is paid at once). The figure turns to
+   * the direction in the next frame and plays `rolle`.
+   */
+  startRolle(yaw: number): void {
+    this.rolle.starte(yaw);
+    this._figurYaw = yaw;
+    this.ausdauer = Math.max(0, this.ausdauer - ROLLE_AUSDAUER);
+    this.ausdauerZuletztVerbraucht = Date.now();
+  }
+  /** D3-K4: the roll ends at once (server refused it, teleport, death). */
+  rolleAbbruch(): void { this.rolle.abbrechen(); }
+  /**
+   * D3-K4: did a jump happen since the last call? True ONCE per jump: the main loop puts it into the next input packet
+   * (50 ms apart), so a jump between two packets is not lost and one jump is not reported twice.
+   */
+  nimmSprung(): boolean {
+    const war = this.sprungMerk;
+    this.sprungMerk = false;
+    return war;
+  }
   get blockt(): boolean { return this._blockt; }
   get pitch(): number { return this._pitch; }
   /** World-space move intent (same values sent to the server). */
@@ -976,12 +1022,16 @@ export class PlayerController {
     // Warten (frozen) zehrt nichts: Dort geht kein Bewegungswunsch hinaus,
     // der Server verbraucht also auch nichts.
     const rennWunsch = this.input.isDown('ShiftLeft');
-    const blockt = this._blockt && !this._bauModus;
+    // D3-K4: a roll that cannot go on (dead, frozen, build mode) ends; while it runs it drives the figure
+    if (this.rolle.rollt && (this._bauModus || this.frozen || this.avatar.liegt)) this.rolle.abbrechen();
+    const rollt = this.rolle.rollt;
+    const rs = this.rolle.schritt(dt);
+    const blockt = this._blockt && !this._bauModus && !rollt;
     const ausdauer = ausdauerSchritt(
       { wert: this.ausdauer, zuletztVerbraucht: this.ausdauerZuletztVerbraucht },
       {
         // Beim Blocken gibt es kein Rennen: Shift wirkt nicht und zehrt nicht (wie am Server).
-        rennWunsch: rennWunsch && !blockt,
+        rennWunsch: rennWunsch && !blockt && !rollt,
         bewegt: (mx !== 0 || mz !== 0) && !this._bauModus && !this.frozen,
         dt,
         jetzt: Date.now(),
@@ -1029,7 +1079,7 @@ export class PlayerController {
       wx /= len;
       wz /= len;
     }
-    this._moveIntent = { x: wx, z: wz, running: rennWunsch };
+    this._moveIntent = rollt ? { x: this.rolle.x, z: this.rolle.z, running: false } : { x: wx, z: wz, running: rennWunsch };
 
     if (this._bauModus) {
       // ── Schweben im Baumodus ────────────────────────────────────────
@@ -1087,7 +1137,9 @@ export class PlayerController {
       );
       this.controller?.setVelocity(Vector3.Zero());
     } else if (this.controller) {
-      this.stepPhysics(wx, wz, moving, speed, dt);
+      // The roll moves for ROLLE_BEWEGUNG_S only; in the frame it ends the speed is scaled so the path stays exact.
+      if (rollt) this.stepPhysics(this.rolle.x, this.rolle.z, rs.bewegt > 0, ROLLE_TEMPO * (dt > 0 ? rs.bewegt / dt : 0), dt);
+      else this.stepPhysics(wx, wz, moving, speed, dt);
     } else {
       // Before Havok is up: move freely and clamp to the heightmap — the
       // nearest-vertex rule the server validates against.
@@ -1140,7 +1192,9 @@ export class PlayerController {
     // (man läuft zum Fadenkreuz), beim seitlichen Ausweichen dreht sich
     // die Figur dorthin, wo sie tatsächlich hingeht, und läuft damit immer
     // vorwärts. Das entspricht `LookRotation` auf die Bewegungsrichtung im Original.
-    if (blockt) {
+    if (rollt) {
+      this._figurYaw = this.rolle.yaw; // D3-K4: turned to the direction of the roll from the first frame
+    } else if (blockt) {
       // D3: Beim Blocken schaut die Figur dorthin, wohin die Kamera schaut, auch im Stand und auch beim
       // Gehen seitwaerts oder rueckwaerts; zuegig (540 Grad/s), nicht mit der Laufrichtungs-Drehung.
       this._figurYaw = dreheZu(this._figurYaw, this._yaw, BLOCK_TURN_SPEED, dt);
@@ -1164,6 +1218,8 @@ export class PlayerController {
     // nicht die Wunschgeschwindigkeit — steht die Figur (kein Input), läuft
     // auch die Animation aus. `running` wählt zwischen Geh- und Rennzyklus.
     this.avatar.setzeBlock(blockt, blockRichtung(mx, mz));
-    this.avatar.update(dt, moving ? speed : 0, RUN_SPEED, running, this.inDerLuft);
+    this.avatar.setzeRolle(rollt);
+    // Without the clip `rolle` (a 48-clip body) the roll falls back to the run cycle at the speed of the roll.
+    this.avatar.update(dt, rollt ? ROLLE_TEMPO : moving ? speed : 0, RUN_SPEED, rollt || running, this.inDerLuft && !rollt);
   }
 }

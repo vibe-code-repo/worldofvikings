@@ -558,9 +558,11 @@ export class AvatarRig {
    * D3: die Block-Clips der Koerperdatei (56 Clips); jeder ist null, wo die Datei ihn nicht mitbringt (alte
    * Datei mit 48 Clips). Sie sind keine Zustaende der Bewegung (kernClips) und laufen nur im Block.
    */
-  private clipsBlock: { start: Clip | null; halten: Clip | null; vor: Clip | null; rueck: Clip | null } = {
-    start: null, halten: null, vor: null, rueck: null,
+  private clipsBlock: { start: Clip | null; halten: Clip | null; vor: Clip | null; rueck: Clip | null; rolle: Clip | null } = {
+    start: null, halten: null, vor: null, rueck: null, rolle: null,
   };
+  /** D3-K4: a roll is running (set by the PlayerController): the clip `rolle` plays once and wins over everything. */
+  private rolleAn = false;
   /** D3: Block an (vom PlayerController gesetzt) und Gehrichtung relativ zum Blick. */
   private blockAn = false;
   private blockRichtung: BlockRichtung = 'steht';
@@ -942,6 +944,7 @@ export class AvatarRig {
       const blockClip = (n: string): Clip | null => clips.find((k) => k.grp.name === n) ?? null;
       this.clipsBlock = {
         start: blockClip('block_start'), halten: blockClip('block_halten'), vor: blockClip('block_vor'), rueck: blockClip('block_rueck'),
+        rolle: blockClip('rolle'),
       };
       this.blockRumpf = this.clipsBlock.halten ? this.baueMaskenSchicht(this.clipsBlock.halten, BLOCK_RUMPF) : null;
       this.blockRumpfGewicht = 0;
@@ -1768,7 +1771,12 @@ export class AvatarRig {
       const springt = !schlaegt && inDerLuft && this.clipSprung !== null;
       // Schlag und Sprung stehen in der Kette darunter VOR dem Block-Clip: Sie gehen vor.
       const blockZiel = this.blockAn ? this.waehleBlockClip(bewegt) : null;
-      const ziel = schlaegt
+      // D3-K4: the roll wins over a swing and a jump (the swing is locked during a roll anyway); without the clip
+      // (a body with 48 clips) there is no roll clip and the figure keeps the movement clip.
+      const rolleZiel = this.rolleAn ? this.clipsBlock.rolle : null;
+      const ziel = rolleZiel
+        ? rolleZiel
+        : schlaegt
         ? this.clipAngriff
         : springt
           ? this.clipSprung
@@ -1786,7 +1794,7 @@ export class AvatarRig {
         if (ziel) {
           const ausHieb = this.istHieb(this.aktiv);
           // `block_start` wie der Sprung: einmal von vorn, dann uebernimmt `block_halten`.
-          const einmal = springt || ziel === this.clipsBlock.start;
+          const einmal = springt || ziel === this.clipsBlock.start || ziel === this.clipsBlock.rolle;
           this.wechsleZu(ziel, !einmal, einmal, ausHieb ? UEBERBLEND_AUSSTIEG : UEBERBLENDUNG);
         }
         // Kein Ruheclip vorhanden: Gehzyklus einfrieren statt mitten im
@@ -1813,6 +1821,9 @@ export class AvatarRig {
         // liefe in seine untere Schranke (0,55) und der Schlag käme in
         // Zeitlupe. Dieselbe Sonderbehandlung wie beim Sprung.
         this.setzeAngriffTempo();
+      } else if (this.clipsBlock.rolle && this.aktiv === this.clipsBlock.rolle) {
+        // The roll runs at the speed of the clip: its length is the length of the invulnerable time.
+        this.clipsBlock.rolle.grp.speedRatio = 1;
       } else if (this.aktiv && this.aktiv.tempo > 0) {
         this.aktiv.grp.speedRatio = Math.max(TEMPO_MIN, Math.min(TEMPO_MAX, s / this.aktiv.tempo));
       }
@@ -1880,6 +1891,11 @@ export class AvatarRig {
     if (an && !this.blockAn) this.blockZeit = 0;
     this.blockAn = an;
     this.blockRichtung = richtung;
+  }
+
+  /** D3-K4: a roll is running. */
+  setzeRolle(an: boolean): void {
+    this.rolleAn = an;
   }
 
   /** Blockt die Figur (Zustand, den der PlayerController gesetzt hat)? */

@@ -23,7 +23,7 @@
  */
 
 import envData from './envData.json';
-import { ENVIRONMENTS, findEnvironment, environmentForBiome, type EnvSetup } from './environment.js';
+import { ENVIRONMENTS, ENV_CLEAR, ENV_GLEN_CLEAR, findEnvironment, environmentForBiome, type EnvSetup } from './environment.js';
 import { Biome } from './types.js';
 import { XorShiftRandom } from './worldgen/Random.js';
 
@@ -86,6 +86,15 @@ function buildBiomeWeather(): ReadonlyMap<number, readonly WeatherEntry[]> {
     // letting selectWeather() hand back a null environment later.
     const entries = b.environments.filter((e) => findEnvironment(e.environment));
     if (entries.length > 0) out.set(b.biome, entries);
+  }
+  // Greyglen has its own clear state ('Glen clear', hand-tuned, so not a record of envData.json): its table
+  // is the grassland one with the clear entry swapped, exactly as in shared/data/wetter/biome.json.
+  const grau = out.get(Biome.Greyglen);
+  if (grau) {
+    out.set(
+      Biome.Greyglen,
+      grau.map((e) => (e.environment === ENV_CLEAR ? { ...e, environment: ENV_GLEN_CLEAR } : e)),
+    );
   }
   return out;
 }

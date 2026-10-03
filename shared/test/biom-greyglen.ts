@@ -12,7 +12,7 @@ import { BIOME_TILE, TILE } from '../src/worldgen/bodenKacheln.js';
 import { BIOME_BY_NAME, DEFAULT_BASE_LEVEL, sanitizeWorldLayout } from '../src/worldlayout/index.js';
 import { STANDARD_WETTER_DEFINITIONEN, WetterWuerfel } from '../src/wetterDefinition.js';
 import { environmentForBiome } from '../src/environment.js';
-import { resolveBiomeBit } from '../src/weather.js';
+import { resolveBiomeBit, selectWeather } from '../src/weather.js';
 import { ALLE_BIOME } from '../src/flora.js';
 import { inhaltText } from '../src/texte.js';
 import envData from '../src/envData.json' with { type: 'json' };
@@ -90,21 +90,38 @@ const defs = STANDARD_WETTER_DEFINITIONEN;
 const wiese = defs.biome.find((b) => b.biom === 'Meadows');
 const grau = defs.biome.find((b) => b.biom === 'Greyglen');
 check('weather table has a Greyglen row', grau !== undefined);
-check('Greyglen weather = copy of Meadows (own array)', JSON.stringify(grau?.zustaende) === JSON.stringify(wiese?.zustaende) && grau?.zustaende !== wiese?.zustaende);
+// K5: the clear state is its own ('Glen clear'); every other entry and every weight is still the grassland one
+const alsGras = (z: unknown): string => JSON.stringify(z).split('"Glen clear"').join('"Clear"');
+check('Greyglen weather = Meadows with its own clear state (own array)', alsGras(grau?.zustaende) === JSON.stringify(wiese?.zustaende) && grau?.zustaende !== wiese?.zustaende);
 const wuerfel = new WetterWuerfel();
 let wetterGleich = true;
 for (let t = 0; t < 40; t++) {
   const sec = t * 1800;
   const a = wuerfel.wetterFuer(Biome.Greyglen, sec);
   const b = wuerfel.wetterFuer(Biome.Meadows, sec);
-  if (a.zustand !== b.zustand || a.umgebung !== b.umgebung) wetterGleich = false;
+  const gleich = (n: string): string => (n === 'Glen clear' ? 'Clear' : n);
+  if (gleich(a.zustand) !== b.zustand || gleich(a.umgebung) !== b.umgebung) wetterGleich = false;
 }
-check('drawn weather in greyglen = grassland over 40 windows', wetterGleich);
+check('drawn weather in greyglen = grassland (clear → Glen clear) over 40 windows', wetterGleich);
 check('resolveBiomeBit(128) = 128', (resolveBiomeBit(Biome.Greyglen) as number | null) === 128);
-check('default environment of greyglen = grassland', environmentForBiome(Biome.Greyglen).name === environmentForBiome(Biome.Meadows).name);
+check('default environment of greyglen = its own clear state, grassland keeps Clear', environmentForBiome(Biome.Greyglen).name === 'Glen clear' && environmentForBiome(Biome.Meadows).name === 'Clear');
 const env = (envData as { biomes: { biome: number; name: string; environments: unknown[] }[] }).biomes;
 check('envData has a biome 128 entry', env.some((b) => b.biome === 128 && b.name === 'Greyglen'));
-check('envData 128 = copy of biome 1', JSON.stringify(env.find((b) => b.biome === 128)?.environments) === JSON.stringify(env.find((b) => b.biome === 1)?.environments));
+check('envData 128 = copy of biome 1 (the data set stays the extraction; Glen clear is swapped in by weather.ts)', JSON.stringify(env.find((b) => b.biome === 128)?.environments) === JSON.stringify(env.find((b) => b.biome === 1)?.environments));
+check('selectWeather(greyglen) draws the same table with Glen clear instead of Clear (100 windows)', (() => {
+  for (let i = 0; i < 100; i++) {
+    const g = selectWeather(Biome.Greyglen, i * 1800).name;
+    const m = selectWeather(Biome.Meadows, i * 1800).name;
+    if (g !== (m === 'Clear' ? 'Glen clear' : m)) return false;
+  }
+  return true;
+})());
+
+// ── One truth: biome.json (server), envData.json (data set) and weather.ts (local dice) agree ──
+const jsonTab = (STANDARD_WETTER_DEFINITIONEN.biome.find((b) => b.biom === 'Greyglen')?.zustaende ?? []).map((z) => [z.zustand, z.gewicht]);
+const datenTab = ((env.find((b) => b.biome === 128)?.environments ?? []) as { environment: string; weight: number }[])
+  .map((e) => [e.environment === 'Clear' ? 'Glen clear' : e.environment, e.weight]);
+check('Greyglen: biome.json table = envData row 128 with Clear → Glen clear (names and weights)', JSON.stringify(jsonTab) === JSON.stringify(datenTab));
 
 // ── Display names only through keys ──────────────────────────────────
 check('display name de/en via key', inhaltText('inhalt.biom.greyglen', 'de') === 'Grauklamm' && inhaltText('inhalt.biom.greyglen', 'en') === 'Greyglen');

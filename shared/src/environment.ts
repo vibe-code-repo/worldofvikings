@@ -67,6 +67,7 @@ import {
   TIME_NIGHT,
 } from './constants.js';
 import envData from './envData.json';
+import { ENV_GLEN_CLEAR, NACHT_BASIS, baueGlenClear, mitNachtBasis } from './wetter/glenClear.js';
 
 /** RGB in linear-ish 0..1 space, matching Unity `Color` without alpha. */
 export interface EnvColor {
@@ -236,6 +237,7 @@ export const ENV_MISTLANDS = 'Mistlands_dark';
  * The stage-2 look weather — hand-tuned, deliberately not a vanilla name.
  */
 export const ENV_KLAR_COMIC = 'Klar-Comic';
+export { ENV_GLEN_CLEAR, ELEV_UEBERBLENDUNG } from './wetter/glenClear.js';
 
 /**
  * Weather table. Structure + timing verified; colours approximate the
@@ -815,6 +817,7 @@ function buildEnvironments(): readonly EnvSetup[] {
 const builtEnvironments = buildEnvironments();
 const villageBase = builtEnvironments.find((env) => env.name === ENV_KLAR_COMIC)!;
 export const ENV_VILLAGE = 'Village';
+const glenClear = baueGlenClear(builtEnvironments.find((env) => env.name === ENV_CLEAR)!);
 export const ENVIRONMENTS: readonly EnvSetup[] = [...builtEnvironments, {
   ...villageBase, name: ENV_VILLAGE,
   fogColorDay: c(0.3745098, 0.56013644, 0.7490196),
@@ -828,7 +831,7 @@ export const ENVIRONMENTS: readonly EnvSetup[] = [...builtEnvironments, {
   // Unity units differ; retain the measured Babylon scale and scene intensity ratio.
   lightIntensityDay: villageBase.lightIntensityDay * 2 / 2.3,
   lightIntensityEvening: villageBase.lightIntensityDay * 2 / 2.3,
-}];
+}, glenClear];
 
 const ENV_BY_NAME: ReadonlyMap<string, EnvSetup> = new Map(
   ENVIRONMENTS.map((e) => [e.name, e])
@@ -848,7 +851,7 @@ const BIOME_ENV: ReadonlyArray<readonly [Biome, string]> = [
   [Biome.Mistlands, ENV_MISTLANDS],
   [Biome.AshLands, ENV_ASH_RAIN],
   [Biome.DeepNorth, ENV_DEEP_NORTH],
-  [Biome.Greyglen, ENV_CLEAR],
+  [Biome.Greyglen, ENV_GLEN_CLEAR],
   [Biome.Ocean, ENV_MISTY],
 ];
 
@@ -1280,6 +1283,13 @@ function mischeStaerke(env: EnvSetup, w: PhaseWeights, tagAnteil: number): numbe
  * 0.5 = midday). This is the Babylon-side equivalent of the original's environment blend.
  */
 export function evaluateEnv(env: EnvSetup, dayFraction: number): EnvState {
+  const basisName = NACHT_BASIS.get(env.name);
+  const basis = basisName === undefined ? undefined : ENV_BY_NAME.get(basisName);
+  if (basis === undefined || env.alwaysDark) return evaluateEnvEigen(env, dayFraction);
+  return mitNachtBasis(evaluateEnvEigen(basis, dayFraction), () => evaluateEnvEigen(env, dayFraction));
+}
+
+function evaluateEnvEigen(env: EnvSetup, dayFraction: number): EnvState {
   // alwaysDark (caves/crypts): the whole cycle is pinned to the night
   // keyframe — not just the light level, the fog too, otherwise a crypt
   // would visibly brighten and shift colour at "midday".

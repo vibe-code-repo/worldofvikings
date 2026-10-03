@@ -59,6 +59,7 @@ import {
   Biome,
   WORLD_TIME_LENGTH,
   ENV_CLEAR,
+  ENV_GLEN_CLEAR,
   environmentForBiome,
   evaluateEnv,
   findEnvironment,
@@ -198,8 +199,61 @@ function lerpEnvColor(a: EnvColor, b: EnvColor, t: number): EnvColor {
   };
 }
 
+/** Whether a fade between two weathers blends the light direction: only when 'Glen clear' is one end of it. */
+export function mischtRichtung(von: EnvSetup, nach: EnvSetup): boolean {
+  return von.name === ENV_GLEN_CLEAR || nach.name === ENV_GLEN_CLEAR;
+}
+
+/**
+ * The state shown while fading from `von` to `nach` (blend 0..1) at a time of day — the one place that
+ * decides how the two are mixed.
+ * Der gezeigte Zustand waehrend der Ueberblendung von `von` nach `nach`.
+ */
+export function uebergangsZustand(von: EnvSetup, nach: EnvSetup, timeOfDay: number, blend: number): EnvState {
+  return lerpEnvState(evaluateEnv(von, timeOfDay), evaluateEnv(nach, timeOfDay), blend, mischtRichtung(von, nach));
+}
+
+/**
+ * The lighting state of one frame: the current weather alone, or — while a fade is running — the faded
+ * state. The only function `Lighting.apply` takes its state from.
+ * Der Beleuchtungszustand eines Bildes: das Wetter allein oder der Zustand waehrend der Ueberblendung.
+ */
+export function frameZustand(env: EnvSetup, prevEnv: EnvSetup | null, timeOfDay: number, blend: number): EnvState {
+  return prevEnv ? uebergangsZustand(prevEnv, env, timeOfDay, blend) : evaluateEnv(env, timeOfDay);
+}
+
+/**
+ * One frame of the weather fade: advance the blend, take the frame state at the NEW blend, and drop the
+ * old weather once the fade is over. `Lighting.apply` writes every field of the result and calls
+ * `evaluateEnv` nowhere else.
+ * Ein Bild der Ueberblendung: Mischwert weiterzaehlen, Zustand beim NEUEN Mischwert, altes Wetter am Ende loeschen.
+ */
+export function frameSchritt(
+  env: EnvSetup,
+  prevEnv: EnvSetup | null,
+  timeOfDay: number,
+  blend: number,
+  dtSeconds: number,
+): { state: EnvState; blend: number; prevEnv: EnvSetup | null } {
+  const neu = prevEnv ? Math.min(1, blend + dtSeconds / ENV_BLEND_SECONDS) : blend;
+  return { state: frameZustand(env, prevEnv, timeOfDay, neu), blend: neu, prevEnv: prevEnv && neu >= 1 ? null : prevEnv };
+}
+
+/** Linear blend of two unit directions, renormalised; the target when they cancel out. */
+function lerpRichtung(
+  a: { x: number; y: number; z: number },
+  b: { x: number; y: number; z: number },
+  t: number,
+): { x: number; y: number; z: number } {
+  const x = a.x + (b.x - a.x) * t;
+  const y = a.y + (b.y - a.y) * t;
+  const z = a.z + (b.z - a.z) * t;
+  const len = Math.hypot(x, y, z);
+  return len > 1e-6 ? { x: x / len, y: y / len, z: z / len } : b;
+}
+
 /** Blend two evaluated states — used for the biome cross-fade. */
-function lerpEnvState(a: EnvState, b: EnvState, t: number): EnvState {
+export function lerpEnvState(a: EnvState, b: EnvState, t: number, mitRichtung = false): EnvState {
   const l = (x: number, y: number) => x + (y - x) * t;
   return {
     fogColor: lerpEnvColor(a.fogColor, b.fogColor, t),
@@ -209,10 +263,13 @@ function lerpEnvState(a: EnvState, b: EnvState, t: number): EnvState {
     ambColor: lerpEnvColor(a.ambColor, b.ambColor, t),
     lightIntensity: l(a.lightIntensity, b.lightIntensity),
     cloudAlpha: l(a.cloudAlpha, b.cloudAlpha),
-    // direction/elevation come from the day fraction, not the weather, so
-    // both states agree — take the target to avoid drift during the fade
-    lightDir: b.lightDir,
-    sunDir: b.sunDir,
+    // Direction/elevation come from the day fraction, not the weather, so both
+    // states agree — take the target to avoid drift during the fade. The one
+    // exception is a fade involving 'Glen clear' (`mitRichtung`): its sun height
+    // differs from the others', so the direction is blended and renormalised
+    // instead of jumping. Every other fade keeps the target's direction.
+    lightDir: mitRichtung ? lerpRichtung(a.lightDir, b.lightDir, t) : b.lightDir,
+    sunDir: mitRichtung ? lerpRichtung(a.sunDir, b.sunDir, t) : b.sunDir,
     isNight: b.isNight,
     elevation: b.elevation,
   };
@@ -550,12 +607,10 @@ export class Lighting {
       this.timeOfDay = (this.timeOfDay + dtSeconds / WORLD_TIME_LENGTH) % 1;
     }
 
-    let state = evaluateEnv(this.env, this.timeOfDay);
-    if (this.prevEnv) {
-      this.blend = Math.min(1, this.blend + dtSeconds / ENV_BLEND_SECONDS);
-      state = lerpEnvState(evaluateEnv(this.prevEnv, this.timeOfDay), state, this.blend);
-      if (this.blend >= 1) this.prevEnv = null;
-    }
+    const schritt = frameSchritt(this.env, this.prevEnv, this.timeOfDay, this.blend, dtSeconds);
+    this.blend = schritt.blend;
+    this.prevEnv = schritt.prevEnv;
+    const state = schritt.state;
     // Feste Nebeldichte aus server.yml — HIER, vor `this.state`, damit das
     // HUD und jeder andere Leser dieselbe Zahl sehen wie die Szene. Nur
     // die Dichte steht still, die Nebelfarbe folgt weiter der Tageszeit:

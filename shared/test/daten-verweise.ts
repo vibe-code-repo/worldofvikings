@@ -216,7 +216,7 @@ const BEKANNTE_DRIFT: ReadonlySet<string> = new Set(['ENV_ASH_RAIN', 'ENV_MISTLA
  * source comments say so); they must exist in ENVIRONMENTS but not in the
  * data set.
  */
-const NUR_IM_CODE: ReadonlySet<string> = new Set(['ENV_KLAR_COMIC', 'ENV_VILLAGE']);
+const NUR_IM_CODE: ReadonlySet<string> = new Set(['ENV_KLAR_COMIC', 'ENV_VILLAGE', 'ENV_GLEN_CLEAR']);
 
 function abschnittUmgebungen(): void {
   console.log('\n2. Environment names');

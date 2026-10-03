@@ -1,5 +1,5 @@
 /**
- * GET/PUT /api/gegenstaende and GET /api/gegenstaende/quittung: the save path of the item data
+ * GET/PUT /api/gegenstaende, POST /api/gegenstaende/zuruecksetzen and GET /api/gegenstaende/quittung: the save path of the item data
  * (Editor card EG1, on top of Game card G1 / PR #152). The mask (EG2) sits on these routes.
  * Speicherweg der Gegenstandsdaten im Betriebsdienst (Editor-Karte EG1).
  *
@@ -38,6 +38,17 @@
  * A list of tags applies if ONE entry matches the current hash. `*` (anywhere in the value) is refused with 428
  * `basis-unbestimmt`: it would switch the protection off ("any state exists").
  *
+ * ── Base items (card GD2) ────────────────────────────────────────────
+ * The 29 base items are not deletable (Mike, F1): a PUT that takes the entry of a base id out of the old working copy
+ * is 422 `grundgegenstand-nicht-loeschbar` (`grundgegenstaende: [ids]`), even with `?bestaetigt=1`, and nothing is written.
+ * The one way back to the base is the explicit act `POST /api/gegenstaende/zuruecksetzen` (body `{"id": "<base id>"}`,
+ * `If-Match` like a PUT): it takes THAT entry out of the working copy (a separate route and not a flag of the PUT: a PUT
+ * writes a whole document, and "this entry goes back to the base" must never be a side effect of a form that merely
+ * lacks it). Nothing else in the file is touched, not even the format of the other entries. The answer carries
+ * `grundErsetzt` of the new file. Before every read or write the route runs the same reconciliation as the game server's
+ * start (`gegenstaendeAbgleichen`: repo moved on and working copy untouched = pulled), so the first save in the mask
+ * never builds on a stale file.
+ *
  * Every answer carries a stable `fehler` code (404 `unbekannter-endpunkt`, 405 `methode`, 500 `intern`); raw error texts
  * (paths, `EISDIR`, stacks) go to the log only. How many players hold
  * the item is counted later by the server watch (Game card G2), which holds back its own application in the receipt
@@ -57,7 +68,7 @@ import {
   schreibeGegenstandsDatei,
   type GegenstandsLesung,
 } from '@wov/shared/src/items/gegenstandsDaten.js';
-import { gegenstandsArbeitsDatei, gegenstandsBasisDatei, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
+import { gegenstaendeAbgleichenOhneSperre, gegenstandsArbeitsDatei, gegenstandsBasisNebenDatei as basisNeben, gegenstandsRepoDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
 
 /**
  * The receipt written by the server watch (Game card G2), next to the working copy. The path rule lives here
@@ -280,23 +291,30 @@ async function rumpfLesen(req: IncomingMessage, grenze: number): Promise<string 
 
 type Stand = { bytes: Buffer; hash: string; quelle: 'arbeit' | 'repo' } | { fehler: 'repo-fehlt' | 'repo-kaputt' };
 
-/**
- * The current bytes of the working copy. If it is missing, create it from the repo state (with the basis file),
- * under the lock. Must run inside the lock section or take it itself (`layoutUnterSperre` is not re-entrant).
- */
-function arbeitsstandOhneSperre(arbeit: string, basis: string, repo: string): Stand {
+/** The working copy as it lies on disk. `quelle`: 'repo' = still exactly the accepted repo state, 'arbeit' = it has been edited. */
+function standLesen(arbeit: string, repo: string): Stand {
+  const bytes = dateiBytes(arbeit);
   const repoBytes = dateiBytes(repo);
-  let bytes = dateiBytes(arbeit);
-  if (bytes === null) {
-    if (repoBytes === null) return { fehler: 'repo-fehlt' };
-    if (leseGegenstandsDatei(repoBytes.toString('utf-8')).dateiFehler !== null) return { fehler: 'repo-kaputt' };
-    atomarSchreiben(arbeit, repoBytes);
-    atomarSchreiben(basis, `${layoutHash(repoBytes)}\n`);
-    bytes = repoBytes;
-  }
+  if (bytes === null) return { fehler: repoBytes === null ? 'repo-fehlt' : 'repo-kaputt' };
   const hash = layoutHash(bytes);
-  // 'repo': the working copy is still exactly the accepted repo state; 'arbeit': it has been edited.
   return { bytes, hash, quelle: repoBytes !== null && layoutHash(repoBytes) === hash ? 'repo' : 'arbeit' };
+}
+
+/**
+ * The current bytes of the working copy after the reconciliation with the repo state (`gegenstaende.basis`): a missing
+ * copy is created, a copy that is untouched while the repo moved on is pulled, a conflict keeps the working copy (logged).
+ * Must run inside the lock section (`layoutUnterSperre` is not re-entrant).
+ */
+function arbeitsstandOhneSperre(arbeit: string, repo: string): Stand {
+  const abgleich = gegenstaendeAbgleichenOhneSperre(repo, arbeit, 'voll');
+  if (abgleich.arbeitHash === null) {
+    // No working copy was or could be created: the repo state is missing or broken.
+    if (abgleich.fall === 'repo-fehlt') return { fehler: 'repo-fehlt' };
+    if (abgleich.fall === 'repo-kaputt') return { fehler: 'repo-kaputt' };
+  }
+  if (abgleich.fall === 'konflikt' || abgleich.fall === 'arbeit-kaputt') console.warn(`[Admin] ${abgleich.meldung}`);
+  else if (abgleich.fall === 'nachgezogen' || abgleich.fall === 'angelegt') console.log(`[Admin] ${abgleich.meldung}`);
+  return standLesen(arbeit, repo);
 }
 
 function standAntwort(res: ServerResponse, stand: Stand): stand is { bytes: Buffer; hash: string; quelle: 'arbeit' | 'repo' } {
@@ -320,12 +338,15 @@ function standAntwort(res: ServerResponse, stand: Stand): stand is { bytes: Buff
 
 async function lesen(res: ServerResponse, wurzel: string): Promise<void> {
   const arbeit = gegenstandsArbeitsDatei(wurzel);
+  const repo = gegenstandsRepoDatei(wurzel);
   const anlegen = (): Stand => {
-    tmpAufraeumen([arbeit, gegenstandsBasisDatei(wurzel)]);
-    return arbeitsstandOhneSperre(arbeit, gegenstandsBasisDatei(wurzel), gegenstandsRepoDatei(wurzel));
+    tmpAufraeumen([arbeit, basisNeben(arbeit)]);
+    return arbeitsstandOhneSperre(arbeit, repo);
   };
-  // An existing working copy is read without the lock: writers replace it by `rename`, so a reader sees a whole file.
-  const stand = existsSync(arbeit) ? arbeitsstandOhneSperre(arbeit, gegenstandsBasisDatei(wurzel), gegenstandsRepoDatei(wurzel)) : await unterSperre(arbeit, anlegen);
+  // An existing working copy is read without the lock (writers replace it by `rename`, so a reader sees a whole file),
+  // unless the reconciliation has something to write (missing, or the repo moved on and the copy is untouched).
+  const nurLesen = existsSync(arbeit) && gegenstaendeAbgleichenOhneSperre(repo, arbeit, 'pruefen').fall !== 'nachgezogen';
+  const stand = nurLesen ? standLesen(arbeit, repo) : await unterSperre(arbeit, anlegen);
   if (!standAntwort(res, stand)) return;
   const text = stand.bytes.toString('utf-8');
   const lesung = leseGegenstandsDatei(text);
@@ -347,17 +368,8 @@ async function lesen(res: ServerResponse, wurzel: string): Promise<void> {
   );
 }
 
-async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: string, bestaetigt: boolean): Promise<void> {
-  const text = await rumpfLesen(req, MAX_DATEI_BYTES);
-  if (text === null) {
-    json(
-      res,
-      413,
-      { ok: false, fehler: 'anfrage-zu-gross', grenze: MAX_DATEI_BYTES, message: `Die Datei ist größer als ${MAX_DATEI_BYTES} Bytes — nichts geschrieben.` },
-      { Connection: 'close' }
-    );
-    return;
-  }
+/** The hashes of the mandatory `If-Match`, or `null` after the 428 was sent. */
+function ifMatchLesen(req: IncomingMessage, res: ServerResponse): string[] | null {
   const ifMatch = req.headers['if-match'];
   const basisRoh = Array.isArray(ifMatch) ? ifMatch[0] : ifMatch;
   if (basisRoh === undefined || basisRoh.trim() === '') {
@@ -366,7 +378,7 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
       fehler: 'basis-fehlt',
       message: 'Speichern ohne Basis: If-Match mit dem Hash aus GET /api/gegenstaende fehlt — nichts geschrieben.',
     });
-    return;
+    return null;
   }
   const basen = basisHashes(basisRoh);
   if (basen === null || basen.length === 0) {
@@ -378,8 +390,24 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
           ? 'If-Match: * gilt nicht — der Hash aus GET /api/gegenstaende ist nötig. Nichts geschrieben.'
           : 'Speichern ohne Basis: If-Match ohne Hash — nichts geschrieben.',
     });
+    return null;
+  }
+  return basen;
+}
+
+async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: string, bestaetigt: boolean): Promise<void> {
+  const text = await rumpfLesen(req, MAX_DATEI_BYTES);
+  if (text === null) {
+    json(
+      res,
+      413,
+      { ok: false, fehler: 'anfrage-zu-gross', grenze: MAX_DATEI_BYTES, message: `Die Datei ist größer als ${MAX_DATEI_BYTES} Bytes — nichts geschrieben.` },
+      { Connection: 'close' }
+    );
     return;
   }
+  const basen = ifMatchLesen(req, res);
+  if (basen === null) return;
 
   // Sanitise BEFORE the lock (pure): a broken file or any discarded entry is refused as a whole.
   const neu: GegenstandsLesung = leseGegenstandsDatei(text);
@@ -426,12 +454,13 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     | { art: 'veraltet'; hash: string }
     | { art: 'bestaetigung'; hash: string; entfernt: string[]; entferntOhneId: string[] }
     | { art: 'altKaputt'; hash: string; dateiFehler: string }
+    | { art: 'grundEntfernt'; hash: string; ids: string[] }
     | { art: 'geschrieben'; hash: string; entfernt: string[]; entferntOhneId: string[] };
   // ONE synchronous section: read, compare, check removals, rename. No `await` in here (the wait for the lock is
   // asynchronous and happens BEFORE it).
   const ausgang = await unterSperre(arbeit, (): Ausgang => {
-    tmpAufraeumen([arbeit, gegenstandsBasisDatei(wurzel)]);
-    const stand = arbeitsstandOhneSperre(arbeit, gegenstandsBasisDatei(wurzel), gegenstandsRepoDatei(wurzel));
+    tmpAufraeumen([arbeit, basisNeben(arbeit)]);
+    const stand = arbeitsstandOhneSperre(arbeit, gegenstandsRepoDatei(wurzel));
     if ('fehler' in stand) return { art: 'stand', stand };
     if (!basen.includes(stand.hash)) return { art: 'veraltet', hash: stand.hash };
     const altText = stand.bytes.toString('utf-8');
@@ -445,8 +474,11 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     }
     const neueIds = new Set(neu.eintraege.map((e) => e.id));
     const verworfen = verworfeneIds(altText, alt);
-    // A base id that leaves the file falls back to the base entry: it is no removal and needs no confirmation.
-    const entfernt = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id) && !istGrundItem(id));
+    // A base item is not deletable (F1): taking its entry out of the file is refused, with or without `?bestaetigt=1`.
+    // The way back to the base is the explicit reset (`zuruecksetzen`), never a form that merely lacks the entry.
+    const grundWeg = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id) && istGrundItem(id));
+    if (grundWeg.length > 0) return { art: 'grundEntfernt', hash: stand.hash, ids: grundWeg };
+    const entfernt = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id));
     const entferntOhneId = verworfen.ohneId;
     if ((entfernt.length > 0 || entferntOhneId.length > 0) && !bestaetigt) return { art: 'bestaetigung', hash: stand.hash, entfernt, entferntOhneId };
     atomarSchreiben(arbeit, kanonisch);
@@ -466,6 +498,20 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
           fehler: 'veraltet',
           hash: ausgang.hash,
           message: 'Die Gegenstandsdatei hat sich seit dem Lesen geändert — neu laden. Nichts geschrieben.',
+        },
+        etag(ausgang.hash)
+      );
+      return;
+    case 'grundEntfernt':
+      json(
+        res,
+        422,
+        {
+          ok: false,
+          fehler: 'grundgegenstand-nicht-loeschbar',
+          grundgegenstaende: ausgang.ids,
+          hash: ausgang.hash,
+          message: `Grundgegenstände lassen sich nicht löschen (${ausgang.ids.join(', ')}); sie lassen sich nur auf den Grundstand zurücksetzen. Nichts geschrieben.`,
         },
         etag(ausgang.hash)
       );
@@ -510,6 +556,90 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
   }
 }
 
+/**
+ * `POST /api/gegenstaende/zuruecksetzen` `{"id": "<base id>"}`: takes the entry with that id out of the working copy, so
+ * the base entry applies again. The other entries stay byte for byte (the raw list is filtered, nothing is read and
+ * written back through the sanitiser). A file that cannot be read whole is refused: a reset must not turn into a quiet
+ * clean-up of entries the reader would discard.
+ */
+async function zuruecksetzen(req: IncomingMessage, res: ServerResponse, wurzel: string): Promise<void> {
+  const rumpf = await rumpfLesen(req, 4096);
+  if (rumpf === null) {
+    json(res, 413, { ok: false, fehler: 'anfrage-zu-gross', grenze: 4096, message: 'Die Anfrage ist größer als 4096 Bytes — nichts geschrieben.' }, { Connection: 'close' });
+    return;
+  }
+  const basen = ifMatchLesen(req, res);
+  if (basen === null) return;
+  let id: unknown = null;
+  try {
+    id = (JSON.parse(rumpf) as { id?: unknown } | null)?.id;
+  } catch {
+    /* no JSON: no id */
+  }
+  if (typeof id !== 'string' || !istGrundItem(id)) {
+    json(res, 422, { ok: false, fehler: 'kein-grundgegenstand', message: 'Nur ein Grundgegenstand lässt sich auf den Grundstand zurücksetzen — nichts geschrieben.' });
+    return;
+  }
+  const arbeit = gegenstandsArbeitsDatei(wurzel);
+  type Ausgang =
+    | { art: 'stand'; stand: Stand }
+    | { art: 'veraltet'; hash: string }
+    | { art: 'unlesbar'; hash: string; fehler: string; verworfen?: Array<{ index: number; id: string | null; grund: string }> }
+    | { art: 'fertig'; hash: string; zurueckgesetzt: boolean; text: string };
+  const gewaehlt = id;
+  const ausgang = await unterSperre(arbeit, (): Ausgang => {
+    tmpAufraeumen([arbeit, basisNeben(arbeit)]);
+    const stand = arbeitsstandOhneSperre(arbeit, gegenstandsRepoDatei(wurzel));
+    if ('fehler' in stand) return { art: 'stand', stand };
+    if (!basen.includes(stand.hash)) return { art: 'veraltet', hash: stand.hash };
+    const altText = stand.bytes.toString('utf-8');
+    const alt = leseGegenstandsDatei(altText);
+    if (alt.dateiFehler !== null) return { art: 'unlesbar', hash: stand.hash, fehler: alt.dateiFehler };
+    if (alt.verworfen.length > 0) {
+      return { art: 'unlesbar', hash: stand.hash, fehler: 'eintraege-verworfen', verworfen: alt.verworfen.map((v) => ({ index: v.index, id: v.id, grund: v.grund })) };
+    }
+    const dokument = JSON.parse(altText) as { gegenstaende: unknown[] };
+    const rest = dokument.gegenstaende.filter((e) => !(typeof e === 'object' && e !== null && (e as { id?: unknown }).id === gewaehlt));
+    if (rest.length === dokument.gegenstaende.length) return { art: 'fertig', hash: stand.hash, zurueckgesetzt: false, text: altText };
+    const neuText = `${JSON.stringify({ ...dokument, gegenstaende: rest }, null, 2)}\n`;
+    atomarSchreiben(arbeit, neuText);
+    return { art: 'fertig', hash: layoutHash(neuText), zurueckgesetzt: true, text: neuText };
+  });
+  switch (ausgang.art) {
+    case 'stand':
+      standAntwort(res, ausgang.stand);
+      return;
+    case 'veraltet':
+      json(res, 412, { ok: false, fehler: 'veraltet', hash: ausgang.hash, message: 'Die Gegenstandsdatei hat sich seit dem Lesen geändert — neu laden. Nichts geschrieben.' }, etag(ausgang.hash));
+      return;
+    case 'unlesbar':
+      json(
+        res,
+        422,
+        {
+          ok: false,
+          fehler: ausgang.fehler,
+          ...(ausgang.verworfen ? { verworfen: ausgang.verworfen } : {}),
+          hash: ausgang.hash,
+          message: `Die Arbeitsdatei ist nicht vollständig lesbar (${ausgang.fehler}) — das Zurücksetzen ändert nichts, nichts geschrieben.`,
+        },
+        etag(ausgang.hash)
+      );
+      return;
+    case 'fertig': {
+      const lesung = leseGegenstandsDatei(ausgang.text);
+      if (ausgang.zurueckgesetzt) console.log(`[Admin] Gegenstand ${gewaehlt} auf den Grundstand zurueckgesetzt (${basename(arbeit)})`);
+      json(
+        res,
+        200,
+        { ok: true, hash: ausgang.hash, id: gewaehlt, zurueckgesetzt: ausgang.zurueckgesetzt, eintraege: lesung.eintraege.length, grundErsetzt: lesung.grundErsetzt },
+        etag(ausgang.hash)
+      );
+      return;
+    }
+  }
+}
+
 function quittungLesen(res: ServerResponse, wurzel: string): void {
   const pfad = gegenstandsQuittungDatei(wurzel);
   if (!existsSync(pfad)) {
@@ -529,7 +659,9 @@ function quittungLesen(res: ServerResponse, wurzel: string): void {
     json(res, 200, { ok: true, status: 'unlesbar' });
     return;
   }
-  json(res, 200, { ok: true, ...(quittung as Record<string, unknown>) });
+  // `ersetzt` of the watch's receipt, under the name the read answer uses (`grundErsetzt`), for the mask (GD4).
+  const q = quittung as Record<string, unknown>;
+  json(res, 200, { ok: true, ...q, grundErsetzt: Array.isArray(q.ersetzt) ? q.ersetzt : [] });
 }
 
 /**
@@ -560,6 +692,9 @@ async function verteilen(req: IncomingMessage, res: ServerResponse, pfad: string
     if (methode === 'GET') await lesen(res, wurzel);
     else if (methode === 'PUT') await schreiben(req, res, wurzel, parameter.get('bestaetigt') === '1');
     else json(res, 405, { ok: false, fehler: 'methode', message: 'GET oder PUT erwartet' }, { Allow: 'GET, PUT' });
+  } else if (pfad === '/api/gegenstaende/zuruecksetzen') {
+    if (methode === 'POST') await zuruecksetzen(req, res, wurzel);
+    else json(res, 405, { ok: false, fehler: 'methode', message: 'POST erwartet' }, { Allow: 'POST' });
   } else if (pfad === '/api/gegenstaende/quittung') {
     if (methode === 'GET') quittungLesen(res, wurzel);
     else json(res, 405, { ok: false, fehler: 'methode', message: 'GET erwartet' }, { Allow: 'GET' });

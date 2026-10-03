@@ -24,6 +24,8 @@ export default [
   // Ein misslungener Speichervorgang darf die Welt nicht beschaedigen;
   // wer das erst nach dem Ausrollen merkt, merkt es an der Welt.
   ['admin', 'test/betriebsdienst.ts'],
+  // GD2: die Route und der Grundbestand (Abgleich vor Lesen/Speichern, 422 beim Entfernen einer Grund-Kennung, Zuruecksetzen, grundErsetzt in der Quittung), im selben Prozess, ~3 s.
+  ['admin', 'test/gd2-grundstand-route.ts'],
   // Editor EG1: GET/PUT /api/gegenstaende und GET .../quittung gegen den echten
   // Betriebsdienst mit einer Testwurzel (Muster z3f-folgen.ts). Deckt die
   // Anlage der Arbeitskopie aus dem Repo, If-Match (428/412), die

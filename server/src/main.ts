@@ -19,7 +19,7 @@ import {
 } from '@wov/shared/src/uploadedModelUpload.js';
 import { ASSET_WURZEL, KollisionsFormen } from './world/KollisionsFormen.js';
 import { gegenstandsArbeitsDatei } from '@wov/shared/src/items/gegenstandsArbeitskopie.js';
-import { ladeGegenstandsDatei } from './world/gegenstandsLive.js';
+import { gegenstaendeAbgleichenBeimStart, ladeGegenstandsDatei } from './world/gegenstandsLive.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = resolve(__dirname, '../data');
@@ -153,6 +153,7 @@ for (const zeile of hochladenStand.meldungen) console.error(`[ModellUpload] abge
   Wache im Server dieselbe Datei (world/gegenstandsLive.ts).
 */
 const gegenstandsDatei = gegenstandsArbeitsDatei(resolve(DATA_DIR, '../..'));
+gegenstaendeAbgleichenBeimStart(resolve(DATA_DIR, '../..'), gegenstandsDatei);
 const gegenstandsStand = ladeGegenstandsDatei(gegenstandsDatei);
 
 const server = createWovServer({ ...config, gegenstandsDatei, gegenstandsStart: gegenstandsStand.eintraege, gegenstandsStartQuittung: gegenstandsStand.startQuittung, gegenstandsOhneGutenStand: gegenstandsStand.ohneGutenStand });

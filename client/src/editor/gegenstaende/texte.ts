@@ -86,6 +86,8 @@ export const ROUTE_FEHLER_SCHLUESSEL: Readonly<Record<string, TranslationKey>> =
   'alter-stand-kaputt': 'editor.gegenstand.route.alter_stand_kaputt',
   brauchtBestaetigung: 'editor.gegenstand.route.braucht_bestaetigung',
   gesperrt: 'editor.gegenstand.route.gesperrt',
+  'grundgegenstand-nicht-loeschbar': 'editor.gegenstand.route.grundgegenstand_nicht_loeschbar',
+  'kein-grundgegenstand': 'editor.gegenstand.route.kein_grundgegenstand',
   intern: 'editor.gegenstand.route.intern',
   methode: 'editor.gegenstand.route.methode',
   'unbekannter-endpunkt': 'editor.gegenstand.route.unbekannter_endpunkt',

@@ -398,6 +398,10 @@ export default [
   ['server', 'test/gaeste-besitz.ts'],
   // GD1 N1: die Wache kennt den Grundbestand (Grund-Kennung aus der Datei = kein Entfernen).
   ['server', 'test/gd1-wache-grundbestand.ts'],
+  // GD2: Abgleich der Gegenstands-Arbeitskopie mit Repo und Basis (nachziehen / behalten / Konflikt, DEV-Faelle, kaputte Datei, Sperre, Startumhuellung). Ohne Assets, ~2 s.
+  ['server', 'test/gd2-abgleich.ts'],
+  // GD2: Grundgegenstand ueberschreiben, zuruecksetzen und beim Entfernen ablehnen, gegen einen echten Spielserver (WebSocket, Wache) mit Inventar, Truhe und Bodenstueck und die echte Admin-Route; alles Gehaltene bleibt unberuehrt. ~15 s.
+  ['server', 'test/gd2-echter-server.ts'],
   // G2 (item data at run time): harvest by the field `ernte` (Holzaxt 6 blows, flint axe 4), crafting without a station, the live watch with its receipt (10 -> 12 within 2 s, broken file, discarded entries, confirmation for held items, lock held by a second process). Real WebSocket, ~40 s.
   ['server', 'test/gegenstaende-g2-live.ts'],
   // G2 N1: the confirmation covers only the hash and the ids of the receipt (more copies of the same id are removed too); `Inventory.rebind` splits an over-stack, keeps the excess if no slot is free.

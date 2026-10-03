@@ -14,6 +14,7 @@
  *  6. Path: a PUT changes only the working copy (file list of the test root before/after; no lock/tmp left over),
  *     whatever the query says.
  *  7. Other verbs / paths / missing token.
+ *  8b. GD2: a base id taken out of the file is 422 (also with `?bestaetigt=1`); the explicit reset is the way back.
  *  9. N1/F1: entries the reader DISCARDS in the old state count as removed (409, ids or `#<index>`), file byte-equal.
  * 10. N1/F2: a broken old state needs `?bestaetigt=1` (409 `alter-stand-kaputt`), a `.kaputt-<time>` copy is kept (max 5).
  * 10b. N2/N-1+N-2: the rotation removes only its OWN names (foreign `.kaputt-*` stay), skips directories, checks its fresh copy.
@@ -173,6 +174,8 @@ async function anfrage(
 const get = (): Promise<Antwort> => anfrage('GET', '/api/gegenstaende');
 const put = (body: string, ifMatch: string | null, query = ''): Promise<Antwort> =>
   anfrage('PUT', `/api/gegenstaende${query}`, { body, ifMatch: ifMatch === null ? null : `"${ifMatch}"` });
+const zuruecksetzen = (id: string, ifMatch: string | null): Promise<Antwort> =>
+  anfrage('POST', '/api/gegenstaende/zuruecksetzen', { body: JSON.stringify({ id }), ifMatch: ifMatch === null ? null : `"${ifMatch}"` });
 const arbeitBytes = (): Buffer => readFileSync(ARBEIT);
 
 /** A second process holding `<working copy>.lock`; `freigeben()` lets it go and waits for its end. */
@@ -336,9 +339,14 @@ let hash = sha(arbeitBytes());
   const mitWood = await put(datei([{ ...holzaxt, werte: { damage: 12 } }, { ...grundRoh('Wood'), ernte: { baum: 3 } }]), hash);
   check('4 Grundkennung (Wood) als eigener Eintrag: 200', mitWood.status === 200, `${mitWood.status}`);
   hash = String(mitWood.daten.hash);
+  const vorWood = readFileSync(ARBEIT, 'utf-8');
   const ohneWood = await put(datei([{ ...holzaxt, werte: { damage: 12 } }]), hash);
-  check('4 Grundkennung (Wood) aus der Datei nehmen ist kein Entfernen: 200 ohne Bestaetigung, entfernt leer', ohneWood.status === 200 && (ohneWood.daten.entfernt as unknown[]).length === 0, `${ohneWood.status} ${JSON.stringify(ohneWood.daten)}`);
-  hash = String(ohneWood.daten.hash);
+  check('4 Grundkennung (Wood) aus der Datei nehmen: 422 grundgegenstand-nicht-loeschbar (GD2), nichts geschrieben', ohneWood.status === 422 && ohneWood.daten.fehler === 'grundgegenstand-nicht-loeschbar' && JSON.stringify(ohneWood.daten.grundgegenstaende) === '["Wood"]' && readFileSync(ARBEIT, 'utf-8') === vorWood, `${ohneWood.status} ${JSON.stringify(ohneWood.daten)}`);
+  const ohneWoodBest = await put(datei([{ ...holzaxt, werte: { damage: 12 } }]), hash, '?bestaetigt=1');
+  check('4 ... auch mit ?bestaetigt=1: 422, nichts geschrieben', ohneWoodBest.status === 422 && ohneWoodBest.daten.fehler === 'grundgegenstand-nicht-loeschbar' && readFileSync(ARBEIT, 'utf-8') === vorWood, `${ohneWoodBest.status}`);
+  const zurueck = await zuruecksetzen('Wood', hash);
+  check('4 der ausdrueckliche Weg: Wood auf den Grundstand zuruecksetzen: 200, Eintrag weg', zurueck.status === 200 && zurueck.daten.zurueckgesetzt === true && !readFileSync(ARBEIT, 'utf-8').includes('"Wood"'), `${zurueck.status} ${JSON.stringify(zurueck.daten)}`);
+  hash = String(zurueck.daten.hash);
   const gesperrt = await put(datei([{ ...holzaxt, werte: { damage: 12 } }, grundRoh('Wood', { stapel: 7 })]), hash);
   check('4 Grundgegenstand mit anderer Stapelgroesse: 422 (bis GD3 gesperrt), nichts geschrieben', gesperrt.status === 422 && JSON.stringify(gesperrt.daten).includes('grundwert-gesperrt'), `${gesperrt.status} ${JSON.stringify(gesperrt.daten).slice(0, 200)}`);
 }

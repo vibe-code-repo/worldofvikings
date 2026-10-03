@@ -222,6 +222,23 @@ export function frameZustand(env: EnvSetup, prevEnv: EnvSetup | null, timeOfDay:
   return prevEnv ? uebergangsZustand(prevEnv, env, timeOfDay, blend) : evaluateEnv(env, timeOfDay);
 }
 
+/**
+ * One frame of the weather fade: advance the blend, take the frame state at the NEW blend, and drop the
+ * old weather once the fade is over. `Lighting.apply` writes every field of the result and calls
+ * `evaluateEnv` nowhere else.
+ * Ein Bild der Ueberblendung: Mischwert weiterzaehlen, Zustand beim NEUEN Mischwert, altes Wetter am Ende loeschen.
+ */
+export function frameSchritt(
+  env: EnvSetup,
+  prevEnv: EnvSetup | null,
+  timeOfDay: number,
+  blend: number,
+  dtSeconds: number,
+): { state: EnvState; blend: number; prevEnv: EnvSetup | null } {
+  const neu = prevEnv ? Math.min(1, blend + dtSeconds / ENV_BLEND_SECONDS) : blend;
+  return { state: frameZustand(env, prevEnv, timeOfDay, neu), blend: neu, prevEnv: prevEnv && neu >= 1 ? null : prevEnv };
+}
+
 /** Linear blend of two unit directions, renormalised; the target when they cancel out. */
 function lerpRichtung(
   a: { x: number; y: number; z: number },
@@ -590,9 +607,10 @@ export class Lighting {
       this.timeOfDay = (this.timeOfDay + dtSeconds / WORLD_TIME_LENGTH) % 1;
     }
 
-    if (this.prevEnv) this.blend = Math.min(1, this.blend + dtSeconds / ENV_BLEND_SECONDS);
-    const state = frameZustand(this.env, this.prevEnv, this.timeOfDay, this.blend);
-    if (this.prevEnv && this.blend >= 1) this.prevEnv = null;
+    const schritt = frameSchritt(this.env, this.prevEnv, this.timeOfDay, this.blend, dtSeconds);
+    this.blend = schritt.blend;
+    this.prevEnv = schritt.prevEnv;
+    const state = schritt.state;
     // Feste Nebeldichte aus server.yml — HIER, vor `this.state`, damit das
     // HUD und jeder andere Leser dieselbe Zahl sehen wie die Szene. Nur
     // die Dichte steht still, die Nebelfarbe folgt weiter der Tageszeit:

@@ -838,9 +838,11 @@ export const ENV_VILLAGE = 'Village';
     Grundlicht Leuchtdichte so, dass Sonne : Grundlicht = 3,5 : 1 gilt,
                gerechnet linear als Stärke · Leuchtdichte(Sonnenfarbe) gegen
                Leuchtdichte(Grundlicht). Das ist ein DATENVERHÄLTNIS: Im Bild
-               hängt das Grundlicht zur Hälfte an der Himmelskuppel
-               (`Lighting.AMBIENT_ANTEIL_HIMMEL`), dieser Anteil ist für
-               Glen clear nicht gemessen; gerendert (`bodenSonne` /
+               mindert die Himmelskuppel das Hemisphärenlicht um bis zu
+               0,5 (Stärke 1 − 0,5 · q, q = Kuppelanteil am Grundlicht,
+               0..1; `AMBIENT_ANTEIL_HIMMEL` in `client/src/engine/
+               Lighting.ts`, 0,5 ist der Höchstanteil). q ist für Glen
+               clear nicht gemessen; gerendert (`bodenSonne` /
                `bodenAmbient`) 6,95 gegen 6,84 im Grasland. Die Farbe ist der Ton von `Clear`
                (0,463 / 0,574 / 0,706), linear skaliert
 

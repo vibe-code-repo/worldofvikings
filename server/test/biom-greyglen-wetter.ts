@@ -21,7 +21,7 @@ import { WetterDienst, type WetterEmpfaenger } from '../src/spiel/Wetter.js';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import { WetterAnnahme, type WetterLeser } from '../../client/src/net/wetterAnnahme.js';
-import { frameZustand, lerpEnvState, mischtRichtung, uebergangsZustand } from '../../client/src/engine/Lighting.js';
+import { frameSchritt, frameZustand, lerpEnvState, mischtRichtung, uebergangsZustand } from '../../client/src/engine/Lighting.js';
 
 const nah = (a: number, b: number, eps: number): boolean => Math.abs(a - b) <= eps;
 let fehler = 0;
@@ -201,7 +201,26 @@ const lichtQuelle = readFileSync(new URL('../../client/src/engine/Lighting.ts', 
 check('Lighting.apply takes its state from frameZustand only, and lerpEnvState is called in exactly one place besides its definition',
   /const state = frameZustand\(this\.env, this\.prevEnv, this\.timeOfDay, this\.blend\);/.test(lichtQuelle)
   && (lichtQuelle.match(/lerpEnvState\(/g) ?? []).length === 2 && (lichtQuelle.match(/uebergangsZustand\(/g) ?? []).length === 2
-  && (lichtQuelle.match(/frameZustand\(/g) ?? []).length === 2);
+  && (lichtQuelle.match(/frameZustand\(/g) ?? []).length === 2
+  && (lichtQuelle.match(/evaluateEnv\(/g) ?? []).length === 4
+  && /const schritt = frameSchritt\(this\.env, this\.prevEnv, this\.timeOfDay, this\.blend, dtSeconds\);/.test(lichtQuelle)
+  && /const state = schritt\.state;/.test(lichtQuelle));
+// one frame of the fade (what Lighting.apply writes): blend advanced first, state taken at the new blend, old weather dropped at the end
+const sa = frameSchritt(nm('Clear'), nm('Rain'), 0.5, 0.2, 2); // 2 s of 4 s: blend 0.2 -> 0.7
+check('frameSchritt: blend advances by dt / 4 s and the state is the one AT the new blend (not the old one)',
+  nah(sa.blend, 0.7, 1e-12) && sa.prevEnv === nm('Rain') && JSON.stringify(sa.state) === JSON.stringify(uebergangsZustand(nm('Rain'), nm('Clear'), 0.5, 0.7))
+  && JSON.stringify(sa.state) !== JSON.stringify(uebergangsZustand(nm('Rain'), nm('Clear'), 0.5, 0.2)));
+const se = frameSchritt(nm('Clear'), nm('Rain'), 0.5, 0.9, 10); // overshoot: clamped to 1, fade over
+check('frameSchritt: at blend 1 the old weather is dropped and the state is the new weather alone', se.blend === 1 && se.prevEnv === null
+  && JSON.stringify(se.state) === JSON.stringify(evaluateEnv(nm('Clear'), 0.5)));
+const sg = frameSchritt(nm('Clear'), nm('Rain'), 0.5, 0.25, 3); // exactly 1.0 with dt/4 = 0.75
+check('frameSchritt: exactly blend 1 already ends the fade (>= 1, not > 1)', sg.blend === 1 && sg.prevEnv === null);
+const sk = frameSchritt(nm('Clear'), null, 0.5, 0.3, 5);
+check('frameSchritt: without a fade nothing is advanced or dropped', sk.blend === 0.3 && sk.prevEnv === null && JSON.stringify(sk.state) === JSON.stringify(evaluateEnv(nm('Clear'), 0.5)));
+const sw = frameSchritt(nm('Misty'), nm('SwampRain'), 0.5, 0, 1);
+check('frameSchritt: every field of the state comes from the faded state (sun colour, ambient, fog, intensity, directions)',
+  JSON.stringify(sw.state) === JSON.stringify(uebergangsZustand(nm('SwampRain'), nm('Misty'), 0.5, 0.25))
+  && JSON.stringify(sw.state.sunColor) !== JSON.stringify(evaluateEnv(nm('Misty'), 0.5).sunColor));
 const lighting = readFileSync(new URL('../../client/src/engine/Lighting.ts', import.meta.url), 'utf-8');
 check('Lighting: the biome change cross-fades over a positive time', /const ENV_BLEND_SECONDS = [1-9]/.test(lighting) && /this\.blend = Math\.min\(1, this\.blend \+ dtSeconds \/ ENV_BLEND_SECONDS\)/.test(lighting));
 

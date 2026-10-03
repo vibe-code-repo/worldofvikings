@@ -320,12 +320,14 @@ export class GameSocket {
     this.handlers.get(type)!.push(handler);
   }
 
-  sendPacket(type: PacketType, payload: Uint8Array): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+  /** @returns false if the line is not open and the packet was dropped. */
+  sendPacket(type: PacketType, payload: Uint8Array): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
     const packet = new Uint8Array(1 + payload.length);
     packet[0] = type;
     packet.set(payload, 1);
     this.ws.send(packet.buffer);
+    return true;
   }
 
   /**
@@ -452,10 +454,10 @@ export class GameSocket {
    * kommt sofort an, das Paradefenster des Servers ist nur 200 ms lang. Der Server antwortet mit
    * Block=false, wenn ER den Block beendet oder ablehnt.
    */
-  sendBlock(an: boolean): void {
+  sendBlock(an: boolean): boolean {
     const w = new BinaryWriter();
     w.writeBool(an);
-    this.sendPacket(PacketType.Block, w.toUint8Array());
+    return this.sendPacket(PacketType.Block, w.toUint8Array());
   }
 
   /** Interaktion (E): Position + Prefab-Hash des Ziels. */

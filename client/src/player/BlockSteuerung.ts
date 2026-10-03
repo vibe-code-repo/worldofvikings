@@ -12,6 +12,11 @@
  *  - End: release, a row of the table, `blur`, loss of the pointer lock (a row), `Block=false` from the
  *    server (it ended or refused the block), an own swing.
  *  - Send: `sendBlock(true|false)` exactly once per change of state, never twice in a row the same value.
+ *  - Uncertain state: after `Block=false` from the server (it may belong to an older block, a new one may have been accepted
+ *    since) or after a hard reset (teleport, world change, respawn) the client no longer knows what the server holds. It
+ *    then sends one more `Block(false)` (idempotent at the server): at the next release, after a reset at once.
+ *  - A swing and a press in the same frame: the swing wins, no block starts in that frame.
+ *  - If the line is down (`sende` returns false) the start is dropped: the client never blocks without the server knowing.
  *
  * Provisional rule (Mike, 02.10.2026, open question): no block with bare hands (only with an item in the
  * hand) and none with a building tool (`pieceTable`) in the hand.
@@ -102,11 +107,17 @@ export function dreheZu(ist: number, ziel: number, tempo: number, dt: number): n
 
 export class BlockSteuerung {
   private _blockt = false;
+  /** The server may hold a block the client does not believe in: one more `Block(false)` is due. */
+  private ungewiss = false;
+  /** ... and it is due at once, not only at the next release (after a reset). */
+  private sofort = false;
+  /** An own swing came in this frame: no block starts before the next one. */
+  private schlagImBild = false;
   /** Measuring cell: the block holds without the mouse (see `erzwinge`). */
   private erzwungen = false;
 
   /** @param sende `sendBlock`: called once per change of state. */
-  constructor(private readonly sende: (an: boolean) => void) {}
+  constructor(private readonly sende: (an: boolean) => void | boolean) {}
 
   /** Is the figure blocking right now (what the controller and the rig show)? */
   get blockt(): boolean {
@@ -116,13 +127,19 @@ export class BlockSteuerung {
   /** Once per frame with the state of the moment. */
   aktualisiere(u: BlockUmfeld): void {
     const verboten = blockSperre(u) !== null;
+    const schlag = this.schlagImBild;
+    this.schlagImBild = false;
     if (this._blockt) {
       if (!(u.rechtsGedrueckt || this.erzwungen) || verboten) this.beende();
       return;
     }
-    if (u.rechtsFlanke && u.rechtsGedrueckt && !verboten) {
+    if (this.ungewiss && (this.sofort || !(u.rechtsGedrueckt || this.erzwungen))) {
+      this.ungewiss = false;
+      this.sofort = false;
+      this.sende(false);
+    }
+    if (u.rechtsFlanke && u.rechtsGedrueckt && !verboten && !schlag && this.sende(true) !== false) {
       this._blockt = true;
-      this.sende(true);
     }
   }
 
@@ -130,6 +147,15 @@ export class BlockSteuerung {
   serverBeendet(): void {
     this._blockt = false;
     this.erzwungen = false;
+    this.ungewiss = true;
+  }
+
+  /** Teleport, world change, respawn, new connection: forget the block and make sure the server does too. */
+  zuruecksetzen(): void {
+    this._blockt = false;
+    this.erzwungen = false;
+    this.ungewiss = true;
+    this.sofort = true;
   }
 
   /**
@@ -151,6 +177,7 @@ export class BlockSteuerung {
   /** An own swing ends the block (the server does the same). */
   schlag(): void {
     this.beende();
+    this.schlagImBild = true;
   }
 
   private beende(): void {

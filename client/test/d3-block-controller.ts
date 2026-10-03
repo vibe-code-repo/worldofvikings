@@ -173,6 +173,38 @@ console.log('\n[2] The speed: client and server agree');
   check('control: Shift with no stamina left walks at 4.5 m/s (the speed follows `running`, not the key)', Math.abs(Math.hypot(leer.position.x, leer.position.z) - 4.5) < 0.05, `${Math.hypot(leer.position.x, leer.position.z).toFixed(3)} m`);
 }
 
+console.log('\n[2b] Build mode and the air');
+{
+  // N4: build mode (editor test flight) is no block, even if the flag is set: the figure does not turn to the camera.
+  const { pc, ein } = neu();
+  ein.dx = Math.PI / EMPF;
+  pc.update(1 / 60);
+  pc.setBauModus(true);
+  pc.setzeBlock(true);
+  lauf(pc, 30);
+  const rig = pc.avatar as unknown as { blockAn: boolean };
+  check('build mode: the figure does not turn to the camera although the block flag is set', abweichung(pc.yaw, pc.figurYaw) > 179, `${abweichung(pc.yaw, pc.figurYaw).toFixed(1)} deg`);
+  check('build mode: the rig is told "no block"', rig.blockAn === false);
+  pc.setBauModus(false);
+  lauf(pc, 21);
+  check('back out of build mode the same flag blocks again (turns to the camera)', abweichung(pc.yaw, pc.figurYaw) <= 1, `${abweichung(pc.yaw, pc.figurYaw).toFixed(2)} deg`);
+}
+{
+  // N18: the block speed holds in the air too. The server has no jump physics (it walks along the ground at the packet's
+  // speed), so a different speed in the air would pull the client away from the server at every jump.
+  const { pc, ein } = neu();
+  ein.tasten.add('KeyA');
+  pc.setzeBlock(true);
+  (pc as unknown as { inDerLuft: boolean }).inDerLuft = true;
+  lauf(pc, 60);
+  check('blocking while in the air: still 2.25 m/s horizontally', Math.abs(Math.hypot(pc.position.x, pc.position.z) - 2.25) < 0.05, `${Math.hypot(pc.position.x, pc.position.z).toFixed(3)} m in 1 s`);
+  const { pc: frei, ein: ein2 } = neu();
+  ein2.tasten.add('KeyA');
+  (frei as unknown as { inDerLuft: boolean }).inDerLuft = true;
+  lauf(frei, 60);
+  check('(control) walking in the air without the block: 4.5 m/s', Math.abs(Math.hypot(frei.position.x, frei.position.z) - 4.5) < 0.05, `${Math.hypot(frei.position.x, frei.position.z).toFixed(3)} m`);
+}
+
 console.log('\n[3] What goes to the rig and to the server');
 {
   // The rig is told the block and the direction relative to the view (it picks the clip from it).

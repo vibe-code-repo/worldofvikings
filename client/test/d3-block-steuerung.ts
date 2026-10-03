@@ -48,7 +48,7 @@ const halten = (u: BlockUmfeld): BlockUmfeld => ({ ...u, rechtsFlanke: false });
 
 function neu(): { b: BlockSteuerung; gesendet: boolean[] } {
   const gesendet: boolean[] = [];
-  return { b: new BlockSteuerung((an) => gesendet.push(an)), gesendet };
+  return { b: new BlockSteuerung((an) => { gesendet.push(an); }), gesendet };
 }
 
 // ── [1] conflict table ────────────────────────────────────────────────────
@@ -143,11 +143,99 @@ console.log('\n[2] Start, hold and end');
   b.aktualisiere(halten(FREI));
   check('the button is still down: no restart, nothing sent', !b.blockt && gesendet.join() === 'true');
   b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false });
+  check('the release after the server end sends one more `Block(false)` (the server may hold a newer block)', !b.blockt && gesendet.join() === 'true,false');
+  b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false });
+  check('… and only one (idempotent, no repeat)', gesendet.join() === 'true,false');
   b.aktualisiere(FREI);
-  check('a fresh press after the server end blocks again', b.blockt && gesendet.join() === 'true,true');
+  check('a fresh press after the server end blocks again', b.blockt && gesendet.join() === 'true,false,true');
   const { b: leer } = neu();
   leer.serverBeendet();
   check('`Block=false` without a block is harmless', !leer.blockt);
+}
+
+// ── [2b] swing and press in the same frame (F1) ──────────────────────────
+console.log('\n[2b] A swing and a press in the same frame');
+{
+  const { b, gesendet } = neu();
+  b.schlag(); // main.ts: the left click branch comes first
+  b.aktualisiere(FREI); // ... then the right button went down in the same frame
+  check('swing first, press in the same frame: no block starts, nothing sent', !b.blockt && gesendet.length === 0, gesendet.join());
+  b.aktualisiere(halten(FREI));
+  check('the button is still down next frame: still no block (needs a fresh press)', !b.blockt && gesendet.length === 0);
+  b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false });
+  b.aktualisiere(FREI);
+  check('a fresh press in a later frame blocks', b.blockt && gesendet.join() === 'true');
+  const { b: b2, gesendet: g2 } = neu();
+  b2.aktualisiere(FREI);
+  b2.schlag(); // the other order: block first, then the swing
+  check('press first, swing after it in the same frame: [true, false], no block', !b2.blockt && g2.join() === 'true,false');
+  b2.aktualisiere(halten(FREI));
+  check('… and the held button does not start a new one', !b2.blockt && g2.join() === 'true,false');
+  const { b: b3, gesendet: g3 } = neu();
+  b3.schlag();
+  b3.aktualisiere({ ...FREI, rechtsFlanke: false, rechtsGedrueckt: false });
+  b3.aktualisiere(FREI);
+  check('a swing blocks only ITS frame: the press one frame later starts a block', b3.blockt && g3.join() === 'true');
+}
+
+// ── [2c] uncertain state (F2) ─────────────────────────────────────────────
+console.log('\n[2c] When the client no longer knows what the server holds');
+{
+  // An old `Block=false` meets a fresh press: [true, false, true], then the late message.
+  const { b, gesendet } = neu();
+  b.aktualisiere(FREI);
+  b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false });
+  b.aktualisiere(FREI);
+  b.serverBeendet(); // the old message arrives
+  check('(set-up) the client believes in no block, the server holds the new one: [true,false,true] were sent', !b.blockt && gesendet.join() === 'true,false,true');
+  for (let i = 0; i < 20; i++) b.aktualisiere(halten(FREI));
+  check('while the button is held nothing is sent', gesendet.join() === 'true,false,true');
+  b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false });
+  check('the release sends `Block(false)` although the client believed in no block: the server lets go', gesendet.join() === 'true,false,true,false');
+  for (let i = 0; i < 5; i++) b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false });
+  check('and then it stays quiet', gesendet.join() === 'true,false,true,false');
+  b.aktualisiere(FREI);
+  b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false });
+  check('a normal block afterwards: one true, one false, no extra false', gesendet.join() === 'true,false,true,false,true,false');
+}
+{
+  // The server ended while the button was already up.
+  const { b, gesendet } = neu();
+  b.aktualisiere(FREI);
+  b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false });
+  b.serverBeendet();
+  b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false });
+  b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false });
+  check('server end with the button already up: one more false at the next frame, once', gesendet.join() === 'true,false,false', gesendet.join());
+}
+{
+  // A reset (teleport, world change, respawn): at once, button held or not, and no restart without a fresh press.
+  const { b, gesendet } = neu();
+  b.aktualisiere(FREI);
+  b.zuruecksetzen();
+  check('reset: the block is gone at once', !b.blockt);
+  b.aktualisiere(halten(FREI));
+  check('reset with the button held: `Block(false)` is sent at the next frame (the server may still hold)', gesendet.join() === 'true,false', gesendet.join());
+  for (let i = 0; i < 5; i++) b.aktualisiere(halten(FREI));
+  check('… once, and the held button does not start a block', !b.blockt && gesendet.join() === 'true,false');
+  b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false });
+  b.aktualisiere(FREI);
+  check('a fresh press after the reset blocks again', b.blockt && gesendet.join() === 'true,false,true');
+  b.zuruecksetzen();
+  b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false });
+  check('a second reset sends again (it is idempotent at the server)', gesendet.join() === 'true,false,true,false');
+}
+{
+  // The line is down: sendPacket drops the packet and `sende` says so.
+  let offen = false;
+  const gesendet: boolean[] = [];
+  const b = new BlockSteuerung((an) => { if (!offen) return false; gesendet.push(an); return true; });
+  b.aktualisiere(FREI);
+  check('line down: the start is dropped, the client does not block (it would run at half speed without the server knowing)', !b.blockt && gesendet.length === 0);
+  b.aktualisiere({ ...halten(FREI), rechtsGedrueckt: false });
+  offen = true;
+  b.aktualisiere(FREI);
+  check('line back and a fresh press: blocks, true sent', b.blockt && gesendet.join() === 'true');
 }
 
 // ── [3] sending ───────────────────────────────────────────────────────────

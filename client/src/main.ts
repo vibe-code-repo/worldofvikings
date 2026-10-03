@@ -996,7 +996,7 @@ async function main() {
   let angriffCooldown = 0;
   // D3: rechte Maustaste halten = Block (Regeln in BlockSteuerung, Verdrahtung in BlockVerdrahtung).
   const block = new BlockVerdrahtung({
-    sendBlock: (an) => socket?.sendBlock(an), input, player: () => player, equipment: () => equipment, placement: () => placement,
+    sendBlock: (an) => socket?.sendBlock(an) ?? false, input, player: () => player, equipment: () => equipment, placement: () => placement,
     fensterOffen: () => cursorNoetig(), dekorAktiv: () => dekoPlatzierung.aktiv,
   });
   /**

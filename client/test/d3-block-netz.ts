@@ -51,6 +51,13 @@ console.log('\n[1] sendBlock');
   check('the packet type is 89', PacketType.Block === 89);
   check('sendBlock(true) = [89, 1], sendBlock(false) = [89, 0]', gesendet.length === 2 && gesendet[0]!.join() === '89,1' && gesendet[1]!.join() === '89,0', JSON.stringify(gesendet));
   check('the old `sendParry` is gone from the socket', !('sendParry' in socket));
+  check('`sendBlock` says the packet went out (true)', socket.sendBlock(true) === true && gesendet.length === 3);
+  const zu = new GameSocket('ws://test.invalid', 'Test');
+  const dicht: number[][] = [];
+  (zu as unknown as { ws: unknown }).ws = { readyState: WebSocket.CLOSED, send: (b: ArrayBuffer) => dicht.push([...new Uint8Array(b)]) };
+  check('line closed: `sendBlock` returns false and sends nothing', zu.sendBlock(true) === false && dicht.length === 0);
+  const ohne = new GameSocket('ws://test.invalid', 'Test');
+  check('no line at all: `sendBlock` returns false', ohne.sendBlock(false) === false);
   const quelle = readFileSync(resolve(HIER, '../src/net/GameSocket.ts'), 'utf-8');
   check('and no client code sends `PacketType.Parry` any more', !/PacketType\.Parry/.test(quelle) && !/sendParry/.test(readFileSync(resolve(HIER, '../src/main.ts'), 'utf-8')));
 }
@@ -64,7 +71,7 @@ interface Spiel {
 function neuesSpiel(): { v: BlockVerdrahtung; spiel: Spiel } {
   const spiel: Spiel = { rechts: false, flanke: false, gefangen: true, fenster: false, dekor: false, bauModus: false, teil: false, werkzeug: null, hand: true, liegt: false, y: 50, spieler: true, setzeBlockAufrufe: [], blur: [], gesendet: [] };
   const q: BlockQuellen = {
-    sendBlock: (an) => spiel.gesendet.push(an),
+    sendBlock: (an) => { spiel.gesendet.push(an); },
     input: { isMouseDown: (b) => b === 2 && spiel.rechts, wasMousePressed: (b) => b === 2 && spiel.flanke },
     player: () => (spiel.spieler ? { setzeBlock: (an) => spiel.setzeBlockAufrufe.push(an), get bauModus() { return spiel.bauModus; }, get position() { return { y: spiel.y }; }, get avatar() { return { liegt: spiel.liegt }; } } : null),
     equipment: () => ({ rightItem: spiel.hand ? {} : null, pieceTable: spiel.werkzeug }),
@@ -97,10 +104,21 @@ console.log('\n[2] The server ends the block');
   v.frame();
   v.frame();
   check('the button is still down: no restart and nothing sent', !v.blockt && spiel.gesendet.join() === 'true');
+  // A teleport (world change, dungeon, respawn) resets the block and tells the server so, once.
+  druecke(v, spiel);
+  loslassen(v, spiel);
+  druecke(v, spiel);
+  hereinkommen(socket, [PacketType.Teleport]);
+  check('a Teleport packet resets the block at the client', !v.blockt);
+  const vorher = spiel.gesendet.length;
+  v.frame();
+  check('… and the next frame sends `Block(false)` once, button still held', spiel.gesendet.length === vorher + 1 && spiel.gesendet[vorher] === false, spiel.gesendet.join());
+  v.frame();
+  check('… not again, and no restart without a fresh press', spiel.gesendet.length === vorher + 1 && !v.blockt);
   check('the figure was told "off" at the next frame', spiel.setzeBlockAufrufe[spiel.setzeBlockAufrufe.length - 1] === false);
   loslassen(v, spiel);
   druecke(v, spiel);
-  check('a fresh press blocks again', v.blockt && spiel.gesendet.join() === 'true,true');
+  check('after the teleport reset a fresh press blocks again (…, false, true)', v.blockt && spiel.gesendet.slice(-2).join() === 'false,true', spiel.gesendet.join());
 }
 
 // ── [3] the whole chain ───────────────────────────────────────────────────
@@ -143,6 +161,30 @@ console.log('\n[3] mouse -> frame -> sendBlock -> bytes');
   hereinkommen(s2, [PacketType.Block, 0]);
   for (let i = 0; i < 30; i++) v3.frame();
   check('the server refuses the start (Block=false): the client stops, sends nothing back and does not retry while the button stays down', !v3.blockt && g2.length === 1 && g2[0]!.join() === '89,1', JSON.stringify(g2));
+}
+
+// A closed line: the block must not start (the client would walk at half speed and the server not know it).
+{
+  const zu = new GameSocket('ws://test.invalid', 'Test');
+  (zu as unknown as { ws: unknown }).ws = { readyState: WebSocket.CLOSED, send: () => undefined };
+  const spiel = neuesSpiel().spiel;
+  const v = new BlockVerdrahtung({
+    sendBlock: (an) => zu.sendBlock(an), input: { isMouseDown: () => spiel.rechts, wasMousePressed: () => spiel.flanke },
+    player: () => ({ setzeBlock: () => undefined, bauModus: false, position: { y: 50 }, avatar: { liegt: false } }),
+    equipment: () => ({ rightItem: {}, pieceTable: null }), placement: () => null, fensterOffen: () => false, dekorAktiv: () => false, zeigerGefangen: () => true,
+    fenster: { addEventListener: () => undefined },
+  });
+  druecke(v, spiel);
+  check('closed line: pressing does not start a block', !v.blockt);
+}
+// A new connection starts clean: `verdrahte` resets, a block of the old connection is gone.
+{
+  const { v, spiel } = neuesSpiel();
+  druecke(v, spiel);
+  const { socket: neuer } = neuerSocket();
+  v.verdrahte(neuer);
+  hereinkommen(neuer, [PacketType.Teleport]);
+  check('(teleport on a fresh socket) the block of the old connection is reset', !v.blockt);
 }
 
 // ── [4] the messages ──────────────────────────────────────────────────────
@@ -195,7 +237,7 @@ console.log('\n[5] frame(): every source reaches the table');
     (globalThis as unknown as { document: unknown }).document = dokument;
     const spiel = neuesSpiel().spiel;
     const v = new BlockVerdrahtung({
-      sendBlock: (an) => spiel.gesendet.push(an), input: { isMouseDown: () => true, wasMousePressed: () => true },
+      sendBlock: (an) => { spiel.gesendet.push(an); }, input: { isMouseDown: () => true, wasMousePressed: () => true },
       player: () => ({ setzeBlock: () => undefined, bauModus: false, position: { y: 50 }, avatar: { liegt: false } }),
       equipment: () => ({ rightItem: {}, pieceTable: null }), placement: () => null, fensterOffen: () => false, dekorAktiv: () => false, fenster: { addEventListener: () => undefined },
     });
@@ -244,7 +286,7 @@ console.log('\n[6] main.ts is wired to it');
   const felder = arg && ts.isObjectLiteralExpression(arg) ? arg.properties.flatMap((p) => (ts.isPropertyAssignment(p) ? [{ name: text(p.name), wert: text(p.initializer) }] : ts.isShorthandPropertyAssignment(p) ? [{ name: text(p.name), wert: text(p.name) }] : [])) : [];
   const wert = (n: string): string => felder.find((f) => f.name === n)?.wert ?? '';
   check('… with exactly the seven sources of `BlockQuellen`', felder.map((f) => f.name).sort().join() === ['dekorAktiv', 'equipment', 'fensterOffen', 'input', 'placement', 'player', 'sendBlock'].join(), felder.map((f) => f.name).join());
-  check('sendBlock goes to the socket: `socket?.sendBlock(an)`', wert('sendBlock') === '(an) => socket?.sendBlock(an)', wert('sendBlock'));
+  check('sendBlock goes to the socket, and a missing socket counts as "not sent": `socket?.sendBlock(an) ?? false`', wert('sendBlock') === '(an) => socket?.sendBlock(an) ?? false', wert('sendBlock'));
   check('input is the game\'s input; player, equipment, placement are the live objects (getters, so the late `let`s work)', wert('input') === 'input' && wert('player') === '() => player' && wert('equipment') === '() => equipment' && wert('placement') === '() => placement', `${wert('input')} | ${wert('player')} | ${wert('equipment')} | ${wert('placement')}`);
   check('fensterOffen is `cursorNoetig()`, dekorAktiv is `dekoPlatzierung.aktiv`', wert('fensterOffen') === '() => cursorNoetig()' && wert('dekorAktiv') === '() => dekoPlatzierung.aktiv', `${wert('fensterOffen')} | ${wert('dekorAktiv')}`);
   const frame = aufruf('block.frame');

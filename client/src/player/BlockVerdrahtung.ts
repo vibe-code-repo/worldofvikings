@@ -11,7 +11,7 @@ import { BlockSteuerung } from './BlockSteuerung';
 /** What the wiring needs of the game; every field is a getter, so late-created objects (`let player`) work. */
 export interface BlockQuellen {
   /** `socket?.sendBlock(an)`: called once per change of state. */
-  sendBlock: (an: boolean) => void;
+  sendBlock: (an: boolean) => void | boolean;
   input: { isMouseDown(button: number): boolean; wasMousePressed(button: number): boolean };
   player: () => {
     setzeBlock(an: boolean): void;
@@ -60,10 +60,14 @@ export class BlockVerdrahtung extends BlockSteuerung {
     spieler.setzeBlock(this.blockt);
   }
 
-  /** The server's `Block=false` (it ended or refused the block) ends the block here; no answer back. */
+  /**
+   * The server's `Block=false` (it ended or refused the block) ends the block here (and leaves the state uncertain, see
+   * `BlockSteuerung`); a teleport (world change, dungeon, respawn) resets it. Called once per connection.
+   */
   verdrahte(socket: { on(typ: PacketType, handler: (reader: BinaryReader) => void): void }): void {
     socket.on(PacketType.Block, (reader) => {
       if (!reader.readBool()) this.serverBeendet();
     });
+    socket.on(PacketType.Teleport, () => this.zuruecksetzen());
   }
 }

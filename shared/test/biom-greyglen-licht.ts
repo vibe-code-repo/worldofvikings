@@ -96,13 +96,17 @@ check('by day the own state applies (noon differs from grassland)', !gleichState
 // continuity at sunrise and sunset: no step bigger than the change one step of the clock can bring
 const winkel = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }): number =>
   Math.acos(Math.max(-1, Math.min(1, a.x * b.x + a.y * b.y + a.z * b.z))) * 180 / Math.PI;
+const einheit = (v: { x: number; y: number; z: number }): { x: number; y: number; z: number } => {
+  const l = Math.hypot(v.x, v.y, v.z);
+  return { x: v.x / l, y: v.y / l, z: v.z / l };
+};
 const groesterSchritt = (env: typeof glen): number => {
   let m = 0;
   let vor = evaluateEnv(env, 0);
   for (let i = 1; i <= 20000; i++) {
     const e = evaluateEnv(env, i / 20000);
     m = Math.max(m, Math.abs(e.fogDensity - vor.fogDensity) * 10, Math.abs(e.lightIntensity - vor.lightIntensity),
-      Math.abs(e.ambColor.g - vor.ambColor.g), Math.abs(e.sunColor.g - vor.sunColor.g), winkel(e.sunDir, vor.sunDir) / 10);
+      Math.abs(e.ambColor.g - vor.ambColor.g), Math.abs(e.sunColor.g - vor.sunColor.g), winkel(e.sunDir, vor.sunDir) / 10, winkel(einheit(e.lightDir), einheit(vor.lightDir)) / 10);
     vor = e;
   }
   return m;

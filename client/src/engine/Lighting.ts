@@ -199,6 +199,20 @@ function lerpEnvColor(a: EnvColor, b: EnvColor, t: number): EnvColor {
   };
 }
 
+/** Whether a fade between two weathers blends the light direction: only when 'Glen clear' is one end of it. */
+export function mischtRichtung(von: EnvSetup, nach: EnvSetup): boolean {
+  return von.name === ENV_GLEN_CLEAR || nach.name === ENV_GLEN_CLEAR;
+}
+
+/**
+ * The state shown while fading from `von` to `nach` (blend 0..1) at a time of day — the one place that
+ * decides how the two are mixed.
+ * Der gezeigte Zustand waehrend der Ueberblendung von `von` nach `nach`.
+ */
+export function uebergangsZustand(von: EnvSetup, nach: EnvSetup, timeOfDay: number, blend: number): EnvState {
+  return lerpEnvState(evaluateEnv(von, timeOfDay), evaluateEnv(nach, timeOfDay), blend, mischtRichtung(von, nach));
+}
+
 /** Linear blend of two unit directions, renormalised; the target when they cancel out. */
 function lerpRichtung(
   a: { x: number; y: number; z: number },
@@ -570,12 +584,7 @@ export class Lighting {
     let state = evaluateEnv(this.env, this.timeOfDay);
     if (this.prevEnv) {
       this.blend = Math.min(1, this.blend + dtSeconds / ENV_BLEND_SECONDS);
-      state = lerpEnvState(
-        evaluateEnv(this.prevEnv, this.timeOfDay),
-        state,
-        this.blend,
-        this.prevEnv.name === ENV_GLEN_CLEAR || this.env.name === ENV_GLEN_CLEAR,
-      );
+      state = uebergangsZustand(this.prevEnv, this.env, this.timeOfDay, this.blend);
       if (this.blend >= 1) this.prevEnv = null;
     }
     // Feste Nebeldichte aus server.yml — HIER, vor `this.state`, damit das

@@ -44,6 +44,7 @@ import { parse as parseYaml } from 'yaml';
 import {
   ENVIRONMENTS,
   ENV_CLEAR,
+  ELEV_UEBERBLENDUNG,
   ENV_GLEN_CLEAR,
   ENV_KLAR_COMIC,
   LOOK_VORGABE,
@@ -412,11 +413,12 @@ function abendStuetzpunkt(): void {
   let wo = '';
   for (const env of ENVIRONMENTS) {
     if (env.ambColorEvening !== undefined || env.lightIntensityEvening !== undefined) continue;
-    // 'Glen clear' is Clear below the horizon and fades in above it (shared/test/biom-greyglen-licht.ts checks it)
-    if (env.name === ENV_GLEN_CLEAR) continue;
     for (let i = 0; i < 96; i++) {
       const t = i / 96;
       const st = evaluateEnv(env, t);
+      // 'Glen clear' is Clear below the horizon and fades in above it: the formula holds only from the end
+      // of the fade-in band up (below, shared/test/biom-greyglen-licht.ts checks it)
+      if (env.name === ENV_GLEN_CLEAR && st.elevation < ELEV_UEBERBLENDUNG) continue;
       // Die MENGE Tag kommt seit dem 12.09.2026 aus dem Sonnenstand und
       // nicht mehr aus dem Phasengewicht. Hier stand `w.day` — und genau
       // das war die zweite Uhr, an der zwischen 03:13 und 05:54 sowie

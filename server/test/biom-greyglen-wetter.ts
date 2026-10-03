@@ -20,7 +20,7 @@ import { WetterDienst, type WetterEmpfaenger } from '../src/spiel/Wetter.js';
 import { Reader } from '../src/io/Reader.js';
 import { Writer } from '../src/io/Writer.js';
 import { WetterAnnahme, type WetterLeser } from '../../client/src/net/wetterAnnahme.js';
-import { lerpEnvState } from '../../client/src/engine/Lighting.js';
+import { lerpEnvState, mischtRichtung, uebergangsZustand } from '../../client/src/engine/Lighting.js';
 
 const nah = (a: number, b: number, eps: number): boolean => Math.abs(a - b) <= eps;
 let fehler = 0;
@@ -154,12 +154,29 @@ for (const [x, y] of PAARE) {
 check('fades between pairs without Glen clear are identical to the behaviour before (8 pairs, 5 times, 4 steps)', alleGleich && geprueft === 160, String(geprueft));
 const sw = lerpEnvState(evaluateEnv(findEnvironment('SwampRain')!, 0.5), evaluateEnv(findEnvironment('DeepNorth_dark')!, 0.5), 0.5);
 check('SwampRain to DeepNorth_dark at half: direction is the target\'s, not blended', gl(sw.sunDir, evaluateEnv(findEnvironment('DeepNorth_dark')!, 0.5).sunDir) === 0);
+const nm = (n: string) => findEnvironment(n)!;
+const glenEnv = nm(ENV_GLEN_CLEAR);
+check('mischtRichtung: Glen ends yes, no Glen no (6 ordered pairs)',
+  mischtRichtung(glenEnv, nm('Clear')) && mischtRichtung(nm('Clear'), glenEnv) && !mischtRichtung(nm('Clear'), nm('Rain'))
+  && mischtRichtung(glenEnv, nm('Rain')) && mischtRichtung(nm('Rain'), glenEnv) && !mischtRichtung(nm('Rain'), nm('Clear'))
+  && mischtRichtung(glenEnv, glenEnv) === true && !mischtRichtung(nm('SwampRain'), nm('DeepNorth_dark')));
+// the state shown during a fade, for every blend step: Glen pairs are blended, the others are the old behaviour
+let uebergangOk = true;
+for (const [x, y] of [...PAARE, ['Clear', ENV_GLEN_CLEAR], [ENV_GLEN_CLEAR, 'Clear'], ['Rain', ENV_GLEN_CLEAR], [ENV_GLEN_CLEAR, 'Rain']] as [string, string][]) {
+  for (const f of [0.2, 0.5, 0.7]) {
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+      const a = evaluateEnv(nm(x), f);
+      const b = evaluateEnv(nm(y), f);
+      const soll = x === ENV_GLEN_CLEAR || y === ENV_GLEN_CLEAR ? lerpEnvState(a, b, t, true) : alt(a, b, t);
+      if (JSON.stringify(uebergangsZustand(nm(x), nm(y), f, t)) !== JSON.stringify(soll)) uebergangOk = false;
+    }
+  }
+}
+check('uebergangsZustand: Glen pairs blend the direction, every other pair is the old behaviour (12 pairs x 3 times x 5 steps)', uebergangOk);
+check('Glen at half blend: the direction is not the target\'s (so the mix really happens)',
+  gl(uebergangsZustand(nm('Clear'), glenEnv, 0.5, 0.5).sunDir, nach.sunDir) > 0.5);
 const lichtQuelle = readFileSync(new URL('../../client/src/engine/Lighting.ts', import.meta.url), 'utf-8');
-check('Lighting.apply blends the direction only when Glen clear is one end of the fade',
-  /this\.prevEnv\.name === ENV_GLEN_CLEAR \|\| this\.env\.name === ENV_GLEN_CLEAR/.test(lichtQuelle));
-const gegen = { ...von, lightDir: { x: -nach.lightDir.x, y: -nach.lightDir.y, z: -nach.lightDir.z }, sunDir: { x: -nach.sunDir.x, y: -nach.sunDir.y, z: -nach.sunDir.z } };
-const heb = lerpEnvState(gegen, nach, 0.5, true);
-check('blend of exactly opposite directions falls back to the target\'s', JSON.stringify(heb.lightDir) === JSON.stringify(nach.lightDir) && JSON.stringify(heb.sunDir) === JSON.stringify(nach.sunDir));
+check('Lighting.apply takes the faded state from uebergangsZustand', /state = uebergangsZustand\(this\.prevEnv, this\.env, this\.timeOfDay, this\.blend\);/.test(lichtQuelle));
 const lighting = readFileSync(new URL('../../client/src/engine/Lighting.ts', import.meta.url), 'utf-8');
 check('Lighting: the biome change cross-fades over a positive time', /const ENV_BLEND_SECONDS = [1-9]/.test(lighting) && /this\.blend = Math\.min\(1, this\.blend \+ dtSeconds \/ ENV_BLEND_SECONDS\)/.test(lighting));
 

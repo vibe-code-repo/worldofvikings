@@ -1339,7 +1339,7 @@ function mischeStaerke(env: EnvSetup, w: PhaseWeights, tagAnteil: number): numbe
  * States that are exactly another state below the horizon.
  */
 const NACHT_BASIS: ReadonlyMap<string, string> = new Map([[ENV_GLEN_CLEAR, ENV_CLEAR]]);
-const ELEV_UEBERBLENDUNG = 0.25;
+export const ELEV_UEBERBLENDUNG = 0.25;
 
 function mischeRichtung(
   a: { x: number; y: number; z: number },

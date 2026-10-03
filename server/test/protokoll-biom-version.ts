@@ -194,9 +194,10 @@ async function anmeldungEndet(): Promise<void> {
   try {
     server.start();
     await warte(300);
-    console.log = log;
+    const zeilen: string[] = [];
+    console.log = (...a: unknown[]) => { zeilen.push(a.map(String).join(' ')); log(...a); };
     const port = portVon(server);
-    const spieler = (): number => server.zdos.getAllZDOs().filter((z) => z.prefab !== 0 && server.prefabs.getByHash(z.prefab)?.name === 'Player').length;
+    const spieler = (): number => server.zdos.getAllZDOs().length;
     const vorher = spieler();
     const arten: number[] = [];
     let grund: string | null = null;
@@ -229,7 +230,8 @@ async function anmeldungEndet(): Promise<void> {
     check('login: the client that no longer fits the document is turned away with the reload message', /veraltet/.test(grund ?? '') && /neu laden/.test(grund ?? ''), grund ?? 'none');
     check('login: nothing at all arrives after the Disconnect packet', nachDisconnect === 0, `${nachDisconnect} packets after`);
     check('login: the Disconnect is the last packet and no zone data was sent', arten[arten.length - 1] === P.Disconnect && !arten.includes(10), arten.join(','));
-    check('login: no character was created for the refused client', spieler() === vorher, `${vorher} -> ${spieler()}`);
+    check('login: the server never reached the spawn of the refused client (no "spawned" log line)', !zeilen.some((z) => /Player "Spaet" spawned/.test(z)), zeilen.filter((z) => /Spaet/.test(z)).join(' | '));
+    check('login: nothing was created in the world for the refused client (ZDO count unchanged)', spieler() === vorher, `${vorher} -> ${spieler()}`);
   } finally {
     console.log = log;
     await server.stop();

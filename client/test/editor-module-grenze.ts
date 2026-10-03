@@ -788,13 +788,13 @@ console.log('\n[4] Behaviour (loaded without a browser)');
       }
     }
   }
-  check(`BIOME_NAMEN has eight entries, all different (read from the syntax tree: ${namen.join(', ')})`, namen.length === 8 && new Set(namen).size === 8);
+  check(`BIOME_NAMEN has nine entries, all different (read from the syntax tree: ${namen.join(', ')})`, namen.length === 9 && new Set(namen).size === 9);
   if (biome && design) {
     const farben = biome.BIOME_FARBE as Record<string, string>;
     const ton = biome.biomTon as (b: string) => readonly [string, string];
     check('BIOME_FARBE has a value for each of them, and for nothing else', JSON.stringify(Object.keys(farben).sort()) === JSON.stringify([...namen].sort()), Object.keys(farben).join(','));
-    check('… each value is the OUTLINE tone of design.ts (`BIOM_TON[b][1]`), a colour', namen.length === 8 && namen.every((b) => /^#[0-9a-f]{6}$/i.test(farben[b] ?? '') && farben[b] === design.BIOM_TON[b]?.[1]));
-    check('biomTon gives the pair of design.ts, fill first', namen.length === 8 && namen.every((b) => ton(b) === design.BIOM_TON[b]));
+    check('… each value is the OUTLINE tone of design.ts (`BIOM_TON[b][1]`), a colour', namen.length === 9 && namen.every((b) => /^#[0-9a-f]{6}$/i.test(farben[b] ?? '') && farben[b] === design.BIOM_TON[b]?.[1]));
+    check('biomTon gives the pair of design.ts, fill first', namen.length === 9 && namen.every((b) => ton(b) === design.BIOM_TON[b]));
     check('biomTon falls back to two greys for a biome without a tone', JSON.stringify(ton('no-such-biome')) === JSON.stringify([design.F.gedimmt3, design.F.gedimmt]));
   } else {
     for (let i = 0; i < 4; i++) check('biome.ts: behaviour could not be checked (module did not load)', false);

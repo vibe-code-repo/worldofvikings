@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "eintraege": [
+    {
+      "id": "vegetation/fern-1a1",
+      "pfad": "vegetation/fern-1a1.glb",
+      "prefab": "vegetation-fern-1a1",
+      "textKey": "inhalt.prefab.vegetation_fern_1a1",
+      "bytes": 13748,
+      "hash": "sha256-46f5010f690b8dc7227e3252775eb054fbee6a07dd52b6415015ebac3937af76",
+      "bounds": {
+        "min": [
+          -0.6427,
+          -0.0333,
+          -0.6632
+        ],
+        "max": [
+          0.6991,
+          0.5571,
+          0.6249
+        ]
+      },
+      "dreiecke": 132,
+      "material": "farn",
+      "alphaModus": "MASK",
+      "zweiseitig": true,
+      "textur": {
+        "datei": "textures/farn-67659ec5.png",
+        "bytes": 518774,
+        "hash": "sha256-67659ec583290f890a3e654a3eb232ebd7f53c4f440ab50c55f5822681d33844"
+      }
+    },
+    {
+      "id": "vegetation/flower-1a12",
+      "pfad": "vegetation/flower-1a12.glb",
+      "prefab": "vegetation-flower-1a12",
+      "textKey": "inhalt.prefab.vegetation_flower_1a12",
+      "bytes": 11680,
+      "hash": "sha256-266f3f80adece1e3c9956759ea748761eee48a06bf16b55fc61345fe26fd6cab",
+      "bounds": {
+        "min": [
+          -0.0494,
+          -0.0255,
+          -0.0914
+        ],
+        "max": [
+          0.1243,
+          0.519,
+          0.1466
+        ]
+      },
+      "dreiecke": 196,
+      "material": "blume",
+      "alphaModus": "MASK",
+      "zweiseitig": true,
+      "textur": {
+        "datei": "textures/blume-7074997a.png",
+        "bytes": 2424848,
+        "hash": "sha256-7074997a2b3acda7e65d6c96eb282f99133e010bccf7568d4b7e040c0b69bfcf"
+      }
+    },
+    {
+      "id": "vegetation/flower-1a4",
+      "pfad": "vegetation/flower-1a4.glb",
+      "prefab": "vegetation-flower-1a4",
+      "textKey": "inhalt.prefab.vegetation_flower_1a4",
+      "bytes": 12352,
+      "hash": "sha256-1e592e2bae234db7216616c843a3977bb06ee2f578d62b90701f21623e6d4e71",
+      "bounds": {
+        "min": [
+          -0.0915,
+          -0.0329,
+          -0.2754
+        ],
+        "max": [
+          0.1149,
+          0.4254,
+          0.0951
+        ]
+      },
+      "dreiecke": 212,
+      "material": "blume",
+      "alphaModus": "MASK",
+      "zweiseitig": true,
+      "textur": {
+        "datei": "textures/blume-7074997a.png",
+        "bytes": 2424848,
+        "hash": "sha256-7074997a2b3acda7e65d6c96eb282f99133e010bccf7568d4b7e040c0b69bfcf"
+      }
+    }
+  ]
+}

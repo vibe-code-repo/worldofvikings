@@ -107,6 +107,7 @@ export const BIOM_TON: Record<string, readonly [string, string]> = {
   plains: ['#7d7135', '#b8a256'],
   mountain: ['#8fa3ad', '#cfd6dd'],
   ashlands: ['#5a2f24', '#8a4a3a'],
+  greyglen: ['#3f5f5a', '#7fb0a6'],
 };
 
 // ── Maße ─────────────────────────────────────────────────────────────

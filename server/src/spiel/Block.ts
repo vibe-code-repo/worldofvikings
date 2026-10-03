@@ -8,7 +8,7 @@
  * `WovServer.ts` only forwards: `handleBlock`, the hold tick in `handlePlayerInput`, `blockTrifft`
  * in `applyCreatureAttack`, `beendeBlockDurchSchlag` in `handleAttack`, `blockZuruecksetzen` in `stirb`.
  */
-import { BLOCK_SPERRE_MS, SERVER_MELDUNG_GEBLOCKT, SERVER_MELDUNG_PARIERT, SERVER_MELDUNG_ZU_ERSCHOEPFT, blockHalten, blockTreffer as blockTrefferRegel, type BlockErgebnis } from '@wov/shared/src/kampf/block.js';
+import { BLOCK_BEGINN_AUSDAUER, BLOCK_SPERRE_MS, SERVER_MELDUNG_GEBLOCKT, SERVER_MELDUNG_PARIERT, SERVER_MELDUNG_ZU_ERSCHOEPFT, blockHalten, blockTreffer as blockTrefferRegel, type BlockErgebnis } from '@wov/shared/src/kampf/block.js';
 import { PacketType } from '@wov/shared';
 import type { Peer } from '../net/Peer.js';
 
@@ -88,10 +88,12 @@ export function blockPaket(peer: BlockPeer, an: boolean, jetzt: number): void {
   }
   if (peer.blockSeit > 0) return; // already held: no restart, no new window
   if (peer.totBis > 0 || peer.flying || !darfBlocken(peer)) return meldeBlockAus(peer);
-  if (peer.stamina <= 0) {
+  if (peer.stamina < BLOCK_BEGINN_AUSDAUER) {
     meldung(peer, SERVER_MELDUNG_ZU_ERSCHOEPFT);
     return meldeBlockAus(peer);
   }
+  peer.stamina -= BLOCK_BEGINN_AUSDAUER; // every begin costs, the parry window included
+  peer.staminaZuletztVerbraucht = jetzt;
   peer.blockSeit = jetzt;
   peer.blockTaktZeit = jetzt;
   peer.blockOhneParade = jetzt < peer.blockSperreBis;

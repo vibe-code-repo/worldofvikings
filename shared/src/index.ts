@@ -11,6 +11,7 @@
  * typseitig (also zur Laufzeit spurlos) weiter erreichbar.
  */
 export * from './constants.js';
+export * from './protokollVersion.js';
 export * from './kreaturAnim.js';
 export * from './todTreffer.js';
 export * from './beute.js';

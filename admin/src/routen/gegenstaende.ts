@@ -52,6 +52,7 @@ import { LayoutGesperrt, layoutHash, layoutUnterSperre } from '@wov/shared/src/w
 import {
   GegenstandsSchreibFehler,
   MAX_DATEI_BYTES,
+  istGrundItem,
   leseGegenstandsDatei,
   schreibeGegenstandsDatei,
   type GegenstandsLesung,
@@ -337,6 +338,8 @@ async function lesen(res: ServerResponse, wurzel: string): Promise<void> {
       eintraege: lesung.eintraege,
       verworfen: lesung.verworfen,
       dateiFehler: lesung.dateiFehler,
+      // base entries that differ from the base: reading replaced them (shown by the editor from GD4 on)
+      grundErsetzt: lesung.grundErsetzt,
       hash: stand.hash,
       quelle: stand.quelle,
     },
@@ -393,6 +396,19 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     });
     return;
   }
+  if (neu.grundErsetzt.length > 0) {
+    // Reading replaces such an entry by the base entry (nothing is lost there); SAVING refuses it, so the author notices.
+    let roh: unknown[] = [];
+    try { roh = (JSON.parse(text) as { gegenstaende: unknown[] }).gegenstaende; } catch { /* the reader accepted it */ }
+    const indexVon = (id: string): number => roh.findIndex((e) => typeof e === 'object' && e !== null && (e as { id?: unknown }).id === id);
+    json(res, 422, {
+      ok: false,
+      fehler: 'eintraege-verworfen',
+      verworfen: neu.grundErsetzt.map((id) => ({ index: indexVon(id), id, grund: 'grundwert-gesperrt' })),
+      message: `${neu.grundErsetzt.length} Grundgegenstand/Grundgegenstände weichen vom Grundstand ab — nichts geschrieben.`,
+    });
+    return;
+  }
   let kanonisch: string;
   try {
     kanonisch = schreibeGegenstandsDatei(neu.eintraege);
@@ -429,7 +445,8 @@ async function schreiben(req: IncomingMessage, res: ServerResponse, wurzel: stri
     }
     const neueIds = new Set(neu.eintraege.map((e) => e.id));
     const verworfen = verworfeneIds(altText, alt);
-    const entfernt = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id));
+    // A base id that leaves the file falls back to the base entry: it is no removal and needs no confirmation.
+    const entfernt = [...new Set([...alt.eintraege.map((e) => e.id), ...verworfen.ids])].filter((id) => !neueIds.has(id) && !istGrundItem(id));
     const entferntOhneId = verworfen.ohneId;
     if ((entfernt.length > 0 || entferntOhneId.length > 0) && !bestaetigt) return { art: 'bestaetigung', hash: stand.hash, entfernt, entferntOhneId };
     atomarSchreiben(arbeit, kanonisch);

@@ -1,7 +1,7 @@
 /**
  * D5 (fault found on DEV 02.10.2026: loot is a placeholder box and E picks nothing up) — the server half and the
  * registry half of the fix, without assets:
- *  [1] Every item name that can end up on the ground (all of ITEM_DEFS, plus what the loot tables roll) gets a prefab with
+ *  [1] Every item name that can end up on the ground (every item of ITEMS_BY_NAME, plus what the loot tables roll) gets a prefab with
  *      ITEM_DROP from `beutePrefabFuer`: its own prefab, or the neutral `BeuteStueck`.
  *  [2] `beuteDarstellung` of that prefab is a model on the list of own models, or the fallback chest, never "no model".
  *  [3] `BeuteAmBoden` lays the ZDO under exactly that prefab; the marker and the item stay as they were (the pick-up path knows loot by them).
@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  BEUTE_PREFAB, BEUTE_RUECKFALL_MODELL, BEUTE_RUECKFALL_SKALA, EIGENE_MODELLE_SET, ITEM_DEFS, PrefabFlag,
+  BEUTE_PREFAB, BEUTE_RUECKFALL_MODELL, BEUTE_RUECKFALL_SKALA, EIGENE_MODELLE_SET, ITEMS_BY_NAME, PrefabFlag,
   beuteDarstellung, beutePrefabFuer, findPrefabByHash, findPrefabByName, getStableHash,
 } from '@wov/shared';
 import { ZDOManager } from '../src/zdo/ZDOManager.js';
@@ -26,7 +26,8 @@ const pruefe = (bedingung: boolean, text: string, detail = ''): void => {
 };
 
 // Names that can lie on the ground: every item (legeHin takes any item name) plus what the tables roll.
-const namen = new Set<string>(ITEM_DEFS.map((i) => i.name));
+const namen = new Set<string>(ITEMS_BY_NAME.keys()); // 118 names: code items + base items of the data file
+pruefe(namen.size === 118, `checks all 118 item names (89 code items + 29 base items), got ${namen.size}`);
 const gewuerfelt = new Set<string>();
 for (const k of ['Eikthyr', 'Greyling', 'Greydwarf', 'Boar', 'Deer', 'Kuh', 'Wolf', 'Huhn', 'Neck', 'Skeleton', 'Draugr']) {
   for (let i = 0; i < 400; i++) { const d = wuerfleDrop(k); if (d) gewuerfelt.add(d.name); }

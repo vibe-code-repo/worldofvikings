@@ -12,7 +12,7 @@
  */
 
 import type { WebSocket } from 'ws';
-import { PacketType, ConnectionStatus, MAX_PLAYERS, DISCONNECT_NEUSTART, NEUSTART_TEXT_SCHLUESSEL } from '@wov/shared';
+import { PROTOCOL_VERSION, PROTOCOL_VERSION_BASIS, serverVersionFuerMeldung, veraltetMeldung, PacketType, ConnectionStatus, MAX_PLAYERS, DISCONNECT_NEUSTART, NEUSTART_TEXT_SCHLUESSEL } from '@wov/shared';
 import { Peer } from './Peer.js';
 import { WebSocketAcceptor, type HttpBehandler } from './WebSocketAcceptor.js';
 import { Reader } from '../io/Reader.js';
@@ -43,6 +43,8 @@ export interface NetManagerConfig {
    * WovServer.ts (Konstruktor, dort wo `sessionSecret` entsteht).
    */
   sessionSecret: Buffer;
+  /** Lowest client version this world accepts (default: the base version); read at every handshake. */
+  mindestVersion?: () => number;
   /**
    * S6 (Security-Review): zusaetzliche Admin-Berechtigung ueber die
    * stabile Spieler-ID. Seit dem 13.09.2026 steht `everyoneAdmin` per
@@ -124,7 +126,7 @@ const MAX_PENDING_CONNECTIONS = 50;
  * kein Sonderfall: der bestehende Mechanismus traegt die neue Bedeutung
  * "Client zu alt fuer den neuen Handshake" von selbst mit.
  */
-const PROTOCOL_VERSION = 2;
+// PROTOCOL_VERSION / PROTOCOL_VERSION_BASIS: shared/src/protokollVersion.ts (der Client sendet dieselbe Konstante).
 
 export class NetManager {
   private acceptor: WebSocketAcceptor;
@@ -429,13 +431,13 @@ export class NetManager {
 
   private handleVersionCheck(peer: Peer, reader: Reader): void {
     const clientVersion = reader.readInt32();
-    if (clientVersion !== PROTOCOL_VERSION) {
+    const mindest = this.config.mindestVersion?.() ?? PROTOCOL_VERSION_BASIS;
+    if (clientVersion < mindest || clientVersion > PROTOCOL_VERSION) {
       peer.status = ConnectionStatus.ErrorVersion;
-      peer.disconnect(
-        `Client-Version veraltet (Client v${clientVersion}, Server v${PROTOCOL_VERSION}) — bitte Seite neu laden`
-      );
+      peer.disconnect(veraltetMeldung(clientVersion, serverVersionFuerMeldung(clientVersion, mindest)));
       return;
     }
+    peer.protokollVersion = clientVersion;
     // F4 (Security-Review): pro Verbindung EIN Nonce, danach wartet der
     // Server auf PasswordAuth als Antwort. Ersetzt den frueheren
     // "PeerInfo als Trigger"-Umweg: die alte Auth brauchte irgendein

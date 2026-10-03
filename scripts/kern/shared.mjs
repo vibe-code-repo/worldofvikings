@@ -39,6 +39,8 @@ export default [
     regression and the per-packet cost measurement.
   */
   ['shared', 'test/bewegung-schritt.ts'],
+  // New biome bit 128 (greyglen): bit, names, region, sanitizer, ground tile, weather as a copy of grassland. <1 s.
+  ['shared', 'test/biom-greyglen.ts'],
   // D3-K1: die reine Blockregel (Paradefenster, Kegel, Halten, Blockbruch) und das Blocktempo im gemeinsamen Schritt. Sekunden.
   ['shared', 'test/block.ts'],
   /*
@@ -226,6 +228,8 @@ export default [
     Ohne Weiche: kein `assets/`, keine GPU, reine Tabellen.
   */
   ['shared', 'test/flora-verdrahtung.ts'],
+  // GD1: Grundbestand der 29 Gegenstaende in der Datei (Felder, Rezepte, Format, immer da, alter Spielstand).
+  ['shared', 'test/gd1-grundbestand.ts'],
   ['shared', 'test/gegenstands-daten.ts'],
   ['shared', 'test/geo-smoke.ts'],
   /*
@@ -383,6 +387,8 @@ export default [
   ['shared', 'test/platzierungen-fehler.ts'],
   // Stable placement ids: the sanitizer derives / keeps / sorts ids, folds exact duplicates.
   ['shared', 'test/platzierungs-ids.ts'],
+  // Handshake version: a world with a biome older clients do not know demands a newer client (pure function). <1 s.
+  ['shared', 'test/protokoll-version.ts'],
   ['shared', 'test/region-geo.ts'],
   // Armor names via translation keys: every set and piece has a textKey that follows the schema and
   // exists in de.json and en.json; no orphan inhalt.item.* / inhalt.set.* key, no German text in en. <1 s.
@@ -395,7 +401,7 @@ export default [
   //
   //  1. `shared/test/store-registry.ts` rechnet nur mit der erzeugten
   //     Tabelle (eingecheckt) — keine Dateien, keine Weiche, laeuft im
-  //     CI-Checkout. Er haelt fest, dass die 569 Store-Prefabs wirklich
+  //     CI-Checkout. Er haelt fest, dass die 572 Store-Prefabs wirklich
   //     in PREFAB_DEFS/EIGENE_MODELLE stehen und dass kein Hash
   //     zusammenstoesst. Sekundenbruchteile.
   //

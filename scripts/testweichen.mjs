@@ -60,9 +60,10 @@ export function brauchtModelle(...dateien) {
 /*
   Weiche fuer Tests, die den ASSET-SPEICHER brauchen (`assets/store`).
 
-  Er liegt wie `assets/models` ausserhalb des Repos — ein Symlink auf
-  `~/wov-assets/store`, 672 Dateien, die nie in Git landen. Im
-  CI-Checkout gibt es ihn nicht.
+  Er liegt wie `assets/models` ausserhalb von Git (672 Dateien, die nie
+  eingecheckt werden): auf Entwicklungsmaschinen oft ein Symlink auf
+  `~/wov-assets/store`, auf DEV ein gewoehnliches, beschreibbares
+  Verzeichnis. Im CI-Checkout gibt es ihn nicht.
 
   ── Warum eine EIGENE Weiche und nicht `brauchtModelle` ──────────────
   Die Unterscheidung ist die ganze Absicht: Fehlt der Ordner GANZ, ist
@@ -76,7 +77,7 @@ export function brauchtModelle(...dateien) {
   "Modell-Dateien fehlen" — und wer das liest, sucht unter
   `assets/models` und findet dort alles an seinem Platz.
 
-  Skips when the asset store (a symlink outside the repo) is absent;
+  Skips when the asset store (outside Git, symlink or plain directory) is absent;
   missing files INSIDE it are a finding, not a reason to skip.
 */
 export function brauchtStore() {

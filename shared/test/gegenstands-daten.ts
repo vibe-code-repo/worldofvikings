@@ -6,7 +6,8 @@
  * text layer, recipe cycles), the registration (atomic swap, replacing removes old items), the
  * "code items unchanged" hash of ITEM_DEFS and the working-copy path helper.
  *
- * The Holzaxt is only test data here; shared/data/gegenstaende.json stays empty.
+ * The Holzaxt is only test data here. shared/data/gegenstaende.json holds the 29 base items since GD1; they are
+ * not code items any more, so the collision tests use clothing (LederBH, set parts) as the code items.
  *
  * Run: npx tsx shared/test/gegenstands-daten.ts   (from the repo root)
  */
@@ -29,6 +30,8 @@ import {
   MAX_EINTRAEGE,
   datenRezepte,
   gegenstaendeMitUpload,
+  istGrundItem,
+  GRUNDBESTAND,
   GegenstandsSchreibFehler,
   gegenstandZuItem,
   VERWERF_GRUENDE,
@@ -55,6 +58,9 @@ type Roh = Record<string, unknown>;
 
 const axt = findItem('AxeFlint');
 if (!axt || !axt.holdPosition || !axt.holdRotation) throw new Error('AxeFlint fehlt oder hat keinen Griff');
+/** A real code item (clothing): the collision tests need a name the data layer must never take. */
+const codeTeil = findItem('LederBH') as ItemShared;
+if (!codeTeil || !istCodeItem('LederBH')) throw new Error('LederBH ist kein Code-Item');
 
 /** The Holzaxt example with the values of the decision of 29.09. (damage 10, tree level 1, 8 Wood, grip like AxeFlint). */
 function holzaxt(ueberschreibe: Roh = {}): Roh {
@@ -100,35 +106,41 @@ function schlicht(id: string, ueberschreibe: Roh = {}): Roh {
   };
 }
 
+/** The raw file entry of a base item (as the writer emits it), with overrides: a base id may only differ in `ernte`. */
+const grundRoh = (id: string, ueberschreibe: Record<string, unknown> = {}): Record<string, unknown> => {
+  const e = GRUNDBESTAND.find((g) => g.id === id);
+  if (!e) throw new Error(`kein Grundgegenstand ${id}`);
+  return { ...(JSON.parse(schreibeGegenstandsDatei([e])).gegenstaende[0] as Record<string, unknown>), ...ueberschreibe };
+};
 const datei = (eintraege: unknown[], kopf: Roh = {}): string => JSON.stringify({ version: 1, gegenstaende: eintraege, ...kopf });
 const lese = (...eintraege: unknown[]) => leseGegenstandsDatei(datei(eintraege));
 const grundVon = (r: ReturnType<typeof leseGegenstandsDatei>, i = 0): string | undefined => r.verworfen[i]?.grund;
 const hash = (): string => createHash('sha256').update(JSON.stringify(ITEM_DEFS)).digest('hex');
 const zustand = (): string =>
   JSON.stringify({
-    namen: [...ITEMS_BY_NAME.keys()].filter((n) => !istCodeItem(n)).sort(),
-    rezepte: datenRezepte(),
+    namen: [...ITEMS_BY_NAME.keys()].filter((n) => !istCodeItem(n) && !istGrundItem(n)).sort(),
+    rezepte: datenRezepte().filter((r) => !istGrundItem(r.ergebnis)),
     name: inhaltText('inhalt.gegenstand.Holzaxt.name', 'en'),
   });
 
 // ── 0. Baseline for "code items unchanged" ───────────────────────────
 console.log('Gegenstandsdaten — Ausgangslage');
 const hashVorher = hash();
-const axtVorher = findItem('AxeFlint');
+const codeTeilVorher = findItem('LederBH');
 const mapVorher = ITEMS_BY_NAME;
 const rezepteVorher = JSON.stringify(REZEPTE);
 console.log(`  ITEM_DEFS-Hash (sha256 von JSON.stringify): ${hashVorher}`);
-pruefe(datenRezepte().length === 0, 'Datenrezepte sind zu Beginn leer');
+pruefe(datenRezepte().length === 6, 'zu Beginn: genau die sechs Rezepte des Grundbestands');
 
-// ── 1. The shipped file is empty and valid ───────────────────────────
+// ── 1. The shipped file holds the 29 base items and is valid ─────────
 console.log('Gegenstandsdaten — mitgelieferte Datei');
 const wurzel = resolve(fileURLToPath(import.meta.url), '../../..');
 const leer = leseGegenstandsDatei(readFileSync(gegenstandsRepoDatei(wurzel), 'utf-8'));
-pruefe(leer.ok && leer.dateiFehler === null && leer.eintraege.length === 0 && leer.verworfen.length === 0, 'shared/data/gegenstaende.json ist gueltig und leer');
+pruefe(leer.ok && leer.dateiFehler === null && leer.eintraege.length === 29 && leer.verworfen.length === 0 && leer.unbekannteFelder === 0, 'shared/data/gegenstaende.json ist gueltig und hat 29 Eintraege, 0 verworfen');
 wendeGegenstandsDatenAn(leer.eintraege);
-pruefe(hash() === hashVorher, 'ITEM_DEFS byte-gleich nach Anwenden der leeren Datei');
-replaceDataItems([]);
-pruefe(hash() === hashVorher, 'ITEM_DEFS byte-gleich nach replaceDataItems([])');
+pruefe(hash() === hashVorher, 'ITEM_DEFS (nur Code) byte-gleich nach Anwenden der Datei');
+wendeGegenstandsDatenAn([]);
+pruefe(hash() === hashVorher && ITEMS_BY_NAME.size === 118, 'ITEM_DEFS byte-gleich nach wendeGegenstandsDatenAn([]), 118 Gegenstaende');
 
 // ── 2. Valid entry (Holzaxt) ─────────────────────────────────────────
 console.log('Gegenstandsdaten — gueltiger Eintrag');
@@ -260,27 +272,34 @@ pruefe(!('station' in (unbekannt.eintraege[0].rezept as object)) && !('zauber' i
 // ── 8. Collision with code items ─────────────────────────────────────
 console.log('Gegenstandsdaten — Kollision mit Code-Items');
 const setTeil = ITEM_DEFS.find((d) => d.ruestungsteil)?.name as string;
-for (const n of ['AxeFlint', 'Wood', 'Club']) {
+for (const n of ['LederBH', 'LederShorts']) {
   pruefe(lese(schlicht(n)).verworfen[0]?.grund === 'id-code-kollision', `Code-Item ${n} gewinnt: Eintrag verworfen`);
 }
 // Clothing and set parts are code items too; their names cannot even pass the id pattern (underscore).
 pruefe(istCodeItem(setTeil) && lese(schlicht('Xx', { id: setTeil })).verworfen[0]?.grund !== undefined && lese(schlicht('Xx', { id: setTeil })).eintraege.length === 0, `Set-Teil ${setTeil} kann nicht als Datenitem angelegt werden`);
-const kollision = lese(schlicht('AxeFlint'), schlicht('Neu1'));
+const kollision = lese(schlicht('LederBH'), schlicht('Neu1'));
+// The base items are NOT code: the same id in a working copy replaces the base entry, only another spelling is refused.
+const ueberschreibt = lese(grundRoh('Wood', { ernte: { baum: 2 } }));
+pruefe(ueberschreibt.eintraege.length === 1 && ueberschreibt.verworfen.length === 0, 'Wood (Grundbestand) darf in der Arbeitskopie stehen (nur ernte weicht ab) und ersetzt den Grundeintrag');
+const gesperrt = lese(grundRoh('Wood', { stapel: 7, ernte: { baum: 2 } }));
+pruefe(gesperrt.eintraege.length === 1 && gesperrt.verworfen.length === 0 && gesperrt.grundErsetzt.join() === 'Wood' && gesperrt.eintraege[0].stapel === 50 && gesperrt.eintraege[0].ernte.baum === 2,
+  'Wood mit anderer Stapelgroesse: beim Lesen ersetzt der Grundeintrag (nur ernte bleibt), nichts verworfen, grundErsetzt nennt Wood');
+pruefe(pruefeEintrag(grundRoh('Wood', { stapel: 7 }), []).join() === 'grundwert-gesperrt', 'pruefeEintrag (Editor, streng) meldet grundwert-gesperrt');
 pruefe(kollision.eintraege.length === 1 && kollision.eintraege[0].id === 'Neu1', 'nur der kollidierende Eintrag faellt weg');
 wendeGegenstandsDatenAn(lese(holzaxt()).eintraege);
-pruefe(findItem('AxeFlint') === axtVorher, 'AxeFlint bleibt dasselbe Objekt (Code-Item unangetastet)');
-replaceDataItems([]);
+pruefe(findItem('LederBH') === codeTeilVorher, 'LederBH bleibt dasselbe Objekt (Code-Item unangetastet)');
+wendeGegenstandsDatenAn([]);
 let geworfen = false;
 try {
-  replaceDataItems([{ ...(axt as ItemShared), datenItem: true }]);
+  replaceDataItems([{ ...codeTeil, datenItem: true }]);
 } catch {
   geworfen = true;
 }
-pruefe(geworfen && findItem('AxeFlint') === axtVorher, 'replaceDataItems lehnt ein Datenitem mit Code-Namen ab');
+pruefe(geworfen && findItem('LederBH') === codeTeilVorher, 'replaceDataItems lehnt ein Datenitem mit Code-Namen ab');
 
 // ── 8b. Case-insensitive collisions (N1) ─────────────────────────────
 console.log('Gegenstandsdaten — Kollision ohne Beachtung der Schreibung');
-for (const n of ['MESSER', 'HOE', 'PICKAXEANTLER', 'axeflint'.replace(/^a/, 'A').toUpperCase(), 'WOOD']) {
+for (const n of ['MESSER', 'HOE', 'PICKAXEANTLER', 'axeflint'.replace(/^a/, 'A').toUpperCase(), 'WOOD', 'LEDERBH']) {
   const r = lese(schlicht(n));
   pruefe(r.eintraege.length === 0 && grundVon(r) === 'id-schreibung-code', `${n} neben einem Code-Item -> id-schreibung-code (war: ${grundVon(r)})`);
 }
@@ -288,11 +307,11 @@ const da = lese(schlicht('Da'), schlicht('DA'), schlicht('dA'.replace(/^d/, 'D')
 pruefe(da.eintraege.map((e) => e.id).join() === 'Da' && da.verworfen.length === 2 && da.verworfen.every((v) => v.grund === 'id-schreibung-doppelt'), 'Da / DA: der erste bleibt, die anderen id-schreibung-doppelt');
 let schreibWurf = false;
 try {
-  replaceDataItems([{ ...(axt as ItemShared), name: 'AXEFLINT', datenItem: true }]);
+  replaceDataItems([{ ...codeTeil, name: 'LEDERBH', datenItem: true }]);
 } catch {
   schreibWurf = true;
 }
-pruefe(schreibWurf, 'replaceDataItems lehnt auch AXEFLINT ab (letzte Verteidigungslinie)');
+pruefe(schreibWurf, 'replaceDataItems lehnt auch LEDERBH ab (letzte Verteidigungslinie)');
 let schreibWurf2 = false;
 try {
   replaceDataItems([{ ...(axt as ItemShared), name: 'Zz', datenItem: true }, { ...(axt as ItemShared), name: 'ZZ', datenItem: true }]);
@@ -415,11 +434,11 @@ const kette = lese(rz('Aa', 'Bb'), rz('Bb', 'Wood'));
 pruefe(kette.eintraege.length === 2, 'Datenitem als Zutat eines Datenitems ist erlaubt');
 wendeGegenstandsDatenAn(kette.eintraege);
 const dr = datenRezepte();
-pruefe(dr.length === 2 && dr[0].ergebnis === 'Aa' && dr[0].zutaten[0].item === 'Bb', 'datenRezepte() liefert die Rezepte der Datenitems');
-pruefe(REZEPTE.every((r) => r.zutaten.every((z) => istCodeItem(z.item)) && istCodeItem(r.ergebnis)), 'Code-Rezepte nutzen nur Code-Items');
-pruefe(JSON.stringify(REZEPTE) === rezepteVorher, 'REZEPTE byte-gleich');
+const drDaten = dr.filter((r) => !istGrundItem(r.ergebnis));
+pruefe(dr.length === 8 && drDaten.length === 2 && drDaten[0].ergebnis === 'Aa' && drDaten[0].zutaten[0].item === 'Bb' && istGrundItem(dr[0].ergebnis), 'datenRezepte() liefert die sechs Grundrezepte zuerst, dann die der Datenitems');
+pruefe(REZEPTE.length === 0 && JSON.stringify(REZEPTE) === rezepteVorher, 'REZEPTE ist leer (die Rezepte stehen in der Datei) und aendert sich nicht');
 wendeGegenstandsDatenAn([]);
-pruefe(datenRezepte().length === 0, 'Rezepte werden mit dem Datenstand ersetzt');
+pruefe(datenRezepte().length === 6 && datenRezepte().every((r) => istGrundItem(r.ergebnis)), 'Rezepte werden mit dem Datenstand ersetzt, uebrig bleiben die sechs des Grundbestands');
 
 // ── 10b. Canonical writer (N3) ───────────────────────────────────────
 console.log('Gegenstandsdaten — schreibeGegenstandsDatei');
@@ -463,7 +482,7 @@ const pruefFaelle: Array<[string, unknown, GegenstandsEintrag[], string]> = [
   ['id doppelt im Kontext', schlicht('Zwei'), kontext, 'id-doppelt'],
   ['Schreibung doppelt im Kontext', schlicht('ZWEI'), kontext, 'id-schreibung-doppelt'],
   ['Schreibung Code', schlicht('MESSER'), [], 'id-schreibung-code'],
-  ['Code-Kollision', schlicht('Club'), [], 'id-code-kollision'],
+  ['Code-Kollision', schlicht('LederBH'), [], 'id-code-kollision'],
   ['Zyklus mit einem Eintrag des Kontexts', rz('Aa', 'Bb'), kontextZyklus, 'rezept-zyklus'],
 ];
 const gesehen = new Set<string>();
@@ -494,6 +513,7 @@ try {
 }
 pruefe(!wurf && ausGetter.join() === 'eintrag-ungueltig' && ausProxy.join() === 'eintrag-ungueltig', 'werfender Getter und werfender Proxy: eintrag-ungueltig statt Ausnahme');
 gesehen.add('eintrag-ungueltig');
+gesehen.add('grundwert-gesperrt'); // reached through pruefeEintrag (strict); the reader replaces instead
 // More than 500 entries.
 const fuenfhundert = viele(MAX_EINTRAEGE).map((r) => lese(r).eintraege[0]);
 pruefe(pruefeEintrag(schlicht('Extra'), fuenfhundert).join() === 'zu-viele-eintraege', 'der 501. Eintrag: zu-viele-eintraege');
@@ -657,7 +677,7 @@ const zwei = lese(holzaxt(), schlicht('Bruch', { werte: { damage: 1 } })).eintra
 wendeGegenstandsDatenAn(zwei);
 pruefe(findItem('Holzaxt')?.datenItem === true && ITEMS_BY_NAME.get('Bruch')?.name === 'Bruch', 'findItem und ITEMS_BY_NAME kennen die Datenitems');
 pruefe(ITEMS_BY_NAME !== mapVorher && ITEM_DEFS.every((d) => !d.datenItem), 'ITEMS_BY_NAME ist eine neue Map, ITEM_DEFS bleibt nur Code');
-pruefe(datenRezepte().length === 1 && inhaltText('inhalt.gegenstand.Holzaxt.name', 'en') === 'Wooden axe', 'Rezept und Text sind da');
+pruefe(datenRezepte().length === 7 && inhaltText('inhalt.gegenstand.Holzaxt.name', 'en') === 'Wooden axe', 'Rezept (6 Grund + 1) und Text sind da');
 const holz = findItem('Holzaxt');
 pruefe(holz?.textKey !== undefined && inhaltText(holz.textKey, 'de') === 'Holzaxt' && inhaltText(holz.textKey, 'en') === 'Wooden axe', 'inhaltText(textKey) liefert den Datentext (de und en)');
 const stand = zustand();
@@ -672,7 +692,7 @@ try {
 pruefe(bruch, 'Fehler mitten im Aufbau wirft');
 pruefe(zustand() === stand && findItem('Neuling') === undefined && findItem('Holzaxt') !== undefined && findItem('Bruch') !== undefined, 'alter Stand bleibt stehen, nichts halb uebernommen');
 // Same through the high-level function: an entry that bypasses the sanitiser and collides.
-const boese = { ...lese(schlicht('Zweiter')).eintraege[0], id: 'Club' } as GegenstandsEintrag;
+const boese = { ...lese(schlicht('Zweiter')).eintraege[0], id: 'LederBH' } as GegenstandsEintrag;
 let bruch2 = false;
 try {
   wendeGegenstandsDatenAn([lese(schlicht('Erster')).eintraege[0], boese]);
@@ -690,9 +710,9 @@ pruefe(bruch3 && zustand() === stand, 'doppelter Name in der Liste wirft, alter 
 // Replacing removes old data items.
 wendeGegenstandsDatenAn(lese(schlicht('Nur1')).eintraege);
 pruefe(findItem('Holzaxt') === undefined && findItem('Bruch') === undefined && findItem('Nur1') !== undefined, 'erneuter Aufruf ersetzt den ganzen Datenstand, entfernte Eintraege sind weg');
-pruefe(inhaltText('inhalt.gegenstand.Holzaxt.name', 'en') === 'inhalt.gegenstand.Holzaxt.name' && datenRezepte().length === 0, 'auch Text und Rezept der entfernten Eintraege sind weg');
+pruefe(inhaltText('inhalt.gegenstand.Holzaxt.name', 'en') === 'inhalt.gegenstand.Holzaxt.name' && datenRezepte().length === 6, 'auch Text und Rezept der entfernten Eintraege sind weg');
 wendeGegenstandsDatenAn([]);
-pruefe(findItem('Nur1') === undefined && [...ITEMS_BY_NAME.keys()].every((n) => istCodeItem(n)), 'Leerliste entfernt alle Datenitems');
+pruefe(findItem('Nur1') === undefined && ITEMS_BY_NAME.size === 118 && [...ITEMS_BY_NAME.keys()].every((n) => istCodeItem(n) || istGrundItem(n)), 'Leerliste entfernt alle Datenitems, der Grundbestand bleibt (118 Gegenstaende)');
 
 // ── 12. Upload use (Ä4) ─────────────────────────────────────────────
 console.log('Gegenstandsdaten — gegenstaendeMitUpload');
@@ -719,9 +739,10 @@ pruefe(gegenstandsRepoDatei('/srv/wov') === '/srv/wov/shared/data/gegenstaende.j
 console.log('Gegenstandsdaten — Code-Items unveraendert');
 pruefe(hash() === hashVorher, `ITEM_DEFS-Hash nach allen Laeufen gleich (${hash()})`);
 // G2: exactly two code items carry the harvest level now (the server decides by this field, not by the name).
-const ernteCode = ITEM_DEFS.filter((d) => d.ernte !== undefined).map((d) => `${d.name}:${JSON.stringify(d.ernte)}`).sort().join();
-pruefe(ernteCode === 'AxeFlint:{"baum":1},PickaxeAntler:{"fels":1}', `nur AxeFlint (baum 1) und PickaxeAntler (fels 1) tragen ernte (${ernteCode})`);
-pruefe(findItem('AxeFlint') === axtVorher && ITEM_DEFS.every((d) => d.datenItem === undefined && d.modellSkala === undefined && !('nameSchluessel' in d)), 'Code-Items tragen keines der neuen Felder (ausser ernte an den zwei Werkzeugen)');
+const ernteCode = [...ITEMS_BY_NAME.values()].filter((d) => d.ernte !== undefined && Object.keys(d.ernte).length > 0).map((d) => `${d.name}:${JSON.stringify(d.ernte)}`).sort().join();
+pruefe(ernteCode === 'AxeFlint:{"baum":1},PickaxeAntler:{"fels":1}', `nur AxeFlint (baum 1) und PickaxeAntler (fels 1) tragen eine Ernte (${ernteCode})`);
+pruefe(ITEM_DEFS.every((d) => d.ernte === undefined), 'kein Code-Item (Kleidung) traegt ernte');
+pruefe(findItem('LederBH') === codeTeilVorher && ITEM_DEFS.every((d) => d.datenItem === undefined && d.modellSkala === undefined && !('nameSchluessel' in d)), 'Code-Items (Kleidung) tragen keines der Datenfelder');
 
 if (fehler > 0) {
   console.error(`\n${fehler} von ${geprueft} Pruefungen FEHLGESCHLAGEN`);

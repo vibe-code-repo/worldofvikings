@@ -13,6 +13,7 @@
  */
 import {
   BLOCK_ABSORPTION,
+  BLOCK_BEGINN_AUSDAUER,
   BLOCK_HALTEN_PRO_SEK,
   BLOCK_KEGEL_GRAD,
   BLOCK_SPERRE_MS,
@@ -37,6 +38,8 @@ const nah = (a: number, b: number, eps = 1e-9): boolean => Math.abs(a - b) <= ep
 console.log('\n[0] The numbers');
 check('absorption 0.7, hold 2/s, blow 4, window 200 ms, cone 70 degrees, lock 500 ms',
   BLOCK_ABSORPTION === 0.7 && BLOCK_HALTEN_PRO_SEK === 2 && BLOCK_TREFFER_AUSDAUER === 4 && PARADE_FENSTER_MS === 200 && BLOCK_KEGEL_GRAD === 70 && BLOCK_SPERRE_MS === 500);
+
+check('N5: every block begin costs 5 stamina', BLOCK_BEGINN_AUSDAUER === 5);
 
 console.log('\n[1] Parry window');
 {

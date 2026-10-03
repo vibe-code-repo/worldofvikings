@@ -6,6 +6,7 @@
  * The server (`server/src/spiel/Block.ts`) keeps the per-player state and the packets; this file only
  * decides what a held block does to a blow:
  *
+ *  - Every begin costs `BLOCK_BEGINN_AUSDAUER` stamina (refused below that).
  *  - Holding costs `BLOCK_HALTEN_PRO_SEK` stamina per second; at 0 the block ends.
  *  - A blow from inside the front cone (`BLOCK_KEGEL_GRAD` either side of the view) loses
  *    `BLOCK_ABSORPTION` of its damage and costs `BLOCK_TREFFER_AUSDAUER` stamina.
@@ -28,6 +29,11 @@ export const BLOCK_TREFFER_AUSDAUER = 4;
 export const PARADE_FENSTER_MS = 200;
 /** Half opening angle of the front cone around the view direction (degrees, inclusive). */
 export const BLOCK_KEGEL_GRAD = 70;
+/**
+ * Stamina every block BEGIN costs. Without it, tapping the button over and over won a fresh parry window
+ * again and again for next to nothing. A begin with less than this is refused.
+ */
+export const BLOCK_BEGINN_AUSDAUER = 5;
 /** Gap after a block ended before a new block gets a parry window (ms). */
 export const BLOCK_SPERRE_MS = 500;
 

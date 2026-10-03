@@ -6,7 +6,7 @@
  * the server go through `k`, so a stand-in set on the instance stays in effect.
  */
 
-import { IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, findItem, ITEM_DEFS } from '@wov/shared';
+import { IRONWARD_PARTS, WILDWARDEN_PARTS, Inventory, findItem, ITEMS_BY_NAME } from '@wov/shared';
 import { namenSchluessel } from '../../net/Namen.js';
 import type { SpielKontext } from '../Kontext.js';
 
@@ -65,7 +65,7 @@ function registerSpawnCommand(k: SpawnKontext): void {
     const name = args[0];
     if (!name) return { ok: false, active: false, message: 'Aufruf: item give <Name> [Anzahl]' };
     const def = findItem(name)
-      ?? ITEM_DEFS.find((i) => i.name.toLowerCase() === name.toLowerCase());
+      ?? [...ITEMS_BY_NAME.values()].find((i) => i.name.toLowerCase() === name.toLowerCase());
     if (!def) return { ok: false, active: false, message: `Unbekannter Gegenstand: ${name}` };
     const menge = Math.max(1, Math.floor(Number(args[1]) || 1));
     const rest = peer.inventar.addItem(def, menge);

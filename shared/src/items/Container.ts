@@ -37,6 +37,7 @@
 
 import { Inventory, repariereStapel, unbekannteWerdenVerwahrt } from './Inventory.js';
 import { findItem } from './itemDefs.js';
+import './grundbestand.js'; // makes the base stock known wherever an inventory is used
 import type { SavedItemStack } from './ItemData.js';
 
 /** Truhengröße — ein Wert für alle Containertypen (wood chest, Beute-

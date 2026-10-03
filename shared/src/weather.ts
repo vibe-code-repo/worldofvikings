@@ -102,6 +102,7 @@ const BIOME_ORDER: readonly Biome[] = [
   Biome.Mistlands,
   Biome.AshLands,
   Biome.DeepNorth,
+  Biome.Greyglen,
   Biome.Ocean,
 ];
 

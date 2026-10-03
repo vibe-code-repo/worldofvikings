@@ -1,5 +1,5 @@
 /**
- * Prüft: dass die 569 Prefabs des Asset-Speichers wirklich in der
+ * Prüft: dass die 572 Prefabs des Asset-Speichers wirklich in der
  * Registry stehen — und zwar so, dass Server und Client auf jede Frage
  * dieselbe Antwort geben.
  *

@@ -130,6 +130,7 @@
   "editor.gegenstand.grund.eintrag_kein_objekt": "Der Eintrag ist kein gültiges Objekt.",
   "editor.gegenstand.grund.eintrag_ungueltig": "Der Eintrag ist ungültig.",
   "editor.gegenstand.grund.feld_ungueltig": "Ein Feld ist ungültig (Ernte, Haltbarkeit oder Seltenheit).",
+  "editor.gegenstand.grund.grundwert_gesperrt": "Dieser Grundgegenstand wird erst mit dem Client-Update änderbar (bis dahin nur das Feld Ernte).",
   "editor.gegenstand.grund.id_code_kollision": "Diese Kennung gehört schon einem fest eingebauten Gegenstand.",
   "editor.gegenstand.grund.id_doppelt": "Diese Kennung gibt es schon.",
   "editor.gegenstand.grund.id_schreibung_code": "Diese Kennung unterscheidet sich von einem eingebauten Gegenstand nur durch die Groß- und Kleinschreibung.",

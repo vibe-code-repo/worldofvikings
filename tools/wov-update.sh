@@ -1434,8 +1434,8 @@ npm ci --include=dev
 
 # ── 5b. Store aufbereiten (Ein Ursprung im Container, 12.09.2026) ────
 # `assets/store-lab/` und `assets/generiert/terrain/` sind gitignored —
-# sie entstehen erst hier, aus `assets/store` (Mikes Speicher, read-only
-# eingehängt) bzw. der externen Boden-Quelle. `store:aufbereiten`
+# sie entstehen erst hier, aus `assets/store` (Mikes Speicher; auf DEV ein
+# gewöhnliches, beschreibbares Verzeichnis, kein eigener Mount) bzw. der externen Boden-Quelle. `store:aufbereiten`
 # schreibt zusätzlich `shared/src/storePrefabs.ts` & Nachbarn neu — DAVOR
 # lief der Typecheck (Schritt 6) hier oben ohne diesen Schritt einfach
 # gegen die im Repo committete Fassung, was auf einem frischen Checkout
